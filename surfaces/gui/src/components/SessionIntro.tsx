@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import mimiMark from "../assets/mimi/mimi-line.png";
 import { getConnectors, getSessionConnections } from "../api";
 import type { Attachment } from "../types";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
@@ -65,7 +66,7 @@ export function SessionIntro({
   return (
     <div className="intro">
       <h1 className="greeting">
-        <span className="mark">✦</span> What should we produce?
+        <img src={mimiMark} alt="" className="intro-mimi" draggable={false} /> What should we produce?
       </h1>
       <p className="intro-lede">
         Pick a task to start — I'll do the work and save the result. Or just type what you need

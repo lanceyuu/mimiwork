@@ -17,6 +17,7 @@ import together from "./logos/together.svg";
 import zai from "./logos/zai.svg";
 import kimi from "./logos/kimi.svg";
 import deepseek from "./logos/deepseek.svg";
+import qualitati from "../assets/mimi/mimi-app.png";
 import mistral from "./logos/mistral.svg";
 import qwen from "./logos/qwen.svg";
 import minimax from "./logos/minimax.svg";
@@ -37,6 +38,7 @@ export const PROVIDER_LOGOS: Record<string, string> = {
   zai,
   kimi,
   deepseek,
+  qualitati,
   mistral,
   qwen,
   minimax,
@@ -47,6 +49,7 @@ export const PROVIDER_ORDER = [
   "anthropic",
   "openai",
   "gemini",
+  "qualitati",
   "meta",
   "ollama",
   "bedrock",

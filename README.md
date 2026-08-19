@@ -43,6 +43,8 @@ No lock-in, no markup — paste your own API key and switch providers anytime:
 
 **OpenAI · Anthropic · Google Gemini · DeepSeek · Qwen · Kimi (Moonshot) · GLM (Z.ai) · MiniMax · Mistral · Grok (xAI) · Inkling** — open-weight models via **Together** and **Fireworks**, AWS **Bedrock**, and fully local via **Ollama**.
 
+Or skip keys entirely: **sign in with your QualiTaTi account** (Settings → Models) and the "Mimi" model spends your existing QualiTaTi credits through a metered gateway — nothing to configure.
+
 ## Install
 
 ### macOS (Apple Silicon)

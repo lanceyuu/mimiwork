@@ -474,6 +474,17 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         endpoint_help="Prefilled with Z AI's international endpoint. China mainland: https://open.bigmodel.cn/api/paas/v4",
     ),
     _compat(
+        "qualitati",
+        "QualiTaTi",
+        base_url="https://starfish-app-73rfk.ondigitalocean.app/api/llm/v1",
+        recommended_model="mimi",
+        env_key="QUALITATI_API_KEY",
+        endpoint_help=(
+            "QualiTaTi's credit-metered gateway. Sign in from Settings and this is "
+            "configured for you; model calls spend your QualiTaTi credits."
+        ),
+    ),
+    _compat(
         "deepseek",
         "DeepSeek",
         base_url="https://api.deepseek.com",

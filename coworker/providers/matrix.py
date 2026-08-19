@@ -96,6 +96,13 @@ MATRIX: dict[str, ModelEntry] = {
         ),
     ),
     "zai:glm-5.2": ModelEntry("GLM-5.2 · Z AI", _AGENTIC, 128_000),
+    # QualiTaTi gateway: the server routes "mimi" to an admin-chosen frontier model and
+    # bills the signed-in account's credits — capabilities follow the slot's default
+    # (OpenAI-compatible, tool-calling verified against the gateway tests 2026-08-19).
+    "qualitati:mimi": ModelEntry(
+        label="Mimi · QualiTaTi credits",
+        caps=_AGENTIC,
+    ),
     "deepseek:deepseek-v4-flash": ModelEntry(
         "DeepSeek V4 Flash · DeepSeek", _AGENTIC, 128_000
     ),

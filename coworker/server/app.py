@@ -1384,6 +1384,32 @@ def create_app(manager: SessionManager) -> FastAPI:
             return {"ok": False, "error": "provider required"}
         return manager.set_web_search(provider, (body or {}).get("api_key"))
 
+    # -- QualiTaTi account ------------------------------------------------------
+    # Sign in once; a personal API key is minted and the `qualitati` model provider
+    # is configured to spend the account's credits. All calls run off the event
+    # loop — they do blocking network I/O against the QualiTaTi API.
+    @app.get("/v1/qualitati/status")
+    async def qualitati_status() -> dict[str, Any]:
+        return await asyncio.to_thread(manager.qualitati_status)
+
+    @app.post("/v1/qualitati/login")
+    async def qualitati_login(body: dict) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            manager.qualitati_login,
+            (body or {}).get("username", ""),
+            (body or {}).get("password", ""),
+        )
+
+    @app.post("/v1/qualitati/verify-mfa")
+    async def qualitati_verify_mfa(body: dict) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            manager.qualitati_verify_mfa, (body or {}).get("code", "")
+        )
+
+    @app.post("/v1/qualitati/logout")
+    async def qualitati_logout() -> dict[str, Any]:
+        return await asyncio.to_thread(manager.qualitati_logout)
+
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     @app.get("/v1/providers")
     def providers_get() -> list[dict[str, Any]]:

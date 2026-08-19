@@ -2118,3 +2118,43 @@ export class Session {
     this.ws.close();
   }
 }
+
+// ── QualiTaTi account (credit-metered gateway) ─────────────────────────────
+
+export type QualitatiStatus = {
+  ok: boolean;
+  signed_in: boolean;
+  mfa_required?: boolean;
+  provider_configured?: boolean;
+  username?: string;
+  error?: string;
+  profile?: { username?: string; email?: string; credits?: number; plan?: string };
+};
+
+export async function qualitatiStatus(): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/status`);
+  return res.json();
+}
+
+export async function qualitatiLogin(username: string, password: string): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  return res.json();
+}
+
+export async function qualitatiVerifyMfa(code: string): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/verify-mfa`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  return res.json();
+}
+
+export async function qualitatiLogout(): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/logout`, { method: "POST" });
+  return res.json();
+}

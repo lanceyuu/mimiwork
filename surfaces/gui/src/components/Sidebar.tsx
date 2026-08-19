@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import mimiMark from "../assets/mimi/mimi-line.png";
 import {
   announceCloudChanged,
   AUTOMATIONS_CHANGED,
@@ -1002,6 +1003,7 @@ export function Sidebar(props: Props) {
             <Icon name="sidebar" size={16} />
           </button>
         )}
+        <img src={mimiMark} alt="" className="w-[22px] h-[22px] shrink-0 select-none" draggable={false} />
         <div className="brand-wordmark text-[15px]">MimiWork<span className="beta-tag">BETA</span></div>
       </div>
 

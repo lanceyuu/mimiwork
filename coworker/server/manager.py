@@ -1472,6 +1472,24 @@ class SessionManager:
         self.secrets.put("web_search:default", profile)
         return {"ok": True, "provider": provider}
 
+    # -- QualiTaTi account (credit-metered gateway) -----------------------------
+    def _qualitati(self):
+        from ..qualitati import QualitatiClient
+
+        return QualitatiClient(self.secrets)
+
+    def qualitati_login(self, username: str, password: str) -> dict[str, Any]:
+        return self._qualitati().login(username, password)
+
+    def qualitati_verify_mfa(self, code: str) -> dict[str, Any]:
+        return self._qualitati().verify_mfa(code)
+
+    def qualitati_status(self) -> dict[str, Any]:
+        return self._qualitati().status()
+
+    def qualitati_logout(self) -> dict[str, Any]:
+        return self._qualitati().logout()
+
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     def get_providers(self) -> list[dict[str, Any]]:
         """Descriptor + per-provider status for the Settings UI. Never returns secret values;
