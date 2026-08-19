@@ -477,7 +477,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         "qualitati",
         "QualiTaTi",
         base_url="https://starfish-app-73rfk.ondigitalocean.app/api/llm/v1",
-        recommended_model="mimi",
+        recommended_model="mimi-hound",
         env_key="QUALITATI_API_KEY",
         endpoint_help=(
             "QualiTaTi's credit-metered gateway. Sign in from Settings and this is "

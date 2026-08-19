@@ -96,18 +96,30 @@ MATRIX: dict[str, ModelEntry] = {
         ),
     ),
     "zai:glm-5.2": ModelEntry("GLM-5.2 · Z AI", _AGENTIC, 128_000),
-    # QualiTaTi gateway: the server routes "mimi" to an admin-chosen frontier model and
-    # bills the signed-in account's credits — capabilities follow the slot's default
-    # (OpenAI-compatible, tool-calling verified against the gateway tests 2026-08-19).
-    "qualitati:mimi": ModelEntry(
-        label="Mimi · QualiTaTi credits",
-        caps=_AGENTIC,
+    # QualiTaTi gateway. Names are deliberately vendor-blind Mimi dog tiers the
+    # user picks by PRICE — which vendor model answers is the server's admin
+    # decision, never a promise in the label. On both paid tiers the server
+    # diverts image-bearing requests to a multimodal model (that's what makes
+    # vision=True safe here: the gateway guarantees images land on a model that
+    # can read them, at the cheapest leg's rate). Hound ≈ 26 credits per 1M
+    # blended tokens. (vision yes, pdf no — the gateway is OpenAI-compat, no
+    # inline file part.)
+    "qualitati:mimi-hound": ModelEntry(
+        label="Mimi Hound · cheap · QualiTaTi credits",
+        caps=ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
     ),
-    # Free daily allowance for signed-in QualiTaTi accounts — served by the gateway's
-    # Scaleway-backed slot (deepseek-v4-flash-0731, EU). Zero credits; the gateway
-    # enforces the per-day cap and 429s past it.
-    "qualitati:deepseek-v4-flash": ModelEntry(
-        label="DeepSeek V4 Flash · free with QualiTaTi",
+    "qualitati:mimi-wolf": ModelEntry(
+        label="Mimi Wolf · expensive · QualiTaTi credits",
+        caps=ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+    ),
+    # "Mimi Puppy": free daily allowance for signed-in QualiTaTi accounts. Zero
+    # credits; the gateway enforces the per-day cap and 429s past it.
+    "qualitati:mimi-puppy": ModelEntry(
+        label="Mimi Puppy · free daily with QualiTaTi",
         caps=_AGENTIC,
     ),
     "deepseek:deepseek-v4-flash": ModelEntry(

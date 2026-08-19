@@ -2,7 +2,7 @@
 
 The invariant that matters most: after a successful sign-in the `provider:qualitati`
 profile holds a durable API key + the gateway base URL — that is what makes the
-"Mimi · QualiTaTi credits" model actually work — and after sign-out neither secret
+"Mimi Hound · QualiTaTi credits" model actually work — and after sign-out neither secret
 profile survives.
 """
 
@@ -233,5 +233,5 @@ def test_provider_descriptor_points_at_the_gateway():
 def test_mimi_is_a_curated_model():
     from coworker.providers.matrix import MATRIX
 
-    entry = MATRIX["qualitati:mimi"]
+    entry = MATRIX["qualitati:mimi-hound"]
     assert entry.caps.tools  # agent work needs tool calling

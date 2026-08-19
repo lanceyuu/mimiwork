@@ -2,7 +2,7 @@
  *
  * Sign in with a QualiTaTi account and model calls can spend its credit balance:
  * the sidecar mints a personal API key and configures the `qualitati` provider,
- * so "Mimi · QualiTaTi credits" appears in the model picker with no key-pasting.
+ * so "Mimi Hound · QualiTaTi credits" appears in the model picker with no key-pasting.
  * Signed in, the card shows the live balance; signed out, a two-field form
  * (+ an MFA code step when the account has it enabled).
  *
@@ -73,8 +73,8 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           <div className="text-[13.5px] font-semibold">QualiTaTi account</div>
           <div className="text-[12px] text-muted truncate">
             {state.signed_in
-              ? "“DeepSeek V4 Flash” is free daily; “Mimi” spends your QualiTaTi credits."
-              : "Sign in for free DeepSeek V4 Flash every day — plus your QualiTaTi credits as a model provider. No API key needed."}
+              ? "“Mimi Puppy” is free daily; “Mimi Hound” (cheap) and “Mimi Wolf” (expensive) spend your credits."
+              : "Sign in for a free daily model — plus your QualiTaTi credits as a model provider. No API key needed."}
           </div>
         </div>
         {state.signed_in && (
