@@ -296,3 +296,22 @@ Backend suite after all Phase 2 work: **1372 passed, 2 skipped**.
 ### Still not built
 
 The statistical-testing tool (`run_test` — automatic assumption checks, effect sizes, and confidence intervals, enforcing what the analyst persona's prompt asks for) remains the highest-value next addition. `scipy` is already declared and bundled for it.
+
+---
+
+## Phase 3 — Mimi visual identity + QualiTaTi account (same day)
+
+### Visual identity
+
+Sourced from `QualiTaTi v5/design-assets/qualitati_vi_icons` (Global-site teal `#0D9488`, 1024×1024 RGBA): app icon set regenerated via `tauri icon` from the square-filled Mimi; tray icon re-rendered as a 44×44 black+alpha template from the line-art Mimi (macOS tints templates itself); favicon; Mimi marks in the sidebar brand row, intro greeting, provider tile, and account card. Curated copies live in `surfaces/gui/src/assets/mimi/`.
+
+### QualiTaTi credits — two halves
+
+**QualiTaTi repo, branch `mimiwork-gateway` (NOT deployed):** an OpenAI-compatible, credit-metered gateway at `/api/llm/v1/chat/completions` + `/models`. Model choice is pinned to the new admin-configurable `mimiwork.gateway` slot (no arbitrary-model passthrough); billing = measured tokens × Annotator roster rates × markup, ledgered per completion (`source=mimiwork_gateway`, dedup by completion id); unpriced or non-openai-SDK slot configs refuse with 503; streaming forces `include_usage`, with a chars→tokens estimate if a stream dies early. Auth: JWT, X-API-Key, or API-key-in-Bearer (OpenAI SDKs can only send Bearer). 21 tests. Deploy by merging the branch through the normal pipeline; nothing in production changed.
+
+**MimiWork:** `qualitati` provider (gateway base URL, `QUALITATI_API_KEY` env) + curated `qualitati:mimi` model; `coworker/qualitati.py` account client (login → MFA → mint personal API key via `/api/keys` → auto-configure provider; passwords never stored; sign-out revokes the key); routes `/v1/qualitati/*`; Settings → Models account card with live credit balance. 13 backend + 5 GUI tests.
+
+Found during integration: QualiTaTi's API.md documented `/api/keys` as returning `api_key` — the real field is `key`. Fixed in the branch.
+
+### Suites after Phase 3
+Backend 1385 passed / 2 skipped · GUI 116 passed · QualiTaTi gateway 21 passed.

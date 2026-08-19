@@ -24,7 +24,7 @@ test("skills-settings: create via the menu → name-first banner; edit persists"
   // Add skill ▾ → the three doors, then Write it myself.
   await page.getByRole("button", { name: /Add skill/ }).click();
   await expect(page.getByText("Import a file")).toBeVisible();
-  await expect(page.getByText("Create with OpenWorker")).toBeVisible();
+  await expect(page.getByText("Create with MimiWork")).toBeVisible();
   await page.getByText("Write it myself").click();
 
   await page.getByLabel("Name").fill("greet-warmly");

@@ -35,7 +35,7 @@ export async function scratchBaseIfReady(): Promise<string | null> {
     const res = await backendFetch("/v1/settings");
     const s = await res.json();
     if (res.ok && s.model_ready) {
-      return String(s.scratch_base || "~/OpenWorker").replace(/^~(?=\/|$)/, homedir());
+      return String(s.scratch_base || "~/MimiWork").replace(/^~(?=\/|$)/, homedir());
     }
   } catch {
     /* backend unreachable */

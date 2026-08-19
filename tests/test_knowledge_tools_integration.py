@@ -119,6 +119,7 @@ def test_read_only_tools_do_not_demand_approval(registry):
 
 def test_tools_execute_through_the_registry(registry, tmp_path):
     """The registry calls tools by keyword arguments; a mismatched signature dies here."""
+    pytest.importorskip("docx", reason="office extra not installed")
     result = registry.execute(
         "write_document",
         {"path": "e2e.docx", "blocks": [{"type": "heading", "text": "Hello", "level": 1}]},

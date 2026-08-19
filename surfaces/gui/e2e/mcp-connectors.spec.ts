@@ -16,7 +16,7 @@ test("monday: one-click MCP connect without cloud sign-in; card flips connected"
 }) => {
   await openConnectors(page);
 
-  // Signed OUT (fixtures default) — the MCP one-click needs no OpenWorker account.
+  // Signed OUT (fixtures default) — the MCP one-click needs no MimiWork account.
   await page
     .getByTestId("connector-monday")
     .getByRole("button", { name: "Connect" })
