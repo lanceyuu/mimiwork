@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type CloudStatus, type Connector } from "../../api";
+import { type Connector } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AddConnectionModal } from "./AddConnectionModal";
 import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_QUIET } from "./ui";
@@ -12,11 +12,9 @@ import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_QUIET } from "./ui";
 
 export function AvailableDetail({
   c,
-  cloud,
   onChanged,
 }: {
   c: Connector;
-  cloud: CloudStatus | null;
   onChanged: () => void;
 }) {
   const [connecting, setConnecting] = useState(false);
@@ -89,7 +87,6 @@ export function AvailableDetail({
       {connecting && (
         <AddConnectionModal
           c={c}
-          cloud={cloud}
           onClose={() => setConnecting(false)}
           onChanged={onChanged}
         />

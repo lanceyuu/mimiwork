@@ -56,12 +56,9 @@ if not INCLUDE_EXPERIMENTAL:
         m for m in hiddenimports if not m.startswith("coworker.connectors.experimental")
     ]
 
-# `websockets` powers the managed Slack relay client (relay_client.py). It is
-# lazy-imported inside a function, so PyInstaller's static analysis misses it —
-# collect it explicitly or the packaged relay adapter fails to open its socket.
-# `pypdf`/`pypdfium2` are lazy-imported the same way (pdf_support.py) — and pypdfium2
+# `pypdf`/`pypdfium2` are lazy-imported (pdf_support.py) — and pypdfium2
 # carries the libpdfium binary, which collect_all is what actually stages.
-for pkg in ("uvicorn", "certifi", "anyio", "websockets", "pypdf", "pypdfium2"):
+for pkg in ("uvicorn", "certifi", "anyio", "pypdf", "pypdfium2"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

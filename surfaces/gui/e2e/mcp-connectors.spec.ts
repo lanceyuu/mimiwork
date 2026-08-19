@@ -9,6 +9,9 @@ async function openConnectors(page) {
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  // github is Available (manual PAT world) which can push monday past the fold.
+  const showAll = page.getByRole("button", { name: "show all" });
+  if (await showAll.isVisible().catch(() => false)) await showAll.click();
 }
 
 test("monday: one-click MCP connect without cloud sign-in; card flips connected", async ({
@@ -42,7 +45,6 @@ test("jira: two modes — MCP one-click pane plus the manual token form", async 
 }) => {
   await openConnectors(page);
   // jira sits past the available-list fold.
-  await page.getByRole("button", { name: "show all" }).click();
   await page
     .getByTestId("connector-jira")
     .getByRole("button", { name: "Connect" })

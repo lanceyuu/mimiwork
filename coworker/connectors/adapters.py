@@ -395,86 +395,34 @@ class SlackAdapter(BasePlatformAdapter):
             logger.debug("slack chat_update failed", exc_info=True)
 
 
-def _load_slack_teams(secrets) -> dict[str, dict]:
-    """Per-team bot tokens for managed relay, from `slack:team:<team_id>` profiles
-    (written by the managed OAuth install). Returns {team_id: {bot_token, bot_user_id}}.
-    """
-    teams: dict[str, dict] = {}
-    if secrets is None:
-        return teams
-    for entry in secrets.status():
-        prof = entry.get("profile", "")
-        if not prof.startswith("slack:team:"):
-            continue
-        team_id = prof[len("slack:team:") :]
-        data = secrets.get(prof) or {}
-        if data.get("bot_token"):
-            teams[team_id] = {
-                "bot_token": data["bot_token"],
-                "bot_user_id": data.get("bot_user_id"),
-            }
-    return teams
-
-
 def make_adapter(
     platform: str,
     profile: dict,
     *,
     secrets=None,
-    token_provider=None,
-    relay_url: Optional[str] = None,
-    relay_hub=None,
-    github_token_client=None,
 ) -> Optional[BasePlatformAdapter]:
     """Build the adapter for a connected platform from its SecretStore profile.
 
-    Slack supports two mutually-exclusive modes, the user's choice:
-    - `mode == "relay"` → managed cloud relay (`SlackRelayAdapter`): needs the
-      cloud sign-in `token_provider` + `relay_url`; per-team tokens come from
-      `slack:team:*` profiles. No manual tokens.
-    - otherwise → Socket Mode (`SlackAdapter`): manual bot + app tokens, one
-      workspace.
-
-    Relay adapters share ONE cloud socket: pass the same `relay_hub` to every
-    relay-mode platform (the caller owns it); without one, each adapter builds
-    its own (fine for a single relay platform).
+    Everything here runs on the USER'S OWN credentials: Telegram bot token,
+    Slack Socket Mode bot + app tokens. The managed cloud relay modes
+    (`mode == "relay"`) were removed with the MimiWork Cloud dependency —
+    a leftover relay profile builds nothing and logs how to reconnect.
     """
     if platform == "telegram" and profile.get("bot_token"):
         return TelegramAdapter(profile["bot_token"])
     if platform == "slack":
         if profile.get("mode") == "relay":
-            if not (relay_url and token_provider):
-                logger.warning(
-                    "slack managed-relay configured but relay endpoint / sign-in unavailable "
-                    "— sign in and set cloud_relay_ws_url; skipping"
-                )
-                return None
-            from .relay_client import SlackRelayAdapter
-
-            return SlackRelayAdapter(
-                relay_url,
-                token_provider,
-                teams=_load_slack_teams(secrets),
-                hub=relay_hub,
+            logger.warning(
+                "slack profile is in removed managed-relay mode — reconnect via "
+                "Socket Mode with your own bot + app tokens"
             )
+            return None
         if profile.get("bot_token") and profile.get("app_token"):
             return SlackAdapter(profile["bot_token"], profile["app_token"])
     if platform == "github" and profile.get("mode") == "relay":
-        if not (relay_url and token_provider):
-            logger.warning(
-                "github managed-relay configured but relay endpoint / sign-in "
-                "unavailable — sign in and set cloud_relay_ws_url; skipping"
-            )
-            return None
-        from .github_installs import list_installs
-        from .github_relay import GitHubRelayAdapter
-        from .relay_client import RelayHub
-
-        hub = relay_hub or RelayHub(relay_url, token_provider)
-        installs = (
-            {iid: prof for iid, prof in list_installs(secrets)} if secrets else {}
+        logger.warning(
+            "github profile is in removed managed-relay mode — reconnect with a "
+            "personal access token"
         )
-        return GitHubRelayAdapter(
-            hub, installs=installs, token_client=github_token_client
-        )
+        return None
     return None

@@ -200,45 +200,9 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def test_managed_callback_lands_in_portal_profile(client):
-    import coworker.cloud as cloud
-
-    cloud._pending_managed_states["s"] = cloud._now()
-    resp = client.post(
-        "/oauth/callback",
-        data={
-            "provider": "hubspot",
-            "connector": "hubspot",
-            "connection_id": "conn_hs",
-            "access_token": "hs-at",
-            "refresh_token": "hs-rt",
-            "expires_in": "1800",
-            "scope": "crm.objects.contacts.read tickets",
-            "account": "Acme Inc",
-            "hub_id": "424242",
-            "sandbox": "1",
-            "app_state": "s",
-        },
-    )
-    assert resp.status_code == 200 and "HubSpot connected" in resp.text
-    profile = client.manager.secrets.get("hubspot:portal:424242")
-    assert profile["access_token"] == "hs-at" and profile["sandbox"] is True
-    listed = {c["name"]: c for c in client.manager.list_connectors()}
-    row = listed["hubspot"]["portals"][0]
-    assert row == {
-        "hub_id": "424242",
-        "name": "Acme Inc",
-        "sandbox": True,
-        "default": True,
-        "managed": True,
-        "access": "read",
-    }
 
 
 def test_portal_routes_default_and_disconnect(client, monkeypatch):
-    import coworker.cloud as cloud
-
-    monkeypatch.setattr(cloud, "cloud_disconnect", lambda *a, **k: None)
     for hub in ("111", "222"):
         hubspot_portals.managed_connect_portal(client.manager.secrets, _portal(hub))
 

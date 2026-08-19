@@ -387,12 +387,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const githubParked: any[] = [
     { id: "gh-pk1", platform: "github", chat_id: "acme/site#7", chat_name: "acme/site#7", user_id: "maya-dev", user_name: "maya-dev", chat_type: "channel", text: "@ocw please take a look at this flaky test", ts: Date.now() / 1000 - 90, team_id: "101" },
   ];
+  // Manual-PAT world (the managed App-installation relay was removed with the
+  // MimiWork Cloud dependency): starts disconnected, a manual token connects it.
   const githubState = {
-    connected: true,
-    mode: "relay" as "" | "relay",
-    installations: [
-      { installation_id: "101", account_login: "acme", account_type: "Organization", repo_selection: "selected", github_login: "rohit-dev", allowed_users: ["rohit-dev"], allow_all: false },
-    ],
+    connected: false,
+    mode: "" as "" | "relay",
+    installations: [] as any[],
   };
   const githubConnector = () => ({
     name: "github", title: "GitHub", icon: "⌘", blurb: "Work with issues, pull requests, repository files, and CI status.",
@@ -400,7 +400,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
     fields: [{ key: "token", label: "Personal access token", secret: true, required: true, help: "", placeholder: "" }],
     instructions: [], connected: githubState.connected,
     account: githubState.installations[0]?.account_login ?? null,
-    enabled: githubState.connected, allowed_users: [], tools: [], managed: true,
+    enabled: githubState.connected, allowed_users: [], tools: [], managed: false,
     managed_profile: githubState.mode === "relay", mode: githubState.mode,
     installations: githubState.installations.map((i) => ({ ...i, allowed_users: [...i.allowed_users] })),
     unauthorized: githubParked.map((x) => ({ ...x })),
@@ -1265,6 +1265,61 @@ export async function mockApi(page: import("@playwright/test").Page) {
         return json({ ok: true, started: true });
       }
       return json({ ok: false, error: `${name} has no MCP connect path` });
+    }
+    if (/\/v1\/connectors\/[^/]+\/connect$/.test(p) && m === "POST") {
+      // Manual connect (the only connect path since the managed broker was removed):
+      // account-patterned connectors land the next account, everything else flips
+      // the base connector to connected.
+      if (p.includes("/connectors/gmail/")) {
+        const email = GMAIL_NEXT[gmailState.accounts.length] || `acct${gmailState.accounts.length}@x.com`;
+        gmailState.accounts.push({
+          email, default: gmailState.accounts.length === 0, managed: false,
+          scopes: "gmail.readonly gmail.send", needs_reauth: false,
+        });
+        return json({ ok: true, account: email });
+      }
+      if (p.includes("/connectors/google_calendar/")) {
+        const email = GCAL_NEXT[gcalState.accounts.length] || `acct${gcalState.accounts.length}@x.com`;
+        gcalState.accounts.push({
+          email, default: gcalState.accounts.length === 0, managed: false,
+          scopes: "calendar", needs_reauth: false,
+        });
+        return json({ ok: true, account: email });
+      }
+      if (p.includes("/connectors/notion/")) {
+        const next = NOTION_NEXT[notionState.accounts.length] || {
+          account_id: `ws-${notionState.accounts.length + 1}`, name: "extra",
+        };
+        notionState.accounts.push({ ...next, default: notionState.accounts.length === 0, managed: false });
+        return json({ ok: true });
+      }
+      if (p.includes("/connectors/hubspot/")) {
+        const next = HUBSPOT_NEXT[hubspotState.portals.length] || {
+          hub_id: `9${hubspotState.portals.length}`, name: "extra", sandbox: false,
+        };
+        hubspotState.portals.push({ ...next, default: hubspotState.portals.length === 0, managed: false, access: "write" });
+        return json({ ok: true });
+      }
+      if (p.includes("/connectors/outlook/")) {
+        outlookState.accounts.push({
+          account_id: `mbx${outlookState.accounts.length + 1}@openworker.com`,
+          name: `mbx${outlookState.accounts.length + 1}@openworker.com`,
+          default: outlookState.accounts.length === 0,
+          managed: false,
+        });
+        return json({ ok: true });
+      }
+      if (p.includes("/connectors/slack/")) {
+        slackState.connected = true;
+        slackState.mode = "";
+        return json({ ok: true });
+      }
+      if (p.includes("/connectors/github/")) {
+        githubState.connected = true;
+        githubState.mode = "";
+        return json({ ok: true });
+      }
+      return json({ ok: true });
     }
     if (/\/v1\/connectors\/[^/]+\/connect-managed$/.test(p) && m === "POST") {
       if (!CLOUD_STATE.signed_in) return json({ ok: false, error: "not signed in" });

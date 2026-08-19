@@ -1,16 +1,11 @@
 import { useEffect, useState } from "react";
 import {
-  cloudLogin,
-  connectManaged,
-  getCloudStatus,
   getConnectors,
   setOnboarded,
-  type CloudStatus,
   type Connector,
 } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
-import { Spinner } from "./AutomationQuickstart";
 
 // First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
 // §39 (owner design, 2026-07-18): step 1 is a PROVIDER GALLERY — 13 real brand
@@ -61,39 +56,14 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
 
   // -- step 2: connect your everyday tools (§39 two-state page) -------------------
   const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
-  const [signinPhase, setSigninPhase] = useState<"opening" | "waiting" | null>(null);
-  // One in-flight connect at a time; clicking another card quietly resets the first.
-  const [pendingTool, setPendingTool] = useState<string | null>(null);
 
-  // Poll while on the tools page: sign-in AND vendor consents land out-of-band in
-  // the system browser. Tighten while either is actually in flight.
+  // The onboarding tools page is informational now: connectors are set up with
+  // the user's own credentials from the Connectors page (the managed one-click
+  // path went with the MimiWork Cloud dependency).
   useEffect(() => {
     if (step !== 1) return;
-    const load = () => {
-      getConnectors().then(setConnectors).catch(() => {});
-      getCloudStatus().then(setCloud).catch(() => {});
-    };
-    load();
-    const fast = signinPhase === "waiting" || pendingTool !== null;
-    const t = setInterval(load, fast ? 750 : 3000);
-    return () => clearInterval(t);
-  }, [step, signinPhase, pendingTool]);
-
-  // The poll flips the card to ✓ when the consent lands.
-  useEffect(() => {
-    if (pendingTool && connectors.find((c) => c.name === pendingTool)?.connected)
-      setPendingTool(null);
-  }, [connectors, pendingTool]);
-
-  const startTool = async (name: string) => {
-    setPendingTool(name); // replaces any previous pending connect
-    const res = await connectManaged(
-      name,
-      name === "hubspot" ? { access: "read" } : undefined, // least privilege in onboarding
-    ).catch(() => ({ ok: false }));
-    if (!res.ok) setPendingTool((cur) => (cur === name ? null : cur)); // silent reset — no error walls here
-  };
+    getConnectors().then(setConnectors).catch(() => {});
+  }, [step]);
 
   const finish = async (next?: "work" | "gallery" | "automations") => {
     await setOnboarded(true).catch(() => {});
@@ -193,19 +163,9 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                       <span className="block text-[13.5px] font-semibold leading-tight">{benefit}</span>
                       <span className="block text-[12px] text-muted truncate">{detail}</span>
                     </span>
-                    {cloud?.signed_in &&
-                      (c.connected ? (
-                        <span className="text-[12px] text-ok font-medium shrink-0">✓ Connected</span>
-                      ) : pendingTool === name ? (
-                        <span className="text-[12px] text-muted shrink-0">Check your browser…</span>
-                      ) : (
-                        <button
-                          className="shrink-0 rounded-full border border-line px-4 py-1.5 text-[12.5px] font-medium hover:border-lineStrong"
-                          onClick={() => startTool(name)}
-                        >
-                          Connect
-                        </button>
-                      ))}
+                    {c.connected && (
+                      <span className="text-[12px] text-ok font-medium shrink-0">✓ Connected</span>
+                    )}
                   </div>
                 );
               })}
@@ -225,88 +185,31 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
                     Coming soon — pending Google&rsquo;s app verification.
                   </span>
                 </span>
-                {cloud?.signed_in && <span className="text-[11.5px] text-faint shrink-0">Coming soon</span>}
+
               </div>
             </div>
 
             {/* The band is PINNED outside the scroll area and its slot never moves: the ask
                 pre-sign-in, a green congrats after — zero layout shift at the moment the user
                 returns from the browser (§41). */}
-            {!cloud?.signed_in ? (
-              <div className="mt-3.5 rounded-xl border border-line bg-paper px-4 py-3 flex items-center gap-3.5 shrink-0">
-                <span className="flex-1 text-[12.5px] text-muted leading-snug">
-                  <span className="block text-[13px] font-semibold text-ink mb-0.5">
-                    Sign in for one-click connections
-                  </span>
-                  MimiWork handles the OAuth for 20+ tools — no dev consoles, no pasted keys.
-                  Tokens stay on this computer.
-                </span>
-                {signinPhase ? (
-                  <span className="inline-flex items-center gap-2 text-[12.5px] text-muted shrink-0">
-                    <Spinner />
-                    {signinPhase === "opening" ? (
-                      "Opening browser…"
-                    ) : (
-                      <>
-                        Waiting…{" "}
-                        <button
-                          className="underline hover:text-ink"
-                          onClick={() => setSigninPhase(null)}
-                          data-testid="ob-signin-cancel"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                  </span>
-                ) : (
-                  <button
-                    className="shrink-0 px-5 py-2 rounded-full bg-ink text-panel text-[13px]"
-                    onClick={async () => {
-                      setSigninPhase("opening");
-                      await cloudLogin().catch(() => {});
-                      setSigninPhase("waiting");
-                    }}
-                    data-testid="ob-cloud-signin"
-                  >
-                    Sign in
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div
-                className="mt-3.5 rounded-xl border border-line bg-okSoft px-4 py-3 shrink-0"
-                data-testid="ob-tools-signedin"
-              >
-                <span className="block text-[13px] font-semibold text-ok mb-0.5">
-                  🎉 You&rsquo;re signed in{cloud.account ? ` as ${cloud.account}` : ""}
-                </span>
-                <span className="block text-[12.5px] text-muted">
-                  Connect a tool above with one click — or add them anytime later from the
-                  Connectors page.
-                </span>
-              </div>
-            )}
+            <div className="mt-3.5 rounded-xl border border-line bg-paper px-4 py-3 shrink-0">
+              <span className="block text-[13px] font-semibold text-ink mb-0.5">
+                Connect them when you need them
+              </span>
+              <span className="block text-[12.5px] text-muted">
+                Every tool connects from the Connectors page with your own tokens or a
+                local one-click sign-in — nothing goes through a third-party cloud.
+              </span>
+            </div>
 
-            {/* One footer button, one slot: quiet skip pre-sign-in, black Next after. */}
             <div className="flex items-center mt-3.5">
-              {cloud?.signed_in ? (
-                <button
-                  className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
-                  onClick={() => setStep(2)}
-                  data-testid="ob-continue-tools"
-                >
-                  Next
-                </button>
-              ) : (
-                <button
-                  className="ml-auto px-5 py-2 rounded-full border border-line text-[13px] text-muted hover:text-ink hover:border-lineStrong shrink-0"
-                  onClick={() => setStep(2)}
-                  data-testid="ob-tools-skip"
-                >
-                  Continue without sign-in
-                </button>
-              )}
+              <button
+                className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
+                onClick={() => setStep(2)}
+                data-testid="ob-continue-tools"
+              >
+                Next
+              </button>
             </div>
             <p className="text-[11px] text-faint mt-3">
               30+ more tools on the Connectors page — add or remove anytime. Tokens stay on

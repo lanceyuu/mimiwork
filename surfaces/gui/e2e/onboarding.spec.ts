@@ -98,40 +98,21 @@ test("key form: revisiting a connected provider shows the in-field saved state; 
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 });
 
-test("tools page: sign-in morphs the page into the connector gallery; a card connects one-click", async ({
+test("tools page: informational rows, no sign-in gate, Next always armed", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
   await expect(page.getByTestId("ob-step-tools")).toBeVisible();
 
-  // Pre-sign-in (§41): the benefit rows are already there (no Connect buttons yet),
-  // the combined Google row says Coming soon, the band asks for sign-in, and the one
-  // footer button is the quiet "Continue without sign-in".
+  // The page shows what connectors unlock; connecting happens later from the
+  // Connectors page with the user's own credentials (no cloud broker).
   await expect(page.getByText("Chat can only advise")).toBeVisible();
   await expect(page.getByTestId("ob-tool-outlook")).toContainText("Stay on top of email");
   await expect(page.getByTestId("ob-tool-outlook").getByRole("button")).toHaveCount(0);
-  await expect(page.getByTestId("ob-tool-attio")).toContainText("Track every relationship");
-  await expect(page.getByTestId("ob-tool-google-soon")).toContainText("Coming soon");
-  await expect(page.getByText("Sign in for one-click connections")).toBeVisible();
-  await expect(page.getByTestId("ob-tools-skip")).toContainText("Continue without sign-in");
+  await expect(page.getByText("Connect them when you need them")).toBeVisible();
+  await expect(page.getByText("Sign in for one-click connections")).toHaveCount(0);
 
-  // Sign-in lands out-of-band; the band's SLOT stays put and flips to the congrats
-  // (zero layout shift), and every row grows its Connect pill.
-  await page.getByTestId("ob-cloud-signin").click();
-  await expect(page.getByTestId("ob-tools-signedin")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByTestId("ob-tools-signedin")).toContainText("You’re signed in");
-  await expect(
-    page.getByTestId("ob-tool-attio").getByRole("button", { name: "Connect" }),
-  ).toBeVisible();
-  await expect(page.getByTestId("ob-tool-google-soon").getByRole("button")).toHaveCount(0);
-
-  // One-click connect: the consent completes in the (mock) browser; the poll flips the
-  // row to ✓ Connected. Next was armed the whole time — connecting is optional.
-  await page.getByTestId("ob-tool-outlook").getByRole("button", { name: "Connect" }).click();
-  await expect(page.getByTestId("ob-tool-outlook")).toContainText("✓ Connected", {
-    timeout: 10_000,
-  });
   await expect(page.getByTestId("ob-continue-tools")).toBeEnabled();
   await page.getByTestId("ob-continue-tools").click();
 
@@ -147,7 +128,7 @@ test("tools page skips cleanly; Start working lands in a session with the panel 
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
-  await page.getByTestId("ob-tools-skip").click();
+  await page.getByTestId("ob-continue-tools").click();
   await expect(page.getByTestId("ob-step-done")).toBeVisible();
   await page.getByTestId("ob-start").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);

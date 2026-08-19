@@ -39,7 +39,7 @@ function relayHealth(gh: GithubStatus | null): { dot: string; text: string } {
   return { dot: "bg-ok", text: "Live · managed relay" };
 }
 
-export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
+export function GithubDetail({ c, onChanged }: DetailProps) {
   const [adding, setAdding] = useState(false);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [status, setStatus] = useState<GithubStatus | null>(null);
@@ -100,7 +100,7 @@ export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
           <div className={ROW + " text-[12.5px] text-muted"}>
             One @ocw-agent App, installed per account or org — you pick the repos on
             GitHub; each installation keeps its own allow-list.
-            {cloud?.signed_in ? "" : " One-click needs cloud sign-in; a PAT works without it."}
+            
           </div>
         </div>
       )}
@@ -146,7 +146,6 @@ export function GithubDetail({ c, cloud, onChanged }: DetailProps) {
       {adding && (
         <AddConnectionModal
           c={c}
-          cloud={cloud}
           title="Add an installation"
           onClose={() => setAdding(false)}
           onChanged={changed}

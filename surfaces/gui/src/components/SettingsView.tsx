@@ -40,7 +40,6 @@ import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { ModelsTab } from "./ManageTabs";
 import { MemorySection } from "./MemorySection";
-import { GalleryModal } from "./GalleryModal";
 import { PersonasTab } from "./PersonasTab";
 import { SkillsTab } from "./SkillsTab";
 import { showPersonas } from "../flags";
@@ -372,8 +371,6 @@ function VoiceInputSection() {
 // entry point to the Persona Gallery (a screen-sized modal — installs finish back
 // here, disabled pending consent; a gallery install re-mounts the list in place).
 function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => void }) {
-  const [galleryBump, setGalleryBump] = useState(0);
-  const [galleryOpen, setGalleryOpen] = useState(false);
 
   return (
     <section>
@@ -381,27 +378,7 @@ function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => vo
         title="Personas"
         sub="Which coworkers are enabled and shown in the picker, plus installing new persona bundles."
       />
-      <PersonasTab key={galleryBump} onOpenPersona={onOpenPersona} />
-      <button
-        className="mt-6 w-full rounded-xl2 border border-line bg-panel px-4 py-3.5 flex items-center gap-3 text-left hover:border-lineStrong"
-        data-testid="gallery-link"
-        onClick={() => setGalleryOpen(true)}
-      >
-        <Icon name="sparkle" size={16} className="text-accent shrink-0" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13.5px] font-medium">Browse the Persona Gallery</span>
-          <span className="block text-[12px] text-muted">
-            Curated coworkers from the MimiWork team — see what each can do before installing.
-          </span>
-        </span>
-        <span className="text-[12.5px] text-accent shrink-0">Open →</span>
-      </button>
-      {galleryOpen && (
-        <GalleryModal
-          onClose={() => setGalleryOpen(false)}
-          onInstalled={() => setGalleryBump((b) => b + 1)}
-        />
-      )}
+      <PersonasTab onOpenPersona={onOpenPersona} />
     </section>
   );
 }

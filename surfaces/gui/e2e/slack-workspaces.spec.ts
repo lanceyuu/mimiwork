@@ -24,31 +24,15 @@ test("lists every connected workspace as its own group", async ({ page }) => {
   await expect(page.getByTestId("slack-workspace-T2AC")).toContainText("No one allowed yet");
 });
 
-test("Add workspace opens the modal; signed out shows the sign-in hint, signed in installs", async ({
+test("Add workspace opens the manual Socket Mode form (one-click went with the cloud)", async ({
   page,
 }) => {
   await openSlackPage(page);
   await page.getByTestId("add-workspace-btn").click();
   const modal = page.getByTestId("add-connection-modal");
-  await expect(modal).toContainText("Sign in to MimiWork Cloud"); // signed out
-  // Manual pane is right there too — both modes, one entry point
-  await modal.getByTestId("modal-pane-manual").click();
   await expect(modal.getByPlaceholder("Bot token · xoxb-…")).toBeVisible();
-  await page.keyboard.press("Escape");
-
-  // sign in from the list's cloud strip, then install one-click
-  await page.getByTestId("connectors-breadcrumb").click();
-  await page.getByTestId("account-row").click();
-  await page.getByTestId("account-sign-in").click();
-  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
-  await page.getByTestId("connector-slack").click();
-  await page.getByTestId("add-workspace-btn").click();
-  await page.getByTestId("modal-add-to-slack").click();
-  // the mock completes the browser install instantly; the page's poll shows it
-  await expect(page.getByTestId("slack-workspace-T3NEW")).toContainText("new-workspace", {
-    timeout: 10_000,
-  });
-  await expect(page.getByTestId("slack-workspace-T1DL")).toBeVisible(); // existing ones stay
+  await expect(modal.getByTestId("modal-add-to-slack")).toHaveCount(0);
+  await expect(modal).not.toContainText("Sign in to MimiWork Cloud");
 });
 
 test("disconnect removes one workspace and keeps the rest relaying", async ({ page }) => {

@@ -42,23 +42,6 @@ class Config:
     port: int = 8765
     # Web search provider: "duckduckgo" (keyless default) | "tavily" | "brave" (need a key).
     web_search_provider: str = "duckduckgo"
-    # MimiWork Cloud (sign-in + managed connectors). Config, never constants:
-    # dev/staging/BYO-VPC deployments point these at their own instances.
-    cloud_base_url: str = "https://api.openworker.com"
-    # Auth0 tenant + API audience are registered identifiers, not branding: the
-    # tenant name can never be renamed, and the audience must match the API
-    # identifier registered in Auth0 — both keep the legacy value on purpose.
-    cloud_auth_domain: str = "opencoworker.us.auth0.com"
-    cloud_client_id: str = "g1l4Q1lhYWmyS03qPSf4KEJGrgq02Qam"
-    cloud_audience: str = "https://api.opencoworker.app"
-    # Managed relay WebSocket endpoint (Slack/GitHub inbound). Defaults to the
-    # PRODUCTION relay so a fresh install relays out of the box — an empty
-    # default shipped once as "connected but relay OFF" on every machine
-    # without a hand-edited config.toml. Empty override ⇒ relay disabled
-    # (manual Socket Mode still works); dev/BYO deployments point elsewhere.
-    cloud_relay_ws_url: str = (
-        "wss://l4z1paxb83.execute-api.us-east-1.amazonaws.com/ocw-connect"
-    )
 
 
 _FIELDS = {
@@ -70,11 +53,6 @@ _FIELDS = {
     "host",
     "port",
     "web_search_provider",
-    "cloud_base_url",
-    "cloud_auth_domain",
-    "cloud_client_id",
-    "cloud_audience",
-    "cloud_relay_ws_url",
 }
 
 # These fields change what consequential actions can run without a prompt, so the normal

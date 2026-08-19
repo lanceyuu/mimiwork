@@ -622,12 +622,12 @@ def test_sidecar_token_gates_rest_and_websockets(tmp_path, monkeypatch):
     ) as ws:
         assert ws.accepted_subprotocol == "openworker"
 
-    # Redirect callbacks remain tokenless, then enforce their own signed state.
-    assert client.get(
-        "/auth/callback", params={"code": "x", "state": "bad"}
-    ).status_code == 400
+    # The MCP OAuth redirect callback remains tokenless, then enforces its own
+    # signed state. (The cloud /auth/callback and managed /oauth/callback routes
+    # were removed with the MimiWork Cloud dependency.)
     assert client.get("/mcp/oauth/callback").status_code == 400
-    assert client.post("/oauth/callback", data={"app_state": "bad"}).status_code == 400
+    assert client.get("/auth/callback").status_code == 404
+    assert client.post("/oauth/callback").status_code == 404
 
 
 def test_ws_approval_round_trip(tmp_path):
@@ -1062,8 +1062,8 @@ def test_google_one_click_paused_but_manual_alive(tmp_path):
         assert c["fields"], f"{name} lost its manual fields"
     assert connectors["slack"]["managed_paused"] is False  # only Google is paused
 
-    refused = client.post("/v1/connectors/gmail/connect-managed", json={}).json()
-    assert refused["ok"] is False and "coming soon" in refused["error"]
+    # The managed-connect route itself was removed with the cloud dependency.
+    assert client.post("/v1/connectors/gmail/connect-managed", json={}).status_code == 404
 
 
 def test_set_provider_persists_extra_fields(tmp_path):

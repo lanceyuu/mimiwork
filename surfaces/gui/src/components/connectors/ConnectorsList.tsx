@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { type CloudStatus, type Connector, type SlackStatus } from "../../api";
+import { type Connector, type SlackStatus } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AddConnectionModal } from "./AddConnectionModal";
 import { CHIP_OK, CHIP_OFF, CHIP_WARN, GRP, GRP_H, FOOT, PILL_QUIET, ROW } from "./ui";
@@ -12,13 +12,11 @@ const AVAILABLE_FOLD = 8; // rows shown before "show all"
 
 export function ConnectorsList({
   connectors,
-  cloud,
   slack,
   onOpen,
   onChanged,
 }: {
   connectors: Connector[];
-  cloud: CloudStatus | null;
   slack: SlackStatus | null;
   onOpen: (name: string) => void;
   onChanged: () => void;
@@ -115,7 +113,6 @@ export function ConnectorsList({
       {connectingC && (
         <AddConnectionModal
           c={connectingC}
-          cloud={cloud}
           onClose={() => setConnecting(null)}
           onChanged={onChanged}
         />

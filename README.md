@@ -75,7 +75,7 @@ For the full desktop app, replace step 3 with `npm run tauri dev`. Build an inst
 
 ## Privacy
 
-MimiWork is local-first. The agent loop, your conversations, connector tokens, and model keys all live on your machine. Your data leaves it only through the model and integrations you choose.
+MimiWork is fully local: the agent loop, your conversations, connector tokens, and model keys all live on your machine, and there is **no vendor cloud in the loop** — no hosted sign-in, no OAuth broker, no relay. Connectors use your own credentials (or a vendor's local MCP OAuth); your data leaves the machine only through the model and integrations you choose.
 
 ## Quality
 

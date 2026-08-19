@@ -405,7 +405,6 @@ class SessionManager:
             return engine
 
         record = self.session_store.load(session_id)
-        is_new_session = record is None
         agent_name = (record.agent if record else agent) or "code"
         ag = get_agent(agent_name)
 
@@ -503,37 +502,8 @@ class SessionManager:
             engine.compaction_state = CompactionState.from_dict(record.compaction)
         engine.compaction_settings = self.compaction_settings
         self._engines[session_id] = engine
-        if is_new_session:
-            self._emit_session_created(session_id, agent_name)
         return engine
 
-    def _emit_session_created(self, session_id: str, persona_id: str) -> None:
-        """Phase 5 telemetry, fired once per brand-new session on a background thread
-        (never blocks session start). cloud.emit_session_created is a hard no-op when
-        signed out or opted out, and sends only content-free facts."""
-        import threading
-
-        from .. import cloud
-        from ..config import load_config
-
-        entry = self.personas.get(persona_id)
-        family = entry.family if entry else ""
-        workspace_kind = entry.workspace if entry else ""
-
-        def _send() -> None:
-            try:
-                cloud.emit_session_created(
-                    self.secrets,
-                    load_config(),
-                    session_id=session_id,
-                    persona_id=persona_id,
-                    persona_family=family,
-                    workspace_kind=workspace_kind,
-                )
-            except Exception:
-                pass  # telemetry must never surface as a session error
-
-        threading.Thread(target=_send, daemon=True).start()
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
         """The channel address(es) this session's Inbox routes OUT to — used to warn when a
@@ -2298,141 +2268,23 @@ class SessionManager:
                 self.gateway.settings[name].allowed_users = set(allowed)
         return {"ok": True, "allowed_users": sorted(allowed), "team_id": team_id}
 
-    async def disconnect_slack_workspace(self, team_id: str) -> dict[str, Any]:
-        """Stop relaying ONE workspace: delete the cloud routing row (best-effort),
-        drop the local per-team token, and hot-reload the gateway. Removing the last
-        workspace also clears relay mode on slack:default so the connector reads
-        disconnected (the manual Socket Mode fields, if any, are left untouched)."""
-        team_id = str(team_id).strip()
-        profile_key = f"slack:team:{team_id}"
-        if not team_id or not self.secrets.get(profile_key):
-            return {"ok": False, "error": "workspace not connected"}
-        from .. import cloud
-        from ..config import load_config
-
-        await asyncio.to_thread(
-            lambda: cloud.slack_disconnect_workspace(
-                self.secrets, load_config(), team_id
-            )
-        )
-        self.secrets.delete(profile_key)
-        remaining = [
-            m["profile"]
-            for m in self.secrets.status()
-            if m.get("profile", "").startswith("slack:team:")
-        ]
-        if not remaining:
-            default = self.secrets.get("slack:default") or {}
-            if default.get("mode") == "relay":
-                default.pop("mode", None)
-                default.pop("managed", None)
-                if default.get("bot_token"):
-                    # Manual Socket Mode creds predating the relay switch: keep them
-                    # stored but DISABLED — removing the last workspace must never
-                    # silently start listening with old tokens.
-                    default["type"] = "token"
-                    default["enabled"] = False
-                    self.secrets.put("slack:default", default)
-                else:
-                    default.pop("type", None)
-                    default.pop("enabled", None)
-                    if default:  # e.g. a flat allow-list worth keeping
-                        self.secrets.put("slack:default", default)
-                    else:
-                        self.secrets.delete("slack:default")
-        await self.refresh_gateway()
-        return {"ok": True, "remaining_workspaces": len(remaining)}
 
     def slack_status(self) -> dict[str, Any]:
-        """Slack connection health in three honest layers (UX-DECISIONS §21):
-        the desktop↔relay socket, the cloud sign-in that authorizes it, and each
-        workspace's bot token. The desktop can't see the Slack↔cloud leg, so no
-        layer here ever claims it — event silence ≠ outage."""
-        from .. import cloud
-
+        """Slack connection health for the manual Socket Mode workspace (the managed
+        relay layers were removed with the MimiWork Cloud dependency)."""
         default = self.secrets.get("slack:default") or {}
-        mode = default.get("mode") or ""
-        signin = cloud.status(self.secrets)
-
-        relay: dict[str, Any] = {
-            "state": "offline",
-            "reconnects": 0,
-            "last_event_at": None,
-            "last_error": "",
-        }
-        teams: dict[str, Any] = {}
-        adapter = (
-            self.gateway._adapters.get("slack") if self.gateway is not None else None
-        )
-        snapshot = getattr(
-            adapter, "status", None
-        )  # relay adapter only; Socket Mode has none
-        if callable(snapshot):
-            relay = snapshot()
-            teams = relay.pop("teams", {})
-        return {
-            "ok": True,
-            "mode": mode,
-            "relay": relay,
-            "signed_in": bool(signin.get("signed_in")),
-            "teams": teams,
-        }
-
-    async def disconnect_github_installation(
-        self, installation_id: str
-    ) -> dict[str, Any]:
-        """Stop relaying ONE GitHub installation: delete the cloud routing rows
-        (best-effort), drop the local profile, hot-reload the gateway. The Slack
-        per-workspace disconnect, GitHub flavour — a manual PAT stays untouched."""
-        installation_id = str(installation_id).strip()
-        from .. import cloud
-        from ..config import load_config
-        from ..connectors import github_installs
-
-        if not installation_id or not self.secrets.get(
-            github_installs.PREFIX + installation_id
-        ):
-            return {"ok": False, "error": "installation not connected"}
-        await asyncio.to_thread(
-            lambda: cloud.github_disconnect_installation(
-                self.secrets, load_config(), installation_id
-            )
-        )
-        result = github_installs.disconnect_install(self.secrets, installation_id)
-        await self.refresh_gateway()
-        return result
-
-    def github_status(self) -> dict[str, Any]:
-        """GitHub relay health, same three honest layers as Slack: the shared
-        relay socket, the cloud sign-in, and per-installation token health."""
-        from .. import cloud
-
-        default = self.secrets.get("github:default") or {}
-        signin = cloud.status(self.secrets)
-        relay: dict[str, Any] = {
-            "state": "offline",
-            "reconnects": 0,
-            "last_event_at": None,
-            "last_error": "",
-        }
-        installs: dict[str, Any] = {}
-        missed: dict[str, Any] = {}
-        adapter = (
-            self.gateway._adapters.get("github") if self.gateway is not None else None
-        )
-        snapshot = getattr(adapter, "status", None)
-        if callable(snapshot):
-            relay = snapshot()
-            installs = relay.pop("installs", {})
-            missed = relay.pop("missed", {})
         return {
             "ok": True,
             "mode": default.get("mode") or "",
-            "relay": relay,
-            "signed_in": bool(signin.get("signed_in")),
-            "installs": installs,
-            "missed": missed,
+            "connected": bool(default.get("bot_token") and default.get("app_token")),
         }
+
+
+    def github_status(self) -> dict[str, Any]:
+        """GitHub connection health for the manual PAT profile (the managed relay
+        layers were removed with the MimiWork Cloud dependency)."""
+        default = self.secrets.get("github:default") or {}
+        return {"ok": True, "connected": bool(default.get("token"))}
 
     async def start_gateway(self) -> list[str]:
         """Build the messaging gateway and start enabled listeners. Inbound messages route to
@@ -2461,46 +2313,11 @@ class SessionManager:
             interaction_handler=self._on_interaction,
             on_unauthorized=self._park_unauthorized,
         )
-        # Managed Slack relay wiring (only used when a connector picks relay mode):
-        # the cloud sign-in JWT authorizes the relay WebSocket, and the relay
-        # endpoint comes from config. Both are lazy — Socket Mode needs neither.
-        from ..cloud import fresh_access_token
-        from ..config import load_config
-
-        cloud_config = load_config()
-
-        def _relay_token() -> str:
-            return fresh_access_token(self.secrets, cloud_config) or ""
-
-        # Every relay-mode platform shares ONE cloud socket; the hub fans frames
-        # out by provider tag. Built lazily on the first relay adapter.
-        relay_ws_url = getattr(cloud_config, "cloud_relay_ws_url", "") or None
-        relay_hub = None
-        if relay_ws_url:
-            from ..connectors.relay_client import RelayHub
-
-            relay_hub = RelayHub(relay_ws_url, _relay_token)
-
-        async def _github_token(installation_id: str) -> str:
-            from ..cloud import github_installation_token
-
-            return await asyncio.to_thread(
-                github_installation_token, self.secrets, cloud_config, installation_id
-            )
-
         for platform, st in settings.items():
             if not st.enabled:
                 continue
             profile = self.secrets.get(f"{platform}:default") or {}
-            adapter = make_adapter(
-                platform,
-                profile,
-                secrets=self.secrets,
-                token_provider=_relay_token,
-                relay_url=relay_ws_url,
-                relay_hub=relay_hub,
-                github_token_client=_github_token,
-            )
+            adapter = make_adapter(platform, profile, secrets=self.secrets)
             if adapter is not None:
                 self.gateway.register(adapter)
         return await self.gateway.start()

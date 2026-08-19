@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { AddConnectionModal } from "./AddConnectionModal";
 import {
-  connectManaged,
   disconnectGmailAccount,
   setGmailDefaultAccount,
   setGmailFilters,
@@ -18,15 +18,9 @@ import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, TAG_WARN, XBTN } from "
 
 const LABEL = "text-[12.5px] text-muted w-24 shrink-0";
 
-export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
-  const [busy, setBusy] = useState(false);
+export function GmailDetail({ c, slack: _slack, onChanged }: DetailProps) {
+  const [showAdd, setShowAdd] = useState(false);
   const accounts = (c.accounts ?? []) as GmailAccount[]; // email-keyed (pre-generic-layer shape)
-
-  const addAccount = async () => {
-    setBusy(true);
-    await connectManaged("gmail"); // completes in the system browser; the poll picks it up
-    setTimeout(() => setBusy(false), 2500);
-  };
 
   return (
     <div data-testid="gmail-detail">
@@ -48,19 +42,11 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
           </div>
         </div>
         <button
-          className={PILL_ACCENT + (c.managed_paused ? " opacity-50" : "")}
+          className={PILL_ACCENT}
           data-testid="add-account-btn"
-          onClick={addAccount}
-          disabled={busy || !cloud?.signed_in || c.managed_paused}
-          title={
-            c.managed_paused
-              ? "One-click Google sign-in is coming soon"
-              : cloud?.signed_in
-                ? ""
-                : "Sign in to MimiWork Cloud first"
-          }
+          onClick={() => setShowAdd(true)}
         >
-          {c.managed_paused ? "＋ Add account · Coming soon" : busy ? "Check your browser…" : "＋ Add account"}
+          ＋ Add account
         </button>
       </div>
 
@@ -68,7 +54,6 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
         <div className={GRP}>
           <div className={ROW + " text-[12.5px] text-muted"}>
             Sign in with Google — each mailbox stays separate, agents say which one they use.
-            {cloud?.signed_in ? "" : " Requires cloud sign-in."}
           </div>
         </div>
       )}
@@ -85,6 +70,15 @@ export function GmailDetail({ c, cloud, slack: _slack, onChanged }: DetailProps)
       )}
 
       <FiltersGroup c={c} onChanged={onChanged} />
+
+      {showAdd && (
+        <AddConnectionModal
+          c={c}
+          title="Add an account"
+          onClose={() => setShowAdd(false)}
+          onChanged={onChanged}
+        />
+      )}
 
       <ToolsDisclosure c={c} onChanged={onChanged} />
       <div className={FOOT + " mt-2"}>

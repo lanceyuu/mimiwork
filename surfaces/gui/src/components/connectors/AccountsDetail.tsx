@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  connectManaged,
   disconnectAccount,
   setDefaultAccount,
   type AccountRow,
@@ -18,17 +17,9 @@ import { FOOT, GRP, GRP_H, PILL_ACCENT, ROW, TAG_ACCENT, XBTN } from "./ui";
 // the connector has it (and the user is signed in); the manual token form is
 // always available underneath — signed out or in, local-only stays first-class.
 
-export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailProps) {
-  const [busy, setBusy] = useState(false);
+export function AccountsDetail({ c, slack: _slack, onChanged }: DetailProps) {
   const [showManual, setShowManual] = useState(false);
   const accounts = (c.accounts ?? []) as AccountRow[];
-  const canOneClick = c.managed && !!cloud?.signed_in;
-
-  const addManaged = async () => {
-    setBusy(true);
-    await connectManaged(c.name); // completes in the system browser; the section poll picks it up
-    setTimeout(() => setBusy(false), 2500);
-  };
 
   return (
     <div data-testid="accounts-detail">
@@ -54,15 +45,9 @@ export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
         <button
           className={PILL_ACCENT}
           data-testid="add-account-btn"
-          onClick={() => (canOneClick ? addManaged() : setShowManual((v) => !v))}
-          disabled={busy}
-          title={
-            c.managed && !cloud?.signed_in
-              ? "Sign in to MimiWork Cloud for one-click — or add a token below"
-              : ""
-          }
+          onClick={() => setShowManual((v) => !v)}
         >
-          {busy ? "Check your browser…" : "＋ Add account"}
+          ＋ Add account
         </button>
       </div>
 
@@ -86,7 +71,6 @@ export function AccountsDetail({ c, cloud, slack: _slack, onChanged }: DetailPro
             <div className="px-1.5 py-1">
               <ConnectSetup
                 c={c}
-                cloud={cloud}
                 onConnected={() => {
                   setShowManual(false);
                   onChanged();

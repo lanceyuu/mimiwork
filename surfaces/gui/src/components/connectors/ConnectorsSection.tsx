@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   disconnectConnector,
-  getCloudStatus,
   getConnectors,
   getSlackStatus,
-  type CloudStatus,
   type Connector,
   type SlackStatus,
 } from "../../api";
@@ -27,7 +25,6 @@ import { GRP } from "./ui";
 
 export interface DetailProps {
   c: Connector;
-  cloud: CloudStatus | null;
   slack: SlackStatus | null; // live Slack health (relay/sign-in/tokens); null elsewhere
   onChanged: () => void;
 }
@@ -52,12 +49,10 @@ const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
 export function ConnectorsSection() {
   const [detail, setDetail] = useState<string | null>(null);
   const [connectors, setConnectors] = useState<Connector[]>([]);
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
   const [slack, setSlack] = useState<SlackStatus | null>(null);
 
   const refresh = () => {
     getConnectors().then(setConnectors).catch(() => setConnectors([]));
-    getCloudStatus().then(setCloud).catch(() => setCloud(null));
     getSlackStatus().then(setSlack).catch(() => setSlack(null));
   };
   useEffect(() => {
@@ -85,13 +80,13 @@ export function ConnectorsSection() {
         ) : !c.connected ? (
           /* Pre-connect page (§38). When a connect completes, the poll flips
              c.connected and this same route re-renders as the connected page. */
-          <AvailableDetail c={c} cloud={cloud} onChanged={refresh} />
+          <AvailableDetail c={c} onChanged={refresh} />
         ) : Page ? (
-          <Page c={c} cloud={cloud} slack={slack} onChanged={refresh} />
+          <Page c={c} slack={slack} onChanged={refresh} />
         ) : (
           <GenericDetail
             c={c}
-            cloud={cloud}
+           
             slack={slack}
             onChanged={refresh}
             onGone={() => setDetail(null)}
@@ -104,7 +99,7 @@ export function ConnectorsSection() {
   return (
     <ConnectorsList
       connectors={connectors}
-      cloud={cloud}
+     
       slack={slack}
       onOpen={setDetail}
       onChanged={refresh}
@@ -117,7 +112,6 @@ export function ConnectorsSection() {
 // (Slack/Gmail/HubSpot) replace this one connector at a time.
 function GenericDetail({
   c,
-  cloud: _cloud,
   slack: _slack,
   onChanged,
   onGone,

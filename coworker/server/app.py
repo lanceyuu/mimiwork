@@ -450,72 +450,13 @@ def create_app(manager: SessionManager) -> FastAPI:
                 summaries = reg.install_from_git(str(body["git_url"]))
             elif body.get("dir"):
                 summaries = reg.install_from_dir(str(body["dir"]))
-            elif body.get("gallery_slug"):
-                # Gallery install = fetch the manifest markdown from the cloud
-                # (sign-in required), verify its hash, then reuse the exact
-                # same parser + consent path as a local/Git install. The
-                # gallery never changes the trust model: no executable code,
-                # lands disabled pending consent.
-                import hashlib
-                import tempfile
-
-                from .. import cloud
-                from ..config import load_config
-
-                slug = str(body["gallery_slug"]).strip()
-                manifest = cloud.gallery_manifest(manager.secrets, load_config(), slug)
-                if manifest is None:
-                    return {
-                        "ok": False,
-                        "error": "gallery requires cloud sign-in (or the cloud is unreachable)",
-                    }
-                markdown = manifest.get("manifest_markdown", "")
-                digest = "sha256:" + hashlib.sha256(markdown.encode()).hexdigest()
-                if (
-                    manifest.get("manifest_hash")
-                    and manifest["manifest_hash"] != digest
-                ):
-                    return {"ok": False, "error": "manifest hash mismatch"}
-                with tempfile.TemporaryDirectory() as td:
-                    (Path(td) / f"{slug}.md").write_text(markdown)
-                    summaries = reg.install_from_dir(td)
-                cloud.gallery_install_event(manager.secrets, load_config(), slug)
             else:
-                return {
-                    "ok": False,
-                    "error": "provide a `dir`, `git_url`, or `gallery_slug`",
-                }
+                return {"ok": False, "error": "provide a `dir` or `git_url`"}
         except Exception as e:  # surface manifest/clone errors to the caller
             return {"ok": False, "error": str(e)}
         return {"ok": True, "consent": summaries, "personas": reg.list_all()}
 
-    @app.get("/v1/cloud/gallery/{slug}")
-    def cloud_gallery_detail(slug: str) -> dict[str, Any]:
-        """Solo page for one gallery coworker: publisher pitch + capabilities
-        derived locally from the manifest (same parser as install)."""
-        from .. import cloud
-        from ..config import load_config
 
-        body = cloud.gallery_detail(manager.secrets, load_config(), slug)
-        if body is None:
-            return {"ok": False, "error": "gallery requires cloud sign-in"}
-        return body
-
-    @app.get("/v1/cloud/gallery")
-    def cloud_gallery() -> dict[str, Any]:
-        """Gallery cards for the GUI. Signed out ⇒ ok:false (the gallery is a
-        signed-in feature by design; local personas are unaffected)."""
-        from .. import cloud
-        from ..config import load_config
-
-        body = cloud.gallery_list(manager.secrets, load_config())
-        if body is None:
-            return {
-                "ok": False,
-                "error": "gallery requires cloud sign-in",
-                "personas": [],
-            }
-        return {"ok": True, "personas": body.get("personas", [])}
 
     @app.post("/v1/personas/{persona_id}")
     def update_persona(persona_id: str, body: dict) -> dict[str, Any]:
@@ -870,55 +811,27 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
-        # Managed profiles: best-effort flip of the cloud metadata record first
-        # (network call → off the loop). Local deletion always proceeds.
-        from .. import cloud
-        from ..config import load_config
-
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(manager.secrets, load_config(), name)
-        )
         result = manager.disconnect_connector(name)
         await _refresh_listeners_if_two_way(name)
         return result
 
-    @app.post("/v1/connectors/slack/workspaces/{team_id}/disconnect")
-    async def slack_workspace_disconnect(team_id: str) -> dict[str, Any]:
-        """Stop relaying one workspace (managed relay). Cloud routing row deleted
-        best-effort, local per-team token removed, gateway hot-reloaded."""
-        return await manager.disconnect_slack_workspace(team_id)
 
     @app.get("/v1/connectors/slack/status")
     async def slack_status() -> dict[str, Any]:
-        """Slack health, three layers: relay socket / cloud sign-in / per-team tokens."""
+        """Slack Socket Mode connection health (manual credentials)."""
         return manager.slack_status()
 
-    @app.post("/v1/connectors/github/installations/{installation_id}/disconnect")
-    async def github_installation_disconnect(installation_id: str) -> dict[str, Any]:
-        """Stop relaying one GitHub App installation (managed relay). Cloud
-        routing rows deleted best-effort, local profile removed, gateway
-        hot-reloaded."""
-        return await manager.disconnect_github_installation(installation_id)
 
     @app.get("/v1/connectors/github/status")
     async def github_status() -> dict[str, Any]:
-        """GitHub health: relay socket / cloud sign-in / per-installation tokens."""
+        """GitHub PAT connection health (manual credentials)."""
         return manager.github_status()
 
     @app.post("/v1/connectors/gmail/accounts/{email}/disconnect")
     async def gmail_account_disconnect(email: str) -> dict[str, Any]:
-        """Drop ONE mailbox (cloud metadata best-effort first, like a full
-        disconnect); the default pointer moves to the next account."""
-        from .. import cloud
-        from ..config import load_config
+        """Drop ONE mailbox; the default pointer moves to the next account."""
         from ..connectors import gmail_accounts
 
-        profile_key = gmail_accounts.PREFIX + email.strip().lower()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets, load_config(), "gmail", profile_key=profile_key
-            )
-        )
         return gmail_accounts.disconnect_account(manager.secrets, email)
 
     @app.post("/v1/connectors/gmail/accounts/{email}/default")
@@ -943,21 +856,9 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/connectors/google_calendar/accounts/{email}/disconnect")
     async def gcal_account_disconnect(email: str) -> dict[str, Any]:
-        """Drop ONE Google Calendar account (cloud metadata best-effort first);
-        the default pointer moves to the next account."""
-        from .. import cloud
-        from ..config import load_config
+        """Drop ONE Google Calendar account; the default pointer moves on."""
         from ..connectors import gcal_accounts
 
-        profile_key = gcal_accounts.PREFIX + email.strip().lower()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets,
-                load_config(),
-                "google_calendar",
-                profile_key=profile_key,
-            )
-        )
         return gcal_accounts.disconnect_account(manager.secrets, email)
 
     @app.post("/v1/connectors/google_calendar/accounts/{email}/default")
@@ -968,16 +869,8 @@ def create_app(manager: SessionManager) -> FastAPI:
 
     @app.post("/v1/connectors/hubspot/portals/{hub_id}/disconnect")
     async def hubspot_portal_disconnect(hub_id: str) -> dict[str, Any]:
-        from .. import cloud
-        from ..config import load_config
         from ..connectors import hubspot_portals
 
-        profile_key = hubspot_portals.PREFIX + hub_id.strip()
-        await asyncio.to_thread(
-            lambda: cloud.cloud_disconnect(
-                manager.secrets, load_config(), "hubspot", profile_key=profile_key
-            )
-        )
         return hubspot_portals.disconnect_portal(manager.secrets, hub_id)
 
     @app.post("/v1/connectors/hubspot/portals/{hub_id}/default")
@@ -990,19 +883,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     async def account_disconnect(name: str, account_id: str) -> dict[str, Any]:
         """Generic per-account disconnect for account-patterned connectors
         (batch 2+). Gmail/Calendar keep their specific email routes."""
-        from .. import cloud
-        from ..config import load_config
         from ..connectors import accounts
 
         if not accounts.is_account_connector(name):
             return {"ok": False, "error": "not a multi-account connector"}
-        _id, profile_key, profile = accounts.resolve(manager.secrets, name, account_id)
-        if profile and profile.get("managed"):
-            await asyncio.to_thread(
-                lambda: cloud.cloud_disconnect(
-                    manager.secrets, load_config(), name, profile_key=profile_key
-                )
-            )
         return accounts.disconnect_account(manager.secrets, name, account_id)
 
     @app.post("/v1/connectors/{name}/accounts/{account_id}/default")
@@ -1036,252 +920,12 @@ def create_app(manager: SessionManager) -> FastAPI:
     # All optional: the app is fully functional signed out (manual token paste
     # stays available for every connector, before and after sign-in).
 
-    @app.get("/v1/cloud/status")
-    def cloud_status() -> dict[str, Any]:
-        from .. import cloud
 
-        return {
-            **cloud.status(manager.secrets),
-            "telemetry_enabled": cloud.telemetry_enabled(manager.secrets),
-        }
 
-    @app.post("/v1/cloud/telemetry")
-    def cloud_telemetry(body: dict) -> dict[str, Any]:
-        """The Phase 5 opt-out toggle. Local preference only — signed-out users
-        send nothing regardless of this value."""
-        from .. import cloud
 
-        return cloud.set_telemetry_enabled(
-            manager.secrets, bool((body or {}).get("enabled", True))
-        )
 
-    @app.post("/v1/cloud/login")
-    def cloud_login() -> dict[str, Any]:
-        """Start browser sign-in. The sidecar opens the system browser itself
-        (works identically under Tauri and plain-browser dev)."""
-        import webbrowser
 
-        from .. import cloud
-        from ..config import load_config
 
-        out = cloud.begin_login(load_config())
-        webbrowser.open(out["authorize_url"])
-        return {"ok": True, "authorize_url": out["authorize_url"]}
-
-    @app.post("/v1/cloud/logout")
-    def cloud_logout() -> dict[str, Any]:
-        from .. import cloud
-
-        return cloud.logout(manager.secrets)
-
-    @app.get("/auth/callback")
-    async def cloud_auth_callback(code: str = "", state: str = "", error: str = ""):
-        from fastapi.responses import HTMLResponse
-
-        from .. import cloud
-        from ..config import load_config
-
-        signin_failed_detail = (
-            "Close this tab and try signing in again from MimiWork."
-        )
-        if error:
-            return HTMLResponse(
-                _browser_page(
-                    "Sign-in failed", signin_failed_detail, ok=False, error=error
-                ),
-                status_code=400,
-            )
-        result = await asyncio.to_thread(
-            lambda: cloud.complete_login(manager.secrets, load_config(), code, state)
-        )
-        if not result.get("ok"):
-            return HTMLResponse(
-                _browser_page(
-                    "Sign-in failed",
-                    signin_failed_detail,
-                    ok=False,
-                    error=result.get("error", ""),
-                ),
-                status_code=400,
-            )
-
-        # Restore managed connections in the background: best-effort metadata work
-        # that must not hold the "Signed in" page (or the GUI's signed-in flip)
-        # hostage to another broker round trip. Restored GitHub installs hot-add
-        # the gateway so the relay connects without a restart.
-        async def _restore_connections() -> None:
-            try:
-                out = await asyncio.to_thread(
-                    lambda: cloud.sync_connections(manager.secrets, load_config())
-                )
-                if out.get("restored"):
-                    await manager.refresh_gateway()
-            except Exception:
-                pass  # sign-in stands; the user can still connect by hand
-
-        asyncio.get_running_loop().create_task(_restore_connections())
-        return HTMLResponse(
-            _browser_page(
-                "Signed in",
-                "You're signed in to MimiWork Cloud. "
-                "You can close this tab and return to MimiWork.",
-            )
-        )
-
-    @app.post("/v1/connectors/{name}/connect-managed")
-    async def connector_connect_managed(
-        name: str, body: Optional[dict] = None
-    ) -> dict[str, Any]:
-        """One-click managed OAuth (requires cloud sign-in). Opens the provider
-        consent page in the system browser; the broker's callback page will
-        form-POST the tokens to /oauth/callback below. `access` picks a consent
-        tier by NAME (e.g. hubspot read | write) — the broker owns the scopes."""
-        import webbrowser
-
-        from .. import cloud
-        from ..config import load_config
-        from ..connectors.descriptors import get_descriptor
-
-        d = get_descriptor(name)
-        if d is not None and d.managed_paused:
-            # GUI shows the Coming-soon state; this guard covers stale GUIs/API callers.
-            return {
-                "ok": False,
-                "error": f"one-click connect for {d.title} is coming soon — connect manually for now",
-            }
-        access = str((body or {}).get("access") or "")
-        flow = str((body or {}).get("flow") or "")  # github: "" install | "authorize"
-        out = await asyncio.to_thread(
-            lambda: cloud.begin_managed_connect(
-                manager.secrets, load_config(), name, access=access, flow=flow
-            )
-        )
-        if out.get("ok"):
-            webbrowser.open(out["authorize_url"])
-        return out
-
-    @app.post("/oauth/callback")
-    async def managed_oauth_callback(request: Request) -> Any:
-        from fastapi.responses import HTMLResponse
-
-        from .. import cloud
-        from ..connectors.setup import (
-            managed_connect_connector,
-            managed_connect_slack_install,
-        )
-
-        form = await request.form()
-        data = {k: str(v) for k, v in form.items()}
-        connector = data.get("connector", "")
-        if not cloud.consume_managed_state(data.get("app_state", "")):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error="unknown or expired connection attempt",
-                ),
-                status_code=400,
-            )
-        if data.get("error"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error=data["error"],
-                ),
-                status_code=400,
-            )
-        # Managed GitHub deliberately carries NO token fields — the loopback POST
-        # is routing metadata only (installation tokens are minted on demand,
-        # github-relay-spec §4) — so its branch precedes the access_token check.
-        if connector == "github" and data.get("installation_id"):
-            from ..connectors.github_installs import managed_connect_install
-
-            result = managed_connect_install(manager.secrets, data)
-            if result.get("ok"):
-                await manager.refresh_gateway()  # hot-add, like a workspace
-            if not result.get("ok"):
-                return HTMLResponse(
-                    _browser_page(
-                        "Connection failed",
-                        _CONNECT_FAILED_DETAIL,
-                        ok=False,
-                        error=result.get("error", ""),
-                    ),
-                    status_code=400,
-                )
-            return HTMLResponse(
-                _browser_page(
-                    "GitHub connected",
-                    "You can close this tab and return to MimiWork.",
-                    connector="github",
-                )
-            )
-        if not connector or not data.get("access_token"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error="missing fields",
-                ),
-                status_code=400,
-            )
-        # Managed Slack is multi-workspace + relay: store the per-team bot token
-        # and flip to relay mode, rather than the single-token connector path.
-        if connector == "slack" and data.get("team_id"):
-            result = managed_connect_slack_install(manager.secrets, data)
-            if result.get("ok"):
-                # Hot-add: rebuild the gateway so the new workspace's token loads
-                # (and the relay socket opens on a first-ever install) right away.
-                await manager.refresh_gateway()
-        elif connector == "gmail":
-            # Multi-account: each sign-in lands in its own gmail:account:<email>
-            # profile; the first becomes the default mailbox.
-            from ..connectors import gmail_accounts
-
-            result = gmail_accounts.managed_connect_account(
-                manager.secrets, cloud.managed_profile_from_callback(data)
-            )
-        elif connector == "google_calendar":
-            # Multi-account, same shape as gmail: google_calendar:account:<email>.
-            from ..connectors import gcal_accounts
-
-            result = gcal_accounts.managed_connect_account(
-                manager.secrets, cloud.managed_profile_from_callback(data)
-            )
-        elif connector == "hubspot" and data.get("hub_id"):
-            # Multi-portal: keyed by hub_id (broker sends it like Slack's team_id).
-            from ..connectors import hubspot_portals
-
-            profile = cloud.managed_profile_from_callback(data)
-            profile["hub_id"] = data.get("hub_id", "")
-            if data.get("sandbox"):
-                profile["sandbox"] = True
-            result = hubspot_portals.managed_connect_portal(manager.secrets, profile)
-        else:
-            result = managed_connect_connector(
-                manager.secrets, connector, cloud.managed_profile_from_callback(data)
-            )
-        if not result.get("ok"):
-            return HTMLResponse(
-                _browser_page(
-                    "Connection failed",
-                    _CONNECT_FAILED_DETAIL,
-                    ok=False,
-                    error=result.get("error", ""),
-                ),
-                status_code=400,
-            )
-        return HTMLResponse(
-            _browser_page(
-                f"{_connector_title(connector)} connected",
-                "You can close this tab and return to MimiWork.",
-                connector=connector,
-            )
-        )
 
     @app.patch("/v1/connectors/{name}/tools")
     def connector_tools_patch(name: str, body: dict) -> dict[str, Any]:

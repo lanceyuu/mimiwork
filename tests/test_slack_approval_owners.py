@@ -94,31 +94,6 @@ def test_manual_owner_rest_flow_surfaces_identity_and_binding(tmp_path):
     assert bound["ok"] is True
 
 
-def test_relay_binding_uses_installer_identity(tmp_path):
-    manager = _manager(tmp_path)
-    manager.secrets.put(
-        "slack:default", {"mode": "relay", "enabled": True, "managed": True}
-    )
-    manager.secrets.put(
-        "slack:team:T1",
-        {
-            "bot_token": "xoxb-team",
-            "managed": True,
-            "slack_user_id": "U_INSTALLER",
-            "allowed_users": ["U_INSTALLER"],
-        },
-    )
-    assert manager.set_inbox_binding(
-        "default", channel="slack", target="T1/C_APPROVALS"
-    )["ok"]
-
-    manager.secrets.put(
-        "slack:team:T2",
-        {"bot_token": "xoxb-team-2", "managed": True},
-    )
-    assert not manager.set_inbox_binding(
-        "default", channel="slack", target="T2/C_APPROVALS"
-    )["ok"]
 
 
 def test_relay_does_not_reuse_dormant_manual_owners_for_bare_target(tmp_path):

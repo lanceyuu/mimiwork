@@ -4,7 +4,6 @@ import {
   addMcpServer,
   allowUser,
   connectConnector,
-  connectManaged,
   connectMcpBacked,
   connectMcp,
   deleteMcpServer,
@@ -21,14 +20,12 @@ import {
   reloadMcp,
   setDefaultModel,
   updateConnectorTools,
-  type CloudStatus,
   type Connector,
   type Subscription,
   type McpServer,
   type ModelSettings,
   type ProviderInfo,
 } from "../api";
-import { CloudSignInInline, CloudStatusPending } from "./connectors/CloudSignIn";
 import { ModelChecklist } from "./ModelChecklist";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
@@ -768,12 +765,10 @@ export function ConnectorTools({ c, onChanged }: { c: Connector; onChanged: () =
 // recommended connector can be connected without leaving the session (owner ask, 2026-07-03).
 export function ConnectSetup({
   c,
-  cloud,
   onConnected,
   manualOnly = false,
 }: {
   c: Connector;
-  cloud: CloudStatus | null;
   onConnected: () => void;
   // The add-modal's Manual pane: the one-click button lives on the sibling
   // pill, so don't render the managed block again here.
@@ -791,15 +786,6 @@ export function ConnectSetup({
     setBusy(false);
     if (res.ok) onConnected();
     else setError(res.error || "could not connect");
-  };
-
-  const oneClick = async () => {
-    setError(null);
-    const res = await connectManaged(c.name);
-    // Completion arrives via the tab's poll: the broker form-POSTs the profile
-    // to the sidecar, the connector flips to connected, this card closes itself.
-    if (res.ok) setWaiting(true);
-    else setError(res.error || "could not start managed connect");
   };
 
   const mcpOneClick = async () => {
@@ -820,40 +806,6 @@ export function ConnectSetup({
             {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
           </button>
           {c.fields.length > 0 && (
-            <div className="text-[11.5px] text-faint">or connect manually:</div>
-          )}
-        </div>
-      )}
-      {c.managed && !c.mcp && !manualOnly && (
-        <div className="space-y-2" data-testid="managed-connect">
-          {c.managed_paused ? (
-            // One-click temporarily off (e.g. Google pending CASA verification):
-            // a visibly-parked button, and the manual path below stays fully live.
-            <>
-              <button className={BTN_ACCENT + " opacity-50"} disabled data-testid="managed-coming-soon">
-                {`Connect ${c.title} with one click`}
-                <span className="ml-2 text-[11px] font-medium px-1.5 py-0.5 rounded-full bg-white/25">
-                  Coming soon
-                </span>
-              </button>
-              <div className="text-[11.5px] text-faint">
-                One-click sign-in is coming soon — connect manually below for now:
-              </div>
-            </>
-          ) : cloud?.signed_in ? (
-            <button className={BTN_ACCENT} onClick={oneClick} disabled={waiting}>
-              {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
-            </button>
-          ) : cloud ? (
-            <CloudSignInInline
-              blurb={`Sign-in unlocks the one-click ${c.title} connect — or connect manually below.`}
-            />
-          ) : (
-            // Status unknown (fetch pending/failed): never show the sign-in ask to a
-            // possibly-signed-in user (FB-013); the host keeps polling.
-            <CloudStatusPending />
-          )}
-          {!c.managed_paused && cloud?.signed_in && (
             <div className="text-[11.5px] text-faint">or connect manually:</div>
           )}
         </div>

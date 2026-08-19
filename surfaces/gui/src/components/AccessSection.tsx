@@ -11,8 +11,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CLOUD_CHANGED,
-  getCloudStatus,
   getConnectors,
   getRecentChannels,
   getSessionConnections,
@@ -20,7 +18,6 @@ import {
   setSessionConnection,
   subscribeChannel,
   unsubscribeChannel,
-  type CloudStatus,
   type Connector,
   type RecentChannel,
   type SessionConnections,
@@ -121,23 +118,7 @@ export function AccessSection({
   const [addedFrom, setAddedFrom] = useState<string | null>(null);
   // Folders mirrors Sources: flat rows + a quiet "+" link that expands the inline form.
   const [addingFolder, setAddingFolder] = useState(false);
-  const [cloud, setCloud] = useState<CloudStatus | null>(null);
-  useEffect(() => {
-    if (!connectFor) return;
-    // null means UNKNOWN (renders as "checking"), never signed-out: a single failed
-    // fetch here used to demand sign-in from a signed-in user with no way to recover
-    // (FB-013). Poll while the connect pane is open, keep last-good on failure, and
-    // listen for the sign-in broadcast so the pane flips the moment login lands.
-    const load = () => getCloudStatus().then(setCloud).catch(() => {});
-    load();
-    const t = setInterval(load, 5000);
-    window.addEventListener(CLOUD_CHANGED, load);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener(CLOUD_CHANGED, load);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [!!connectFor]);
+
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [recent, setRecent] = useState<RecentChannel[]>([]);
   const [draft, setDraft] = useState("");
@@ -243,7 +224,6 @@ export function AccessSection({
           {connectFor ? (
             <ConnectInline
               c={connectFor}
-              cloud={cloud}
               onDone={() => {
                 const name = connectFor.name;
                 setConnectFor(null);
@@ -477,12 +457,10 @@ export function AccessSection({
 // out-of-band (browser → broker → sidecar), so poll until the connector flips.
 function ConnectInline({
   c,
-  cloud,
   onDone,
   onBack,
 }: {
   c: Connector;
-  cloud: CloudStatus | null;
   onDone: () => void;
   onBack: () => void;
 }) {
@@ -509,7 +487,7 @@ function ConnectInline({
       </button>
       {c.blurb && <p className="text-[12px] text-muted mb-1 leading-relaxed">{c.blurb}</p>}
       <div className="-mx-2">
-        <ConnectSetup c={c} cloud={cloud} onConnected={onDone} />
+        <ConnectSetup c={c} onConnected={onDone} />
       </div>
       {/* Scope semantics, stated once (owner ask 2026-07-13): connecting is account-level,
           the toggle above is what scopes it to a session. */}

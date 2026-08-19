@@ -76,14 +76,9 @@ def _profile(
     secrets: SecretStore, name: str, *keys: str
 ) -> tuple[Optional[dict[str, Any]], Optional[dict[str, str]]]:
     profile = secrets.get(f"{name}:default") or {}
-    if profile.get("managed"):
-        # Managed-OAuth profiles renew through the cloud broker just before
-        # expiry; manual token profiles are never touched (no-op inside).
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), name)
-        profile = secrets.get(f"{name}:default") or {}
+    # `managed` profiles came from the removed cloud broker: their stored access
+    # token still works until it expires, but there is no refresh any more — an
+    # expired one surfaces as the provider's own 401 and needs a manual reconnect.
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return None, {"error": f"{name} is not connected; missing {', '.join(missing)}"}
@@ -106,12 +101,9 @@ def _account_profile(
             else f"{connector} is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), connector, profile_key=key)
-        profile = secrets.get(key) or profile
+    # `managed` profiles came from the removed cloud broker: their stored access
+    # token still works until it expires, but there is no refresh any more — an
+    # expired one surfaces as the provider's own 401 and needs a manual reconnect.
     missing = [k for k in keys if not profile.get(k)]
     if missing:
         return (
@@ -151,12 +143,9 @@ def _gmail_profile(
             else "gmail is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), "gmail", profile_key=key)
-        profile = secrets.get(key) or profile
+    # `managed` profiles came from the removed cloud broker: their stored access
+    # token still works until it expires, but there is no refresh any more — an
+    # expired one surfaces as the provider's own 401 and needs a manual reconnect.
     if not profile.get("access_token"):
         return "", None, {"error": f"gmail account {email} has no usable token"}
     return email, profile, None
@@ -178,14 +167,9 @@ def _gcal_profile(
             else "google calendar is not connected"
         )
         return "", None, {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(
-            secrets, load_config(), "google_calendar", profile_key=key
-        )
-        profile = secrets.get(key) or profile
+    # `managed` profiles came from the removed cloud broker: their stored access
+    # token still works until it expires, but there is no refresh any more — an
+    # expired one surfaces as the provider's own 401 and needs a manual reconnect.
     if not profile.get("access_token"):
         return (
             "",
@@ -220,12 +204,9 @@ def _hubspot_profile(
             else "hubspot is not connected"
         )
         return "", "", {"error": hint}
-    if profile.get("managed"):
-        from ..cloud import ensure_fresh_connector_token
-        from ..config import load_config
-
-        ensure_fresh_connector_token(secrets, load_config(), "hubspot", profile_key=key)
-        profile = secrets.get(key) or profile
+    # `managed` profiles came from the removed cloud broker: their stored access
+    # token still works until it expires, but there is no refresh any more — an
+    # expired one surfaces as the provider's own 401 and needs a manual reconnect.
     # Manual private-app profiles carry `token`; managed OAuth carries
     # `access_token` (which is what the broker refresh rotates).
     token = profile.get("token") or profile.get("access_token") or ""
@@ -406,24 +387,10 @@ def _github_auth(
     if profile.get("token"):
         return _github_headers(profile["token"]), None
     if profile.get("mode") == "relay":
-        from ..cloud import github_installation_token
-        from ..config import load_config
-        from . import github_installs
-
-        installation_id, _prof = github_installs.resolve(secrets, install)
-        if not installation_id and install:
-            installation_id, _prof = github_installs.resolve(secrets, "")
-        if not installation_id:
-            return None, {"error": "github is not connected; no App installation"}
-        token = github_installation_token(
-            secrets, load_config(), installation_id, force=force
-        )
-        if not token:
-            return None, {
-                "error": "github installation token unavailable "
-                "(sign in to MimiWork Cloud and retry)"
-            }
-        return _github_headers(token), None
+        return None, {
+            "error": "github: managed App installations were removed — "
+            "connect with a personal access token"
+        }
     return None, {"error": "github is not connected; missing token"}
 
 

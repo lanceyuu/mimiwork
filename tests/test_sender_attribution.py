@@ -6,7 +6,6 @@ send; manual installs (no authed_user) and DMs stay bare."""
 
 from coworker.connectors import attribution
 from coworker.connectors.base import SendResult
-from coworker.connectors.setup import managed_connect_slack_install
 from coworker.connectors.tools import make_send_file_tool, make_send_message_tool
 from coworker.secrets import SecretStore
 
@@ -23,15 +22,6 @@ def _sender(record: list):
         return SendResult(True, message_id="1.2")
 
     return {"slack": send}
-
-
-def test_install_stores_the_installers_member_id(tmp_path):
-    s = SecretStore(tmp_path / "secrets.json")
-    managed_connect_slack_install(
-        s,
-        {"team_id": "T1", "access_token": "xoxb-x", "slack_user_id": "U777"},
-    )
-    assert s.get("slack:team:T1")["slack_user_id"] == "U777"
 
 
 def test_cached_name_prefixes_text_sends(tmp_path):

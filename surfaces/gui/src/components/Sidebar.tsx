@@ -3,7 +3,6 @@ import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import {
   AUTOMATIONS_CHANGED,
-  CLOUD_CHANGED,
   getAutomations,
   getPersonas,
   getSettings,
@@ -186,7 +185,6 @@ export function Sidebar(props: Props) {
     refreshQt();
     const onFocus = () => refreshQt();
     window.addEventListener("focus", onFocus);
-    window.addEventListener(CLOUD_CHANGED, onFocus);
     const unlock = () => {
       localStorage.setItem("ocw:inbox-unlocked", "1");
       setInboxUnlocked(true);
@@ -194,7 +192,6 @@ export function Sidebar(props: Props) {
     window.addEventListener(INBOX_UNLOCK, unlock);
     return () => {
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener(CLOUD_CHANGED, onFocus);
       window.removeEventListener(INBOX_UNLOCK, unlock);
     };
   }, []);

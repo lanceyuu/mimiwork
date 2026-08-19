@@ -21,7 +21,7 @@ async function openQuickstart(page) {
   await expect(page.getByText("Start from a template")).toBeVisible();
 }
 
-test("role recipe: connect rows, lazy single sign-in, channel by name, consent mints the grant", async ({
+test("role recipe: unconnected rows point at the Connectors page; connecting unlocks the recipe", async ({
   page,
 }) => {
   await openQuickstart(page);
@@ -29,20 +29,27 @@ test("role recipe: connect rows, lazy single sign-in, channel by name, consent m
   // Pipeline digest: Slack is connected in fixtures, HubSpot isn't. No recipe form yet.
   await page.getByTestId("qs-template-pipeline").click();
   const cfg = page.getByTestId("qs-configure");
-  // §30: the card names its template — "SET UP · Pipeline digest" — instead of starting
-  // abruptly after the grid.
   await expect(cfg).toContainText("Set up");
   await expect(cfg).toContainText("Pipeline digest");
   await expect(cfg.getByText("✓ Connected").first()).toBeVisible();
   await expect(page.getByTestId("ob-recipe")).toHaveCount(0);
   await expect(page.getByTestId("ob-create")).toBeDisabled();
   await expect(page.getByTestId("ob-create-hint")).toContainText("Connect HubSpot");
+  // No in-place broker connect any more — the row points at the Connectors page.
+  await expect(page.getByTestId("ob-connect-hubspot")).toContainText(
+    "Connect it from the Connectors page",
+  );
 
-  // Connect HubSpot while signed out → the ONE cloud pane appears; signing in finishes the
-  // pending connect without another click.
-  await page.getByTestId("ob-connect-hubspot").click();
-  await expect(page.getByTestId("ob-cloudpane")).toBeVisible();
-  await page.getByTestId("ob-cloud-signin").click();
+  // Connect HubSpot manually from the Connectors page, then come back.
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("connector-hubspot").getByRole("button", { name: "Connect" }).click();
+  await page.getByPlaceholder("pat-…").fill("pat-na1-token");
+  await page.getByRole("button", { name: "Connect", exact: true }).last().click();
+  await expect(page.getByTestId("connector-hubspot")).toContainText("Acme Inc", { timeout: 10_000 });
+
+  await openQuickstart(page);
+  await page.getByTestId("qs-template-pipeline").click();
   await expect(page.getByTestId("ob-recipe")).toBeVisible({ timeout: 15_000 });
 
   // Connected but no channel → the gate names the missing piece (tester catch 2026-07-12).
@@ -60,41 +67,6 @@ test("role recipe: connect rows, lazy single sign-in, channel by name, consent m
   await expect(page.getByRole("button", { name: /Run now/ })).toBeVisible();
   await expect(page.getByText("Pipeline digest").first()).toBeVisible();
   await expect(page.getByTestId("task-grants")).toContainText("send_message");
-});
-
-test("connect narrates itself: Opening browser → waiting strip → Cancel restores the button", async ({
-  page,
-}) => {
-  await openQuickstart(page);
-  // Sign in out-of-band so Connect goes straight to the broker flow (no cloud pane).
-  await page.evaluate(() => fetch("/v1/cloud/login", { method: "POST" }));
-
-  // Hold the connect POST open (§30's 4–5 s of dead air) and never flip the fixture's
-  // connected state — the waiting strip owns the gap until the user acts.
-  let release: (() => void) | undefined;
-  const held = new Promise<void>((r) => (release = r));
-  await page.route(/\/v1\/connectors\/hubspot\/connect-managed$/, async (route) => {
-    await held;
-    await route.fulfill({ json: { ok: true } });
-  });
-
-  await page.getByTestId("qs-template-pipeline").click();
-  // The mount refresh must land the signed-in status before Connect is clicked, or the
-  // click would open the sign-in pane instead of the broker flow.
-  await page.waitForResponse(/\/v1\/cloud\/status/);
-  await page.getByTestId("ob-connect-hubspot").click();
-  await expect(page.getByText("Opening browser…")).toBeVisible();
-
-  release!();
-  await expect(page.getByText("Waiting for HubSpot…")).toBeVisible();
-  await expect(page.getByTestId("ob-connect-wait")).toContainText(
-    "Finish connecting HubSpot in your browser",
-  );
-
-  // Cancel clears only the LOCAL waiting state — the Connect button returns.
-  await page.getByTestId("ob-connect-cancel").click();
-  await expect(page.getByTestId("ob-connect-wait")).toHaveCount(0);
-  await expect(page.getByTestId("ob-connect-hubspot")).toBeVisible();
 });
 
 test("read-only recipe (Morning brief) carries disclosure, not a grant", async ({ page }) => {

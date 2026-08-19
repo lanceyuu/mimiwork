@@ -9,18 +9,15 @@ async function openConnectors(page) {
   await page.getByRole("button", { name: "Connectors", exact: true }).click();
 }
 
-async function signInAndConnectFirstAccount(page) {
+async function connectFirstAccount(page) {
   await openConnectors(page);
-  await page.getByTestId("account-row").click();
-  await page.getByTestId("account-sign-in").click();
-  await expect(page.getByTestId("account-row")).toContainText("Rohit", { timeout: 10_000 });
-  // starts disconnected → Available row → one click (mock connects instantly)
+  // starts disconnected → Available row → manual token connect
   await page
     .getByTestId("connector-google_calendar")
     .getByRole("button", { name: "Connect", exact: true })
     .click();
-  await page.getByRole("button", { name: /Connect Google Calendar with one click/i }).click();
-  await page.keyboard.press("Escape");
+  await page.locator(".conn-field input").first().fill("ya29.token");
+  await page.getByRole("button", { name: "Connect", exact: true }).last().click();
   await expect(page.getByTestId("connector-google_calendar")).toContainText("rohit@gmail.com", {
     timeout: 10_000,
   });
@@ -29,11 +26,13 @@ async function signInAndConnectFirstAccount(page) {
 test("connect, then add a second account from the page; first stays default", async ({
   page,
 }) => {
-  await signInAndConnectFirstAccount(page);
+  await connectFirstAccount(page);
   await page.getByTestId("connector-google_calendar").click();
   await expect(page.getByTestId("gcal-detail")).toBeVisible();
 
   await page.getByTestId("add-account-btn").click();
+  await page.locator(".conn-field input").first().fill("ya29.second");
+  await page.getByRole("button", { name: "Connect", exact: true }).last().click();
   const rohit = page.getByTestId("gcal-account-rohit@gmail.com");
   const work = page.getByTestId("gcal-account-work@dlai.com");
   await expect(work).toBeVisible({ timeout: 10_000 });
@@ -47,9 +46,11 @@ test("connect, then add a second account from the page; first stays default", as
 test("Make default moves the badge; disconnecting the default repoints it", async ({
   page,
 }) => {
-  await signInAndConnectFirstAccount(page);
+  await connectFirstAccount(page);
   await page.getByTestId("connector-google_calendar").click();
   await page.getByTestId("add-account-btn").click();
+  await page.locator(".conn-field input").first().fill("ya29.second");
+  await page.getByRole("button", { name: "Connect", exact: true }).last().click();
   await expect(page.getByTestId("gcal-account-work@dlai.com")).toBeVisible({ timeout: 10_000 });
 
   await page.getByTestId("gcal-make-default-work@dlai.com").click();
