@@ -79,7 +79,7 @@ def test_disable_persona_archives_its_sessions(tmp_path):
     collapsed to the single Cowork, this now applies to INSTALLED personas: their real
     sessions archive atomically server-side, internal __run__ threads and the Cowork
     default are untouched, and re-enable never unarchives."""
-    from tests.test_persona_loading import THIRD_PARTY
+    from test_persona_loading import THIRD_PARTY
 
     manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
     vendor = tmp_path / "vendor"

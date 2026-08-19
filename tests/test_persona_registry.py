@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from coworker.personas.registry import DEFAULT_PERSONA_ID, PersonaRegistry
-from tests.test_persona_loading import THIRD_PARTY
+from test_persona_loading import THIRD_PARTY
 
 
 def _reg(tmp_path) -> PersonaRegistry:
