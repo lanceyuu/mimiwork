@@ -1610,6 +1610,10 @@ export async function createAutomation(payload: {
   // §25 standing grants (the creating surface rendered them; submit IS the consent).
   // Only target-bound write entries survive server-side validation.
   permissions?: { tool: string; target: string; access: "read" | "write" }[];
+  // Bind the automation to a real folder instead of a fresh scratch dir.
+  workspace?: string;
+  // Reference files, written into <workspace>/attachments before the first run.
+  files?: { name: string; data_b64: string }[];
 }): Promise<{ ok: boolean; error?: string; task?: Automation }> {
   const res = await fetch(`${httpBase()}/v1/automations`, {
     method: "POST",

@@ -181,3 +181,50 @@ def test_legacy_qualitati_default_migrates_to_hound(tmp_path):
     saved = json.loads((state / "prefs.json").read_text())
     assert saved["default_model"] == "qualitati:mimi-hound"
     assert saved["models"] == ["qualitati:mimi-puppy"]
+
+
+# ── automation creation: folder binding + uploaded files ────────────────────
+
+
+def test_automation_binds_to_a_chosen_folder_and_saves_files(tmp_path):
+    import base64
+
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+    project = tmp_path / "course-material"
+    project.mkdir()
+    res = mgr.create_automation(
+        {
+            "title": "Weekly digest",
+            "instructions": "Summarize the readings.",
+            "cron": "0 9 * * 1",
+            "workspace": str(project),
+            "files": [{"name": "syllabus.md", "data_b64": base64.b64encode(b"# Week 1").decode()}],
+        }
+    )
+    assert res["ok"], res
+    assert res["task"]["workspace"] == str(project)
+    assert (project / "attachments" / "syllabus.md").read_text() == "# Week 1"
+    # The agent is told where the material lives.
+    task = mgr.task_store.get(res["task"]["id"])
+    assert "./attachments/" in task.instructions and "syllabus.md" in task.instructions
+
+
+def test_automation_rejects_bad_folder_and_bad_files(tmp_path):
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+    base = {"title": "t", "instructions": "i", "cron": "0 9 * * *"}
+    assert "folder not found" in mgr.create_automation({**base, "workspace": "/no/such/dir"})["error"]
+    # Path parts are stripped — a traversal name lands INSIDE attachments/, never outside.
+    res = mgr.create_automation({**base, "files": [{"name": "../evil.sh", "data_b64": ""}]})
+    assert res["ok"]
+    from pathlib import Path
+
+    ws = Path(res["task"]["workspace"])
+    assert (ws / "attachments" / "evil.sh").exists()
+    assert not (ws.parent / "evil.sh").exists()
+    assert "invalid encoding" in mgr.create_automation(
+        {**base, "files": [{"name": "ok.txt", "data_b64": "%%%"}]}
+    )["error"]

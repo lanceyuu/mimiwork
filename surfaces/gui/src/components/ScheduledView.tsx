@@ -90,6 +90,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     instructions: string;
     cron?: string;
     permissions?: { tool: string; target: string; access: "read" | "write" }[];
+    workspace?: string;
+    files?: { name: string; data_b64: string }[];
   }) => {
     setBusy(payload.title);
     try {
@@ -197,6 +199,24 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   );
 }
 
+async function fileToB64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+// Node id → which part of the form it edits, for the click-to-edit flow preview.
+const NODE_HINTS: Record<string, string> = {
+  trigger: "Schedule — when this runs",
+  agent: "Where it works — the folder and files it can use",
+  ask: "Approvals — it asks before consequential steps",
+  output: "Where the result lands",
+};
+
 function NewAutomationForm({
   busy,
   onCancel,
@@ -204,17 +224,65 @@ function NewAutomationForm({
 }: {
   busy: boolean;
   onCancel: () => void;
-  onCreate: (p: { title: string; instructions: string; cron?: string }) => void;
+  onCreate: (p: {
+    title: string;
+    instructions: string;
+    cron?: string;
+    workspace?: string;
+    files?: { name: string; data_b64: string }[];
+  }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [time, setTime] = useState("09:00");
   const [freq, setFreq] = useState("daily");
+  const [folder, setFolder] = useState<string>("");
+  const [files, setFiles] = useState<File[]>([]);
+  // Revision notes attached to flow nodes — folded into the instructions on create,
+  // so "check the flowchart, annotate what to change" is part of the request itself.
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [activeNode, setActiveNode] = useState<string | null>(null);
 
   const valid = title.trim() && instructions.trim();
 
+  // A draft task so the live flowchart mirrors the form as it's filled in.
+  const draft = {
+    id: "draft",
+    title: title || "New automation",
+    enabled: true,
+    schedule: `${freq} at ${time}`,
+    agent: "cowork",
+    workspace: folder,
+    always_allowed: [],
+    notify_on_completion: true,
+    last_status: null,
+  } as unknown as Automation;
+
+  const notedNodes = new Set(Object.keys(notes).filter((k) => notes[k]?.trim()));
+
+  const submit = async () => {
+    const noteLines = Object.entries(notes)
+      .filter(([, v]) => v.trim())
+      .map(([k, v]) => `- ${NODE_HINTS[k] ?? k}: ${v.trim()}`);
+    onCreate({
+      title: title.trim(),
+      instructions:
+        instructions.trim() +
+        (noteLines.length ? `\n\nRevision notes from the flow review:\n${noteLines.join("\n")}` : ""),
+      cron: toCron(time, freq),
+      ...(folder ? { workspace: folder } : {}),
+      ...(files.length
+        ? {
+            files: await Promise.all(
+              files.map(async (f) => ({ name: f.name, data_b64: await fileToB64(f) })),
+            ),
+          }
+        : {}),
+    });
+  };
+
   return (
-    <div className={CARD + " tmpl-form p-4 mb-4"}>
+    <div className={CARD + " tmpl-form p-4 mb-4"} data-testid="new-automation-form">
       <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
         New automation
       </div>
@@ -238,6 +306,7 @@ function NewAutomationForm({
             className="tmpl-input tmpl-time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
+            data-testid="auto-time"
           />
         </label>
         <label className="tmpl-field">
@@ -253,18 +322,87 @@ function NewAutomationForm({
           </select>
         </label>
       </div>
-      <div className="tmpl-form-actions">
+
+      {/* Folder + files: run against real material, not an empty scratch dir. */}
+      <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[12.5px]">
+        <span className="text-muted">Works in:</span>
         <button
-          className="btn-primary sm"
-          disabled={!valid || busy}
-          onClick={() =>
-            onCreate({
-              title: title.trim(),
-              instructions: instructions.trim(),
-              cron: toCron(time, freq),
-            })
-          }
+          className="px-2.5 py-1 rounded-lg border border-line bg-paper hover:border-lineStrong"
+          data-testid="auto-pick-folder"
+          onClick={async () => {
+            const { chooseFolder } = await import("../tauri");
+            const picked = await chooseFolder();
+            if (picked) setFolder(picked);
+          }}
         >
+          {folder ? folder.split("/").filter(Boolean).slice(-1)[0] : "Choose folder…"}
+        </button>
+        {folder ? (
+          <button className="link" onClick={() => setFolder("")}>
+            use a fresh folder instead
+          </button>
+        ) : (
+          <span className="text-faint">(otherwise it gets its own fresh folder)</span>
+        )}
+        <label className="px-2.5 py-1 rounded-lg border border-line bg-paper hover:border-lineStrong cursor-pointer">
+          + Attach files
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            data-testid="auto-files"
+            onChange={(e) => {
+              setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])].slice(0, 10));
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-1.5">
+          {files.map((f, i) => (
+            <span
+              key={`${f.name}-${i}`}
+              className="text-[11.5px] px-2 py-0.5 rounded-full border border-line bg-paper text-muted"
+            >
+              {f.name}{" "}
+              <button className="link" onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Live flow preview: what will actually happen, as a pipeline. Click a node to
+          see what it means and leave a revision note — notes travel with the request. */}
+      <div className="mt-3">
+        <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-1.5">
+          Flow preview — click a step to annotate it
+        </div>
+        <AutomationFlow
+          task={draft}
+          onNodeClick={(id) => setActiveNode(activeNode === id ? null : id)}
+          notedNodes={notedNodes}
+        />
+        {activeNode && (
+          <div className="mt-1.5 flex items-start gap-2" data-testid="auto-node-note">
+            <div className="text-[12px] text-muted pt-1.5 shrink-0">
+              {NODE_HINTS[activeNode] ?? activeNode}:
+            </div>
+            <input
+              className="tmpl-input flex-1"
+              placeholder="Revision note (e.g. skip weekends when I'm traveling; keep reports under one page)"
+              value={notes[activeNode] ?? ""}
+              autoFocus
+              onChange={(e) => setNotes({ ...notes, [activeNode]: e.target.value })}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="tmpl-form-actions">
+        <button className="btn-primary sm" disabled={!valid || busy} onClick={submit}>
           {busy ? "Creating…" : "Create automation"}
         </button>
         <button className="link" onClick={onCancel}>cancel</button>

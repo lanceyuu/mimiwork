@@ -3191,6 +3191,15 @@ class SessionManager:
         )
         from ..automation.models import grant_entries
 
+        # Optional user-chosen folder: the automation runs THERE (reads the user's
+        # real files, writes deliverables next to them) instead of a scratch dir.
+        workspace = (payload.get("workspace") or "").strip()
+        if workspace:
+            ws = Path(workspace).expanduser()
+            if not ws.is_dir():
+                return {"ok": False, "error": f"folder not found: {workspace}"}
+            workspace = str(ws.resolve())
+
         task = ScheduledTask(
             title=title,
             instructions=instructions,
@@ -3203,7 +3212,44 @@ class SessionManager:
             # agent tool — only target-bound write grants survive.
             always_allowed_tools=grant_entries(payload.get("permissions")),
         )
-        task.workspace = self._provision_scratch(task.task_session_id)
+        task.workspace = workspace or self._provision_scratch(task.task_session_id)
+
+        # Reference files uploaded in the creation form land in <workspace>/attachments
+        # so every run can read them. Written before save: a failed write fails creation
+        # loudly rather than scheduling a task missing the material it was promised.
+        files = payload.get("files") or []
+        if files:
+            import base64 as _b64
+            import binascii as _binascii
+
+            if not isinstance(files, list) or len(files) > 10:
+                return {"ok": False, "error": "too many files (limit 10)"}
+            dest = Path(task.workspace) / "attachments"
+            written: list[str] = []
+            for f in files:
+                if not isinstance(f, dict):
+                    return {"ok": False, "error": "invalid file entry"}
+                name = Path(str(f.get("name") or "file")).name  # strip any path parts
+                if not name or name.startswith("."):
+                    return {"ok": False, "error": f"invalid file name: {f.get('name')!r}"}
+                try:
+                    data = _b64.b64decode(str(f.get("data_b64") or ""), validate=True)
+                except (ValueError, _binascii.Error):
+                    return {"ok": False, "error": f"invalid encoding for {name}"}
+                if len(data) > 10_000_000:
+                    return {"ok": False, "error": f"{name} is too large (limit 10 MB)"}
+                try:
+                    dest.mkdir(parents=True, exist_ok=True)
+                    (dest / name).write_bytes(data)
+                except OSError as exc:
+                    return {"ok": False, "error": f"could not save {name}: {exc}"}
+                written.append(name)
+            if written:
+                task.instructions += (
+                    "\n\nReference files for this automation are in ./attachments/: "
+                    + ", ".join(written)
+                )
+
         self.task_store.save(task)
         return {"ok": True, "task": task.public()}
 

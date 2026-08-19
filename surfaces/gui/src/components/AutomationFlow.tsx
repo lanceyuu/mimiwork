@@ -85,10 +85,27 @@ export function flowNodes(task: Automation): { agentCol: FlowNode[]; actions: Fl
   return { agentCol: [trigger, agent], actions, output };
 }
 
-function Card({ n, x, y }: { n: FlowNode; x: number; y: number }) {
+function Card({
+  n,
+  x,
+  y,
+  onClick,
+  noted,
+}: {
+  n: FlowNode;
+  x: number;
+  y: number;
+  onClick?: (id: string) => void;
+  noted?: boolean;
+}) {
   const tone = TONES[n.tone];
   return (
-    <g transform={`translate(${x},${y})`} data-testid={`flow-node-${n.id}`}>
+    <g
+      transform={`translate(${x},${y})`}
+      data-testid={`flow-node-${n.id}`}
+      onClick={onClick ? () => onClick(n.id) : undefined}
+      style={onClick ? { cursor: "pointer" } : undefined}
+    >
       <rect
         width={NODE_W}
         height={NODE_H}
@@ -97,6 +114,8 @@ function Card({ n, x, y }: { n: FlowNode; x: number; y: number }) {
         stroke={tone.border}
         strokeWidth={1.4}
       />
+      {/* A small dot marks a node carrying a revision note (creation-form editing). */}
+      {noted ? <circle cx={NODE_W - 10} cy={10} r={4} fill="#f59e0b" /> : null}
       <rect x={10} y={13} width={32} height={32} rx={9} fill={tone.chip} />
       <text x={26} y={34} textAnchor="middle" fontSize={15}>
         {n.icon}
@@ -119,7 +138,19 @@ function wire(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
 }
 
-export function AutomationFlow({ task, running }: { task: Automation; running?: boolean }) {
+export function AutomationFlow({
+  task,
+  running,
+  onNodeClick,
+  notedNodes,
+}: {
+  task: Automation;
+  running?: boolean;
+  // Creation-form editing: nodes become clickable (focus the matching field /
+  // attach a revision note); notedNodes marks which ones carry a note.
+  onNodeClick?: (id: string) => void;
+  notedNodes?: Set<string>;
+}) {
   const { agentCol, actions, output } = flowNodes(task);
   const [trigger, agent] = agentCol;
 
@@ -168,12 +199,12 @@ export function AutomationFlow({ task, running }: { task: Automation; running?: 
           />
         ))}
 
-        <Card n={trigger} x={colX[0]} y={midY - NODE_H / 2} />
-        <Card n={agent} x={colX[1]} y={midY - NODE_H / 2} />
+        <Card n={trigger} x={colX[0]} y={midY - NODE_H / 2} onClick={onNodeClick} noted={notedNodes?.has(trigger.id)} />
+        <Card n={agent} x={colX[1]} y={midY - NODE_H / 2} onClick={onNodeClick} noted={notedNodes?.has(agent.id)} />
         {actions.map((n, i) => (
-          <Card key={n.id} n={n} x={colX[2]} y={rowY(i)} />
+          <Card key={n.id} n={n} x={colX[2]} y={rowY(i)} onClick={onNodeClick} noted={notedNodes?.has(n.id)} />
         ))}
-        <Card n={output} x={colX[3]} y={midY - NODE_H / 2} />
+        <Card n={output} x={colX[3]} y={midY - NODE_H / 2} onClick={onNodeClick} noted={notedNodes?.has(output.id)} />
       </svg>
     </div>
   );
