@@ -22,6 +22,18 @@ def capabilities_for(model: str) -> ModelCapabilities:
     provider = model.split(":", 1)[0].lower() if ":" in model else ""
     name = model.split(":", 1)[-1].lower()  # strip a provider prefix if present
 
+    # QualiTaTi gateway ids not in the matrix — the LEGACY aliases old sessions stay
+    # bound to ("mimi", "hound", "wolf"). The gateway diverts any image-bearing request
+    # to a multimodal leg server-side, so vision=True is a fact about the SERVICE, not
+    # a guess about one model; without this, a pre-rename session silently strips every
+    # image into a "[not viewable]" placeholder (owner report 2026-08-19). The free
+    # tier ("puppy"/"deepseek-v4-flash") stays text-only.
+    if provider == "qualitati":
+        free_tier = "puppy" in name or name.startswith("deepseek")
+        return ModelCapabilities(
+            tools=True, vision=not free_tier, parallel_tool_calls=True, streaming=True
+        )
+
     # Ollama (local) models vary widely and many fake/mishandle parallel tool calls — assume
     # tools work (we only point at tool-capable models) but stay conservative otherwise.
     if provider == "ollama":

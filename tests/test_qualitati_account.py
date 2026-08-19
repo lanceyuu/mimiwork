@@ -235,3 +235,14 @@ def test_mimi_is_a_curated_model():
 
     entry = MATRIX["qualitati:mimi-hound"]
     assert entry.caps.tools  # agent work needs tool calling
+
+
+def test_legacy_qualitati_ids_keep_vision():
+    """Sessions bound before the tier rename hold 'qualitati:mimi' — the gateway
+    routes their images to a multimodal leg, so the engine must not strip them."""
+    from coworker.providers.capabilities import capabilities_for
+
+    for legacy in ("qualitati:mimi", "qualitati:hound", "qualitati:wolf"):
+        assert capabilities_for(legacy).vision, legacy
+    assert not capabilities_for("qualitati:puppy").vision
+    assert not capabilities_for("qualitati:deepseek-v4-flash").vision

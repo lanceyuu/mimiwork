@@ -3715,6 +3715,29 @@ class SessionManager:
         adds that project's skills, with project copies shadowing same-named global ones."""
         return self.skill_store.rows(workspace or None)
 
+    def skill_store_search(self, query: str) -> dict[str, Any]:
+        """Search the bundled community-skill index (~7,200 entries, three repos).
+        Marks rows already installed so the UI can disable their Install button."""
+        from ..skills import marketplace
+
+        results = marketplace.search(query, limit=30)
+        installed = {r["name"] for r in self.skill_store.rows(None)}
+        return {
+            "results": [
+                {**r, "installed": r["name"] in installed} for r in results
+            ]
+        }
+
+    def skill_store_install(
+        self, name: str, repo: Optional[str] = None, force: bool = False
+    ) -> dict[str, Any]:
+        from ..skills import marketplace
+
+        result = marketplace.install(
+            name, self.skill_store.global_dir, repo=repo, force=force
+        )
+        return result
+
     def reveal_skill(
         self, name: str, workspace: Optional[str] = None
     ) -> dict[str, Any]:

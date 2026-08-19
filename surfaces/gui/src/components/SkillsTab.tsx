@@ -3,12 +3,15 @@ import { useEffect } from "react";
 import {
   createSkill,
   deleteSkill,
+  installStoreSkill,
   listSkills,
   revealSkill,
+  searchSkillStore,
   stageSkillUpload,
   confirmSkillUpload,
   updateSkill,
   type SkillRow,
+  type SkillStoreEntry,
   type SkillUploadPreview,
 } from "../api";
 import { Icon } from "./Icon";
@@ -85,6 +88,12 @@ export function SkillsTab({
     null,
   );
   const fileInput = useRef<HTMLInputElement>(null);
+  // The skill store: search the bundled community index, install on demand.
+  const [storeOpen, setStoreOpen] = useState(false);
+  const [storeQuery, setStoreQuery] = useState("");
+  const [storeResults, setStoreResults] = useState<SkillStoreEntry[]>([]);
+  const [storeBusy, setStoreBusy] = useState<string | null>(null); // name mid-install
+  const [storeFlag, setStoreFlag] = useState<{ entry: SkillStoreEntry; text: string; url?: string } | null>(null);
 
   // Confirmation copy (SKILLS-SPEC §4.1 #2): name-first, outcome + remedy only, in words a
   // person already owns — now / everywhere / off / start a new one. Never mechanism ("the
@@ -231,6 +240,20 @@ export function SkillsTab({
                     your skills
                   </div>
                 </button>
+                <button
+                  role="menuitem"
+                  data-testid="skill-store-open"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-paper"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setStoreOpen(true);
+                  }}
+                >
+                  <div className="text-[13px] font-medium">Browse the skill store</div>
+                  <div className="text-[11.5px] text-muted">
+                    ~7,200 community skills — search and install in one click
+                  </div>
+                </button>
               </div>
             </>
           ) : null}
@@ -248,6 +271,118 @@ export function SkillsTab({
         }}
       />
 
+      {storeOpen ? (
+        <div className={`${CARD} p-4 mb-4`} data-testid="skill-store">
+          <div className="flex items-center justify-between mb-2.5">
+            <div>
+              <div className="text-[13.5px] font-semibold">Skill store</div>
+              <div className="text-[11.5px] text-muted">
+                ~7,200 community skills from three curated GitHub collections — installs are
+                pinned to the reviewed version.
+              </div>
+            </div>
+            <button
+              className={BTN_BORDERED}
+              onClick={() => {
+                setStoreOpen(false);
+                setStoreFlag(null);
+              }}
+            >
+              Close
+            </button>
+          </div>
+          <input
+            className={INPUT}
+            placeholder="Search skills… (e.g. seo audit, meeting notes, resume)"
+            value={storeQuery}
+            autoFocus
+            data-testid="skill-store-search"
+            onChange={async (e) => {
+              const q = e.target.value;
+              setStoreQuery(q);
+              setStoreFlag(null);
+              setStoreResults(q.trim() ? await searchSkillStore(q) : []);
+            }}
+          />
+          {storeFlag ? (
+            <div
+              className="mt-2.5 rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[12px]"
+              role="alert"
+              data-testid="skill-store-flag"
+            >
+              <div className="font-medium mb-1">“{storeFlag.entry.name}” needs a look first</div>
+              <div className="text-muted">{storeFlag.text}</div>
+              <div className="mt-1.5 flex gap-2">
+                {storeFlag.url ? (
+                  <a
+                    className="underline underline-offset-2"
+                    href={storeFlag.url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Review on GitHub
+                  </a>
+                ) : null}
+                <button
+                  className="underline underline-offset-2"
+                  onClick={async () => {
+                    const res = await installStoreSkill(
+                      storeFlag.entry.name,
+                      storeFlag.entry.repo,
+                      true,
+                    );
+                    setStoreFlag(null);
+                    if (!fail(res)) {
+                      setNotice({ name: storeFlag.entry.name, text: CONFIRMATION, tone: "ok" });
+                      setStoreResults(await searchSkillStore(storeQuery));
+                      refresh();
+                    }
+                  }}
+                >
+                  Install anyway
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-line">
+            {storeResults.map((r) => (
+              <div key={`${r.repo}/${r.path}`} className="py-2.5 flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-medium truncate">{r.name}</span>
+                    <span className={BADGE}>{r.repo.split("/")[0]}</span>
+                  </div>
+                  <div className="text-[11.5px] text-muted line-clamp-2">{r.description}</div>
+                </div>
+                <button
+                  className={`${BTN_BORDERED} disabled:opacity-40`}
+                  disabled={r.installed || storeBusy === r.name}
+                  data-testid={`skill-store-install-${r.name}`}
+                  onClick={async () => {
+                    setStoreBusy(r.name);
+                    const res = await installStoreSkill(r.name, r.repo);
+                    setStoreBusy(null);
+                    if (res.flagged) {
+                      setStoreFlag({ entry: r, text: res.error || "", url: res.url });
+                      return;
+                    }
+                    if (!fail(res)) {
+                      setNotice({ name: r.name, text: CONFIRMATION, tone: "ok" });
+                      setStoreResults(await searchSkillStore(storeQuery));
+                      refresh();
+                    }
+                  }}
+                >
+                  {r.installed ? "Installed" : storeBusy === r.name ? "Installing…" : "Install"}
+                </button>
+              </div>
+            ))}
+            {storeQuery.trim() && storeResults.length === 0 ? (
+              <div className="py-3 text-[12px] text-muted">No skills match that search.</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {error ? (
         <div className="text-[12.5px] text-red-500 mb-3" role="alert">
           {error}

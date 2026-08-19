@@ -55,7 +55,10 @@ datas += collect_data_files("coworker", includes=["**/*.jsonl"])
 # skills/builtin/** — bundled skills (theory building, consumer paper writing, academic
 # writing, business communication, slide design) seeded into the user's skills dir on
 # first run. Includes non-.md resources (css/js/json in the slide template pack).
-datas += collect_data_files("coworker", includes=["skills/builtin/**/*"])
+# skills/store_index.json.gz — the community skill store's search index (~7,200 entries).
+datas += collect_data_files(
+    "coworker", includes=["skills/builtin/**/*", "skills/*.json.gz"]
+)
 
 if not INCLUDE_EXPERIMENTAL:
     hiddenimports = [

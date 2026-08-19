@@ -1519,6 +1519,32 @@ export async function getAutomations(): Promise<Automation[]> {
   return (await res.json()).tasks ?? [];
 }
 
+/** One listing in the community skill store (bundled index over three GitHub
+ * repos; installs download the pinned files on demand). */
+export interface SkillStoreEntry {
+  name: string;
+  description: string;
+  repo: string;
+  path: string;
+  installed: boolean;
+}
+export async function searchSkillStore(q: string): Promise<SkillStoreEntry[]> {
+  const res = await fetch(`${httpBase()}/v1/skills/store?q=${encodeURIComponent(q)}`);
+  return (await res.json()).results ?? [];
+}
+export async function installStoreSkill(
+  name: string,
+  repo: string,
+  force = false,
+): Promise<{ ok: boolean; error?: string; flagged?: boolean; url?: string }> {
+  const res = await fetch(`${httpBase()}/v1/skills/store/install`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, repo, force }),
+  });
+  return res.json();
+}
+
 /** App-wide busy snapshot — drives the floating Mimi companion. Live flips ride
  * /ws/events as {"type":"activity"} frames; this is the initial state. */
 export interface Activity {

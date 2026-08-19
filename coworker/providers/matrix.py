@@ -105,13 +105,13 @@ MATRIX: dict[str, ModelEntry] = {
     # blended tokens. (vision yes, pdf no — the gateway is OpenAI-compat, no
     # inline file part.)
     "qualitati:mimi-hound": ModelEntry(
-        label="Mimi Hound · cheap · QualiTaTi credits",
+        label="Mimi Hound · fast",
         caps=ModelCapabilities(
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
     ),
     "qualitati:mimi-wolf": ModelEntry(
-        label="Mimi Wolf · expensive · QualiTaTi credits",
+        label="Mimi Wolf · powerful",
         caps=ModelCapabilities(
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
@@ -119,7 +119,7 @@ MATRIX: dict[str, ModelEntry] = {
     # "Mimi Puppy": free daily allowance for signed-in QualiTaTi accounts. Zero
     # credits; the gateway enforces the per-day cap and 429s past it.
     "qualitati:mimi-puppy": ModelEntry(
-        label="Mimi Puppy · free daily with QualiTaTi",
+        label="Mimi Puppy · free for use",
         caps=_AGENTIC,
     ),
     "deepseek:deepseek-v4-flash": ModelEntry(

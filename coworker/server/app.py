@@ -551,6 +551,20 @@ def create_app(manager: SessionManager) -> FastAPI:
         # §6 "Show folder": open the skill's folder in the OS file manager (local machine).
         return manager.reveal_skill(name, str((body or {}).get("workspace", "")) or None)
 
+    @app.get("/v1/skills/store")
+    def skill_store(q: str = "") -> dict[str, Any]:
+        """Search the community skill store (bundled index; installs download
+        from GitHub pinned to the indexed commit)."""
+        return manager.skill_store_search(q)
+
+    @app.post("/v1/skills/store/install")
+    def skill_store_install(body: dict) -> dict[str, Any]:
+        return manager.skill_store_install(
+            str((body or {}).get("name", "")),
+            repo=str((body or {}).get("repo", "")) or None,
+            force=bool((body or {}).get("force")),
+        )
+
     @app.post("/v1/skills/upload")
     def stage_skill_upload(body: dict) -> dict[str, Any]:
         # Stage → preview; nothing is installed until /upload/confirm (SKILLS-SPEC §4.2).

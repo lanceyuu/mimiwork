@@ -73,7 +73,7 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           <div className="text-[13.5px] font-semibold">QualiTaTi account</div>
           <div className="text-[12px] text-muted truncate">
             {state.signed_in
-              ? "“Mimi Puppy” is free daily; “Mimi Hound” (cheap) and “Mimi Wolf” (expensive) spend your credits."
+              ? "“Mimi Puppy” is free for use; “Mimi Hound” (fast) and “Mimi Wolf” (powerful) spend your credits."
               : "Sign in for a free daily model — plus your QualiTaTi credits as a model provider. No API key needed."}
           </div>
         </div>
