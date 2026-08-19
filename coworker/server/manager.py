@@ -172,6 +172,31 @@ class SessionManager:
         self._prefs = self._load_prefs()
         if self._prefs.get("default_model"):
             self.model = self._prefs["default_model"]
+        # QualiTaTi tier rename (2026-08-19): configs written before it hold the old
+        # alias as the default, which the picker then shows as a raw id ("qualitati:mimi")
+        # alongside the three tiers. Migrate stored prefs once; the gateway keeps the old
+        # wire aliases forever, so this is cosmetic-config hygiene, not compatibility.
+        _LEGACY_QUALITATI = {
+            "qualitati:mimi": "qualitati:mimi-hound",
+            "qualitati:hound": "qualitati:mimi-hound",
+            "qualitati:wolf": "qualitati:mimi-wolf",
+            "qualitati:deepseek-v4-flash": "qualitati:mimi-puppy",
+            "qualitati:puppy": "qualitati:mimi-puppy",
+        }
+        migrated = False
+        if self.model in _LEGACY_QUALITATI:
+            self.model = _LEGACY_QUALITATI[self.model]
+            if self._prefs.get("default_model"):
+                self._prefs["default_model"] = self.model
+                migrated = True
+        for key in ("models", "hidden_models"):
+            vals = self._prefs.get(key)
+            if isinstance(vals, list) and any(v in _LEGACY_QUALITATI for v in vals):
+                remapped = [_LEGACY_QUALITATI.get(v, v) for v in vals]
+                self._prefs[key] = list(dict.fromkeys(remapped))
+                migrated = True
+        if migrated:
+            self._save_prefs()
         # Seed the PDF-fallback module global from prefs so engines see the user's
         # choice from the first turn (set_pdf_settings keeps it in sync after).
         from ..pdf_support import set_fallback_mode

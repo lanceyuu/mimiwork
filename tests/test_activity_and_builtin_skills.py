@@ -157,3 +157,27 @@ def test_activity_endpoint(tmp_path):
             "running_sessions": 0,
             "running_automations": 0,
         }
+
+
+# ── legacy QualiTaTi model-id migration ─────────────────────────────────────
+
+
+def test_legacy_qualitati_default_migrates_to_hound(tmp_path):
+    import json
+
+    from coworker.server.manager import SessionManager
+
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "prefs.json").write_text(
+        json.dumps({"default_model": "qualitati:mimi", "models": ["qualitati:deepseek-v4-flash"]})
+    )
+    mgr = SessionManager(workspace=tmp_path, data_dir=state)
+    assert mgr.model == "qualitati:mimi-hound"
+    menu = mgr._curated_models()
+    assert "qualitati:mimi" not in menu
+    assert "qualitati:mimi-hound" in menu and "qualitati:mimi-puppy" in menu
+    # Persisted, so the raw-id row never comes back.
+    saved = json.loads((state / "prefs.json").read_text())
+    assert saved["default_model"] == "qualitati:mimi-hound"
+    assert saved["models"] == ["qualitati:mimi-puppy"]
