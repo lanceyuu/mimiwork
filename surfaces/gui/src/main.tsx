@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import { MimiCompanion } from "./components/MimiCompanion";
 import { initTheme } from "./theme";
 import { platformOS } from "./tauri";
 import "./tailwind.css";
@@ -17,8 +18,12 @@ document.documentElement.dataset.platform = platformOS();
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => e.preventDefault());
 
+// The desktop shell's floating companion window loads the same bundle with a
+// flag injected before the SPA — it renders only the Mimi pet, never the app.
+// (#companion lets the browser dev build preview the pet without the shell.)
+const companionMode =
+  Boolean((globalThis as any).__MIMI_COMPANION__) || window.location.hash === "#companion";
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <React.StrictMode>{companionMode ? <MimiCompanion /> : <App />}</React.StrictMode>,
 );

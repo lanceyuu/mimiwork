@@ -480,6 +480,49 @@ fn show_main(app: &tauri::AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    hide_companion(app);
+}
+
+// --- Floating Mimi companion -------------------------------------------------------
+// A tiny always-on-top window that appears when the main window is minimized or
+// closed to tray: Mimi sleeps while the coworker is busy and wakes when the work
+// is done (the webview side renders the sprite states from /ws/events activity
+// frames). Clicking Mimi restores the main window.
+
+fn show_companion(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("companion") {
+        position_companion(&w);
+        let _ = w.show();
+    }
+}
+
+fn hide_companion(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("companion") {
+        let _ = w.hide();
+    }
+}
+
+/// Bottom-right of the monitor the main window lives on, above the Dock/taskbar.
+fn position_companion(w: &tauri::WebviewWindow) {
+    let monitor = w.current_monitor().ok().flatten().or_else(|| {
+        w.primary_monitor().ok().flatten()
+    });
+    if let Some(mon) = monitor {
+        let ms = mon.size();
+        let mp = mon.position();
+        let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(150, 170));
+        let sf = mon.scale_factor();
+        let margin = (24.0 * sf) as i32;
+        let x = mp.x + ms.width as i32 - ws.width as i32 - margin;
+        let y = mp.y + ms.height as i32 - ws.height as i32 - (80.0 * sf) as i32;
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
+/// Companion click-through to the app: restore the main window, hide the pet.
+#[tauri::command]
+fn companion_restore(app: tauri::AppHandle) {
+    show_main(&app);
 }
 
 // --- Auto-update (tauri-plugin-updater) -------------------------------------------
@@ -622,7 +665,8 @@ pub fn run() {
             check_for_update,
             download_update,
             clear_pending_update,
-            install_update
+            install_update,
+            companion_restore
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).
@@ -712,13 +756,52 @@ pub fn run() {
             }
             let win = builder.build()?;
 
-            // Close-to-tray: hide instead of quitting so the sidecar keeps running.
+            // The floating Mimi companion: built hidden up-front (same endpoint injection,
+            // plus a flag main.tsx branches on), shown whenever the main window leaves the
+            // screen. Transparent + frameless so only the dog is visible.
+            #[allow(unused_mut)]
+            let mut companion_builder = WebviewWindowBuilder::new(
+                app,
+                "companion",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("Mimi")
+            .inner_size(150.0, 170.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .visible(false)
+            .initialization_script(&format!("{inject}window.__MIMI_COMPANION__=true;"));
+            match companion_builder.build() {
+                Ok(companion) => {
+                    position_companion(&companion);
+                }
+                Err(e) => eprintln!("[coworker] companion window failed to build: {e}"),
+            }
+
+            // Close-to-tray: hide instead of quitting so the sidecar keeps running —
+            // and let the companion take over the screen corner. Minimize does the
+            // same handoff; focusing the main window sends the pet away.
             let w = win.clone();
-            win.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
+            let app_handle = app.handle().clone();
+            win.on_window_event(move |event| match event {
+                WindowEvent::CloseRequested { api, .. } => {
                     let _ = w.hide();
                     api.prevent_close();
+                    show_companion(&app_handle);
                 }
+                WindowEvent::Resized(_) => {
+                    if w.is_minimized().unwrap_or(false) {
+                        show_companion(&app_handle);
+                    }
+                }
+                WindowEvent::Focused(true) => {
+                    hide_companion(&app_handle);
+                }
+                _ => {}
             });
 
             // 3. System tray: Open / Settings / Quit.

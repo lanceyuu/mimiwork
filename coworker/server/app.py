@@ -243,6 +243,12 @@ def create_app(manager: SessionManager) -> FastAPI:
             "model": manager.model,
         }
 
+    @app.get("/v1/activity")
+    def activity() -> dict[str, Any]:
+        """App-wide busy snapshot for the floating Mimi companion. Live flips
+        also ride /ws/events as {"type": "activity"} frames."""
+        return manager.activity()
+
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}

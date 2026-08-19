@@ -1519,6 +1519,18 @@ export async function getAutomations(): Promise<Automation[]> {
   return (await res.json()).tasks ?? [];
 }
 
+/** App-wide busy snapshot — drives the floating Mimi companion. Live flips ride
+ * /ws/events as {"type":"activity"} frames; this is the initial state. */
+export interface Activity {
+  busy: boolean;
+  running_sessions: number;
+  running_automations: number;
+}
+export async function getActivity(): Promise<Activity> {
+  const res = await fetch(`${httpBase()}/v1/activity`);
+  return res.json();
+}
+
 // Fired after any automation mutation the sidebar should reflect immediately
 // (mark-seen, create, delete) — its poll covers the rest.
 export const AUTOMATIONS_CHANGED = "coworker:automations-changed";

@@ -184,6 +184,11 @@ class SessionManager:
         # App-wide event sockets (/ws/events): session-independent pushes — today the
         # automation-run-started toast (UX-026); badges could ride it later.
         self._event_clients: set[Any] = set()
+        # App-wide activity (the floating Mimi companion): busy = any session turn OR
+        # automation run in flight. Broadcast on /ws/events as {"type":"activity"} only
+        # when the boolean FLIPS — the companion sleeps while busy and wakes on done.
+        self._activity_busy = False
+        self._active_automation_runs = 0
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
@@ -236,7 +241,10 @@ class SessionManager:
         # Skills (SKILLS-SPEC §4): folder-backed CRUD + per-session mutes. The effective menu
         # gates the engine's skill catalog the same way effective_connectors gates connector
         # tools — one resolver feeds the catalog injection, the rail, and the composer popup.
-        self.skill_store = SkillStore()
+        # seed_builtin: first run drops the bundled skills (theory building, consumer
+        # paper writing, academic writing, business communication, slide design) into
+        # the user's global skills folder — ordinary skills from then on.
+        self.skill_store = SkillStore(seed_builtin=True)
         self.session_skills = SessionSkillStore(base / "session_skills.json")
         # Dead-letter: inbound messages with no destination + background-turn failures, so neither
         # vanishes silently (a debugging/visibility surface, not a redelivery queue).
@@ -2714,20 +2722,48 @@ class SessionManager:
 
     def mark_running(self, session_id: str) -> None:
         self._running_sessions.add(session_id)
+        self._announce_activity()
 
     def try_mark_running(self, session_id: str) -> bool:
         """Atomically claim an idle session for one turn on the server event loop."""
         if session_id in self._running_sessions:
             return False
         self._running_sessions.add(session_id)
+        self._announce_activity()
         return True
 
     def mark_idle(self, session_id: str) -> None:
         self._running_sessions.discard(session_id)
+        self._announce_activity()
         # Every turn path (WS, background delivery, durable resume) marks idle when it
         # finishes — the one shared post-turn moment, so auto-titling hooks in here and
         # can never add latency to the response itself.
         self._maybe_autotitle(session_id)
+
+    def activity(self) -> dict[str, Any]:
+        """App-wide busy snapshot — what the floating Mimi companion renders."""
+        return {
+            "busy": bool(self._running_sessions) or self._active_automation_runs > 0,
+            "running_sessions": len(self._running_sessions),
+            "running_automations": self._active_automation_runs,
+        }
+
+    def _announce_activity(self) -> None:
+        """Push an `activity` frame on /ws/events when the busy boolean flips.
+
+        Sync-callable from every mark_* path: the broadcast is scheduled on the
+        running loop; with no loop (unit tests building a manager outside asyncio)
+        the flip is still recorded and GET /v1/activity keeps serving the truth.
+        """
+        snap = self.activity()
+        if snap["busy"] == self._activity_busy:
+            return
+        self._activity_busy = snap["busy"]
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self.broadcast_event({"type": "activity", "data": snap}))
 
     def is_running(self, session_id: str) -> bool:
         return session_id in self._running_sessions
@@ -2971,6 +3007,8 @@ class SessionManager:
             task_id=task.id, trigger=trigger
         )  # __post_init__ sets run.session_id
         self.task_store.add_run(run)  # mark "running"
+        self._active_automation_runs += 1
+        self._announce_activity()
         # UX-026: tell every open app window a SCHEDULED run just started (the 5s
         # top-right toast). Manual runs never come through here — the user is
         # already watching those live.
@@ -3015,6 +3053,8 @@ class SessionManager:
             run.status, run.error = "error", str(exc)
         finally:
             run.finished_at = _epoch()
+            self._active_automation_runs = max(0, self._active_automation_runs - 1)
+            self._announce_activity()
             # Persist the run as a continuable session + keep the live engine for an immediate
             # follow-up; record the run (now carrying its session_id).
             try:
