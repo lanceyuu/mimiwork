@@ -51,7 +51,8 @@ const baseProps = {
   onDeleteSession: vi.fn(),
   onArchiveSession: vi.fn(),
   onTogglePin: vi.fn(),
-  onManage: vi.fn(),
+  onOpenModelSettings: vi.fn(),
+    onManage: vi.fn(),
   onOpenPersona: vi.fn(),
   onManagePersonas: vi.fn(),
   onOpenScheduled: vi.fn(),
@@ -261,5 +262,45 @@ describe("New-session split button", () => {
     const menu = (await screen.findByText("Start a session as")).closest(".newsplit-menu") as HTMLElement;
     expect(within(menu).getByText("Ops")).toBeTruthy();
     expect(within(menu).queryByText("Manage personas…")).toBeNull();
+  });
+});
+
+describe("Footer account row — QualiTaTi identity", () => {
+  it("signed out: row says Not signed in; the menu's sign-in opens Settings → Models", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      { match: "/v1/qualitati/status", json: { ok: true, signed_in: false } },
+    ]);
+    const onOpenModelSettings = vi.fn();
+    render(<Sidebar {...baseProps} onOpenModelSettings={onOpenModelSettings} />);
+    const row = await screen.findByTestId("account-row");
+    expect(row.textContent).toContain("Not signed in");
+
+    fireEvent.click(row);
+    fireEvent.click(await screen.findByTestId("account-sign-in"));
+    expect(onOpenModelSettings).toHaveBeenCalled();
+  });
+
+  it("signed in: row shows the QualiTaTi username and the menu shows the balance", async () => {
+    stubFetch([
+      { match: "/v1/personas", method: "GET", json: PERSONAS },
+      {
+        match: "/v1/qualitati/status",
+        json: {
+          ok: true,
+          signed_in: true,
+          provider_configured: true,
+          profile: { username: "shubin", credits: 420, plan: "scholar" },
+        },
+      },
+    ]);
+    render(<Sidebar {...baseProps} />);
+    const row = await screen.findByTestId("account-row");
+    await waitFor(() => expect(row.textContent).toContain("shubin"));
+
+    fireEvent.click(row);
+    const header = await screen.findByTestId("account-qt-header");
+    expect(header.textContent).toContain("420 credits");
+    expect(header.textContent).toContain("QualiTaTi");
   });
 });

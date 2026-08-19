@@ -1359,6 +1359,7 @@ export function App() {
         onArchiveSession={toggleArchived}
         onTogglePin={togglePinned}
         onManage={() => openSettings("appearance")}
+        onOpenModelSettings={() => openSettings("models")}
         onOpenPersona={(id) => {
           openPersona(id, "session");
         }}
