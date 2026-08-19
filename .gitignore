@@ -1,0 +1,23 @@
+.venv/
+.venv-dev/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+
+# Local secrets (live-smoke BYO keys) — never committed
+.env
+
+# Dependencies & build output (never committed)
+node_modules/
+surfaces/gui/src-tauri/target/
+surfaces/gui/dist/
+stt/target/
+*.dmg
+
+# Local tooling state
+.claude/
+.DS_Store

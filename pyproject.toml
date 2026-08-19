@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coworker"
+version = "0.0.0"
+description = "Agent coworker platform — provider-agnostic agentic coworker runtime"
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0",
+    "anthropic>=0.40",  # native Claude Messages API provider
+    "google-genai>=1.0",  # native Gemini provider
+    "google-auth>=2.23",  # Vertex credentials (service account / ADC / MaaS bearer)
+    "textual>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    # aisuite (toolkits/tracing), pinned to the commit this repo was imported from;
+    # swap for a PyPI pin ("aisuite>=x.y") once the next aisuite release ships.
+    "aisuite @ git+https://github.com/andrewyng/aisuite.git@1b4bbf303ec21968230b1ec869a144d054e9b3c4",
+    "docstring_parser",
+    "pyyaml>=6",  # persona manifest frontmatter (YAML)
+    "pydantic>=2",
+    "mcp>=1.1,<2",  # MCP client (stdio + streamable-http); 2.0 removed streamablehttp_client
+    "httpx>=0.27",  # sync outbound senders for messaging connectors (send_message tool)
+    "websockets>=13",  # managed Slack relay client transport (relay_client.py)
+    "ddgs>=9",  # keyless default web-search provider (DuckDuckGo); Tavily/Brave use httpx
+    "croniter>=2",  # cron next-fire math for the automation scheduler
+    # PDF attachments for models without native PDF support (pdf_support.py):
+    # pypdf = pure-python text extraction; pypdfium2 = page rasterization (BSD pdfium,
+    # ships its own libpdfium — NOT PyMuPDF, whose AGPL license can't ride in the DMG).
+    "pypdf>=5",
+    "pypdfium2>=4",
+    # IANA tz database for zoneinfo. Windows ships no system tz db, so without this every
+    # named schedule timezone (UTC, Asia/Kolkata, …) silently falls back to local time.
+    "tzdata; sys_platform == 'win32'",
+    # tomllib landed in the 3.11 stdlib; on the 3.10 floor config.py falls back to tomli.
+    "tomli>=2; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio", "httpx"]
+# Inbound messaging listeners (outbound send_message needs only httpx, already a core dep).
+# aiohttp is slack-bolt's Socket Mode transport at runtime (and the FakeSlack test harness
+# drives the real handler) — declare it so CI installs it, not just transitively.
+messaging = ["python-telegram-bot>=21", "slack-bolt>=1.18", "aiohttp>=3.9"]
+# Interactive Cowork browser automation.
+browser = ["playwright>=1.44"]
+# Office deliverables (coworker/tools/office): Word, Excel, PowerPoint. Pure-python and
+# permissively licensed, so these can ride in the desktop bundle.
+office = [
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6.23",
+    "pillow>=10",      # image tools (inspect/resize/crop/annotate/combine)
+    "pdfplumber>=0.11",  # PDF table extraction; plain text uses pypdf (already core)
+]
+# Data analysis (coworker/tools/analysis): the persistent Python kernel's scientific stack.
+# pyreadstat reads SPSS (.sav) and Stata (.dta) INCLUDING their variable/value labels, which
+# is what makes coded survey columns interpretable rather than guesswork.
+analysis = [
+    "pandas>=2",
+    "numpy>=1.24",
+    "pyreadstat>=1.2",  # SPSS .sav / Stata .dta INCLUDING variable + value labels
+    "matplotlib>=3.7",
+    "scipy>=1.10",      # statistical tests in the analysis kernel
+]
+# Everything a knowledge-work install needs in one extra.
+knowledge = [
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=0.6.23",
+    "pillow>=10",
+    "pdfplumber>=0.11",
+    "pandas>=2",
+    "numpy>=1.24",
+    "pyreadstat>=1.2",
+    "matplotlib>=3.7",
+    "scipy>=1.10",
+]
+# AWS Bedrock provider (lazy-imported; desktop builds bundle it, pip users opt in).
+bedrock = ["boto3>=1.34"]
+
+[project.scripts]
+openworker = "coworker.cli:main"
+openworker-server = "coworker.server.run:main"
+openworker-connectors = "coworker.connectors.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["coworker*"]
+
+[tool.setuptools.package-data]
+coworker = ["personas/builtin/*.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
