@@ -523,3 +523,38 @@ def test_engine_events_carry_standing_context(tmp_path):
     # §25 invariant: every auto-allowed call writes an audit entry citing the rule.
     cited = [a for a in audit if a.get("stage") == "auto_allowed"]
     assert cited and "send_message → slack:T1/C1" in cited[0]["reason"]
+
+
+async def test_suspended_run_is_not_double_claimed_across_ticks(tmp_path):
+    """A tick that fires while a run is parked must NOT spawn a second claim.
+
+    The failure mode this pins down (seen live on a loaded CI runner): the overlap
+    guard used to be taken inside run_task — at the spawned task's first step, not
+    at spawn. A tick during a parked run spawned claim B; when the approval resolved,
+    A completed and released the id before B's first step, so B ran the task AGAIN
+    without rechecking due-ness. In product terms: approve a parked automation, it
+    runs twice.
+    """
+    store = TaskStore(tmp_path / "auto.db")
+    task = _task(title="parked")
+    store.save(task)
+    store._conn.execute("UPDATE scheduled_tasks SET next_run=1.0 WHERE id=?", (task.id,))
+    store._conn.commit()
+
+    gate = asyncio.Event()
+
+    async def runner(t, trigger):
+        await gate.wait()  # parked approval
+        return TaskRun(task_id=t.id, status="ok", trigger=trigger)
+
+    sched = Scheduler(store, runner, tick_seconds=9999)  # we drive ticks by hand
+    await sched._tick(trigger="catchup")   # spawns claim A
+    await asyncio.sleep(0)                 # A starts and parks on the gate
+    gate.set()                             # approval resolves — A is QUEUED to resume…
+    await sched._tick(trigger="schedule")  # …but this tick still sees the task due and
+                                           # spawns claim B, queued BEHIND A's resumption
+    await asyncio.sleep(0.05)              # A completes and releases the id; B's first
+                                           # step then finds it free and (before the fix)
+                                           # re-runs a task that is no longer due
+    assert store.get(task.id).run_count == 1
+    await sched.stop()
