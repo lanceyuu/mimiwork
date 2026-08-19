@@ -50,6 +50,12 @@ for pkg in ("coworker", "aisuite", "mcp", "ddgs", "croniter", "docstring_parser"
 # builder-backed surfaces: PersonaRegistry finds no manifests and every `id` in that folder
 # resolves as "unknown persona". Verified against a frozen build, 2026-08-19.
 datas += collect_data_files("coworker", includes=["**/*.md"])
+# kb/knowledge_base.jsonl — Mimi's offline research-methods knowledge base (kb_search).
+datas += collect_data_files("coworker", includes=["**/*.jsonl"])
+# skills/builtin/** — bundled skills (theory building, consumer paper writing, academic
+# writing, business communication, slide design) seeded into the user's skills dir on
+# first run. Includes non-.md resources (css/js/json in the slide template pack).
+datas += collect_data_files("coworker", includes=["skills/builtin/**/*"])
 
 if not INCLUDE_EXPERIMENTAL:
     hiddenimports = [

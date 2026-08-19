@@ -68,6 +68,9 @@ COWORK_TOOLS = {
     "run_python",
     "reset_python",
     "run_r",
+    "kb_search",  # Mimi's offline research-methods knowledge base
+    "qualitati_projects",  # list the signed-in account's QualiTaTi projects
+    "qualitati_mimi",  # delegate project work to QualiTaTi's server-side Mimi agent
 }
 
 

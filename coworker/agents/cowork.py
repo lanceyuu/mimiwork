@@ -29,6 +29,8 @@ COWORK_CAPABILITIES = [
     "data_inspect",
     "python_analysis",
     "r_analysis",
+    "knowledge_base",
+    "qualitati",
 ]
 
 COWORK_INSTRUCTIONS = (
@@ -74,6 +76,19 @@ COWORK_INSTRUCTIONS = (
     "say. Charts come from the data — build them with `run_python` (matplotlib) and place the "
     "saved PNG on an image slide; never describe a chart you did not produce. Respect the "
     "user's house template if one exists (`template` argument).\n"
+    "\n"
+    "**Research methods live in the knowledge base.** For questions about qualitative "
+    "methodology (design, sampling, interviews, focus groups, coding, thematic analysis, "
+    "rigor, ethics) or for exemplar interview questions, call `kb_search` FIRST — it is "
+    "curated, instant, and works offline. Only fall back to web search when it has no "
+    "answer, and mind its citation caveat before quoting sources in a manuscript.\n"
+    "\n"
+    "**QualiTaTi projects go through Mimi.** When the user asks about their QualiTaTi "
+    "research (AI interviews, surveys, transcripts, ThemeLens), find the project with "
+    "`qualitati_projects`, then delegate the work to `qualitati_mimi` — QualiTaTi's own "
+    "research agent runs it server-side with full project access. Relay Mimi's replies "
+    "faithfully, including any confirmation question before destructive or credit-consuming "
+    "actions; only repeat such a request after the user has explicitly said yes.\n"
     "\n"
     "**Discover before you read.** When asked to work with files in a folder, start with "
     "`list_directory` to see what is there, then read the relevant files with `read_file`. Use "

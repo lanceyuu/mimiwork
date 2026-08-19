@@ -23,7 +23,9 @@ from .agents.base import AgentContext
 from .risk import RiskClass
 from .tools.files import file_tools
 from .tools.git import git_tools
+from .tools.kb import kb_tools
 from .tools.listdir import list_directory_tool
+from .tools.qualitati_tools import qualitati_tools
 from .tools.office.docx_tools import docx_tools
 from .tools.office.image_tools import image_tools
 from .tools.office.pdf_tools import pdf_tools
@@ -280,6 +282,31 @@ _CAPS: list[Capability] = [
         build=_r_analysis,
         requires=("workspace",),
         risk=(RiskClass.EXEC,),
+    ),
+    Capability(
+        id="knowledge_base",
+        name="Research-methods knowledge base",
+        description=(
+            "Search Mimi's built-in research-methods knowledge base offline: qualitative "
+            "methodology Q&A and exemplar interview questions."
+        ),
+        build=lambda _c: kb_tools(),
+        risk=(RiskClass.READ,),
+    ),
+    Capability(
+        id="qualitati",
+        name="QualiTaTi projects",
+        description=(
+            "Work on the signed-in QualiTaTi account's research projects: list them, and "
+            "delegate analysis/edits to Mimi, QualiTaTi's own research agent (statistics on "
+            "survey data, transcripts, ThemeLens, survey editing — server-side, with "
+            "QualiTaTi's own confirmation gates)."
+        ),
+        build=lambda _c: qualitati_tools(),
+        # Delegation mutates state on the QualiTaTi server — that is EXTERNAL by
+        # definition, so unattended runs route it through the Inbox like any other
+        # off-machine side effect.
+        risk=(RiskClass.READ, RiskClass.EXTERNAL),
     ),
 ]
 

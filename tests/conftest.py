@@ -22,6 +22,11 @@ def _isolated_state_dir(tmp_path, monkeypatch):
     as burst noise in the ocw-connect-telemetry-events table)."""
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "coworker-state"))
     monkeypatch.delenv("COWORKER_API_TOKEN", raising=False)
+    # Managers seed the bundled skills into the (isolated) state dir on init — 2.4MB
+    # per manager-building test, and exact-catalog assertions would drown in 18 extra
+    # rows. Seeding behavior itself is tested explicitly with this re-enabled
+    # (test_activity_and_builtin_skills.py).
+    monkeypatch.setenv("COWORKER_SEED_BUILTIN_SKILLS", "0")
 
 
 @pytest_asyncio.fixture

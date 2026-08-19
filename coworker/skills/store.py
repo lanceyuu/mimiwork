@@ -83,11 +83,62 @@ def _write_skill_md(
 class SkillStore:
     """Folder-backed skill CRUD across the global + project scopes."""
 
-    def __init__(self, global_dir: Optional[str | Path] = None) -> None:
+    def __init__(
+        self, global_dir: Optional[str | Path] = None, *, seed_builtin: bool = False
+    ) -> None:
         self.global_dir = Path(global_dir) if global_dir else state_dir() / "skills"
         self._settings_path = state_dir() / "skills-settings.json"
         self._staging_dir = state_dir() / "skills-staged"
         self._lock = threading.Lock()
+        # Opt-in (the server manager passes True): unit tests build bare stores
+        # and must not inherit the bundled catalog. COWORKER_SEED_BUILTIN_SKILLS=0
+        # is the blanket off-switch (the test suite sets it, so the hundreds of
+        # manager-building tests keep their exact-catalog assertions).
+        import os
+
+        if seed_builtin and os.getenv("COWORKER_SEED_BUILTIN_SKILLS", "1") != "0":
+            self._seed_builtin()
+
+    def _seed_builtin(self) -> None:
+        """Copy the app's bundled skills into the global dir, once each.
+
+        Folder-is-truth stays intact: after seeding these are ordinary global
+        skills the user can edit, disable, or delete. The marker records what
+        was ever seeded so a deleted builtin is respected as intent — it never
+        comes back on restart (a fresh install of a NEW builtin still lands).
+        """
+        import json as _json
+        import shutil
+
+        source = Path(__file__).parent / "builtin"
+        if not source.is_dir():
+            return  # source-stripped build
+        marker = self.global_dir / ".builtin-seeded.json"
+        try:
+            seeded = set(_json.loads(marker.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            seeded = set()
+        changed = False
+        for folder in sorted(source.iterdir()):
+            if not (folder / "SKILL.md").is_file():
+                continue
+            name = folder.name
+            if name in seeded:
+                continue
+            target = self.global_dir / name
+            if not target.exists():
+                try:
+                    shutil.copytree(folder, target)
+                except OSError:
+                    continue  # unwritable state dir — skills UI still works without seeds
+            seeded.add(name)
+            changed = True
+        if changed:
+            try:
+                self.global_dir.mkdir(parents=True, exist_ok=True)
+                marker.write_text(_json.dumps(sorted(seeded)), encoding="utf-8")
+            except OSError:
+                pass
 
     # -- scope dirs ---------------------------------------------------------------
     def project_dir(self, workspace: str | Path) -> Path:
