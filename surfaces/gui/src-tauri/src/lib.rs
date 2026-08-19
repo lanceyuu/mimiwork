@@ -774,6 +774,8 @@ pub fn run() {
             .skip_taskbar(true)
             .shadow(false)
             .visible(false)
+            // Never steal focus when appearing — the user just minimized on purpose.
+            .focused(false)
             .initialization_script(&format!("{inject}window.__MIMI_COMPANION__=true;"));
             match companion_builder.build() {
                 Ok(companion) => {
@@ -793,6 +795,9 @@ pub fn run() {
                     api.prevent_close();
                     show_companion(&app_handle);
                 }
+                // Windows signals minimize through a resize; macOS's miniaturize does
+                // NOT resize the NSWindow, so this arm alone never fired there
+                // (owner report 2026-08-20) — the Focused(false) arm below covers it.
                 WindowEvent::Resized(_) => {
                     if w.is_minimized().unwrap_or(false) {
                         show_companion(&app_handle);
@@ -800,6 +805,22 @@ pub fn run() {
                 }
                 WindowEvent::Focused(true) => {
                     hide_companion(&app_handle);
+                }
+                WindowEvent::Focused(false) => {
+                    // Focus loss also happens when the user just switches apps — check
+                    // shortly after whether the window actually left the screen
+                    // (minimized, or hidden via Cmd+H). Window getters are thread-safe
+                    // (they dispatch to the main thread), so a helper thread is fine.
+                    let w2 = w.clone();
+                    let handle = app_handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(400));
+                        let gone = w2.is_minimized().unwrap_or(false)
+                            || !w2.is_visible().unwrap_or(true);
+                        if gone {
+                            show_companion(&handle);
+                        }
+                    });
                 }
                 _ => {}
             });
