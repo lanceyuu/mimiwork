@@ -103,6 +103,13 @@ MATRIX: dict[str, ModelEntry] = {
         label="Mimi · QualiTaTi credits",
         caps=_AGENTIC,
     ),
+    # Free daily allowance for signed-in QualiTaTi accounts — served by the gateway's
+    # Scaleway-backed slot (deepseek-v4-flash-0731, EU). Zero credits; the gateway
+    # enforces the per-day cap and 429s past it.
+    "qualitati:deepseek-v4-flash": ModelEntry(
+        label="DeepSeek V4 Flash · free with QualiTaTi",
+        caps=_AGENTIC,
+    ),
     "deepseek:deepseek-v4-flash": ModelEntry(
         "DeepSeek V4 Flash · DeepSeek", _AGENTIC, 128_000
     ),

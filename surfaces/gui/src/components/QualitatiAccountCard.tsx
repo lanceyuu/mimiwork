@@ -73,8 +73,8 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           <div className="text-[13.5px] font-semibold">QualiTaTi account</div>
           <div className="text-[12px] text-muted truncate">
             {state.signed_in
-              ? "Model calls with “Mimi” spend your QualiTaTi credits."
-              : "Sign in to use your QualiTaTi credits as a model provider — no API key needed."}
+              ? "“DeepSeek V4 Flash” is free daily; “Mimi” spends your QualiTaTi credits."
+              : "Sign in for free DeepSeek V4 Flash every day — plus your QualiTaTi credits as a model provider. No API key needed."}
           </div>
         </div>
         {state.signed_in && (
