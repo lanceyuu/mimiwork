@@ -10,7 +10,7 @@
 #   - manual run     → builds and uploads workflow artifacts only (no release).
 #
 # Each installer is uploaded twice: once with its versioned name (archive) and once with a
-# stable name (OpenWorker-macos-arm64.dmg, …) so the website can link to
+# stable name (MimiWork-macos-arm64.dmg, …) so the website can link to
 #   github.com/<repo>/releases/latest/download/<stable-name>
 # and never need updating.
 #
@@ -81,7 +81,11 @@ jobs:
           python -m venv .venv
           if [ "$RUNNER_OS" = "Windows" ]; then VPY=.venv/Scripts/python; else VPY=.venv/bin/python; fi
           "$VPY" -m pip install --upgrade pip
-          "$VPY" -m pip install -e ".[bedrock]" pyinstaller typer tzdata
+          # knowledge = the office/PDF/image/analysis stack. Without it the PyInstaller
+          # spec's collect_all calls fail SILENTLY (they are try/except) and the shipped
+          # sidecar loses python-docx/PIL/pandas/scipy — a 71MB "working" build that
+          # cannot produce a single deliverable. Caught on the v0.2.0 release assets.
+          "$VPY" -m pip install -e ".[bedrock,knowledge]" pyinstaller typer tzdata
           "$VPY" -c "import aisuite, coworker"  # fail fast if either import breaks
 
       - name: npm ci
@@ -128,20 +132,20 @@ jobs:
           BUNDLE=surfaces/gui/src-tauri/target/release/bundle
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp "$BUNDLE"/nsis/*.exe out/
-            cp "$BUNDLE"/nsis/*.exe out/OpenWorker-windows-setup.exe
+            cp "$BUNDLE"/nsis/*.exe out/MimiWork-windows-setup.exe
             cp "$BUNDLE"/msi/*.msi out/
-            cp "$BUNDLE"/msi/*.msi out/OpenWorker-windows.msi
+            cp "$BUNDLE"/msi/*.msi out/MimiWork-windows.msi
             # Updater signature for the NSIS installer (present only when the updater key
             # secret is configured). The .sig signs CONTENT, so the stable rename is safe.
             SIG=$(ls "$BUNDLE"/nsis/*.exe.sig 2>/dev/null | head -1 || true)
-            [ -n "$SIG" ] && cp "$SIG" out/OpenWorker-windows-setup.exe.sig
+            [ -n "$SIG" ] && cp "$SIG" out/MimiWork-windows-setup.exe.sig
           else
             cp "$BUNDLE"/dmg/*.dmg out/
-            cp "$BUNDLE"/dmg/*.dmg out/OpenWorker-${{ matrix.slug }}.dmg
+            cp "$BUNDLE"/dmg/*.dmg out/MimiWork-${{ matrix.slug }}.dmg
             # macOS updater artifact: the signed .app tarball the installed app swaps in.
-            if [ -f "$BUNDLE"/macos/OpenWorker.app.tar.gz ]; then
-              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz out/OpenWorker-${{ matrix.slug }}.app.tar.gz
-              cp "$BUNDLE"/macos/OpenWorker.app.tar.gz.sig out/OpenWorker-${{ matrix.slug }}.app.tar.gz.sig
+            if [ -f "$BUNDLE"/macos/MimiWork.app.tar.gz ]; then
+              cp "$BUNDLE"/macos/MimiWork.app.tar.gz out/MimiWork-${{ matrix.slug }}.app.tar.gz
+              cp "$BUNDLE"/macos/MimiWork.app.tar.gz.sig out/MimiWork-${{ matrix.slug }}.app.tar.gz.sig
             fi
           fi
           ls -la out
@@ -183,7 +187,7 @@ jobs:
             python3 packaging/make_update_manifest.py \
               --version "${TAG#v}" --tag "$TAG" --repo "$GITHUB_REPOSITORY" \
               --dist dist --out dist/latest.json \
-              --notes "OpenWorker ${TAG#v}"
+              --notes "MimiWork ${TAG#v}"
           else
             echo "::warning::no updater signatures in dist/ — release ships WITHOUT auto-update manifest"
           fi
