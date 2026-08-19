@@ -641,6 +641,11 @@ def create_app(manager: SessionManager) -> FastAPI:
             session_id, str(body.get("path", "")), str(body.get("mode", "reveal"))
         )
 
+    @app.get("/v1/memory/graph")
+    def memory_graph() -> dict[str, Any]:
+        """Nodes + edges for the Memory graph view (declared before /{item_id})."""
+        return manager.memory_graph()
+
     @app.get("/v1/memory")
     def memory() -> dict[str, Any]:
         return {"memory": manager.list_memory()}

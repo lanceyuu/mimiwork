@@ -2020,3 +2020,22 @@ export async function qualitatiLogout(): Promise<QualitatiStatus> {
   const res = await fetch(`${httpBase()}/v1/qualitati/logout`, { method: "POST" });
   return res.json();
 }
+
+// ── Memory graph (Obsidian-style: [[links]], #tags, workspace hubs) ─────────
+
+export interface MemoryGraphData {
+  nodes: {
+    id: string;
+    kind: "memory" | "tag" | "workspace";
+    label: string;
+    scope?: string;
+    memory_id?: number;
+    degree: number;
+  }[];
+  edges: { source: string; target: string; kind: string }[];
+}
+
+export async function getMemoryGraph(): Promise<MemoryGraphData> {
+  const res = await fetch(`${httpBase()}/v1/memory/graph`);
+  return res.json();
+}

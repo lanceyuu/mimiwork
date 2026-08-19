@@ -65,6 +65,10 @@ def memory_tools(
         Check the known-memories list first: if one already covers this, use
         memory_update instead of saving a near-duplicate.
 
+        Connect related memories: reference another memory inline with
+        [[its-id]] (e.g. "extends [[12]]") and add #topic tags for recurring
+        themes — both are shown to the user as a knowledge graph.
+
         Args:
             content (str): The thing to remember, with the why.
             summary (str): One-line gist (15 words max) shown in compact listings.

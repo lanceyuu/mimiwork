@@ -3856,6 +3856,12 @@ class SessionManager:
 
         return notify
 
+    def memory_graph(self) -> dict[str, Any]:
+        """Obsidian-style graph over all memories: [[links]], #tags, workspace hubs."""
+        from ..memory.graph import build_graph
+
+        return build_graph(self.memory_store.list())
+
     def list_memory(self) -> list[dict[str, Any]]:
         return [
             {

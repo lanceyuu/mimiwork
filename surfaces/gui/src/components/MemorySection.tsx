@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { MemoryGraph } from "./MemoryGraph";
 import {
   deleteAllMemory,
   deleteMemory,
@@ -29,6 +30,9 @@ export function MemorySection() {
   const [entries, setEntries] = useState<MemoryEntry[] | null>(null);
   // State-change copy (§5.3): shown under the toggle / list after an action.
   const [toggleMsg, setToggleMsg] = useState<string | null>(null);
+  // List | Graph view of the same memories — the graph is the Obsidian-style map.
+  const [view, setView] = useState<"list" | "graph">("list");
+  const [highlightId, setHighlightId] = useState<number | null>(null);
   const [listMsg, setListMsg] = useState<string | null>(null);
 
   const refresh = () => {
@@ -112,6 +116,21 @@ export function MemorySection() {
       <div className={CARD + " p-4 mb-4"} data-testid="memory-list-card">
         <div className="flex items-center gap-2">
           <div className={FIELD_LABEL + " flex-1"}>What I've learned about you</div>
+          <div className="inline-flex rounded-full p-0.5 bg-paper text-[11.5px] font-medium mr-1">
+            {(["list", "graph"] as const).map((v) => (
+              <button
+                key={v}
+                data-testid={`memory-view-${v}`}
+                className={
+                  "px-2.5 py-0.5 rounded-full " +
+                  (view === v ? "bg-panel shadow-sm text-ink border border-line" : "text-muted")
+                }
+                onClick={() => setView(v)}
+              >
+                {v === "list" ? "List" : "Graph"}
+              </button>
+            ))}
+          </div>
           {entries.length > 0 && (
             <button
               className="text-[12px] text-danger/80 hover:text-danger"
@@ -132,7 +151,16 @@ export function MemorySection() {
             {listMsg}
           </div>
         )}
-        {entries.length === 0 ? (
+        {view === "graph" ? (
+          <div className="mt-3">
+            <MemoryGraph
+              onOpenMemory={(id) => {
+                setHighlightId(id);
+                setView("list");
+              }}
+            />
+          </div>
+        ) : entries.length === 0 ? (
           !listMsg && (
             <div className="text-[12px] text-muted mt-3" data-testid="memory-empty">
               Nothing yet. When you mention a lasting preference in chat — or say "remember
@@ -142,7 +170,12 @@ export function MemorySection() {
         ) : (
           <div className="mt-3 divide-y divide-line">
             {entries.map((m) => (
-              <MemoryRow key={m.id} entry={m} onChanged={refresh} />
+              <div
+                key={m.id}
+                className={m.id === highlightId ? "rounded-lg ring-1 ring-accent/60" : undefined}
+              >
+                <MemoryRow entry={m} onChanged={refresh} />
+              </div>
             ))}
           </div>
         )}
