@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AutomationFlow } from "./AutomationFlow";
 import {
   createAutomation,
   deleteAutomation,
@@ -427,6 +428,8 @@ function TaskDetail({
             {task.enabled ? `Active · next ${fmt(task.next_run)}` : "Paused"} · {task.schedule}
           </div>
         )}
+
+        {!editing && <AutomationFlow task={task} running={task.last_status === "running"} />}
 
         <div className="sa-sub">Instructions</div>
         {editing ? (
