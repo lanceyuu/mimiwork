@@ -79,8 +79,37 @@ _SCHEMA = {
 }
 
 
-def search_tools(workspace: str) -> list:
+def search_tools(workspace: str, roots: Any = None) -> list:
     root = Path(workspace).resolve()
+
+    def _bases(path: str) -> list[Path]:
+        """The directories to search. With no extra roots this is exactly the single
+        workspace (unchanged behaviour). With multi-root sessions: a relative `path`
+        resolves against the primary root; an absolute `path` must land inside some root
+        and restricts the search to it; the default (`.`) searches every root, so grep
+        can find content in folders the user added to the session."""
+        from .office.paths import PathError, resolve_read
+
+        if roots:
+            try:
+                target = resolve_read(path or ".", roots)
+            except PathError as exc:
+                raise ValueError(str(exc))
+            if path and str(path).strip() not in ("", "."):
+                return [target]
+            # Default: search every root (deduped, primary first).
+            seen: list[Path] = []
+            for entry in roots:
+                p = Path(entry.path)
+                if p not in seen:
+                    seen.append(p)
+            return seen
+        base = (root / (path or ".")).resolve()
+        try:
+            base.relative_to(root)  # keep searches inside the workspace
+        except ValueError:
+            raise ValueError("path escapes the workspace")
+        return [base]
 
     def grep(
         pattern: str,
@@ -90,41 +119,46 @@ def search_tools(workspace: str) -> list:
     ) -> dict[str, Any]:
         n = max_results if isinstance(max_results, int) and max_results > 0 else 100
         n = min(n, 1000)
-        base = (root / (path or ".")).resolve()
         try:
-            base.relative_to(root)  # keep searches inside the workspace
-        except ValueError:
-            return {"error": "path escapes the workspace"}
+            bases = _bases(path)
+        except ValueError as exc:
+            return {"error": str(exc)}
 
         rg = shutil.which("rg")
         if rg:
-            cmd = [
-                rg,
-                "--line-number",
-                "--no-heading",
-                "--color=never",
-                "--max-count",
-                str(n),
-                "-e",
-                pattern,
-            ]
-            if glob:
-                cmd += ["--glob", glob]
-            # Do not rely solely on a workspace's .gitignore: the Python fallback
-            # always omits these generated/dependency directories too. Exclusions come
-            # last because ripgrep resolves conflicting globs with the later one winning.
-            for ignored in sorted(_IGNORE_DIRS):
-                cmd += ["--glob", f"!**/{ignored}/**"]
-            cmd.append(str(base))
-            try:
-                out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            except Exception as exc:
-                return {"error": f"grep failed: {exc}"}
-            if out.returncode not in (0, 1):  # 1 = no matches
-                return {"error": (out.stderr or "ripgrep error").strip()[:300]}
-            return {"engine": "ripgrep", **_parse_rg(out.stdout, root, n)}
+            matches: list[dict[str, Any]] = []
+            for base in bases:
+                cmd = [
+                    rg,
+                    "--line-number",
+                    "--no-heading",
+                    "--color=never",
+                    "--max-count",
+                    str(n),
+                    "-e",
+                    pattern,
+                ]
+                if glob:
+                    cmd += ["--glob", glob]
+                # Do not rely solely on a workspace's .gitignore: the Python fallback
+                # always omits these generated/dependency directories too. Exclusions come
+                # last because ripgrep resolves conflicting globs with the later one winning.
+                for ignored in sorted(_IGNORE_DIRS):
+                    cmd += ["--glob", f"!**/{ignored}/**"]
+                cmd.append(str(base))
+                try:
+                    out = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                except Exception as exc:
+                    return {"error": f"grep failed: {exc}"}
+                if out.returncode not in (0, 1):  # 1 = no matches
+                    return {"error": (out.stderr or "ripgrep error").strip()[:300]}
+                matches.extend(_parse_rg(out.stdout, root, n))
+                if len(matches) >= n:
+                    matches = matches[:n]
+                    break
+            return {"engine": "ripgrep", **{"count": len(matches), "matches": matches}}
 
-        return {"engine": "python", **_py_grep(root, base, pattern, glob, n)}
+        return {"engine": "python", **_py_grep(root, bases, pattern, glob, n)}
 
     grep.__name__ = "grep"
     grep.__doc__ = _SCHEMA["function"]["description"]
@@ -165,32 +199,33 @@ def _parse_rg(stdout: str, root: Path, n: int) -> dict[str, Any]:
 
 
 def _py_grep(
-    root: Path, base: Path, pattern: str, glob: Optional[str], n: int
+    root: Path, bases: list[Path], pattern: str, glob: Optional[str], n: int
 ) -> dict[str, Any]:
     try:
         rx = re.compile(pattern)
     except re.error as exc:
         return {"error": f"invalid regex: {exc}", "count": 0, "matches": []}
     matches: list[dict[str, Any]] = []
-    for dirpath, dirs, files in os.walk(base):
-        dirs[:] = [d for d in dirs if d not in _IGNORE_DIRS]
-        for fn in files:
-            if glob and not fnmatch.fnmatch(fn, glob):
-                continue
-            fp = Path(dirpath) / fn
-            try:
-                with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
-                    for i, line in enumerate(fh, 1):
-                        if rx.search(line):
-                            matches.append(
-                                {
-                                    "file": _rel(str(fp), root),
-                                    "line": i,
-                                    "text": line.rstrip()[:300],
-                                }
-                            )
-                            if len(matches) >= n:
-                                return {"count": len(matches), "matches": matches}
-            except OSError:
-                continue
+    for base in bases:
+        for dirpath, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in _IGNORE_DIRS]
+            for fn in files:
+                if glob and not fnmatch.fnmatch(fn, glob):
+                    continue
+                fp = Path(dirpath) / fn
+                try:
+                    with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                        for i, line in enumerate(fh, 1):
+                            if rx.search(line):
+                                matches.append(
+                                    {
+                                        "file": _rel(str(fp), root),
+                                        "line": i,
+                                        "text": line.rstrip()[:300],
+                                    }
+                                )
+                                if len(matches) >= n:
+                                    return {"count": len(matches), "matches": matches}
+                except OSError:
+                    continue
     return {"count": len(matches), "matches": matches}

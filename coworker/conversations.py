@@ -73,7 +73,7 @@ class ConversationStore:
         self._conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, mode TEXT,
-                title TEXT, agent TEXT DEFAULT 'code', n_msgs INTEGER DEFAULT 0, messages TEXT,
+                title TEXT, agent TEXT DEFAULT 'cowork', n_msgs INTEGER DEFAULT 0, messages TEXT,
                 extra_roots TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0,
                 origin TEXT, origin_label TEXT,
                 auto_title TEXT, renamed INTEGER DEFAULT 0,
@@ -86,7 +86,7 @@ class ConversationStore:
         for ddl in (
             "ALTER TABLE sessions ADD COLUMN title TEXT",
             "ALTER TABLE sessions ADD COLUMN n_msgs INTEGER DEFAULT 0",
-            "ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'code'",
+            "ALTER TABLE sessions ADD COLUMN agent TEXT DEFAULT 'cowork'",
             "ALTER TABLE sessions ADD COLUMN extra_roots TEXT",
             "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0",
@@ -237,7 +237,7 @@ class ConversationStore:
             mode=row["mode"],
             messages=messages,
             title=_display_title(row),
-            agent=row["agent"] or "code",
+            agent=row["agent"] or "cowork",
             message_count=len(messages),
             updated_at=row["updated_at"],
             extra_roots=_load_roots(
@@ -283,7 +283,7 @@ class ConversationStore:
                 mode=r["mode"],
                 messages=[],
                 title=_display_title(r),
-                agent=r["agent"] or "code",
+                agent=r["agent"] or "cowork",
                 message_count=r["n_msgs"] or 0,
                 updated_at=r["updated_at"],
                 pinned=bool(r["pinned"]),

@@ -21,7 +21,10 @@ def main(argv: Optional[list[str]] = None) -> None:
         prog="openworker", description="Agent coworker (TUI)."
     )
     parser.add_argument(
-        "skill", nargs="?", default="code", help="skill to launch (default: code)"
+        "skill",
+        nargs="?",
+        default="cowork",
+        help="skill to launch (default: cowork — the only remaining surface)",
     )
     parser.add_argument("--cwd", default=".", help="workspace directory")
     parser.add_argument(

@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
@@ -44,6 +44,19 @@ class PermissionRequest:
 
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
+
+
+@dataclass
+class ToolHooks:
+    """Plugin-style tool hooks (opencode hooks, minimal form). ``pre`` hooks run before
+    execution and may short-circuit it by returning a non-None result; ``post`` hooks run
+    after with the result + status. Attached post-construction as ``engine.hooks`` (None
+    by default, so engines without hooks behave identically)."""
+
+    pre: list[Callable[[str, dict[str, Any]], Any]] = field(default_factory=list)
+    post: list[Callable[[str, dict[str, Any], Any, str], None]] = field(
+        default_factory=list
+    )
 
 
 async def _deny_all(_request: PermissionRequest) -> ApprovalOutcome:
@@ -104,6 +117,9 @@ class TurnEngine:
         # (answerable inline in a live session or from the Inbox when unattended). None on surfaces
         # that can't ask (the tool then no-ops).
         self.question_asker = question_asker
+        # Plugin-style tool hooks (ToolHooks). Attached post-construction like `spill`
+        # (see build_engine); None keeps old behaviour byte-identical.
+        self.hooks: Optional[ToolHooks] = None
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
         # constructor footprint stays put. `compaction_settings` is a live getter (Settings
         # changes apply without a rebuild); `is_attended` gates the failure prompt (None →
@@ -784,10 +800,26 @@ class TurnEngine:
 
     def _execute_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
         """Execute one authorized call (runs in a worker thread)."""
+        hooks = getattr(self, "hooks", None)
+        if hooks is not None:
+            for hook in hooks.pre:
+                try:
+                    override = hook(tool_call.name, tool_call.arguments)
+                except Exception as exc:
+                    return {"error": f"pre-execute hook failed: {exc}"}, "error"
+                if override is not None:
+                    return override, "ok"
         try:
-            return self.registry.execute(tool_call.name, tool_call.arguments), "ok"
+            result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
         except Exception as exc:
-            return {"error": str(exc), "error_type": type(exc).__name__}, "error"
+            result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
+        if hooks is not None:
+            for hook in hooks.post:
+                try:
+                    hook(tool_call.name, tool_call.arguments, *result)
+                except Exception:
+                    pass
+        return result
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
         # A `_display` key on a tool result is user-facing metadata the AGENT must

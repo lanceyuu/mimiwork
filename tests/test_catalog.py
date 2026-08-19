@@ -19,6 +19,7 @@ from coworker.tools.todo import TodoList
 # Expected toolset for each surface — the frozen equivalence contract for the refactor.
 CODE_TOOLS = {
     "list_files",
+    "list_directory",
     "write_file",
     "apply_unified_diff",
     "apply_patch",
@@ -33,8 +34,12 @@ CODE_TOOLS = {
     "shell_task_kill",
     "todo_write",
 }
+# The single Coworker carries EVERYTHING (owner ask 2026-08-19): files + search +
+# shell + the whole knowledge toolset — documents, decks, spreadsheets, PDFs,
+# images, and the analysis kernel. Not separate modes.
 COWORK_TOOLS = {
     "list_files",
+    "list_directory",
     "read_file",  # aisuite (multi-root)
     "read_file_lines",
     "write_file",
@@ -46,6 +51,23 @@ COWORK_TOOLS = {
     "shell_task_output",
     "shell_task_kill",
     "todo_write",
+    "read_document",
+    "write_document",
+    "edit_document",
+    "read_workbook",
+    "write_workbook",
+    "edit_workbook",
+    "read_presentation",
+    "write_presentation",
+    "read_pdf",
+    "read_image_info",
+    "edit_image",
+    "annotate_image",
+    "combine_images",
+    "inspect_data",
+    "run_python",
+    "reset_python",
+    "run_r",
 }
 
 

@@ -47,8 +47,15 @@ _SCHEMA = {
 }
 
 
-def file_tools(workspace: str) -> list:
+def file_tools(workspace: str, roots: Any = None) -> list:
     root = Path(workspace).resolve()
+
+    def _resolve(path: str) -> Path:
+        """Multi-root read resolution: relative paths resolve against the primary root;
+        absolute paths must land inside some root (the same rule the office tools use)."""
+        from .office.paths import PathError, resolve_read
+
+        return resolve_read(path, roots or root)
 
     def read_file(
         path: str,
@@ -62,11 +69,10 @@ def file_tools(workspace: str) -> list:
             else _DEFAULT_MAX_LINES
         )
         n = min(n, _DEFAULT_MAX_LINES)
-        target = (root / path).resolve()
         try:
-            target.relative_to(root)  # keep reads inside the workspace
-        except ValueError:
-            return {"error": "path escapes the workspace"}
+            target = _resolve(path)
+        except ValueError as exc:
+            return {"error": str(exc)}
         if not target.is_file():
             return {"error": f"not a file: {path}"}
 
@@ -86,8 +92,10 @@ def file_tools(workspace: str) -> list:
             return {"error": f"read failed: {exc}"}
 
         end = start + len(selected) - 1 if selected else start - 1
+        from .office.paths import display_path
+
         result: dict[str, Any] = {
-            "path": str(target.relative_to(root)),
+            "path": display_path(target, roots or root),
             "start_line": start,
             "end_line": end,
             "total_lines": total,

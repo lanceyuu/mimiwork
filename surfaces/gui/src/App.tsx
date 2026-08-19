@@ -174,7 +174,7 @@ export function App() {
   // Per-session token usage (OPE-42): rebuilt from the transcript on session load,
   // accumulated live from assistant_message events, reset with the transcript.
   const [usage, setUsage] = useState<SessionUsage>(emptyUsage());
-  const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true, chat: false, code: false });
+  const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true });
   const [mode, setMode] = useState("interactive");
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
@@ -554,6 +554,7 @@ export function App() {
   // corrects regardless of which settled last.
   useEffect(() => {
     if ((agent === "chat" && !surfaces.chat) || (agent === "code" && !surfaces.code)) {
+      // Legacy surfaces are gone; sessions on them resolve to cowork server-side.
       switchAgent("cowork");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

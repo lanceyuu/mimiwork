@@ -588,9 +588,9 @@ export async function closeBrowser(): Promise<{ ok?: boolean; error?: string }> 
 
 // -- settings (model API key, default model, onboarding) ----------------------
 export interface SurfaceVisibility {
-  cowork: boolean; // always true
-  chat: boolean;
-  code: boolean;
+  cowork: boolean; // always true — the single-coworker app's only surface
+  chat?: boolean; // legacy fields: old sidecars may still send them
+  code?: boolean;
 }
 
 export interface ModelSettings {

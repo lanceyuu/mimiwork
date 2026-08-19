@@ -25,15 +25,17 @@ from ..permissions import Mode, PermissionEngine
 from ..tools import ToolRegistry
 from .files import file_tools
 from .git import git_tools
+from .listdir import list_directory_tool
 from .search import search_tools
 
-EXPLORER_INSTRUCTIONS = """You are a read-only code explorer working inside the user's workspace. \
-Answer the research task you're given by searching and reading the code (`grep`, `read_file`, \
-`list_files`, `git_log`, `git_status`, `git_diff`). You cannot write files or run commands.
+EXPLORER_INSTRUCTIONS = """You are a read-only research explorer working inside the user's \
+workspace folders. Answer the research task you're given by searching and reading files \
+(`list_directory`, `grep`, `read_file`, `git_log`, `git_status`, `git_diff`). You cannot \
+write files or run commands.
 
 Your final message is your report — it goes back to the agent that spawned you, not to the \
-user. Make it self-contained: answer the task directly, reference code as path:line, quote the \
-key snippets, and note anything surprising you found along the way. If you couldn't find \
+user. Make it self-contained: answer the task directly, reference files as path:line, quote \
+the key snippets, and note anything surprising you found along the way. If you couldn't find \
 something, say what you searched so the caller doesn't repeat the same searches."""
 
 _CHILD_MAX_ITERATIONS = 10
@@ -46,24 +48,28 @@ def build_explorer_engine(
     model: str,
     model_settings: Optional[dict[str, Any]] = None,
     max_iterations: int = _CHILD_MAX_ITERATIONS,
+    roots: Optional[list] = None,
 ) -> TurnEngine:
-    """A child engine with the Code agent's read-only tools and a fresh context."""
+    """A child engine with the knowledge-work read-only tools and a fresh context.
+    Pass the session's `roots` to give the explorer the same folders the caller sees."""
     ws = str(Path(workspace).resolve())
     registry = ToolRegistry()
-    # Read-only slice of the Code agent's toolset, with the same toolkit replacements
+    # Read-only slice of the toolset, with the same toolkit replacements
     # (our grep for search_files, our windowed read_file for read_file/read_file_lines).
     replaced = {"search_files", "read_file", "read_file_lines"}
+    file_kwargs = {"roots": roots} if roots else {"root": ws}
     registry.register_all(
         [
             t
-            for t in ai.toolkits.files(root=ws)  # no allow_write → list/read only
+            for t in ai.toolkits.files(**file_kwargs)  # no allow_write → list/read only
             if getattr(t, "__name__", "") not in replaced
         ]
     )
-    registry.register_all(file_tools(ws))
+    registry.register_all(file_tools(ws, roots=roots))
+    registry.register_all(list_directory_tool(roots or ws))
     registry.register_all(ai.toolkits.git(root=ws))  # git_status, git_diff
     registry.register_all(git_tools(ws))  # git_log
-    registry.register_all(search_tools(ws))  # grep
+    registry.register_all(search_tools(ws, roots=roots))  # grep
     permissions = PermissionEngine(workspace_root=Path(ws), mode=Mode.PLAN)
     return TurnEngine(
         provider=provider,
@@ -82,6 +88,7 @@ def explorer_tools(
     provider: Any,
     model: str,
     model_settings: Optional[dict[str, Any]] = None,
+    roots: Optional[list] = None,
 ) -> list:
     def explore(task: str) -> dict:
         """Delegate a broad, read-only research task to a subagent with its own fresh
@@ -101,6 +108,7 @@ def explorer_tools(
             provider=provider,
             model=model,
             model_settings=model_settings,
+            roots=roots,
         )
 
         async def _run() -> tuple[str, str]:

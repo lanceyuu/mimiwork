@@ -29,7 +29,51 @@ def _mgr(tmp_path, monkeypatch) -> SessionManager:
     # Isolate the SecretStore (which is otherwise the machine-global state dir) so a connector the
     # developer happens to have connected locally can't leak into "is it connected?" assertions.
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
-    return SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    _install_ops(mgr)  # the retired builtin ops persona, reincarnated as an install
+    return mgr
+
+
+
+OPS_LIKE = """---
+id: acme-ops
+name: Acme Ops Coworker
+icon: ops
+tagline: incidents, runbooks
+family: knowledge
+tools: [files, search, shell, todo]
+connectors: true
+messaging: true
+recommended_models: [anthropic:claude-opus-4-8]
+default_permission_mode: interactive
+description: An incident-response coworker for on-call work.
+recommends:
+  - connector: github
+    reason: correlate deploys with incidents
+    tier: core
+  - connector: slack
+    reason: incident comms
+    tier: core
+  - connector: datadog
+    reason: metrics context
+    tier: core
+  - connector: pagerduty
+    reason: paging
+    tier: optional
+  - mcp: filesystem
+    reason: runbook access
+---
+You are Acme's ops coworker.
+"""
+
+
+def _install_ops(mgr) -> None:
+    vendor = mgr.default_workspace / "vendor" if hasattr(mgr.default_workspace, "__fspath__") else None
+    import pathlib as _pl
+    d = _pl.Path(str(mgr.default_workspace)) / "vendor"
+    d.mkdir(exist_ok=True)
+    (d / "acme.md").write_text(OPS_LIKE, encoding="utf-8")
+    mgr.personas.install_from_dir(str(d))
 
 
 def _connect_github(mgr) -> None:
@@ -50,7 +94,7 @@ def _ops_session(mgr, session_id: str) -> None:
             workspace=str(mgr.default_workspace),
             model="gpt-5.5",
             mode="interactive",
-            agent="ops",
+            agent="acme-ops",
         )
     )
 
@@ -61,10 +105,10 @@ def test_persona_detail_endpoint(tmp_path, monkeypatch):
     _connect_github(mgr)  # so a core recommend shows connected
     client = TestClient(create_app(mgr))
 
-    detail = client.get("/v1/personas/ops").json()
+    detail = client.get("/v1/personas/acme-ops").json()
     # identity + capabilities (from the manifest/entry)
-    assert detail["id"] == "ops"
-    assert detail["name"] == "Ops Coworker"
+    assert detail["id"] == "acme-ops"
+    assert detail["name"] == "Acme Ops Coworker"
     assert detail["enabled"] is False  # non-default personas ship disabled (opt-in)
     assert (
         detail["workspace"] == "deliverable"
@@ -103,10 +147,10 @@ def test_persona_set_default_connection(tmp_path, monkeypatch):
     client = TestClient(create_app(mgr))
 
     # github starts on (core default) + connected → effective for a fresh ops session
-    assert "github" in mgr.effective_connectors("newsess", "ops")
+    assert "github" in mgr.effective_connectors("newsess", "acme-ops")
 
     resp = client.post(
-        "/v1/personas/ops/connections", json={"connector": "github", "enabled": False}
+        "/v1/personas/acme-ops/connections", json={"connector": "github", "enabled": False}
     ).json()
     assert resp["ok"] is True
     flipped = {d["connector"]: d["enabled"] for d in resp["default_connections"]}
@@ -115,13 +159,13 @@ def test_persona_set_default_connection(tmp_path, monkeypatch):
     assert set(flipped) == {"github", "slack", "datadog", "pagerduty"}
 
     # reflected in the next GET
-    detail = client.get("/v1/personas/ops").json()
+    detail = client.get("/v1/personas/acme-ops").json()
     assert {d["connector"]: d["enabled"] for d in detail["default_connections"]}[
         "github"
     ] is False
 
     # ...and in a brand-new session's effective set (github now off by persona default)
-    eff = mgr.effective_connectors("brandnew", "ops")
+    eff = mgr.effective_connectors("brandnew", "acme-ops")
     assert "github" not in eff
     assert "slack" in eff  # slack default unchanged → still effective
 
@@ -131,21 +175,21 @@ def test_persona_enable_toggle(tmp_path, monkeypatch):
     client = TestClient(create_app(mgr))
 
     before = {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}
-    assert before["ops"]["enabled"] is False  # ships disabled; only cowork starts on
+    assert before["acme-ops"]["enabled"] is False  # ships disabled; only cowork starts on
     assert before["cowork"]["enabled"] is True
 
-    resp = client.post("/v1/personas/ops/enable", json={"enabled": True}).json()
+    resp = client.post("/v1/personas/acme-ops/enable", json={"enabled": True}).json()
     assert resp["ok"] is True
     after = {p["id"]: p for p in resp["personas"]}
-    assert after["ops"]["enabled"] is True
+    assert after["acme-ops"]["enabled"] is True
     # a fresh GET agrees
-    assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["ops"][
+    assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["acme-ops"][
         "enabled"
     ] is True
 
     # disabling flips it back off; list_all keeps the row (the picker filters on `enabled`)
-    assert client.post("/v1/personas/ops/enable", json={"enabled": False}).json()["ok"]
-    assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["ops"][
+    assert client.post("/v1/personas/acme-ops/enable", json={"enabled": False}).json()["ok"]
+    assert {p["id"]: p for p in client.get("/v1/personas").json()["personas"]}["acme-ops"][
         "enabled"
     ] is False
 
@@ -190,12 +234,12 @@ def test_fresh_session_view_uses_persona_hint(tmp_path, monkeypatch):
     _connect_slack(mgr)
     # ops persona default: slack OFF (user's "New sessions get by default" choice)
     mgr.persona_connections.defaults_for(
-        "ops", mgr.personas.get("ops").manifest, connected={"slack"}
+        "acme-ops", mgr.personas.get("acme-ops").manifest, connected={"slack"}
     )
-    mgr.persona_connections.set("ops", "slack", False)
+    mgr.persona_connections.set("acme-ops", "slack", False)
     client = TestClient(create_app(mgr))
 
-    view = client.get("/v1/sessions/brand-new/connections?persona=ops").json()
+    view = client.get("/v1/sessions/brand-new/connections?persona=acme-ops").json()
     conn = {c["connector"]: c for c in view["connected"]}
     assert conn["slack"]["enabled"] is False  # persona default honored pre-persist
     assert view["recommended"], "ops recommends must show for a fresh ops session"
@@ -215,7 +259,7 @@ def test_session_set_override(tmp_path, monkeypatch):
     client = TestClient(create_app(mgr))
 
     # slack starts effective (connected + ops core default on)
-    assert "slack" in mgr.effective_connectors("s1", "ops")
+    assert "slack" in mgr.effective_connectors("s1", "acme-ops")
     before = {
         c["connector"]
         for c in client.get("/v1/sessions/s1/connections").json()["connected"]
@@ -228,7 +272,7 @@ def test_session_set_override(tmp_path, monkeypatch):
     ).json()
     assert resp["ok"] is True
     assert mgr.session_connections.get("s1") == {"slack": False}
-    assert "slack" not in mgr.effective_connectors("s1", "ops")
+    assert "slack" not in mgr.effective_connectors("s1", "acme-ops")
     # a muted connector stays VISIBLE in the drawer as toggled-off (owner finding
     # 2026-07-03: "where did Slack go?") — both in the returned view and a fresh GET
     view_conn = {c["connector"]: c for c in resp["connections"]["connected"]}
@@ -245,5 +289,5 @@ def test_session_set_override(tmp_path, monkeypatch):
     ).json()
     assert resp2["ok"] is True
     assert mgr.session_connections.get("s1") == {}
-    assert "slack" in mgr.effective_connectors("s1", "ops")
+    assert "slack" in mgr.effective_connectors("s1", "acme-ops")
     assert "slack" in {c["connector"] for c in resp2["connections"]["connected"]}

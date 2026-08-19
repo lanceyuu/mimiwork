@@ -23,6 +23,7 @@ from .agents.base import AgentContext
 from .risk import RiskClass
 from .tools.files import file_tools
 from .tools.git import git_tools
+from .tools.listdir import list_directory_tool
 from .tools.office.docx_tools import docx_tools
 from .tools.office.image_tools import image_tools
 from .tools.office.pdf_tools import pdf_tools
@@ -68,21 +69,28 @@ def _code_files(context: AgentContext) -> list:
         for t in ai.toolkits.files(root=ws, allow_write=True)
         if getattr(t, "__name__", "") not in replaced
     ]
-    return [*files, *file_tools(ws)]
+    return [*files, *file_tools(ws), *list_directory_tool(ws)]
 
 
 def _files(context: AgentContext) -> list:
     """Knowledge-work files: multi-root aware (reads/writes across the session's roots), keeps
-    aisuite's `read_file`/`read_file_lines`. Only our `grep` replaces the slow `search_files`.
+    aisuite's `read_file`/`read_file_lines` AND adds our windowed, line-numbered `read_file`
+    (under a distinct name so discovery works: `list_directory` first, then read). Only our
+    `grep` replaces the slow `search_files`.
     """
     ws = str(context.workspace)
     file_kwargs = (
         {"roots": context.roots} if context.roots else {"root": ws, "allow_write": True}
     )
-    return [
+    files = [
         t
         for t in ai.toolkits.files(**file_kwargs)
         if getattr(t, "__name__", "") != "search_files"
+    ]
+    return [
+        *files,
+        *list_directory_tool(context.roots or ws),
+        *file_tools(ws, roots=context.roots),
     ]
 
 
@@ -92,7 +100,9 @@ def _git(context: AgentContext) -> list:
 
 
 def _search(context: AgentContext) -> list:
-    return search_tools(str(context.workspace))  # grep (ripgrep, .gitignore-aware)
+    return search_tools(
+        str(context.workspace), roots=context.roots
+    )  # grep (ripgrep, .gitignore-aware, multi-root)
 
 
 def _shell(context: AgentContext) -> list:

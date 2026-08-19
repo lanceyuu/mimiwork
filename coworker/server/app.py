@@ -1247,7 +1247,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             await ws.close(code=1008)
             return
         await ws.accept(subprotocol="openworker" if api_token else None)
-        agent = ws.query_params.get("agent") or "code"
+        agent = ws.query_params.get("agent") or "cowork"
 
         # All four interactive prompts (approval / question / directory / plan) are parked as Inbox
         # items and awaited via inbox.wait — so they survive a dropped socket (redelivered on
@@ -1467,7 +1467,7 @@ def create_app(manager: SessionManager) -> FastAPI:
                 "type": "ready",
                 "data": {
                     "session_id": session_id,
-                    "agent": getattr(engine, "agent_name", "code"),
+                    "agent": getattr(engine, "agent_name", "cowork"),
                     "model": engine.model,
                     "mode": engine.permissions.mode.value,
                     "workspace": (

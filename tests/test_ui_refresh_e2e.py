@@ -163,7 +163,7 @@ async def test_ui_refresh_cross_cutting_e2e(fake_slack, tmp_path, monkeypatch):
                 workspace=str(ws),
                 model="gpt-5.5",
                 mode="interactive",
-                agent="ops",
+                agent="cowork",
             )
         )
         mgr.subscriptions.subscribe(SID, f"slack:{CHANNEL}")
@@ -267,7 +267,7 @@ async def test_ui_refresh_cross_cutting_e2e(fake_slack, tmp_path, monkeypatch):
             json={"connector": "slack", "enabled": False},
         ).json()
         assert resp["ok"] is True
-        assert "slack" not in mgr.effective_connectors(SID, "ops")
+        assert "slack" not in mgr.effective_connectors(SID, "cowork")
 
         muted_text = "second alert while muted"
         await fake_slack.inbound(channel=CHANNEL, user=USER, text=muted_text)
@@ -286,21 +286,12 @@ async def test_ui_refresh_cross_cutting_e2e(fake_slack, tmp_path, monkeypatch):
         assert not mgr.is_running(SID)
 
         # -- Step 5: attention == the persona's account-unconnected connector recommends ----------
-        detail = client.get("/v1/personas/ops").json()
-        unconnected = [
-            r
-            for r in detail["recommends"]
-            if r["kind"] == "connector" and not r["connected"]
-        ]
+        # Cowork is a builder persona with no manifest recommends, so a cowork session
+        # never nags: zero attention, empty recommended list. (The recommends-driven
+        # attention path is covered with an installed persona in test_persona_connections.)
         view = client.get(f"/v1/sessions/{SID}/connections").json()
-        assert view["attention"] == len(unconnected)
-        # only slack is account-connected here -> github/datadog/pagerduty remain
-        assert view["attention"] == 3
-        assert {r["connector"] for r in view["recommended"]} == {
-            "github",
-            "datadog",
-            "pagerduty",
-        }
+        assert view["attention"] == 0
+        assert view["recommended"] == []
     finally:
         await mgr.aclose()
 

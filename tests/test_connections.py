@@ -48,8 +48,39 @@ class ScriptedProvider(ProviderClient):
 
 
 def _ops_manifest():
-    md = Path(persona_registry.__file__).parent / "builtin" / "ops.md"
-    return load_manifest_file(md, builtin=True)
+    # The builtin ops.md was retired with the single-coworker collapse; this test
+    # only needs A manifest with connector recommends, so it carries its own.
+    from coworker.personas.manifest import parse_manifest
+
+    return parse_manifest(
+        """---
+id: acme-ops
+name: Acme Ops Coworker
+icon: ops
+tagline: incidents
+family: knowledge
+tools: [files, search, shell, todo]
+connectors: true
+messaging: true
+recommends:
+  - connector: github
+    reason: deploys
+    tier: core
+  - connector: slack
+    reason: comms
+    tier: core
+  - connector: datadog
+    reason: metrics
+    tier: core
+  - connector: pagerduty
+    reason: paging
+    tier: optional
+  - mcp: filesystem
+    reason: runbooks
+---
+You are Acme's ops coworker.
+"""
+    )
 
 
 def _channel_event(text="deploy failed", chat_id="C1", platform="slack"):

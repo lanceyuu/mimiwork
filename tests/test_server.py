@@ -75,10 +75,18 @@ def test_agents_and_memory_rest(tmp_path):
 
 
 def test_disable_persona_archives_its_sessions(tmp_path):
-    """Disable = "put this coworker and its history away": the persona's real sessions are
-    archived atomically server-side (so its sidebar section disappears with it), internal
-    __run__ threads and other personas are untouched, and re-enable never unarchives."""
+    """Disable = "put this coworker and its history away". With the builtin surfaces
+    collapsed to the single Cowork, this now applies to INSTALLED personas: their real
+    sessions archive atomically server-side, internal __run__ threads and the Cowork
+    default are untouched, and re-enable never unarchives."""
+    from tests.test_persona_loading import THIRD_PARTY
+
     manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "acme.md").write_text(THIRD_PARTY, encoding="utf-8")
+    manager.personas.install_from_dir(str(vendor))
+    manager.personas.set_enabled("acme-ops", True)
     store = manager.session_store
 
     def mk(sid, agent):
@@ -92,31 +100,31 @@ def test_disable_persona_archives_its_sessions(tmp_path):
             )
         )
 
-    mk("chat-a", "chat")
-    mk("chat-b", "chat")
-    mk("chat-old", "chat")
+    mk("acme-a", "acme-ops")
+    mk("acme-b", "acme-ops")
+    mk("acme-old", "acme-ops")
     store.set_flags(
-        "chat-old", archived=True
+        "acme-old", archived=True
     )  # already archived — must not be re-counted
     mk("cowork-a", "cowork")
-    mk("__run__r1", "chat")  # internal automation thread — never touched
+    mk("__run__r1", "acme-ops")  # internal automation thread — never touched
 
     client = TestClient(create_app(manager))
-    body = client.post("/v1/personas/chat", json={"enabled": False}).json()
+    body = client.post("/v1/personas/acme-ops", json={"enabled": False}).json()
     assert body["ok"] is True
     assert body["archived_sessions"] == 2
-    assert store.load("chat-a").archived and store.load("chat-b").archived
+    assert store.load("acme-a").archived and store.load("acme-b").archived
     assert store.load("cowork-a").archived is False
     assert store.load("__run__r1").archived is False
 
     # Re-enable brings the persona back but never rewrites the user's archive state.
-    client.post("/v1/personas/chat", json={"enabled": True})
-    assert store.load("chat-a").archived
+    client.post("/v1/personas/acme-ops", json={"enabled": True})
+    assert store.load("acme-a").archived
 
     # The dedicated §5/§8 enable route shares the same semantic.
-    mk("chat-c", "chat")
-    client.post("/v1/personas/chat/enable", json={"enabled": False})
-    assert store.load("chat-c").archived
+    mk("acme-c", "acme-ops")
+    client.post("/v1/personas/acme-ops/enable", json={"enabled": False})
+    assert store.load("acme-c").archived
 
 
 def test_connector_tool_settings_and_audit_rest(tmp_path):
@@ -831,16 +839,18 @@ def test_open_workspace_create(tmp_path):
     assert fresh.is_dir()
 
 
-def test_ws_requires_workspace_when_no_default(tmp_path):
-    # Manager with no default workspace: a session with no folder is rejected.
+def test_ws_without_workspace_auto_provisions_scratch(tmp_path):
+    # No default workspace: the Coworker provisions a per-conversation scratch
+    # folder instead of rejecting the session (single-coworker app: every session
+    # can read and write files somewhere).
     manager = SessionManager(
-        workspace=None, data_dir=tmp_path, provider=ScriptedProvider([])
+        workspace=None, data_dir=tmp_path, provider=ScriptedProvider([_text("hi")])
     )
     client = TestClient(create_app(manager))
     with client.websocket_connect("/ws/session/nofolder") as ws:
         first = ws.receive_json()
-        assert first["type"] == "error"
-        assert "workspace" in first["data"]["error"]
+        assert first["type"] == "ready"
+        assert first["data"]["workspace"]  # a real scratch path, not None
 
 
 def test_ws_with_workspace_query(tmp_path):
@@ -862,18 +872,21 @@ def test_ws_with_workspace_query(tmp_path):
         assert "turn_end" in _drain(ws)
 
 
-def test_ws_chat_agent_needs_no_workspace(tmp_path):
+def test_ws_legacy_chat_agent_resolves_to_cowork(tmp_path):
+    # Old clients / restored sessions may still say agent=chat; the single-coworker
+    # app resolves that to Cowork (with its auto-provisioned scratch) rather than
+    # erroring their session away.
     manager = SessionManager(
         workspace=None,
         data_dir=tmp_path,
-        provider=ScriptedProvider([_text("hi from chat")]),
+        provider=ScriptedProvider([_text("hi from cowork")]),
     )
     client = TestClient(create_app(manager))
     with client.websocket_connect("/ws/session/chat1?agent=chat") as ws:
         ready = ws.receive_json()
         assert ready["type"] == "ready"
-        assert ready["data"]["agent"] == "chat"
-        assert ready["data"]["workspace"] is None
+        assert ready["data"]["agent"] == "cowork"
+        assert ready["data"]["workspace"]
         ws.send_json({"type": "user_message", "text": "hello"})
         assert "turn_end" in _drain(ws)
 

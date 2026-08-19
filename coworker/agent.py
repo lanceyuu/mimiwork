@@ -6,6 +6,7 @@ the skill catalog (progressive disclosure) + load_skill into a TurnEngine.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -167,8 +168,15 @@ def _loaded_skill_names(messages: list[dict[str, Any]]) -> set[str]:
 
 
 def _skill_dirs(workspace: Optional[Path]) -> list[Path]:
-    dirs = [state_dir() / "skills"]
+    # Claude Code's skills (user + project) are an extra source: same folder+SKILL.md format,
+    # so they load unchanged. Later dirs override earlier ones on name collisions, so
+    # coworker's own dirs come LAST — its skills keep precedence over Claude's.
+    dirs: list[Path] = []
+    claude_config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    dirs.append(claude_config / "skills")
+    dirs.append(state_dir() / "skills")
     if workspace is not None:
+        dirs.append(workspace / ".claude" / "skills")
         dirs.append(workspace / ".coworker" / "skills")
     return dirs
 
@@ -217,6 +225,9 @@ def build_engine(
     connector_filter: Optional[set[str]] = None,
     # A set (static snapshot) or a zero-arg callable (live, re-evaluated per load_skill).
     skill_filter: Optional[set[str] | Callable[[], set[str]]] = None,
+    # Plugin-style tool hooks (opencode-style): pre hooks may short-circuit a tool call,
+    # post hooks observe the result. Attached as `engine.hooks` (None by default).
+    hooks: Optional[Any] = None,
 ) -> TurnEngine:
     ws = Path(workspace).expanduser().resolve() if workspace else None
     if agent.needs_workspace and ws is None:
@@ -297,14 +308,16 @@ def build_engine(
     # Resolved here (not at engine construction) because the explorer subagent captures it.
     provider = provider or ProviderRouter(secrets, default_provider="openai")
     # Code-family personas can fan broad research out to read-only explorer subagents, keeping
-    # their own context for the actual change.
-    if agent.family == "code" and ws is not None:
+    # their own context for the actual change. Knowledge-work coworkers (Cowork) get the same
+    # delegation, scoped to their roots.
+    if agent.family in ("code", "knowledge") and ws is not None:
         registry.register_all(
             explorer_tools(
                 workspace=ws,
                 provider=provider,
                 model=model,
                 model_settings=model_settings,
+                roots=root_list or None,
             )
         )
     # Scheduling: knowledge surfaces with a workspace can set up scheduled tasks (origin = this
@@ -319,6 +332,17 @@ def build_engine(
         registry.register_all(
             scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
         )
+    # Custom commands (opencode-style markdown /commands with $ARGUMENTS): project commands
+    # under .coworker/commands, user commands under the state dir. Available to any workspace
+    # session; the model discovers them via list_commands.
+    command_store = None
+    if ws is not None:
+        from .commands import CommandStore, command_tools
+
+        command_store = CommandStore(
+            [ws / ".coworker" / "commands", state_dir() / "commands"]
+        )
+        registry.register_all(command_tools(command_store))
     # Self-wake: knowledge surfaces can suspend + schedule their own resumption (timer /
     # on-completion / on-event). The scheduler tick resumes due wakes.
     if wake_store is not None and session_id and agent.family == "knowledge":
@@ -485,6 +509,10 @@ def build_engine(
         plan_approver=plan_approver,
         question_asker=question_asker,
     )
+    # Plugin-style pre/post tool hooks (opencode hooks). Attached post-construction so the
+    # engine defaults (None) are untouched for engines built without them.
+    if hooks is not None:
+        engine.hooks = hooks  # type: ignore[attr-defined]
     engine.executor = executor  # type: ignore[attr-defined]
     # Oversized tool output (a wide sheet, a printed dataframe, a large connector payload)
     # is redirected to a file under the workspace instead of consuming the context window.
@@ -502,6 +530,7 @@ def build_engine(
         "workspace": str(ws) if ws else "",
     }
     engine.skill_loader = skill_loader  # type: ignore[attr-defined]
+    engine.command_store = command_store  # type: ignore[attr-defined]  # None for workspace-less
     _engine_box.append(engine)  # late-bind for the countermand (see context_provider)
     return engine
 
@@ -509,3 +538,11 @@ def build_engine(
 def build_code_engine(**kwargs: Any) -> TurnEngine:
     """Back-compat shim: build the Code agent's engine."""
     return build_engine(agent=code_agent(), **kwargs)
+
+
+def build_cowork_engine(**kwargs: Any) -> TurnEngine:
+    """Build the Cowork agent's engine (the default surface since the session-type
+    consolidation: chat/code sessions are gone, cowork is the one workspace agent)."""
+    from .agents import cowork_agent
+
+    return build_engine(agent=cowork_agent(), **kwargs)

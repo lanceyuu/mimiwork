@@ -64,5 +64,4 @@ def test_unknown_persona_has_no_binding():
 
 def test_list_all_exposes_the_binding_to_the_settings_panel():
     entries = {e["id"]: e for e in PersonaRegistry().list_all()}
-    assert entries["ops"]["model"] == ""  # ops recommends, it does not bind
-    assert "model" in entries["cowork"]
+    assert "model" in entries["cowork"]  # the single builtin exposes the field

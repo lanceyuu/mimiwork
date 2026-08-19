@@ -15,7 +15,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Static
 
-from ..agent import build_code_engine
+from ..agent import build_cowork_engine
 from ..engine import ApprovalOutcome, PermissionRequest
 from ..events import Event, EventType
 from ..conversations import ConversationStore
@@ -23,6 +23,7 @@ from ..memory import MemoryStore
 from ..permissions import Mode
 from ..providers import ProviderClient
 from ..sessions import SessionRecord
+from ..secrets import state_dir
 
 
 def _short(value: Any, limit: int = 80) -> str:
@@ -109,11 +110,11 @@ class CoworkerApp(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield RichLog(id="log", wrap=True, markup=True, highlight=False)
-        yield Input(placeholder="Ask the coder…   (/help for commands)", id="prompt")
+        yield Input(placeholder="Ask the coworker…   (/help for commands)", id="prompt")
         yield Footer()
 
-    def on_mount(self) -> None:
-        self.engine = build_code_engine(
+    def _build_engine(self) -> Any:
+        return build_cowork_engine(
             workspace=self.workspace,
             model=self.model,
             mode=self.mode,
@@ -123,9 +124,13 @@ class CoworkerApp(App):
             memory_off=self._memory_off,
             user_rules=self._user_rules,
             messages=self._resume_messages,
+            session_id=self._session_id,
         )
+
+    def on_mount(self) -> None:
+        self.engine = self._build_engine()
         self._write(
-            f"[b]coworker · code[/b]  ·  model {self.model}  ·  mode {self.mode.value}"
+            f"[b]coworker · cowork[/b]  ·  model {self.model}  ·  mode {self.mode.value}"
         )
         self._write(f"workspace: {self.workspace}")
         if self._resume_messages:
@@ -213,8 +218,15 @@ class CoworkerApp(App):
         if name in {"/quit", "/exit"}:
             self.exit()
         elif name == "/help":
+            store = getattr(self.engine, "command_store", None)
+            commands = ""
+            if store is not None and store.names():
+                commands = "\n  /<name> — run a saved command: " + ", ".join(
+                    store.names()
+                )
             self._write(
                 "commands: /mode plan|interactive|auto · /model <id> · /clear · /quit"
+                + commands
             )
         elif name == "/mode" and arg in {"plan", "interactive", "auto"}:
             self.mode = Mode(arg)
@@ -229,18 +241,25 @@ class CoworkerApp(App):
         elif name == "/clear":
             if self.engine:
                 self.engine.messages = []
-                self.engine = build_code_engine(
-                    workspace=self.workspace,
-                    model=self.model,
-                    mode=self.mode,
-                    approver=self._approve,
-                    provider=self._provider,
-                )
+                self.engine = self._build_engine()
             self.query_one("#log", RichLog).clear()
             self.rendered.clear()
             self._write("conversation cleared")
         else:
-            self._write(f"[red]unknown command:[/red] {command}")
+            # A slash command that matches a saved command (project or user scope) runs it
+            # as a turn: the markdown body is expanded (with $ARGUMENTS substituted from the
+            # rest of the line) and fed to the engine as the user's request.
+            store = getattr(self.engine, "command_store", None)
+            if store is not None and name[1:] in store.names():
+                try:
+                    prompt = store.expand(name[1:], arg or "")
+                except Exception as exc:  # pragma: no cover - surfaced to the user
+                    self._write(f"[red]command failed:[/red] {exc}")
+                    return
+                self._write(f"[b cyan]{command}[/b cyan]")
+                self.run_turn(prompt)
+            else:
+                self._write(f"[red]unknown command:[/red] {command}")
 
     def action_interrupt(self) -> None:
         if self.engine:

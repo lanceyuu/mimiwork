@@ -19,8 +19,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..agents.base import Agent
-from ..agents.chat import chat_agent
-from ..agents.code import CODE_CAPABILITIES, code_agent
 from ..agents.cowork import COWORK_CAPABILITIES, cowork_agent
 from .manifest import PersonaManifest, load_manifest_file
 
@@ -117,44 +115,21 @@ class PersonaRegistry:
         )
 
     def _load_builtin(self, builtin_dir: Optional[str | Path]) -> None:
-        # Core surfaces keep their exact prompts via the existing builders. Cowork (the default)
-        # leads; Chat is hidden from the picker by default (Cowork covers quick Q&A) — recoverable
-        # from the Personas tab.
+        # The one session surface: Cowork (the default and only persona). Markdown-built
+        # third-party personas (installed via Settings ▸ Personas) load through _load_dir;
+        # the builtin directory ships no manifests by design — this is a single-coworker app.
         self._register_builder(
             "cowork",
             "MimiWork",
             "cowork",
-            "Produce a deliverable — research, analysis, scripts",
+            "Produce a deliverable — research, analysis, documents, decks, scripts",
             cowork_agent,
             True,
             "knowledge",
             COWORK_CAPABILITIES,
             workspace="deliverable",
         )
-        self._register_builder(
-            "code",
-            "Code",
-            "code",
-            "Work in a codebase — files, git, shell",
-            code_agent,
-            True,
-            "code",
-            CODE_CAPABILITIES,
-            workspace="git",
-        )
-        self._register_builder(
-            "chat",
-            "Chat",
-            "chat",
-            "Quick questions — no workspace",
-            chat_agent,
-            False,
-            "knowledge",
-            [],
-            workspace="none",
-            default_surfaced=False,
-        )
-        # Markdown-backed built-ins (Ops, …) — dogfood the manifest path.
+        # Markdown-backed third-party personas (Ops, …) — dogfood the manifest path.
         d = Path(builtin_dir) if builtin_dir else Path(__file__).parent / "builtin"
         self._load_dir(d, builtin=True)
 

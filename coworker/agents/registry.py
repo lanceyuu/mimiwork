@@ -13,7 +13,7 @@ from .myhelper import myhelper_agent
 
 
 def get_agent(name: str) -> Agent:
-    name = name or "code"
+    name = name or "cowork"
     if name == "myhelper":
         return myhelper_agent()
     from ..personas.registry import get_registry

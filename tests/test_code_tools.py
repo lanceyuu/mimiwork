@@ -68,7 +68,7 @@ def test_grep_rejects_path_escape(tmp_path):
 
 def test_py_grep_fallback_skips_ignored_dirs(tmp_path):
     _seed(tmp_path)
-    res = _py_grep(tmp_path.resolve(), tmp_path.resolve(), "hello", None, 100)
+    res = _py_grep(tmp_path.resolve(), [tmp_path.resolve()], "hello", None, 100)
     assert res["count"] == 2  # a.py + b.txt, NOT node_modules
     assert all("node_modules" not in m["file"] for m in res["matches"])
 

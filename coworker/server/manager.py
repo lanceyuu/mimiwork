@@ -371,13 +371,13 @@ class SessionManager:
 
     # -- engines ----------------------------------------------------------------
     def engine_workspace(
-        self, session_id: str, *, workspace: Optional[str] = None, agent: str = "code"
+        self, session_id: str, *, workspace: Optional[str] = None, agent: str = "cowork"
     ) -> Optional[str]:
         """The workspace `get_engine` would bind — for prepping MCP tools beforehand."""
         record = self.session_store.load(session_id)
         if record:
             return record.workspace or None
-        ag = get_agent(agent or "code")
+        ag = get_agent(agent or "cowork")
         return self.resolve_workspace(workspace) if ag.needs_workspace else None
 
     def get_engine(
@@ -385,7 +385,7 @@ class SessionManager:
         session_id: str,
         *,
         workspace: Optional[str] = None,
-        agent: str = "code",
+        agent: str = "cowork",
         approver: Optional[Approver] = None,
         extra_tools: Optional[list[Any]] = None,
         directory_requester: Optional[Any] = None,
@@ -405,7 +405,7 @@ class SessionManager:
             return engine
 
         record = self.session_store.load(session_id)
-        agent_name = (record.agent if record else agent) or "code"
+        agent_name = (record.agent if record else agent) or "cowork"
         ag = get_agent(agent_name)
 
         if record:
@@ -870,7 +870,7 @@ class SessionManager:
 
     # -- MCP --------------------------------------------------------------------
     async def prepare_mcp_tools(
-        self, session_id: str, *, workspace: Optional[str] = None, agent: str = "code"
+        self, session_id: str, *, workspace: Optional[str] = None, agent: str = "cowork"
     ) -> list[Any]:
         """Connect enabled MCP servers (global + workspace) and return their tool callables.
 
@@ -1862,23 +1862,13 @@ class SessionManager:
         }
 
     def _surfaces(self) -> dict[str, bool]:
-        """Which session surfaces are shown in the sidebar. Cowork is always on; Chat and Code
-        are opt-in (default off) so a new user sees Cowork only."""
-        return {
-            "cowork": True,
-            "chat": bool(self._prefs.get("show_chat", False)),
-            "code": bool(self._prefs.get("show_code", False)),
-        }
+        """Which session surfaces are shown in the sidebar. Cowork is the only surface."""
+        return {"cowork": True}
 
     def set_surfaces(
         self, chat: Optional[bool] = None, code: Optional[bool] = None
     ) -> dict[str, Any]:
-        """Toggle Chat/Code visibility (Cowork is always shown). Persisted in prefs."""
-        if chat is not None:
-            self._prefs["show_chat"] = bool(chat)
-        if code is not None:
-            self._prefs["show_code"] = bool(code)
-        self._save_prefs()
+        """Back-compat no-op: Cowork is the only surface; Chat/Code were removed."""
         return {"ok": True, "surfaces": self._surfaces()}
 
     def _nav_layout(self) -> str:
@@ -3246,7 +3236,7 @@ class SessionManager:
                 mode=engine.permissions.mode.value,
                 messages=engine.messages,
                 title=title_from(engine.messages),
-                agent=getattr(engine, "agent_name", "code"),
+                agent=getattr(engine, "agent_name", "cowork"),
                 extra_roots=self._extra_roots_of(engine),
                 grants=_grants_of(engine),
                 compaction=(

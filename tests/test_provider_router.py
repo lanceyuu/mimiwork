@@ -480,25 +480,13 @@ def test_surface_visibility(tmp_path, monkeypatch):
     from coworker.server.manager import SessionManager
 
     mgr = SessionManager(data_dir=tmp_path)
-    # default: Cowork only
-    s = mgr.get_settings()["surfaces"]
-    assert s == {"cowork": True, "chat": False, "code": False}
+    # Single-coworker app: Cowork is the ONLY surface, and it is always on.
+    assert mgr.get_settings()["surfaces"] == {"cowork": True}
 
+    # set_surfaces survives as a back-compat no-op for old clients.
     mgr.set_surfaces(chat=True)
-    assert mgr.get_settings()["surfaces"]["chat"] is True
-    assert mgr.get_settings()["surfaces"]["code"] is False  # untouched
-
     mgr.set_surfaces(code=True)
-    assert mgr.get_settings()["surfaces"] == {
-        "cowork": True,
-        "chat": True,
-        "code": True,
-    }
-
-    mgr.set_surfaces(chat=False)
-    assert mgr.get_settings()["surfaces"]["chat"] is False
-    # cowork is always on regardless
-    assert mgr.get_settings()["surfaces"]["cowork"] is True
+    assert mgr.get_settings()["surfaces"] == {"cowork": True}
 
 
 def test_provider_suggested_models(tmp_path, monkeypatch):

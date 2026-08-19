@@ -45,8 +45,9 @@ def test_chat_agent_has_no_workspace_tools():
 
 
 def test_get_agent_fallback():
-    assert get_agent("chat").name == "chat"
-    # Unknown ids fall back to the default persona (Cowork), per the persona registry.
+    # Single-coworker app: legacy ids ("chat", "code") and unknown ids all
+    # resolve to the one Cowork persona rather than erroring old sessions out.
+    assert get_agent("chat").name == "cowork"
     assert get_agent("nope").name == "cowork"
 
 
