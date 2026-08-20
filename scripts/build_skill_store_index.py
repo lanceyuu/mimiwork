@@ -29,6 +29,10 @@ REPOS = {
     "agentic-awesome-skills": "sickn33/agentic-awesome-skills",
     "awesome-claude-skills": "ComposioHQ/awesome-claude-skills",
     "agent-skills": "addyosmani/agent-skills",
+    # Round 2 (owner ask 2026-08-20): research-oriented collections.
+    "Auto-Empirical-Research-Skills": "brycewang-stanford/Auto-Empirical-Research-Skills",
+    "awesome-agent-skills": "VoltAgent/awesome-agent-skills",
+    "academic-research-skills": "imbad0202/academic-research-skills",
 }
 
 _DESC_CAP = 280
