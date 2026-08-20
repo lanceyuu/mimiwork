@@ -1496,6 +1496,33 @@ class SessionManager:
     def qualitati_logout(self) -> dict[str, Any]:
         return self._qualitati().logout()
 
+    def qualitati_footprint(self) -> dict[str, Any]:
+        """Measured environmental impact of the Mimi service (Scaleway data,
+        proxied through the QualiTaTi gateway with the stored credential)."""
+        import json as _json
+        from urllib import error, request
+
+        from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+
+        auth = self.secrets.get(AUTH_PROFILE) or {}
+        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        api_key = provider.get("api_key") if isinstance(provider, dict) else None
+        jwt = auth.get("access_token")
+        if not (api_key or jwt):
+            return {"ok": False, "error": "not signed in"}
+        base = (auth.get("base_url") or DEFAULT_BASE).rstrip("/")
+        headers = (
+            {"X-API-Key": api_key} if api_key else {"Authorization": f"Bearer {jwt}"}
+        )
+        req = request.Request(base + "/api/llm/v1/footprint", headers=headers)
+        try:
+            with request.urlopen(req, timeout=30) as r:
+                return {"ok": True, **_json.load(r)}
+        except error.HTTPError as e:
+            return {"ok": False, "error": f"footprint unavailable ({e.code})"}
+        except Exception as e:
+            return {"ok": False, "error": f"footprint unavailable: {e}"}
+
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     def get_providers(self) -> list[dict[str, Any]]:
         """Descriptor + per-provider status for the Settings UI. Never returns secret values;

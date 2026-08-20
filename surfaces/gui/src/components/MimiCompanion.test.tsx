@@ -35,7 +35,7 @@ describe("MimiCompanion", () => {
       expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep"),
     );
     expect(screen.getByTestId("companion-zzz")).toBeTruthy();
-    expect(screen.getByTestId("companion-label").textContent).toContain("napping");
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("Working on");
   });
 
   it("wakes up when the work finishes", async () => {
@@ -48,7 +48,7 @@ describe("MimiCompanion", () => {
       activityHandler?.({ type: "activity", data: { busy: false } });
     });
     expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("wake");
-    expect(screen.getByTestId("companion-label").textContent).toBe("All done!");
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
     expect(screen.queryByTestId("companion-zzz")).toBeNull();
   });
 

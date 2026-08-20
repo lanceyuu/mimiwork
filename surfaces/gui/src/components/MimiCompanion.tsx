@@ -185,9 +185,9 @@ export function MimiCompanion() {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_dismiss");
   };
 
-  const label = busy ? "Working… (Mimi is napping)" : phase === "wake" ? "All done!" : "Mimi";
-
   // The speech bubble: names the work while busy; celebrates when it lands.
+  // (No permanent label under the pet — owner ask 2026-08-20: the bubble talks,
+  // the pet stays clean.)
   const what = snap?.detail
     ? `“${snap.detail}”`
     : snap && snap.running_sessions + snap.running_automations > 1
@@ -288,22 +288,6 @@ export function MimiCompanion() {
         </div>
       )}
       <Sprite phase={phase} onDone={() => setPhase("idle")} />
-      <div
-        style={{
-          marginTop: 2,
-          fontSize: 11,
-          fontWeight: 600,
-          color: "#374151",
-          background: "rgba(255,255,255,0.85)",
-          borderRadius: 8,
-          padding: "2px 8px",
-          boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
-          whiteSpace: "nowrap",
-        }}
-        data-testid="companion-label"
-      >
-        {label}
-      </div>
       <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"] { animation: none !important; } }`}</style>
     </div>
   );

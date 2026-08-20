@@ -700,6 +700,11 @@ function UsageChip({
   modelLabels?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
+  // right-0 hangs the 280px panel LEFT of the chip; with the chip near the
+  // window's left edge (split view, narrow window) that clipped half the panel
+  // off-screen (owner report 2026-08-20). Decide the anchor side per open.
+  const [alignLeft, setAlignLeft] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
   const total = totalTokens(usage);
   const pct = contextWindow
     ? Math.min(100, Math.round((usage.context / contextWindow) * 100))
@@ -718,10 +723,14 @@ function UsageChip({
     </div>
   );
   return (
-    <div className="relative">
+    <div className="relative" ref={wrapRef}>
       <button
         className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11.5px] text-muted hover:text-ink hover:bg-paper shrink-0"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          const r = wrapRef.current?.getBoundingClientRect();
+          setAlignLeft(!!r && r.right - 280 < 8);
+          setOpen((v) => !v);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Token usage"
@@ -750,7 +759,10 @@ function UsageChip({
         <>
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div
-            className="absolute z-40 bottom-full mb-1 right-0 w-[280px] rounded-xl border border-line bg-panel shadow-2xl p-3"
+            className={
+              "absolute z-40 bottom-full mb-1 w-[280px] rounded-xl border border-line bg-panel shadow-2xl p-3 " +
+              (alignLeft ? "left-0" : "right-0")
+            }
             role="menu"
             data-testid="usage-popover"
           >

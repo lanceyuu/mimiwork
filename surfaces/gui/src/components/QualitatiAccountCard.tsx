@@ -12,15 +12,18 @@
 import { useEffect, useState } from "react";
 import {
   QualitatiStatus,
+  qualitatiFootprint,
   qualitatiLogin,
   qualitatiLogout,
   qualitatiStatus,
   qualitatiVerifyMfa,
+  type QualitatiFootprint,
 } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 
 export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<QualitatiStatus | null>(null);
+  const [footprint, setFootprint] = useState<QualitatiFootprint | null>(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -31,6 +34,13 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
   useEffect(() => {
     refresh();
   }, []);
+  // The footprint line loads once per Settings visit, only when signed in —
+  // measured Scaleway data for the whole Mimi service (server caches 1h).
+  useEffect(() => {
+    if (state?.signed_in && footprint === null) {
+      qualitatiFootprint().then(setFootprint).catch(() => setFootprint({ ok: false }));
+    }
+  }, [state?.signed_in, footprint]);
 
   const finish = (result: QualitatiStatus) => {
     if (!result.ok) {
@@ -109,7 +119,31 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
             <span className="text-danger/80">provider not configured — sign in again</span>
           )}
         </div>
-      ) : phase === "mfa" ? (
+      ) : null}
+      {state.signed_in && footprint?.ok && footprint.carbon_g !== undefined ? (
+        <div
+          className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted"
+          data-testid="qualitati-footprint"
+          title={`${footprint.scope ?? ""} — ${footprint.measured_by ?? ""}`}
+        >
+          <span aria-hidden>🌱</span>
+          <span>
+            Environmental impact this month, whole Mimi service:{" "}
+            <span className="text-ink font-medium tabular-nums">
+              {footprint.carbon_g < 1
+                ? `${(footprint.carbon_g * 1000).toFixed(0)} mg`
+                : `${footprint.carbon_g.toFixed(2)} g`}{" "}
+              CO₂e
+            </span>{" "}
+            ·{" "}
+            <span className="text-ink font-medium tabular-nums">
+              {((footprint.water_l ?? 0) * 1000).toFixed(1)} mL
+            </span>{" "}
+            water · measured by Scaleway, Paris 🇫🇷
+          </span>
+        </div>
+      ) : null}
+      {state.signed_in ? null : phase === "mfa" ? (
         <div className="mt-2.5 flex items-center gap-2">
           <input
             className="input w-[140px]"

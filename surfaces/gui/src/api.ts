@@ -1545,6 +1545,23 @@ export async function installStoreSkill(
   return res.json();
 }
 
+/** Measured environmental impact of the Mimi service (Scaleway Environmental
+ * Footprint, month to date, whole service — not per user). */
+export interface QualitatiFootprint {
+  ok: boolean;
+  error?: string;
+  period_start?: string;
+  carbon_g?: number;
+  water_l?: number;
+  region?: string;
+  scope?: string;
+  measured_by?: string;
+}
+export async function qualitatiFootprint(): Promise<QualitatiFootprint> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/footprint`);
+  return res.json();
+}
+
 /** App-wide busy snapshot — drives the floating Mimi companion. Live flips ride
  * /ws/events as {"type":"activity"} frames; this is the initial state. */
 export interface Activity {
