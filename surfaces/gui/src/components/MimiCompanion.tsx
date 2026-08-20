@@ -11,7 +11,7 @@
  * flips. Sprites are the QualiTaTi Mimi pet sheets (horizontal strips).
  */
 import { useEffect, useRef, useState } from "react";
-import { connectEvents, getActivity } from "../api";
+import { connectEvents, getActivity, type Activity } from "../api";
 import sleepSheet from "../assets/mimi-pet/mimi-sleep.png";
 import wakeSheet from "../assets/mimi-pet/mimi-wake-16.png";
 import idleSheet from "../assets/mimi-pet/mimi-idle-stable-48.png";
@@ -66,10 +66,34 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
   );
 }
 
+// What Mimi says while she works — rotated so the bubble feels alive, not static.
+const BUSY_LINES = [
+  (what: string) => `Working on ${what}…`,
+  (what: string) => `Still on ${what} — I'll nap till it's done 💤`,
+  (what: string) => `${what} in progress… wake me when? I'll wake YOU.`,
+];
+const DONE_LINE = "All done! Click me to take a look 🎉";
+
 export function MimiCompanion() {
   const [busy, setBusy] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  const [snap, setSnap] = useState<Activity | null>(null);
+  const [lineIdx, setLineIdx] = useState(0);
+  const [showDone, setShowDone] = useState(false);
   const busyRef = useRef<boolean | null>(null);
+
+  // Rotate the busy line every 9s; show the done bubble for 45s after waking.
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => setLineIdx((i) => (i + 1) % BUSY_LINES.length), 9000);
+    return () => window.clearInterval(id);
+  }, [busy]);
+  useEffect(() => {
+    if (phase !== "wake") return;
+    setShowDone(true);
+    const id = window.setTimeout(() => setShowDone(false), 45000);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   useEffect(() => {
     // Only the pet may paint: the window is transparent and frameless.
@@ -86,14 +110,22 @@ export function MimiCompanion() {
     };
 
     getActivity()
-      .then((a) => apply(a.busy))
+      .then((a) => {
+        setSnap(a);
+        apply(a.busy);
+      })
       .catch(() => setBusy(false));
     const stop = connectEvents((msg) => {
-      if (msg.type === "activity" && msg.data) apply(Boolean((msg.data as any).busy));
+      if (msg.type === "activity" && msg.data) {
+        setSnap(msg.data as unknown as Activity);
+        apply(Boolean((msg.data as any).busy));
+      }
     });
-    // Belt-and-suspenders: a missed frame (socket blip) self-heals within 15s.
+    // Belt-and-suspenders: a missed frame (socket blip) self-heals within 15s —
+    // and keeps the bubble's detail fresh while busy.
     const poll = window.setInterval(() => {
       getActivity().then((a) => {
+        setSnap(a);
         if (a.busy !== busyRef.current) apply(a.busy);
       }).catch(() => undefined);
     }, 15000);
@@ -112,6 +144,14 @@ export function MimiCompanion() {
   };
 
   const label = busy ? "Working… (Mimi is napping)" : phase === "wake" ? "All done!" : "Mimi";
+
+  // The speech bubble: names the work while busy; celebrates when it lands.
+  const what = snap?.detail
+    ? `“${snap.detail}”`
+    : snap && snap.running_sessions + snap.running_automations > 1
+      ? `${snap.running_sessions + snap.running_automations} tasks`
+      : "your task";
+  const bubble = busy ? BUSY_LINES[lineIdx](what) : showDone ? DONE_LINE : null;
 
   return (
     <div
@@ -155,11 +195,47 @@ export function MimiCompanion() {
       >
         ×
       </button>
+      {bubble && (
+        <div
+          data-testid="companion-bubble"
+          style={{
+            maxWidth: 200,
+            background: "rgba(255,255,255,0.96)",
+            color: "#16272a",
+            fontSize: 12,
+            fontWeight: 600,
+            lineHeight: 1.35,
+            borderRadius: 14,
+            padding: "7px 11px",
+            marginBottom: 8,
+            boxShadow: "0 4px 14px rgba(0,0,0,0.16)",
+            textAlign: "center",
+            position: "relative",
+            animation: "companion-bubble-in 0.3s cubic-bezier(0.25, 1, 0.5, 1)",
+          }}
+        >
+          {bubble}
+          <span
+            aria-hidden
+            style={{
+              position: "absolute",
+              bottom: -5,
+              left: "50%",
+              marginLeft: -5,
+              width: 10,
+              height: 10,
+              background: "rgba(255,255,255,0.96)",
+              transform: "rotate(45deg)",
+              borderRadius: 2,
+            }}
+          />
+        </div>
+      )}
       {busy && (
         <div
           data-testid="companion-zzz"
           style={{
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: 700,
             color: "#0d9488",
             textShadow: "0 1px 2px rgba(255,255,255,0.8)",
@@ -186,7 +262,7 @@ export function MimiCompanion() {
       >
         {label}
       </div>
-      <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } }`}</style>
+      <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"] { animation: none !important; } }`}</style>
     </div>
   );
 }

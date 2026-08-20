@@ -214,6 +214,9 @@ class SessionManager:
         # when the boolean FLIPS — the companion sleeps while busy and wakes on done.
         self._activity_busy = False
         self._active_automation_runs = 0
+        # Titles of automations currently mid-run — the companion's speech bubble
+        # says WHAT Mimi is working on, not just that she is.
+        self._active_automation_titles: list[str] = []
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
@@ -2766,11 +2769,13 @@ class SessionManager:
         self._maybe_autotitle(session_id)
 
     def activity(self) -> dict[str, Any]:
-        """App-wide busy snapshot — what the floating Mimi companion renders."""
+        """App-wide busy snapshot — what the floating Mimi companion renders.
+        `detail` names the work when it has a name (an automation title)."""
         return {
             "busy": bool(self._running_sessions) or self._active_automation_runs > 0,
             "running_sessions": len(self._running_sessions),
             "running_automations": self._active_automation_runs,
+            "detail": self._active_automation_titles[0] if self._active_automation_titles else None,
         }
 
     def _announce_activity(self) -> None:
@@ -3033,6 +3038,7 @@ class SessionManager:
         )  # __post_init__ sets run.session_id
         self.task_store.add_run(run)  # mark "running"
         self._active_automation_runs += 1
+        self._active_automation_titles.append(task.title)
         self._announce_activity()
         # UX-026: tell every open app window a SCHEDULED run just started (the 5s
         # top-right toast). Manual runs never come through here — the user is
@@ -3079,6 +3085,8 @@ class SessionManager:
         finally:
             run.finished_at = _epoch()
             self._active_automation_runs = max(0, self._active_automation_runs - 1)
+            if task.title in self._active_automation_titles:
+                self._active_automation_titles.remove(task.title)
             self._announce_activity()
             # Persist the run as a continuable session + keep the live engine for an immediate
             # follow-up; record the run (now carrying its session_id).

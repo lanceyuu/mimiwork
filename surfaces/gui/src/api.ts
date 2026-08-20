@@ -1551,6 +1551,8 @@ export interface Activity {
   busy: boolean;
   running_sessions: number;
   running_automations: number;
+  // Name of the work when it has one (an automation title) — the companion's bubble.
+  detail?: string | null;
 }
 export async function getActivity(): Promise<Activity> {
   const res = await fetch(`${httpBase()}/v1/activity`);

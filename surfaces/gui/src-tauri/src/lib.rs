@@ -558,7 +558,7 @@ fn position_companion(w: &tauri::WebviewWindow) {
     if let Some(mon) = monitor {
         let ms = mon.size();
         let mp = mon.position();
-        let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(150, 170));
+        let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
         let sf = mon.scale_factor();
         let margin = (24.0 * sf) as i32;
         let x = mp.x + ms.width as i32 - ws.width as i32 - margin;
@@ -817,7 +817,7 @@ pub fn run() {
                 WebviewUrl::App("index.html".into()),
             )
             .title("Mimi")
-            .inner_size(150.0, 170.0)
+            .inner_size(240.0, 250.0)
             .resizable(false)
             .decorations(false)
             .transparent(true)

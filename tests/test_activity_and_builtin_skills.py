@@ -115,6 +115,7 @@ def test_activity_tracks_session_turns(tmp_path):
         "busy": False,
         "running_sessions": 0,
         "running_automations": 0,
+        "detail": None,
     }
     mgr.mark_running("s1")
     assert mgr.activity()["busy"] is True
@@ -160,6 +161,7 @@ def test_activity_endpoint(tmp_path):
             "busy": False,
             "running_sessions": 0,
             "running_automations": 0,
+            "detail": None,
         }
 
 
