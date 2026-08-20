@@ -3,6 +3,7 @@ import { AutomationFlow } from "./AutomationFlow";
 import {
   createAutomation,
   deleteAutomation,
+  exportBlueprint,
   getAutomation,
   getAutomations,
   markAutomationSeen,
@@ -10,6 +11,7 @@ import {
   updateAutomation,
   type Automation,
   type AutomationRun,
+  type Blueprint,
 } from "../api";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
@@ -69,6 +71,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // A parsed .mimiflow.json waiting in the creation form (import flow).
+  const [prefill, setPrefill] = useState<Blueprint | null>(null);
 
   // The sidebar's Scheduled band can retarget an ALREADY-open Automations surface —
   // initial state alone would ignore the change (UX-023).
@@ -128,6 +132,34 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
         <div className="flex-1 min-w-0">
           <PanelHead title="Automations" sub="Recurring tasks MimiWork runs on a schedule." />
         </div>
+        <label
+          className="text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-panel hover:border-lineStrong shrink-0 cursor-pointer"
+          title="Import a shared .mimiflow.json blueprint — you review everything before it's created"
+        >
+          Import blueprint
+          <input
+            type="file"
+            accept=".json,.mimiflow.json,application/json"
+            className="hidden"
+            data-testid="import-blueprint"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              try {
+                const bp = JSON.parse(await file.text()) as Blueprint;
+                if (!bp || bp.mimiwork_blueprint !== 1 || !bp.title || !bp.instructions) {
+                  alert("That file isn't a MimiWork blueprint.");
+                  return;
+                }
+                setPrefill(bp);
+                setShowForm(true);
+              } catch {
+                alert("Could not read that file as JSON.");
+              }
+            }}
+          />
+        </label>
         <button
           className="text-[12.5px] px-3 py-1.5 rounded-lg border border-lineStrong bg-panel hover:border-accent hover:text-accent shrink-0"
           onClick={() => setShowForm((v) => !v)}
@@ -146,9 +178,17 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
 
       {showForm && (
         <NewAutomationForm
+          key={prefill ? `bp-${prefill.title}` : "blank"}
           busy={busy !== null}
-          onCancel={() => setShowForm(false)}
-          onCreate={create}
+          initial={prefill}
+          onCancel={() => {
+            setShowForm(false);
+            setPrefill(null);
+          }}
+          onCreate={async (p) => {
+            await create(p);
+            setPrefill(null);
+          }}
         />
       )}
 
@@ -221,6 +261,7 @@ function NewAutomationForm({
   busy,
   onCancel,
   onCreate,
+  initial,
 }: {
   busy: boolean;
   onCancel: () => void;
@@ -230,12 +271,18 @@ function NewAutomationForm({
     cron?: string;
     workspace?: string;
     files?: { name: string; data_b64: string }[];
+    permissions?: { tool: string; target: string; access: "read" | "write" }[];
   }) => void;
+  // A blueprint being imported: prefills every field; the user reviews (grants
+  // shown below) and the Create click IS the consent (§25).
+  initial?: Blueprint | null;
 }) {
-  const [title, setTitle] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [time, setTime] = useState("09:00");
-  const [freq, setFreq] = useState("daily");
+  const initialSched = fromCron(initial?.schedule?.cron);
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [instructions, setInstructions] = useState(initial?.instructions ?? "");
+  const [time, setTime] = useState(initial ? initialSched.time : "09:00");
+  const [freq, setFreq] = useState(initial ? initialSched.freq : "daily");
+  const grants = initial?.permissions ?? [];
   const [folder, setFolder] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
   // Revision notes attached to flow nodes — folded into the instructions on create,
@@ -270,6 +317,7 @@ function NewAutomationForm({
         instructions.trim() +
         (noteLines.length ? `\n\nRevision notes from the flow review:\n${noteLines.join("\n")}` : ""),
       cron: toCron(time, freq),
+      ...(grants.length ? { permissions: grants } : {}),
       ...(folder ? { workspace: folder } : {}),
       ...(files.length
         ? {
@@ -284,8 +332,23 @@ function NewAutomationForm({
   return (
     <div className={CARD + " tmpl-form p-4 mb-4"} data-testid="new-automation-form">
       <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
-        New automation
+        {initial ? "Import blueprint — review, then create" : "New automation"}
       </div>
+      {grants.length > 0 && (
+        <div
+          className="mb-2.5 rounded-lg border border-line bg-paper px-3 py-2 text-[12px]"
+          data-testid="blueprint-grants"
+        >
+          <span className="font-medium">This blueprint asks for standing permissions: </span>
+          {grants.map((g, i) => (
+            <span key={i} className="text-muted">
+              {g.tool} → {g.target}
+              {i < grants.length - 1 ? ", " : ""}
+            </span>
+          ))}
+          <span className="text-muted"> — creating the automation grants them.</span>
+        </div>
+      )}
       <input
         className="tmpl-input"
         placeholder="Title (e.g. Daily standup notes)"
@@ -532,6 +595,21 @@ function TaskDetail({
               <>
                 <button className="btn-primary sm" onClick={() => onRunNow(id, task.title)}>
                   ▶ Run now
+                </button>
+                <button
+                  className="btn sm"
+                  data-testid="share-blueprint"
+                  title="Save this automation's design as a shareable .mimiflow.json file"
+                  onClick={async () => {
+                    const res = await exportBlueprint(id);
+                    alert(
+                      res.ok
+                        ? `Blueprint saved to ${res.path}\n\nShare the file — anyone can import it from Automations → Import blueprint.`
+                        : res.error || "Export failed.",
+                    );
+                  }}
+                >
+                  Share blueprint
                 </button>
                 <button className="btn sm" onClick={startEdit}>Edit</button>
                 <button className="btn sm danger-btn" onClick={remove}>

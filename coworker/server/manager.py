@@ -3150,6 +3150,42 @@ class SessionManager:
         self.task_store.save(task)
         return {"ok": True}
 
+    def export_automation_blueprint(self, task_id: str) -> dict[str, Any]:
+        """Blueprint = the automation's DESIGN, shareable: title, instructions,
+        schedule, notify flag, and the grants it wants (as requests, not grants —
+        the importer's create form re-renders them and the import submit is the
+        §25 consent). Deliberately absent: workspace paths, run history, ids —
+        nothing machine- or account-specific. Written to ~/Downloads for easy
+        sharing; the JSON also returns for clipboard use."""
+        import json as _json
+        import re as _re
+
+        task = self.task_store.get(task_id)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        from ..automation.models import rule_parts
+
+        blueprint = {
+            "mimiwork_blueprint": 1,
+            "title": task.title,
+            "instructions": task.instructions,
+            "schedule": task.schedule.to_dict(),
+            "notify_on_completion": task.notify_on_completion,
+            "permissions": [
+                {"tool": t, "target": tg, "access": "write"}
+                for t, tg in (rule_parts(e) for e in sorted(set(task.always_allowed_tools)))
+                if t and tg
+            ],
+        }
+        slug = _re.sub(r"[^A-Za-z0-9]+", "-", task.title).strip("-").lower() or "automation"
+        dest = Path.home() / "Downloads" / f"{slug}.mimiflow.json"
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(_json.dumps(blueprint, indent=2), encoding="utf-8")
+        except OSError as exc:
+            return {"ok": False, "error": f"could not write blueprint: {exc}"}
+        return {"ok": True, "path": str(dest), "blueprint": blueprint}
+
     def get_automation(self, task_id: str) -> dict[str, Any]:
         task = self.task_store.get(task_id)
         if task is None:

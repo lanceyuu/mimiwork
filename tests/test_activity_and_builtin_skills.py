@@ -40,6 +40,8 @@ BUILTIN = {
     "survey-generator",
     # authored for the GenAI-for-Business teaching arc
     "agentic-architect",
+    # emilkowalski/skills — fluid Apple-style interfaces for web deliverables
+    "apple-design",
 }
 
 
@@ -230,3 +232,25 @@ def test_automation_rejects_bad_folder_and_bad_files(tmp_path):
     assert "invalid encoding" in mgr.create_automation(
         {**base, "files": [{"name": "ok.txt", "data_b64": "%%%"}]}
     )["error"]
+
+
+def test_blueprint_export_is_shareable_and_leak_free(tmp_path, monkeypatch):
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+    created = mgr.create_automation(
+        {"title": "Standup notes", "instructions": "Summarize.", "cron": "0 9 * * 1-5"}
+    )
+    res = mgr.export_automation_blueprint(created["task"]["id"])
+    assert res["ok"], res
+    bp = res["blueprint"]
+    assert bp["mimiwork_blueprint"] == 1
+    assert bp["title"] == "Standup notes" and bp["schedule"]["cron"] == "0 9 * * 1-5"
+    # Nothing machine- or account-specific travels.
+    assert "workspace" not in bp and "id" not in bp
+    from pathlib import Path
+
+    assert Path(res["path"]).name == "standup-notes.mimiflow.json"
+    assert Path(res["path"]).is_file()
+

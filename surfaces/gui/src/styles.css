@@ -1656,3 +1656,74 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
 /* n8n-style automation flow (Automations → detail) — the SVG supplies its own
    dotted canvas; this just gives it breathing room within the detail column. */
 .autoflow { margin: 14px 0 6px; overflow-x: auto; }
+
+/* ================================================================
+   Apple-design polish layer (emilkowalski/skills · apple-design)
+   Response, interruptibility-friendly timing, and materials:
+   - press feedback on pointerdown (:active), scale 0.97 @ 100ms
+   - one shared ease that approximates a critically-damped spring
+   - translucent chrome with vibrancy (+ reduced-transparency fallback)
+   - display tracking tightens with size; body stays at 1.5
+   Animate transform/opacity only — compositor-friendly.
+   ================================================================ */
+:root {
+  /* ease-out-quart ≈ critically damped spring (bounce 0, ~0.35s) */
+  --spring: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+/* Response: kill latency — feedback lands on press, not on release. */
+button:not(:disabled):active,
+.btn:not(:disabled):active,
+.btn-primary:not(:disabled):active {
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
+button:not(:disabled) {
+  transition: transform 160ms var(--spring), background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* Typography: tracking tightens as size grows; weight builds hierarchy. */
+h1, h2, .text-\[18px\] { letter-spacing: -0.02em; }
+h1 { line-height: 1.05; }
+
+/* Materials: the nav is chrome, not content — translucent with vibrancy,
+   content scrolling underneath. Falls back to the solid token where the
+   platform (or the user) says no. */
+.sidebar {
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) {
+  .sidebar { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+/* Spatial consistency: the collapsed nav peeks in and out along the same
+   path with the shared spring feel (was a generic 0.18s ease). */
+.app.nav-collapsed .sidebar { transition: transform 0.35s var(--spring); }
+
+/* Cards lift on hover — transform only, no layout shift. */
+.sched-card, .tmpl-card {
+  transition: transform 0.25s var(--spring), border-color 0.15s, box-shadow 0.25s var(--spring);
+}
+.sched-card:hover, .tmpl-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
+}
+
+/* Agency: keyboard users always see where they are. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Reduced motion: comprehension-aiding fades stay; movement goes. */
+@media (prefers-reduced-motion: reduce) {
+  button:not(:disabled):active { transform: none; }
+  .sched-card:hover, .tmpl-card:hover { transform: none; }
+  .app.nav-collapsed .sidebar { transition: transform 0.01s linear; }
+}

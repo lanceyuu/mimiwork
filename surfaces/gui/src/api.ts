@@ -1595,6 +1595,25 @@ export function connectEvents(
   };
 }
 
+/** A shareable automation design: no workspace paths, ids, or history. Grants
+ * travel as REQUESTS — the import form re-renders them and submit is the consent. */
+export interface Blueprint {
+  mimiwork_blueprint: number;
+  title: string;
+  instructions: string;
+  schedule?: { kind?: string; cron?: string | null; fire_at?: string | null; timezone?: string };
+  notify_on_completion?: boolean;
+  permissions?: { tool: string; target: string; access: "read" | "write" }[];
+}
+export async function exportBlueprint(
+  id: string,
+): Promise<{ ok: boolean; path?: string; blueprint?: Blueprint; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/automations/${encodeURIComponent(id)}/blueprint`, {
+    method: "POST",
+  });
+  return res.json();
+}
+
 /** Advance the automation's seen mark — clears its unseen-runs badge (UX-023). */
 export async function markAutomationSeen(id: string): Promise<{ ok: boolean }> {
   const res = await fetch(`${httpBase()}/v1/automations/${id}/seen`, { method: "POST" });

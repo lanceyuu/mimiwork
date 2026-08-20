@@ -1242,6 +1242,11 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    @app.post("/v1/automations/{task_id}/blueprint")
+    def automation_blueprint(task_id: str) -> dict[str, Any]:
+        """Export the automation as a shareable blueprint file (~/Downloads)."""
+        return manager.export_automation_blueprint(task_id)
+
     @app.post("/v1/automations/{task_id}/seen")
     def automations_seen(task_id: str) -> dict[str, Any]:
         return manager.mark_automation_seen(task_id)
