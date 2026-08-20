@@ -38,6 +38,8 @@ BUILTIN = {
     "deep-research",
     "avoid-ai-writing",
     "survey-generator",
+    # authored for the GenAI-for-Business teaching arc
+    "agentic-architect",
 }
 
 
