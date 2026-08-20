@@ -821,6 +821,19 @@ button.btn.danger { color: var(--accent); }
 }
 .topbar-workspace-chip:hover { color: var(--ink); border-color: var(--accent); background: var(--panel); }
 .topbar-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Mission control — the sidebar's live "Now" band */
+.mc-live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  animation: mc-pulse 2s ease-in-out infinite;
+}
+@keyframes mc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .mc-live-dot { animation: none; } }
+.mc-approval { color: #92400e; background: rgba(255, 247, 230, 0.6); }
+.mc-approval:hover { color: #78350f; }
+.mc-stop { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; color: var(--muted); transition: opacity 0.12s ease; }
+.mc-stop:hover { color: #b91c1c; background: var(--paper); }
 .topbar-artifacts-count {
   min-width: 17px; padding: 0 5px; border-radius: 9px;
   background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; text-align: center;

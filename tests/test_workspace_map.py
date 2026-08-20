@@ -64,6 +64,19 @@ def test_prunes_hidden_and_derived_dirs(tmp_path):
     assert "__pycache__" not in out
 
 
+def test_prunes_configured_app_state_inside_workspace(tmp_path, monkeypatch):
+    state = tmp_path / "visible-state-name"
+    _touch(state / "skills" / "private-skill" / "SKILL.md")
+    _touch(tmp_path / "report.md")
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(state))
+
+    out = build_workspace_map(tmp_path)
+
+    assert "report.md" in out
+    assert "visible-state-name" not in out
+    assert "private-skill" not in out
+
+
 def test_budget_cap_respected(tmp_path):
     for i in range(200):
         _touch(tmp_path / f"file_with_a_rather_long_name_{i:03d}.md")

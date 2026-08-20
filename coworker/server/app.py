@@ -249,6 +249,18 @@ def create_app(manager: SessionManager) -> FastAPI:
         also ride /ws/events as {"type": "activity"} frames."""
         return manager.activity()
 
+    @app.post("/v1/sessions/{session_id}/fork")
+    def fork_session(session_id: str) -> dict[str, Any]:
+        """Duplicate a conversation as a new thread (transcript + scope copied,
+        fresh id) so the user can try a different direction."""
+        return manager.fork_session(session_id)
+
+    @app.post("/v1/sessions/{session_id}/interrupt")
+    def interrupt_session(session_id: str) -> dict[str, Any]:
+        """Mission control's stop button — halt a running session's turn from
+        outside its own WebSocket."""
+        return manager.interrupt_session(session_id)
+
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}

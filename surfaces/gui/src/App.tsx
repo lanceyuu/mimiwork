@@ -19,6 +19,7 @@ import {
   PERSONAS_CHANGED,
   resolveInboxItem,
   revealArtifact,
+  forkSession,
   deleteSession,
   renameSession,
   runAutomation,
@@ -1129,6 +1130,15 @@ export function App() {
     const res = await renameSession(id, title);
     if (res.ok) refreshSessions();
   };
+  // Fork (design spec 2026-08-20 §3): duplicate the thread server-side, then open the
+  // copy — the original stays untouched in the list.
+  const forkConversation = async (id: string) => {
+    const res = await forkSession(id).catch(() => null);
+    if (res?.ok && res.id) {
+      refreshSessions();
+      void selectSession(res.id, res.workspace || "", res.agent || "cowork");
+    }
+  };
   const togglePinned = async (id: string, pinned: boolean) => {
     await setSessionFlags(id, { pinned });
     refreshSessions();
@@ -1357,6 +1367,7 @@ export function App() {
         onSelectSession={selectSession}
         onNewProject={newProject}
         onRenameSession={renameConversation}
+        onForkSession={forkConversation}
         onDeleteSession={deleteConversation}
         onArchiveSession={toggleArchived}
         onTogglePin={togglePinned}

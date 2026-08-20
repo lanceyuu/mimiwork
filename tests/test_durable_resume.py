@@ -122,3 +122,36 @@ def test_durable_resume_approval_executes_tool(tmp_path):
         target.exists() and target.read_text() == "ok"
     )  # the approved write actually ran
     assert any("Done" in (t or "") for t in _final_assistant_texts(mgr, sid))
+
+
+def test_legacy_pending_approval_without_journal_is_seeded_as_prepared(tmp_path):
+    target = tmp_path / "legacy_marker.txt"
+    mgr = SessionManager(
+        workspace=tmp_path,
+        provider=ScriptedProvider(
+            [
+                _tool(
+                    "write_file",
+                    {"path": str(target), "content": "once"},
+                    "legacy_call",
+                ),
+                _text("Legacy approval recovered."),
+            ]
+        ),
+    )
+    sid = "legacy-approval"
+
+    async def scenario():
+        engine = mgr.get_engine(sid, agent="cowork", workspace=str(tmp_path))
+        item = await _run_until_pending(mgr, sid, engine)
+        # Simulate upgrading a parked approval created before tool_runs existed.
+        mgr.session_store._conn.execute(
+            "DELETE FROM tool_runs WHERE session_id = ?", (sid,)
+        )
+        mgr.session_store._conn.commit()
+        await mgr.resolve_inbox(item.id, "allow")
+
+    asyncio.run(scenario())
+
+    assert target.read_text() == "once"
+    assert any("Legacy approval" in (t or "") for t in _final_assistant_texts(mgr, sid))

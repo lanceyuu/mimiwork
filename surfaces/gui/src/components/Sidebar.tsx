@@ -19,6 +19,7 @@ import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { Icon, type IconName } from "./Icon";
 import { PersonaGlyph, personaGlyph } from "./personaIcon";
+import { MissionControl } from "./MissionControl";
 import { SearchModal } from "./SearchModal";
 import { baseName } from "../paths";
 import { showPersonas } from "../flags";
@@ -118,6 +119,7 @@ interface Props {
   onSelectSession: (id: string, workspace: string, agent: string) => void;
   onNewProject: (persona: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onForkSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onArchiveSession: (id: string, archived: boolean) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
@@ -479,6 +481,10 @@ export function Sidebar(props: Props) {
               )}
               {item("row-menu-archive", "archive", s.archived ? "Unarchive" : "Archive", () =>
                 props.onArchiveSession(s.session_id, !s.archived),
+              )}
+              {/* Fork (design spec 2026-08-20 §3): copy the thread, keep the original. */}
+              {item("row-menu-fork", "branch", "Duplicate as new thread", () =>
+                props.onForkSession(s.session_id),
               )}
               <div className="h-px bg-line my-1 mx-2" />
               {confirmDelId === s.session_id ? (
@@ -1040,6 +1046,12 @@ export function Sidebar(props: Props) {
           grouped (per-persona accordion) or flat (chronological list). */}
       <div className="flex-1 overflow-y-auto px-2.5 mt-3 pb-2">
         <div className="space-y-4">
+          {/* Mission control: live "Now" band — renders nothing while the app is quiet. */}
+          <MissionControl
+            onSelectSession={props.onSelectSession}
+            onOpenAutomation={props.onOpenAutomation}
+            onOpenInbox={props.onOpenInbox}
+          />
           {pinnedBand()}
           {scheduledBand()}
           <div>

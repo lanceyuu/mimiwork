@@ -1572,9 +1572,40 @@ export interface Activity {
   pending_input?: number;
   // Name of the work when it has one (an automation title) — the companion's bubble.
   detail?: string | null;
+  // Mission-control rows: everything live right now, one entry each.
+  items?: ActivityRow[];
+}
+export interface ActivityRow {
+  kind: "session" | "automation" | "approval";
+  id: string;
+  title: string;
+  started_at?: number; // epoch seconds (sessions + automations)
+  workspace?: string; // sessions
+  agent?: string; // sessions
+  session_id?: string; // approvals
 }
 export async function getActivity(): Promise<Activity> {
   const res = await fetch(`${httpBase()}/v1/activity`);
+  return res.json();
+}
+
+/** Mission control's stop button: halt a running session's turn from outside its socket. */
+export async function interruptSession(sessionId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/interrupt`,
+    jsonPost({}),
+  );
+  return res.json();
+}
+
+/** Duplicate a conversation as a new thread (transcript + scope copied, fresh id). */
+export async function forkSession(
+  sessionId: string,
+): Promise<{ ok: boolean; id?: string; workspace?: string; agent?: string; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/fork`,
+    jsonPost({}),
+  );
   return res.json();
 }
 

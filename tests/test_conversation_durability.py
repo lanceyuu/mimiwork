@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+import coworker.conversations as conversations
 from coworker.conversations import ConversationStore
 from coworker.sessions import SessionRecord
 
@@ -83,3 +86,28 @@ def test_valid_final_record_without_newline_gets_a_separator_before_append(tmp_p
         {"role": "user", "content": "one"},
         {"role": "assistant", "content": "two"},
     ]
+
+
+def test_atomic_rewrite_preserves_old_prefix_if_replace_fails(tmp_path, monkeypatch):
+    store = ConversationStore(tmp_path)
+    record = SessionRecord(
+        session_id="atomic",
+        workspace=str(tmp_path),
+        model="test-model",
+        mode="interactive",
+        messages=[{"role": "user", "content": "original"}],
+    )
+    store.save(record)
+    path = store._file("atomic")
+    original = path.read_bytes()
+
+    def fail_replace(source, target):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(conversations.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        store._write_all("atomic", [{"role": "assistant", "content": "new"}])
+
+    assert path.read_bytes() == original
+    assert list(store.conv_dir.glob(".atomic.*.tmp")) == []

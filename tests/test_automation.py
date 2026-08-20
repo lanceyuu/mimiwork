@@ -290,6 +290,107 @@ def test_task_engine_has_no_scheduling_tools(tmp_path, monkeypatch):
     assert callable(engine.checkpoint)
 
 
+async def test_live_scheduled_approval_cannot_start_a_second_resume(
+    tmp_path, monkeypatch
+):
+    import aisuite as ai
+
+    from coworker.engine import TurnEngine
+    from coworker.permissions import PermissionEngine
+    from coworker.providers import (
+        AssistantTurn,
+        ModelCapabilities,
+        ProviderClient,
+        ToolCall,
+    )
+    from coworker.server import SessionManager
+    from coworker.tools import RecoveryPolicy, ToolRegistry
+
+    class ScriptedProvider(ProviderClient):
+        def __init__(self):
+            self.turns = [
+                AssistantTurn(
+                    tool_calls=[
+                        ToolCall(
+                            id="scheduled-call",
+                            name="dangerous_action",
+                            arguments={},
+                        )
+                    ]
+                ),
+                AssistantTurn(text="done", finish_reason="stop"),
+            ]
+
+        def complete(self, *, model, messages, tools=None, **settings):
+            return self.turns.pop(0)
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    provider = ScriptedProvider()
+    manager = SessionManager(data_dir=tmp_path / "data", provider=provider)
+    task = _task(workspace=str(workspace), agent="cowork")
+    manager.task_store.save(task)
+    effects: list[str] = []
+
+    def build_task_engine(task, *, session_id):
+        def dangerous_action():
+            effects.append("executed")
+            return {"ok": True}
+
+        registry = ToolRegistry()
+        registry.register(
+            dangerous_action,
+            metadata=ai.ToolMetadata(
+                name="dangerous_action",
+                category="connector",
+                risk_level="medium",
+                capabilities=["write"],
+                requires_approval=True,
+            ),
+            schema={
+                "type": "function",
+                "function": {
+                    "name": "dangerous_action",
+                    "description": "A consequential test action.",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            },
+            recovery_policy=RecoveryPolicy.NON_REPLAYABLE,
+        )
+        engine = TurnEngine(
+            provider=provider,
+            registry=registry,
+            permissions=PermissionEngine(workspace_root=workspace),
+            model="test-model",
+            approver=manager._scheduled_approver(task, session_id),
+        )
+        engine.agent_name = "cowork"
+        manager._wire_tool_recovery(engine, session_id)
+        return engine
+
+    monkeypatch.setattr(manager, "_build_task_engine", build_task_engine)
+    running = asyncio.create_task(manager._run_scheduled_task(task, trigger="manual"))
+
+    pending = []
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        pending = manager.inbox.pending()
+        if pending:
+            break
+    assert len(pending) == 1
+    assert manager.is_running(pending[0].session_id)
+
+    await manager.resolve_inbox(pending[0].id, "allow")
+    run = await running
+
+    assert run.status == "ok"
+    assert effects == ["executed"]
+
+
 async def test_manual_run_prepare_and_finalize(tmp_path, monkeypatch):
     from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
     from coworker.server.manager import SessionManager

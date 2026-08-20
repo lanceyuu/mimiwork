@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from coworker.conversations import ConversationStore
 from coworker.engine import TurnEngine
 from coworker.events import EventType
@@ -227,6 +229,35 @@ def test_running_replay_safe_read_retries(tmp_path):
 
     assert reads == ["read"]
     assert store.get_tool_run("read", 1, 0)["state"] == "succeeded"
+
+
+def test_execution_start_is_compare_and_swap(tmp_path):
+    store = ConversationStore(tmp_path / "state")
+
+    def write_once():
+        return {"written": True}
+
+    engine = _engine(
+        tmp_path,
+        store,
+        "cas",
+        [("write_once", write_once, RecoveryPolicy.NON_REPLAYABLE)],
+        [("call-1", "write_once")],
+    )
+    _prepare(
+        engine,
+        store,
+        "cas",
+        0,
+        "call-1",
+        "write_once",
+        RecoveryPolicy.NON_REPLAYABLE,
+    )
+
+    store.start_tool_run("cas", 1, 0)
+
+    with pytest.raises(RuntimeError, match="not executable"):
+        store.start_tool_run("cas", 1, 0)
 
 
 def test_completed_parallel_sibling_is_restored_while_ambiguous_write_stops(tmp_path):

@@ -117,12 +117,19 @@ def test_activity_tracks_session_turns(tmp_path):
         "running_automations": 0,
         "pending_input": 0,
         "detail": None,
+        "items": [],
     }
     mgr.mark_running("s1")
     assert mgr.activity()["busy"] is True
     assert mgr.activity()["running_sessions"] == 1
+    # Mission-control row: the running session, with a start time and a title
+    # fallback (no store row yet mid-first-turn).
+    (row,) = mgr.activity()["items"]
+    assert row["kind"] == "session" and row["id"] == "s1"
+    assert row["title"] == "New session" and row["started_at"] > 0
     mgr.mark_idle("s1")
     assert mgr.activity()["busy"] is False
+    assert mgr.activity()["items"] == []
 
 
 def test_activity_flip_broadcasts_once(tmp_path):
@@ -164,7 +171,48 @@ def test_activity_endpoint(tmp_path):
             "running_automations": 0,
             "pending_input": 0,
             "detail": None,
+            "items": [],
         }
+
+
+def test_interrupt_endpoint_rejects_idle_session(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+
+    mgr = _manager(tmp_path)
+    app = create_app(mgr)
+    with TestClient(app) as client:
+        r = client.post("/v1/sessions/nope/interrupt")
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+
+def test_fork_endpoint_round_trip(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+    from coworker.sessions import SessionRecord
+
+    mgr = _manager(tmp_path)
+    mgr.session_store.save(
+        SessionRecord(
+            session_id="orig",
+            workspace=str(tmp_path),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "hello"}],
+        )
+    )
+    app = create_app(mgr)
+    with TestClient(app) as client:
+        r = client.post("/v1/sessions/orig/fork").json()
+        assert r["ok"] is True and r["id"] != "orig"
+        assert r["workspace"] == str(tmp_path)
+        assert mgr.session_store.load(r["id"]).messages == [
+            {"role": "user", "content": "hello"}
+        ]
+        assert client.post("/v1/sessions/ghost/fork").json()["ok"] is False
 
 
 # ── legacy QualiTaTi model-id migration ─────────────────────────────────────

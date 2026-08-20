@@ -37,7 +37,7 @@ from ..unattended import UnattendedRegistry
 from ..audit import AuditStore
 from ..config import load_config, workspace_allowed_commands
 from ..conversations import ConversationStore, title_from
-from ..engine import ApprovalOutcome, Approver, TurnEngine
+from ..engine import Approver, TurnEngine
 from ..roots import RootDir
 from ..workspace_trust import WorkspaceTrustStore
 from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
@@ -145,9 +145,10 @@ class SessionManager:
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
         self._engines: dict[str, TurnEngine] = {}
-        self._running_sessions: set[str] = (
-            set()
-        )  # sessions with an in-flight turn (busy)
+        # Sessions with an in-flight turn (busy): id → epoch the turn started
+        # (the start time feeds mission control's elapsed display; membership is
+        # all the busy logic ever tests).
+        self._running_sessions: dict[str, float] = {}
         # Sessions with an auto-title LLM call in flight (FB-010) — one call at a time.
         self._autotitle_inflight: set[str] = set()
         self._autotitle_tasks: set[asyncio.Task] = set()
@@ -217,6 +218,9 @@ class SessionManager:
         # Titles of automations currently mid-run — the companion's speech bubble
         # says WHAT Mimi is working on, not just that she is.
         self._active_automation_titles: list[str] = []
+        # Mission-control detail: automations mid-run as {id, title, started_at}
+        # (parallel to the counter/titles above; feeds activity()["items"]).
+        self._active_automation_info: list[dict[str, Any]] = []
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
@@ -905,7 +909,13 @@ class SessionManager:
         engine = self.get_engine(item.session_id)
         if engine is None or not hasattr(engine, "resume"):
             return
-        self.mark_running(item.session_id)
+        if getattr(item, "kind", "") == "approval":
+            # A legacy transcript may predate tool_runs.  The existence of the
+            # approval proves this exact call parked before execution, so it is safe
+            # to seed `prepared` after upgrade.  Generic row-less calls still fail closed.
+            engine.seed_approved_recovery(item.tool_call_id)
+        if not self.try_mark_running(item.session_id):
+            return
         try:
             async for _event in engine.resume():
                 pass
@@ -2786,19 +2796,19 @@ class SessionManager:
         return resumed
 
     def mark_running(self, session_id: str) -> None:
-        self._running_sessions.add(session_id)
+        self._running_sessions[session_id] = time.time()
         self._announce_activity()
 
     def try_mark_running(self, session_id: str) -> bool:
         """Atomically claim an idle session for one turn on the server event loop."""
         if session_id in self._running_sessions:
             return False
-        self._running_sessions.add(session_id)
+        self._running_sessions[session_id] = time.time()
         self._announce_activity()
         return True
 
     def mark_idle(self, session_id: str) -> None:
-        self._running_sessions.discard(session_id)
+        self._running_sessions.pop(session_id, None)
         self._announce_activity()
         # Every turn path (WS, background delivery, durable resume) marks idle when it
         # finishes — the one shared post-turn moment, so auto-titling hooks in here and
@@ -2815,12 +2825,49 @@ class SessionManager:
         pending = [
             i for i in self.inbox.pending() if i.kind != KIND_NOTIFICATION
         ]
+        # Mission-control rows: everything live, one dict each. Session titles come
+        # from the store's indexed row (a session mid-FIRST-turn has no row yet →
+        # fall back to a generic label).
+        items: list[dict[str, Any]] = []
+        for sid, started in sorted(
+            self._running_sessions.items(), key=lambda kv: kv[1]
+        ):
+            summary = self.session_store.summary(sid) or {}
+            items.append(
+                {
+                    "kind": "session",
+                    "id": sid,
+                    "title": summary.get("title") or "New session",
+                    "workspace": summary.get("workspace", ""),
+                    "agent": summary.get("agent", "cowork"),
+                    "started_at": started,
+                }
+            )
+        for info in self._active_automation_info:
+            items.append(
+                {
+                    "kind": "automation",
+                    "id": info["id"],
+                    "title": info["title"],
+                    "started_at": info["started_at"],
+                }
+            )
+        for item in pending:
+            items.append(
+                {
+                    "kind": "approval",
+                    "id": item.id,
+                    "title": item.title,
+                    "session_id": item.session_id,
+                }
+            )
         return {
             "busy": bool(self._running_sessions) or self._active_automation_runs > 0,
             "running_sessions": len(self._running_sessions),
             "running_automations": self._active_automation_runs,
             "pending_input": len(pending),
             "detail": self._active_automation_titles[0] if self._active_automation_titles else None,
+            "items": items,
         }
 
     def _announce_activity(self) -> None:
@@ -2845,6 +2892,29 @@ class SessionManager:
 
     def is_running(self, session_id: str) -> bool:
         return session_id in self._running_sessions
+
+    def fork_session(self, session_id: str) -> dict[str, Any]:
+        """Duplicate a conversation as a new thread (store-level copy). The fork
+        loads like any resumed session; nothing about the original changes."""
+        new_id = self.session_store.fork(session_id)
+        if new_id is None:
+            return {"ok": False, "error": "session not found"}
+        rec = self.session_store.load(new_id)
+        return {
+            "ok": True,
+            "id": new_id,
+            "workspace": rec.workspace if rec else "",
+            "agent": (rec.agent if rec else None) or "cowork",
+        }
+
+    def interrupt_session(self, session_id: str) -> dict[str, Any]:
+        """Stop a running session's turn from OUTSIDE its own socket (mission
+        control's stop button) — same request_interrupt the session WS uses."""
+        engine = self._engines.get(session_id)
+        if engine is None or session_id not in self._running_sessions:
+            return {"ok": False, "error": "session is not running"}
+        engine.request_interrupt()
+        return {"ok": True}
 
     async def _resume_wake(self, wake) -> None:
         await self.deliver_to_session(wake.session_id, self._wake_message(wake))
@@ -3087,6 +3157,9 @@ class SessionManager:
         self.task_store.add_run(run)  # mark "running"
         self._active_automation_runs += 1
         self._active_automation_titles.append(task.title)
+        self._active_automation_info.append(
+            {"id": task.id, "title": task.title, "started_at": time.time()}
+        )
         self._announce_activity()
         # UX-026: tell every open app window a SCHEDULED run just started (the 5s
         # top-right toast). Manual runs never come through here — the user is
@@ -3111,6 +3184,8 @@ class SessionManager:
         # Register the live engine up-front: a parked approval persists the session
         # mid-run (durable suspend), and resolving from the Inbox must find this engine.
         self._engines[run.session_id] = engine
+        if not self.try_mark_running(run.session_id):
+            raise RuntimeError("scheduled run session is already active")
         # The first turn is the task itself. The framing matters: instructions often restate the
         # schedule ("every day at 5:32pm…"), so make explicit that the schedule already fired and
         # the job now is to execute, not to (re)schedule.
@@ -3131,10 +3206,14 @@ class SessionManager:
         except Exception as exc:
             run.status, run.error = "error", str(exc)
         finally:
+            self.mark_idle(run.session_id)
             run.finished_at = _epoch()
             self._active_automation_runs = max(0, self._active_automation_runs - 1)
             if task.title in self._active_automation_titles:
                 self._active_automation_titles.remove(task.title)
+            self._active_automation_info = [
+                i for i in self._active_automation_info if i["id"] != task.id
+            ]
             self._announce_activity()
             # Persist the run as a continuable session + keep the live engine for an immediate
             # follow-up; record the run (now carrying its session_id).

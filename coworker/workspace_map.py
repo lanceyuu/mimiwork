@@ -57,11 +57,14 @@ def _signature(root: Path) -> tuple:
         return ()
 
 
-def _walk(root: Path) -> tuple[list[tuple[str, float, int]], dict[str, int], bool]:
+def _walk(
+    root: Path, *, excluded_dirs: set[str] | None = None
+) -> tuple[list[tuple[str, float, int]], dict[str, int], bool]:
     """Collect (relpath, mtime, size) files + top-level dir file counts."""
     files: list[tuple[str, float, int]] = []
     top_counts: dict[str, int] = {}
     truncated = False
+    excluded = excluded_dirs or set()
     stack: list[tuple[Path, int, str]] = [(root, 0, "")]
     seen = 0
     while stack:
@@ -81,7 +84,11 @@ def _walk(root: Path) -> tuple[list[tuple[str, float, int]], dict[str, int], boo
                 continue
             try:
                 if entry.is_dir(follow_symlinks=False):
-                    if name in _PRUNE_DIRS or depth >= _MAX_DEPTH:
+                    if (
+                        name in _PRUNE_DIRS
+                        or os.path.realpath(entry.path) in excluded
+                        or depth >= _MAX_DEPTH
+                    ):
                         continue
                     stack.append((Path(entry.path), depth + 1, top or name))
                 elif entry.is_file(follow_symlinks=False):
@@ -122,7 +129,21 @@ def build_workspace_map(workspace: str | Path, budget_chars: int = 3000) -> str:
     if hit and hit[1] == sig and now - hit[0] < _CACHE_TTL:
         return hit[2]
 
-    files, top_counts, truncated = _walk(root)
+    # The app's own state (tokens, sessions, installed skills) is never workspace
+    # knowledge.  Usually it lives outside the workspace or under hidden `.coworker`,
+    # but an explicit COWORKER_STATE_DIR may place it anywhere; exclude by resolved
+    # path so internal filenames cannot leak into the model prompt.
+    excluded_dirs: set[str] = set()
+    try:
+        from .secrets import state_dir
+
+        app_state = state_dir().expanduser().resolve()
+        app_state.relative_to(root)
+        excluded_dirs.add(str(app_state))
+    except (OSError, ValueError):
+        pass
+
+    files, top_counts, truncated = _walk(root, excluded_dirs=excluded_dirs)
     if not files:
         return ""
 

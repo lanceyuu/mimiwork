@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -167,11 +168,35 @@ class ConversationStore:
             os.fsync(f.fileno())
 
     def _write_all(self, sid: str, messages: list[dict]) -> None:
-        with open(self._file(sid), "w", encoding="utf-8") as f:
-            for message in messages:
-                f.write(json.dumps(message) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        target = self._file(sid)
+        fd, temporary = tempfile.mkstemp(
+            prefix=f".{sid}.", suffix=".tmp", dir=self.conv_dir
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                for message in messages:
+                    stream.write(json.dumps(message) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+            # Persist the directory entry where the platform supports directory fsync.
+            try:
+                directory_fd = os.open(
+                    self.conv_dir,
+                    os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+                )
+            except OSError:
+                directory_fd = None
+            if directory_fd is not None:
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
 
     def _backfill_counts(self) -> None:
         """One-time per session: move any inline blob into a .jsonl and persist
@@ -293,6 +318,35 @@ class ConversationStore:
             origin=row["origin"],
             origin_label=row["origin_label"],
         )
+
+    def fork(self, session_id: str) -> Optional[str]:
+        """Branch a conversation: copy the transcript + scope (workspace, extra
+        roots, grants, compaction) under a fresh id so the user can try another
+        direction without losing the original. Returns the new id, or None when
+        the source doesn't exist."""
+        src = self.load(session_id)
+        if src is None:
+            return None
+        import uuid
+
+        new_id = uuid.uuid4().hex
+        self.save(
+            SessionRecord(
+                session_id=new_id,
+                workspace=src.workspace,
+                model=src.model,
+                mode=src.mode,
+                messages=src.messages,
+                title=f"Fork of {src.title or 'session'}",
+                agent=src.agent,
+                extra_roots=src.extra_roots,
+                grants=src.grants,
+                compaction=src.compaction,
+            )
+        )
+        # Provenance rides the origin fields (save() doesn't touch them).
+        self.set_origin(new_id, "fork", src.title or "")
+        return new_id
 
     def set_extra_roots(self, session_id: str, extra_roots: list[dict]) -> None:
         """Persist just the session's added folders, independent of its message log — used when
@@ -457,13 +511,31 @@ class ConversationStore:
                 """
                 UPDATE tool_runs SET state = 'running', updated_at = CURRENT_TIMESTAMP
                 WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
-                  AND state IN ('prepared', 'running')
+                  AND state = 'prepared'
                 """,
                 (session_id, message_index, call_ordinal),
             )
             if cur.rowcount != 1:
                 self._conn.rollback()
                 raise RuntimeError("tool run is not executable")
+            self._conn.commit()
+
+    def reset_replay_safe_tool_run(
+        self, session_id: str, message_index: int, call_ordinal: int
+    ) -> None:
+        """Claim recovery of a running read by moving it back to executable state."""
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                UPDATE tool_runs SET state = 'prepared', updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                  AND state = 'running' AND recovery_policy = 'replay_safe'
+                """,
+                (session_id, message_index, call_ordinal),
+            )
+            if cur.rowcount != 1:
+                self._conn.rollback()
+                raise RuntimeError("replay-safe tool run could not be claimed")
             self._conn.commit()
 
     def finish_tool_run(
@@ -570,6 +642,29 @@ class ConversationStore:
             )
             self._conn.commit()
         return cur.rowcount > 0
+
+    def display_title(self, session_id: str) -> Optional[str]:
+        """The user-facing title only — one indexed row read, no transcript load
+        (mission control names running sessions on every activity snapshot)."""
+        s = self.summary(session_id)
+        return s["title"] if s else None
+
+    def summary(self, session_id: str) -> Optional[dict]:
+        """Row facts without the transcript: {title, workspace, agent} — what
+        mission control needs to name a running session and jump to it."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT title, auto_title, renamed, workspace, agent "
+                "FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "title": _display_title(row),
+            "workspace": row["workspace"] or "",
+            "agent": row["agent"] or "cowork",
+        }
 
     def title_state(self, session_id: str) -> Optional[dict]:
         """The auto-title guard inputs: whether the user renamed and whether a generated

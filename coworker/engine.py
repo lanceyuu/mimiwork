@@ -151,6 +151,7 @@ class TurnEngine:
         self.session_id = ""
         self.checkpoint: Optional[Callable[[], None]] = None
         self._resuming = False
+        self._resume_prepared_call_ids: set[str] = set()
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
@@ -187,6 +188,11 @@ class TurnEngine:
         self, text: str, source: Optional[dict[str, Any]] = None
     ) -> None:
         self._steering.append((text, source))
+
+    def seed_approved_recovery(self, tool_call_id: str) -> None:
+        """Mark a legacy call as prepared when a durable approval proves it never ran."""
+        if tool_call_id:
+            self._resume_prepared_call_ids.add(tool_call_id)
 
     # -- main loop --------------------------------------------------------------
     async def run(
@@ -705,6 +711,7 @@ class TurnEngine:
                 record is None
                 and self._resuming
                 and policy is RecoveryPolicy.NON_REPLAYABLE
+                and tool_call.id not in self._resume_prepared_call_ids
             )
             if record is None:
                 record = journal.prepare_tool_run(
@@ -716,6 +723,7 @@ class TurnEngine:
                     arguments_hash=arguments_hash,
                     recovery_policy=policy.value,
                 )
+                self._resume_prepared_call_ids.discard(tool_call.id)
             identity_matches = (
                 record.get("call_id") == (tool_call.id or "")
                 and record.get("tool_name") == tool_call.name
@@ -766,6 +774,11 @@ class TurnEngine:
                     ),
                     "key": key,
                 }
+            if state == "running" and policy is RecoveryPolicy.REPLAY_SAFE:
+                journal.reset_replay_safe_tool_run(
+                    self.session_id, message_index, ordinal
+                )
+                return {"action": "proceed", "key": key}
             if state == "indeterminate":
                 return {
                     "action": "indeterminate",
@@ -782,7 +795,7 @@ class TurnEngine:
                     "key": key,
                 }
             # prepared is known not to have crossed the execution boundary.  A
-            # replay-safe read may also restart from running.
+            # replay-safe read is explicitly reset from running above.
             return {"action": "proceed", "key": key}
         except Exception as exc:
             return {
