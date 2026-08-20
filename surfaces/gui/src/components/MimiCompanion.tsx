@@ -15,7 +15,7 @@ import { connectEvents, getActivity, type Activity } from "../api";
 import sleepSheet from "../assets/mimi-pet/mimi-sleep.png";
 import wakeSheet from "../assets/mimi-pet/mimi-wake-16.png";
 import idleSheet from "../assets/mimi-pet/mimi-idle-stable-48.png";
-import scratchSheet from "../assets/mimi-pet/mimi-scratch-16.png";
+import happySheet from "../assets/mimi-pet/mimi-happy-subtle-24.png";
 
 type Phase = "sleep" | "wake" | "idle" | "alert";
 
@@ -23,9 +23,10 @@ const SHEETS: Record<Phase, { src: string; frames: number; fps: number; loop: bo
   sleep: { src: sleepSheet, frames: 8, fps: 8, loop: true },
   wake: { src: wakeSheet, frames: 16, fps: 10, loop: false },
   idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
-  // Needs-the-user: the scratch loop reads as "hey, let me in" — unmissably
-  // different from both the nap and the idle sit.
-  alert: { src: scratchSheet, frames: 16, fps: 10, loop: true },
+  // Needs-the-user: the happy face + a gentle hop (CSS, on the container)
+  // reads as an excited "I have something for you!" — friendlier than the
+  // scratch loop it replaced (owner call 2026-08-20).
+  alert: { src: happySheet, frames: 24, fps: 12, loop: true },
 };
 
 const SIZE = 110; // displayed sprite size in px (frames are square)
@@ -48,12 +49,8 @@ const GEO: Record<Phase, Geo[]> = {
     [106.5, 9, 189], [97, 9, 189], [91, 10, 189], [87.5, 10, 189],
     [106, 8, 184], [95.5, 8, 184], [89.5, 8, 184], [84.5, 8, 184],
   ],
-  alert: [
-    [101.5, 26, 166], [95, 26, 166], [88.5, 27, 168], [86.5, 28, 168],
-    [101, 22, 164], [93, 21, 164], [90, 21, 163], [87, 22, 163],
-    [98.5, 17, 160], [94.5, 18, 160], [89.5, 19, 161], [86, 18, 161],
-    [99.5, 14, 156], [93, 13, 156], [89.5, 14, 156], [86, 14, 156],
-  ],
+  // happy-subtle-24 is a stable pose (same geometry every frame).
+  alert: Array.from({ length: 24 }, () => [100.5, 12, 181] as Geo),
 };
 const TARGET = { anchorX: 96, bottom: 180, height: 165 };
 const LOGICAL = 192; // the geometry's coordinate space (per source cell)
@@ -100,6 +97,7 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
         height: SIZE,
         overflow: "hidden",
         filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.25))",
+        animation: phase === "alert" ? "companion-hop 1.6s ease-in-out infinite" : undefined,
       }}
     >
       <div
@@ -310,7 +308,7 @@ export function MimiCompanion() {
         </div>
       )}
       <Sprite phase={phase} onDone={() => setPhase("idle")} />
-      <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"] { animation: none !important; } }`}</style>
+      <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"] { animation: none !important; } }`}</style>
     </div>
   );
 }
