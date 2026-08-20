@@ -12,12 +12,16 @@ text-only path), else the parts list.
 
 from __future__ import annotations
 
+import base64
+import re
+from pathlib import Path
 from typing import Any, Optional
 
 MAX_ATTACHMENTS = 8
 MAX_IMAGE_CHARS = 12_000_000  # data-URL length cap (~8–9 MB decoded); keeps a turn sane
 MAX_PDF_CHARS = 15_000_000  # data-URL length cap (~10 MB decoded, the GUI's pick limit)
 MAX_TEXT_CHARS = 200_000  # per text file, inlined
+MAX_FILE_CHARS = 15_000_000  # kind="file" data-URL cap (same decoded budget as PDFs)
 
 
 def _is_data_image(url: Any) -> bool:
@@ -28,13 +32,47 @@ def _is_data_pdf(url: Any) -> bool:
     return isinstance(url, str) and url.startswith("data:application/pdf;base64,")
 
 
+def _save_file_attachment(a: dict, save_dir: Path) -> Optional[Path]:
+    """Decode a kind="file" attachment into save_dir; None on any invalid input.
+    The filename is flattened to its basename and sanitized, so a hostile name
+    can't escape the attachments folder; collisions get a numeric suffix."""
+    url = a.get("data_url") or ""
+    if not isinstance(url, str) or ";base64," not in url or len(url) > MAX_FILE_CHARS:
+        return None
+    if not url.startswith("data:"):
+        return None
+    try:
+        raw = base64.b64decode(url.split(";base64,", 1)[1], validate=True)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    name = Path(str(a.get("name") or "attachment")).name
+    name = re.sub(r"[^\w.\- ()]", "_", name).strip() or "attachment"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    target = save_dir / name
+    stem, suffix = target.stem, target.suffix
+    n = 1
+    while target.exists():
+        target = save_dir / f"{stem}-{n}{suffix}"
+        n += 1
+    target.write_bytes(raw)
+    return target
+
+
 def build_user_content(
-    text: Optional[str], attachments: Optional[list[dict]] = None
+    text: Optional[str],
+    attachments: Optional[list[dict]] = None,
+    *,
+    save_dir: Optional[str | Path] = None,
 ) -> Any:
     """Return `str` (no attachments) or a list of OpenAI content-parts (with attachments).
 
-    Each attachment is `{"kind": "image"|"pdf"|"text", "name"?, "data_url"? (image/pdf),
-    "text"? (text)}`.
+    Each attachment is `{"kind": "image"|"pdf"|"text"|"file", "name"?, "data_url"?
+    (image/pdf/file), "text"? (text)}`. kind="file" (Office documents and other
+    binaries the model can't ingest as a content part) is saved into `save_dir` and
+    announced to the model as a path to open with the reading tools; without a
+    `save_dir` (workspace-less sessions) it is skipped like any invalid attachment.
     Invalid/oversized attachments are skipped rather than failing the turn.
     """
     text = (text or "").strip()
@@ -70,6 +108,20 @@ def build_user_content(
             if body:
                 parts.append(
                     {"type": "text", "text": f"[Attached file: {name}]\n{body}"}
+                )
+                added += 1
+        elif kind == "file" and save_dir is not None:
+            saved = _save_file_attachment(a, Path(save_dir))
+            if saved is not None:
+                parts.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[Attached file: {saved.name} — saved to {saved}]\n"
+                            "Open it with the appropriate reading tool (Word/Excel/"
+                            "PowerPoint readers, or the file tools) before answering."
+                        ),
+                    }
                 )
                 added += 1
 

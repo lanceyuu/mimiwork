@@ -152,7 +152,8 @@ def search_tools(workspace: str, roots: Any = None) -> list:
                     return {"error": f"grep failed: {exc}"}
                 if out.returncode not in (0, 1):  # 1 = no matches
                     return {"error": (out.stderr or "ripgrep error").strip()[:300]}
-                matches.extend(_parse_rg(out.stdout, root, n))
+                parsed = _parse_rg(out.stdout, root, n)
+                matches.extend(parsed["matches"])
                 if len(matches) >= n:
                     matches = matches[:n]
                     break

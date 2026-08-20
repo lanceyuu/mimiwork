@@ -285,6 +285,9 @@ def test_task_engine_has_no_scheduling_tools(tmp_path, monkeypatch):
     assert "create_scheduled_task" not in names
     assert "update_scheduled_task" not in names
     assert "write_file" in names  # the deliverable tools are still there
+    assert engine.tool_journal is manager.session_store
+    assert engine.session_id == "__run__test"
+    assert callable(engine.checkpoint)
 
 
 async def test_manual_run_prepare_and_finalize(tmp_path, monkeypatch):

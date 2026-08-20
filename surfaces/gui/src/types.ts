@@ -84,12 +84,14 @@ export interface SessionInfo {
   origin_label?: string;
 }
 
-// Attachments (images, PDFs, text files) sent with a user message.
+// Attachments (images, PDFs, text files, Office/binary files) sent with a user message.
+// kind "file" rides as a data URL; the server saves it into the workspace and points
+// the agent at the path (models can't ingest raw .docx/.xlsx parts).
 export interface Attachment {
-  kind: "image" | "text" | "pdf";
+  kind: "image" | "text" | "pdf" | "file";
   name: string;
   mime?: string;
-  data_url?: string; // images + PDFs
+  data_url?: string; // images + PDFs + files
   text?: string; // text files
 }
 

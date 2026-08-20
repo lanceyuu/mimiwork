@@ -13,6 +13,7 @@ engine says `needs_user`, the engine emits `PERMISSION_REQUIRED` and awaits the 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -24,7 +25,7 @@ from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import friendly_model_error
-from .tools import ToolRegistry
+from .tools import RecoveryPolicy, ToolRegistry
 
 
 class ApprovalOutcome(str, Enum):
@@ -143,6 +144,13 @@ class TurnEngine:
         # TOOL_FINISHED event can carry the note to the tool card (§25).
         self._standing_notes: dict[str, str] = {}
         self._interrupt_hooks: list[Callable[[], None]] = list(interrupt_hooks or [])
+        # Surfaces that persist sessions attach these post-construction.  Keeping the
+        # core engine optional preserves lightweight/direct use, while the desktop and
+        # automation paths get one shared crash-recovery boundary.
+        self.tool_journal: Optional[Any] = None
+        self.session_id = ""
+        self.checkpoint: Optional[Callable[[], None]] = None
+        self._resuming = False
 
     # -- external controls ------------------------------------------------------
     def request_interrupt(self) -> None:
@@ -297,8 +305,12 @@ class TurnEngine:
             return
         self._cancel.clear()
         yield Event(EventType.TURN_START, {"input": "(resumed)"})
-        async for event in self._handle_tool_calls(pending):
-            yield event
+        self._resuming = True
+        try:
+            async for event in self._handle_tool_calls(pending):
+                yield event
+        finally:
+            self._resuming = False
         yield Event(EventType.ITERATION_END, {"iteration": 0})
         if not self._cancel.is_set():
             async for event in self._loop():
@@ -308,13 +320,19 @@ class TurnEngine:
         """The tool-calls of the last assistant message that don't yet have a tool result —
         i.e. the prompt we suspended on (+ any after it). Reconstructed from the persisted thread.
         """
-        answered = {
-            m.get("tool_call_id") for m in self.messages if m.get("role") == "tool"
-        }
-        for msg in reversed(self.messages):
+        for message_index in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[message_index]
             if msg.get("role") == "user":
                 return []
             if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Provider call IDs are only scoped to one assistant message.  Some
+                # providers reuse them in later turns, so results from older turns must
+                # not make a newer unanswered call look complete.
+                answered = {
+                    m.get("tool_call_id")
+                    for m in self.messages[message_index + 1 :]
+                    if m.get("role") == "tool"
+                }
                 out: list[ToolCall] = []
                 for tc in msg["tool_calls"]:
                     if tc.get("id") in answered:
@@ -420,6 +438,30 @@ class TurnEngine:
                 self._last_context_tokens = turn.usage.context_tokens
 
             self.messages.append(_assistant_message(turn, model=self.model))
+            if turn.tool_calls and self.checkpoint is not None:
+                # Persist the assistant's intent before any tool can cross the side-
+                # effect boundary.  Without this checkpoint a journal row could outlive
+                # the transcript entry needed to reconstruct it.
+                try:
+                    await asyncio.to_thread(self.checkpoint)
+                except Exception as exc:
+                    text = f"could not durably checkpoint tool calls: {exc}"
+                    self._append_notice("error", text)
+                    yield Event(
+                        EventType.ERROR,
+                        {"error": text, "error_type": "CheckpointError"},
+                    )
+                    return
+            # Prepare every ordinary call before the assistant message is exposed
+            # to a surface.  This removes the await/broadcast window between durable
+            # intent and the first visible tool event.
+            for tool_call in turn.tool_calls:
+                if tool_call.name not in {
+                    "request_directory",
+                    "propose_plan",
+                    "ask_user",
+                }:
+                    self._prepare_tool_recovery(tool_call)
             payload: dict[str, Any] = {
                 "text": turn.text,
                 "tool_calls": [tc.name for tc in turn.tool_calls],
@@ -600,6 +642,177 @@ class TurnEngine:
             else:
                 return
 
+    @staticmethod
+    def _arguments_hash(arguments: dict[str, Any]) -> str:
+        encoded = json.dumps(
+            arguments or {}, sort_keys=True, separators=(",", ":"), default=str
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _tool_run_position(self, tool_call: ToolCall) -> Optional[tuple[int, int]]:
+        """Stable journal identity: persisted assistant-message index + call ordinal.
+
+        Provider call IDs are retained for diagnostics but cannot be the key because
+        they may be reused across turns.
+        """
+        expected_hash = self._arguments_hash(tool_call.arguments)
+        for message_index in range(len(self.messages) - 1, -1, -1):
+            message = self.messages[message_index]
+            if message.get("role") != "assistant":
+                continue
+            for ordinal, raw in enumerate(message.get("tool_calls") or []):
+                fn = raw.get("function") or {}
+                if raw.get("id") != tool_call.id or fn.get("name") != tool_call.name:
+                    continue
+                try:
+                    arguments = json.loads(fn.get("arguments") or "{}")
+                except Exception:
+                    arguments = {}
+                if self._arguments_hash(arguments) == expected_hash:
+                    return message_index, ordinal
+        return None
+
+    def _prepare_tool_recovery(self, tool_call: ToolCall) -> dict[str, Any]:
+        """Return ``proceed``, ``restore``, or ``indeterminate`` for this call.
+
+        Every journal write is committed before execution.  A journal failure is a
+        safety failure: the tool is not run.
+        """
+        journal = self.tool_journal
+        if journal is None or not self.session_id:
+            return {"action": "proceed", "key": None}
+        position = self._tool_run_position(tool_call)
+        if position is None:
+            return {
+                "action": "indeterminate",
+                "reason": "could not identify the durable tool call; it was not executed",
+                "key": None,
+            }
+        message_index, ordinal = position
+        key = (message_index, ordinal)
+        spec = self.registry.get(tool_call.name)
+        policy = (
+            spec.recovery_policy
+            if spec is not None
+            else RecoveryPolicy.NON_REPLAYABLE
+        )
+        arguments_hash = self._arguments_hash(tool_call.arguments)
+        try:
+            record = journal.get_tool_run(
+                self.session_id, message_index, ordinal
+            )
+            legacy_ambiguous = (
+                record is None
+                and self._resuming
+                and policy is RecoveryPolicy.NON_REPLAYABLE
+            )
+            if record is None:
+                record = journal.prepare_tool_run(
+                    self.session_id,
+                    message_index,
+                    ordinal,
+                    call_id=tool_call.id or "",
+                    tool_name=tool_call.name,
+                    arguments_hash=arguments_hash,
+                    recovery_policy=policy.value,
+                )
+            identity_matches = (
+                record.get("call_id") == (tool_call.id or "")
+                and record.get("tool_name") == tool_call.name
+                and record.get("arguments_hash") == arguments_hash
+                and record.get("recovery_policy") == policy.value
+            )
+            if legacy_ambiguous or not identity_matches:
+                journal.mark_tool_indeterminate(
+                    self.session_id, message_index, ordinal
+                )
+                reason = (
+                    "this consequential tool call predates the execution journal; "
+                    "its outcome is unknown, so MimiWork will not retry it automatically"
+                    if legacy_ambiguous
+                    else "the durable tool record does not match the transcript; automatic retry was blocked"
+                )
+                return {"action": "indeterminate", "reason": reason, "key": key}
+
+            state = record.get("state")
+            if state in {"succeeded", "failed"}:
+                try:
+                    result = json.loads(record.get("result"))
+                except (TypeError, json.JSONDecodeError):
+                    journal.mark_tool_indeterminate(
+                        self.session_id, message_index, ordinal
+                    )
+                    return {
+                        "action": "indeterminate",
+                        "reason": "the committed tool result is unreadable; automatic retry was blocked",
+                        "key": key,
+                    }
+                return {
+                    "action": "restore",
+                    "result": result,
+                    "status": record.get("result_status") or "error",
+                    "key": key,
+                }
+            if state == "running" and policy is RecoveryPolicy.NON_REPLAYABLE:
+                journal.mark_tool_indeterminate(
+                    self.session_id, message_index, ordinal
+                )
+                return {
+                    "action": "indeterminate",
+                    "reason": (
+                        "MimiWork stopped while this consequential action was running. "
+                        "It may already have completed, so it was not repeated. Verify the "
+                        "external result before retrying."
+                    ),
+                    "key": key,
+                }
+            if state == "indeterminate":
+                return {
+                    "action": "indeterminate",
+                    "reason": (
+                        "this action has an indeterminate prior outcome and cannot be "
+                        "retried automatically; verify it before trying again"
+                    ),
+                    "key": key,
+                }
+            if state not in {"prepared", "running"}:
+                return {
+                    "action": "indeterminate",
+                    "reason": f"unknown durable tool state {state!r}; automatic retry was blocked",
+                    "key": key,
+                }
+            # prepared is known not to have crossed the execution boundary.  A
+            # replay-safe read may also restart from running.
+            return {"action": "proceed", "key": key}
+        except Exception as exc:
+            return {
+                "action": "indeterminate",
+                "reason": f"could not establish a durable execution record: {exc}",
+                "key": key,
+            }
+
+    def _cancel_tool_recovery(
+        self, tool_call: ToolCall, *, reason: str, status: str
+    ) -> None:
+        """Make a pre-execution denial/stop terminal in the durable journal."""
+        if self.tool_journal is None or not self.session_id:
+            return
+        position = self._tool_run_position(tool_call)
+        if position is None:
+            return
+        try:
+            self.tool_journal.cancel_tool_run(
+                self.session_id,
+                position[0],
+                position[1],
+                reason=reason,
+                result_status=status,
+            )
+        except Exception:
+            # No side effect occurred, so a persistence failure here is safe.  A
+            # future reconstruction will still re-run the permission/stop path.
+            pass
+
     async def _handle_tool_calls(
         self, tool_calls: list[ToolCall]
     ) -> AsyncIterator[Event]:
@@ -612,6 +825,12 @@ class TurnEngine:
                 # Stopped: every remaining call still gets an answer (no orphans).
                 yield self._interrupted_tool(tool_call)
                 continue
+            recovery = (
+                None
+                if tool_call.name
+                in {"request_directory", "propose_plan", "ask_user"}
+                else self._prepare_tool_recovery(tool_call)
+            )
             yield Event(
                 EventType.TOOL_PROPOSED,
                 {"name": tool_call.name, "arguments": tool_call.arguments},
@@ -631,6 +850,35 @@ class TurnEngine:
             if tool_call.name == "ask_user":
                 async for event in self._handle_ask_user(tool_call):
                     yield event
+                continue
+            if recovery is not None and recovery["action"] == "restore":
+                yield Event(
+                    EventType.TOOL_STARTED,
+                    {"name": tool_call.name, "recovered": True},
+                )
+                self._audit(tool_call, stage="recovered", status="restored")
+                yield self._record_result(
+                    tool_call, recovery["result"], recovery["status"]
+                )
+                continue
+            if recovery is not None and recovery["action"] == "indeterminate":
+                reason = recovery["reason"]
+                self.messages.append(_tool_error_message(tool_call, reason))
+                self._audit(
+                    tool_call,
+                    stage="finished",
+                    status="indeterminate",
+                    reason=reason,
+                )
+                yield Event(
+                    EventType.TOOL_FINISHED,
+                    {
+                        "name": tool_call.name,
+                        "status": "indeterminate",
+                        "reason": reason,
+                        "recovery_required": True,
+                    },
+                )
                 continue
             allowed = False
             async for item in self._authorize(tool_call):
@@ -671,6 +919,9 @@ class TurnEngine:
         """The stop-path answer for a call that will not run: a tool-error result in the
         history (hosted chat templates reject orphaned tool_calls, and durable-resume
         would otherwise re-prompt it) + the finished event for the tool card."""
+        self._cancel_tool_recovery(
+            tool_call, reason="interrupted by user", status="interrupted"
+        )
         self.messages.append(_tool_error_message(tool_call, "interrupted by user"))
         self._audit(
             tool_call, stage="finished", status="interrupted", reason="user stop"
@@ -776,6 +1027,7 @@ class TurnEngine:
         if not allowed:
             if spec is None:
                 reason = f"unknown tool: {tool_call.name}"
+            self._cancel_tool_recovery(tool_call, reason=reason, status="denied")
             self.messages.append(_tool_error_message(tool_call, reason))
             yield Event(
                 EventType.TOOL_FINISHED,
@@ -786,6 +1038,9 @@ class TurnEngine:
             return
 
         if spec is None:
+            self._cancel_tool_recovery(
+                tool_call, reason=f"unknown tool: {tool_call.name}", status="error"
+            )
             self.messages.append(
                 _tool_error_message(tool_call, f"unknown tool: {tool_call.name}")
             )
@@ -800,25 +1055,64 @@ class TurnEngine:
 
     def _execute_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
         """Execute one authorized call (runs in a worker thread)."""
+        journal_key = self._tool_run_position(tool_call)
+        journal = self.tool_journal if self.session_id and journal_key else None
+        if journal is not None:
+            try:
+                journal.start_tool_run(
+                    self.session_id, journal_key[0], journal_key[1]
+                )
+            except Exception as exc:
+                return {
+                    "error": "tool was not executed because its durable journal could not start",
+                    "detail": str(exc),
+                    "error_type": "RecoverySafetyError",
+                }, "error"
+
         hooks = getattr(self, "hooks", None)
+        result: tuple[Any, str] | None = None
         if hooks is not None:
             for hook in hooks.pre:
                 try:
                     override = hook(tool_call.name, tool_call.arguments)
                 except Exception as exc:
-                    return {"error": f"pre-execute hook failed: {exc}"}, "error"
+                    result = {"error": f"pre-execute hook failed: {exc}"}, "error"
+                    break
                 if override is not None:
-                    return override, "ok"
-        try:
-            result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
-        except Exception as exc:
-            result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
+                    result = override, "ok"
+                    break
+        if result is None:
+            try:
+                result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
+            except Exception as exc:
+                result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
         if hooks is not None:
             for hook in hooks.post:
                 try:
                     hook(tool_call.name, tool_call.arguments, *result)
                 except Exception:
                     pass
+
+        if journal is not None:
+            try:
+                journal.finish_tool_run(
+                    self.session_id,
+                    journal_key[0],
+                    journal_key[1],
+                    result=json.dumps(result[0], default=str),
+                    result_status=result[1],
+                )
+            except Exception as exc:
+                # The action may already have happened.  Keep its in-memory result so
+                # the normal transcript checkpoint can still make progress; the
+                # durable row remains `running`, which makes any later restart fail
+                # closed instead of repeating it.
+                self._audit(
+                    tool_call,
+                    stage="journal_error",
+                    status="indeterminate",
+                    reason=str(exc),
+                )
         return result
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:

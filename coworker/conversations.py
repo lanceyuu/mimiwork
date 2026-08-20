@@ -82,6 +82,20 @@ class ConversationStore:
             CREATE TABLE IF NOT EXISTS workspaces (
                 path TEXT PRIMARY KEY, last_used TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS tool_runs (
+                session_id TEXT NOT NULL,
+                message_index INTEGER NOT NULL,
+                call_ordinal INTEGER NOT NULL,
+                call_id TEXT,
+                tool_name TEXT NOT NULL,
+                arguments_hash TEXT NOT NULL,
+                recovery_policy TEXT NOT NULL,
+                state TEXT NOT NULL,
+                result TEXT,
+                result_status TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (session_id, message_index, call_ordinal)
+            );
             """)
         for ddl in (
             "ALTER TABLE sessions ADD COLUMN title TEXT",
@@ -112,24 +126,52 @@ class ConversationStore:
         path = self._file(sid)
         if not path.exists():
             return None
-        return [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
+        raw_bytes = path.read_bytes()
+        raw_lines = [line for line in raw_bytes.splitlines() if line.strip()]
+        messages: list[dict] = []
+        for index, raw in enumerate(raw_lines):
+            try:
+                messages.append(json.loads(raw.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                # A process can die between write(2) and fsync(2), leaving only the
+                # final JSON object torn.  Preserve the valid prefix; corruption in
+                # the middle is not a crash tail and must remain visible.
+                if index == len(raw_lines) - 1 and not raw_bytes.endswith(b"\n"):
+                    break
+                raise
+        return messages
 
     def _count(self, sid: str) -> int:
-        path = self._file(sid)
-        if not path.exists():
-            return 0
-        return sum(
-            1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
-        )
+        return len(self._read_jsonl(sid) or [])
 
     def _append(self, sid: str, messages: list[dict]) -> None:
-        with open(self._file(sid), "a", encoding="utf-8") as f:
+        path = self._file(sid)
+        needs_separator = False
+        if path.exists():
+            raw_bytes = path.read_bytes()
+            raw_lines = [line for line in raw_bytes.splitlines() if line.strip()]
+            if raw_lines:
+                try:
+                    json.loads(raw_lines[-1].decode("utf-8"))
+                    needs_separator = not raw_bytes.endswith(b"\n")
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    # Repair a previously tolerated torn tail before appending; otherwise
+                    # the new valid object would be glued to corrupt bytes and lost too.
+                    self._write_all(sid, self._read_jsonl(sid) or [])
+        with open(path, "a", encoding="utf-8") as f:
+            if needs_separator:
+                f.write("\n")
             for m in messages:
                 f.write(json.dumps(m) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+    def _write_all(self, sid: str, messages: list[dict]) -> None:
+        with open(self._file(sid), "w", encoding="utf-8") as f:
+            for message in messages:
+                f.write(json.dumps(message) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def _backfill_counts(self) -> None:
         """One-time per session: move any inline blob into a .jsonl and persist
@@ -185,9 +227,7 @@ class ConversationStore:
             if len(record.messages) > existing:
                 self._append(sid, record.messages[existing:])
             elif len(record.messages) < existing:  # rare; not append-only
-                with open(self._file(sid), "w", encoding="utf-8") as f:
-                    for m in record.messages:
-                        f.write(json.dumps(m) + "\n")
+                self._write_all(sid, record.messages)
 
             title = record.title or title_from(record.messages)
             self._conn.execute(
@@ -338,6 +378,9 @@ class ConversationStore:
 
     def delete(self, session_id: str) -> bool:
         with self._lock:
+            self._conn.execute(
+                "DELETE FROM tool_runs WHERE session_id = ?", (session_id,)
+            )
             cur = self._conn.execute(
                 "DELETE FROM sessions WHERE session_id = ?", (session_id,)
             )
@@ -346,6 +389,158 @@ class ConversationStore:
         if path.exists():
             path.unlink()
         return cur.rowcount > 0
+
+    # -- crash-safe tool execution journal --------------------------------------
+    def prepare_tool_run(
+        self,
+        session_id: str,
+        message_index: int,
+        call_ordinal: int,
+        *,
+        call_id: str,
+        tool_name: str,
+        arguments_hash: str,
+        recovery_policy: str,
+    ) -> dict:
+        """Create the durable intent record before authorization/execution.
+
+        INSERT OR IGNORE makes reconstruction idempotent.  The caller validates
+        identity fields on the returned row so a rewritten transcript cannot be
+        mistaken for an older operation occupying the same position.
+        """
+        with self._lock:
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO tool_runs
+                    (session_id, message_index, call_ordinal, call_id, tool_name,
+                     arguments_hash, recovery_policy, state)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'prepared')
+                """,
+                (
+                    session_id,
+                    message_index,
+                    call_ordinal,
+                    call_id,
+                    tool_name,
+                    arguments_hash,
+                    recovery_policy,
+                ),
+            )
+            self._conn.commit()
+            row = self._conn.execute(
+                """
+                SELECT * FROM tool_runs
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                """,
+                (session_id, message_index, call_ordinal),
+            ).fetchone()
+        return dict(row) if row is not None else {}
+
+    def get_tool_run(
+        self, session_id: str, message_index: int, call_ordinal: int
+    ) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT * FROM tool_runs
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                """,
+                (session_id, message_index, call_ordinal),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def start_tool_run(
+        self, session_id: str, message_index: int, call_ordinal: int
+    ) -> None:
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                UPDATE tool_runs SET state = 'running', updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                  AND state IN ('prepared', 'running')
+                """,
+                (session_id, message_index, call_ordinal),
+            )
+            if cur.rowcount != 1:
+                self._conn.rollback()
+                raise RuntimeError("tool run is not executable")
+            self._conn.commit()
+
+    def finish_tool_run(
+        self,
+        session_id: str,
+        message_index: int,
+        call_ordinal: int,
+        *,
+        result: str,
+        result_status: str,
+    ) -> None:
+        state = "succeeded" if result_status == "ok" else "failed"
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                UPDATE tool_runs
+                SET state = ?, result = ?, result_status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                  AND state = 'running'
+                """,
+                (
+                    state,
+                    result,
+                    result_status,
+                    session_id,
+                    message_index,
+                    call_ordinal,
+                ),
+            )
+            if cur.rowcount != 1:
+                self._conn.rollback()
+                raise RuntimeError("tool run result could not be committed")
+            self._conn.commit()
+
+    def cancel_tool_run(
+        self,
+        session_id: str,
+        message_index: int,
+        call_ordinal: int,
+        *,
+        reason: str,
+        result_status: str,
+    ) -> None:
+        """Commit a prepared call that was denied/stopped before execution."""
+        result = json.dumps({"error": "tool call not executed", "reason": reason})
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE tool_runs
+                SET state = 'failed', result = ?, result_status = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                  AND state = 'prepared'
+                """,
+                (
+                    result,
+                    result_status,
+                    session_id,
+                    message_index,
+                    call_ordinal,
+                ),
+            )
+            self._conn.commit()
+
+    def mark_tool_indeterminate(
+        self, session_id: str, message_index: int, call_ordinal: int
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE tool_runs SET state = 'indeterminate', updated_at = CURRENT_TIMESTAMP
+                WHERE session_id = ? AND message_index = ? AND call_ordinal = ?
+                  AND state NOT IN ('succeeded', 'failed')
+                """,
+                (session_id, message_index, call_ordinal),
+            )
+            self._conn.commit()
 
     def rename(self, session_id: str, title: str) -> bool:
         clean = " ".join((title or "").split())[:120]

@@ -240,9 +240,11 @@ export function MimiCompanion() {
         title="Hide Mimi (until the app restarts — turn her off for good in Settings)"
         aria-label="Hide floating Mimi"
         style={{
+          // Beside Mimi's leg (owner ask 2026-08-20), not floating high above her:
+          // sprite is 110px wide, centered, feet at the window bottom.
           position: "absolute",
-          top: 4,
-          right: 8,
+          bottom: 18,
+          left: "calc(50% + 62px)",
           border: "none",
           background: "rgba(255,255,255,0.85)",
           color: "#55696a",

@@ -1744,7 +1744,18 @@ def create_app(manager: SessionManager) -> FastAPI:
                         )
                     await _apply_model(model)
                     if text or attachments:
-                        content = build_user_content(text, attachments)
+                        # Office/binary attachments (kind="file") land on disk under the
+                        # workspace's hidden .coworker/attachments so the agent can open
+                        # them with the office tools — models can't ingest raw .docx parts.
+                        content = build_user_content(
+                            text,
+                            attachments,
+                            save_dir=(
+                                Path(workspace) / ".coworker" / "attachments"
+                                if workspace
+                                else None
+                            ),
+                        )
                         await claim_turn(content=content, display=display)
                 else:
                     await reject_input(f"Unknown WebSocket message type: {kind}.")

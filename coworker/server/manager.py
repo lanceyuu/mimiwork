@@ -539,8 +539,15 @@ class SessionManager:
 
             engine.compaction_state = CompactionState.from_dict(record.compaction)
         engine.compaction_settings = self.compaction_settings
+        self._wire_tool_recovery(engine, session_id)
         self._engines[session_id] = engine
         return engine
+
+    def _wire_tool_recovery(self, engine: TurnEngine, session_id: str) -> None:
+        """Install the shared durability boundary on every persistent engine path."""
+        engine.tool_journal = self.session_store
+        engine.session_id = session_id
+        engine.checkpoint = lambda eng=engine: self.save(session_id, eng)
 
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
@@ -2651,6 +2658,7 @@ class SessionManager:
             ),
         )
         self._seed_task_permissions(engine, task)
+        self._wire_tool_recovery(engine, session_id)
         return engine
 
     # -- mirroring inbox items to a bound channel -------------------------------

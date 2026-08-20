@@ -18,6 +18,7 @@ import {
   getUnattended,
   PERSONAS_CHANGED,
   resolveInboxItem,
+  revealArtifact,
   deleteSession,
   renameSession,
   runAutomation,
@@ -1482,6 +1483,24 @@ export function App() {
           {/* Right: session-settings icon (§23) + panel toggle. Model/mode/persona chrome is
               gone — the facts live in the subtitle, the controls in the composer (§22). */}
           <div className="main-topbar-side main-topbar-actions" onPointerDown={beginWindowDrag}>
+            {/* The working folder, always on show (owner ask 2026-08-20): which folder
+                Mimi is pointed at should never require opening a panel to learn.
+                Click opens it in the OS file manager via the artifact-reveal route
+                (the workspace root is inside the session's roots). */}
+            {workspace && (
+              <button
+                className="topbar-workspace-chip"
+                data-testid="topbar-workspace"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() =>
+                  void revealArtifact(sessionId, workspace, "open").catch(() => undefined)
+                }
+                title={workspace}
+              >
+                <Icon name="folder" size={13} />
+                <span className="topbar-workspace-name">{baseName(workspace)}</span>
+              </button>
+            )}
             {agent === "cowork" && railHidden && artifactCount > 0 && (
               <button
                 className="topbar-artifacts-btn"

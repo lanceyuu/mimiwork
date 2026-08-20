@@ -218,3 +218,51 @@ def test_content_to_text_renders_pdf_placeholder():
     ]
     assert content_to_text(parts) == "see attached [pdf]"
     assert content_to_text(parts, image_placeholder="") == "see attached"
+
+
+# -- kind="file": Office/binary attachments saved to disk (owner ask 2026-08-20) ------
+
+
+def _file_attachment(name="report.docx", payload=b"PK\x03\x04fakedocx"):
+    import base64
+
+    return {
+        "kind": "file",
+        "name": name,
+        "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "data_url": "data:application/vnd.openxmlformats-officedocument."
+        "wordprocessingml.document;base64," + base64.b64encode(payload).decode(),
+    }
+
+
+def test_file_attachment_saved_and_announced(tmp_path):
+    parts = build_user_content("edit this", [_file_attachment()], save_dir=tmp_path)
+    assert isinstance(parts, list)
+    note = parts[1]["text"]
+    assert "report.docx" in note and "saved to" in note
+    saved = tmp_path / "report.docx"
+    assert saved.read_bytes() == b"PK\x03\x04fakedocx"
+
+
+def test_file_attachment_name_collision_gets_suffix(tmp_path):
+    build_user_content("a", [_file_attachment()], save_dir=tmp_path)
+    parts = build_user_content("b", [_file_attachment(payload=b"other")], save_dir=tmp_path)
+    assert (tmp_path / "report-1.docx").read_bytes() == b"other"
+    assert "report-1.docx" in parts[1]["text"]
+
+
+def test_file_attachment_hostile_name_flattened(tmp_path):
+    a = _file_attachment(name="../../evil/../escape.docx")
+    build_user_content("x", [a], save_dir=tmp_path)
+    files = [p.name for p in tmp_path.iterdir()]
+    assert files == ["escape.docx"]  # basename only, nothing outside save_dir
+
+
+def test_file_attachment_without_save_dir_skipped():
+    assert build_user_content("hi", [_file_attachment()]) == "hi"
+
+
+def test_file_attachment_bad_base64_skipped(tmp_path):
+    a = {"kind": "file", "name": "x.docx", "data_url": "data:foo;base64,%%%"}
+    assert build_user_content("hi", [a], save_dir=tmp_path) == "hi"
+    assert list(tmp_path.iterdir()) == []

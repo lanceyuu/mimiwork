@@ -24,6 +24,7 @@ from .connectors import (
 )
 from .engine import Approver, TurnEngine
 from .environment import environment_context
+from .workspace_map import build_workspace_map
 from .memory import (
     MemoryStore,
     Scope,
@@ -351,6 +352,12 @@ def build_engine(
     instructions = f"{agent.system_prompt}\n\n{_NARRATION_GUIDANCE}"
     if ws is not None:
         instructions = f"{instructions}\n\n{environment_context(ws)}"
+        # Workspace map: session-start knowledge like the environment block above —
+        # a ranked picture of what's in the workspace so the model doesn't spend its
+        # first tool calls exploring. Empty workspaces contribute nothing.
+        ws_map = build_workspace_map(ws)
+        if ws_map:
+            instructions = f"{instructions}\n\n{ws_map}"
         conventions = load_agents_md(ws)
         if conventions:
             instructions = f"{instructions}\n\n{conventions}"

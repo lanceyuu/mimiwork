@@ -9,9 +9,22 @@ docstring/type-hint → JSON-schema extraction.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Callable, Optional
 
 from aisuite.utils.tools import Tools
+
+
+class RecoveryPolicy(str, Enum):
+    """What the engine may do when a process dies while a tool is running.
+
+    Exactly-once execution is impossible for arbitrary external side effects.  The
+    safe default is therefore to stop on an ambiguous outcome.  Only tools whose
+    contract is read-only may be replayed automatically.
+    """
+
+    REPLAY_SAFE = "replay_safe"
+    NON_REPLAYABLE = "non_replayable"
 
 
 @dataclass
@@ -20,6 +33,7 @@ class ToolSpec:
     schema: dict[str, Any]  # OpenAI-format function tool schema
     func: Callable[..., Any]
     metadata: Any = None  # aisuite ToolMetadata or None
+    recovery_policy: RecoveryPolicy = RecoveryPolicy.NON_REPLAYABLE
 
 
 class ToolRegistry:
@@ -32,6 +46,7 @@ class ToolRegistry:
         *,
         metadata: Any = None,
         schema: Optional[dict[str, Any]] = None,
+        recovery_policy: Optional[RecoveryPolicy | str] = None,
     ) -> ToolSpec:
         name = getattr(func, "__name__", None)
         if not name:
@@ -42,7 +57,14 @@ class ToolRegistry:
         resolved_schema = (
             schema or getattr(func, "__coworker_schema__", None) or _schema_for(func)
         )
-        spec = ToolSpec(name=name, schema=resolved_schema, func=func, metadata=meta)
+        policy = _recovery_policy_for(func, meta, recovery_policy)
+        spec = ToolSpec(
+            name=name,
+            schema=resolved_schema,
+            func=func,
+            metadata=meta,
+            recovery_policy=policy,
+        )
         self._tools[name] = spec
         return spec
 
@@ -69,3 +91,23 @@ class ToolRegistry:
 def _schema_for(func: Callable[..., Any]) -> dict[str, Any]:
     """Generate one OpenAI-format tool schema via aisuite's schema generator."""
     return Tools([func]).tools(format="openai")[0]
+
+
+def _recovery_policy_for(
+    func: Callable[..., Any], metadata: Any, explicit: Optional[RecoveryPolicy | str]
+) -> RecoveryPolicy:
+    configured = explicit or getattr(func, "__coworker_recovery_policy__", None)
+    if configured is not None:
+        return RecoveryPolicy(configured)
+
+    # Infer only the narrow, auditable read-only families already described by
+    # tool metadata.  "low risk" alone is insufficient: todo updates and process
+    # controls are low-risk but still mutate state.
+    capabilities = set(getattr(metadata, "capabilities", None) or [])
+    if (
+        capabilities
+        and capabilities <= {"read", "search", "git"}
+        and not getattr(metadata, "requires_approval", False)
+    ):
+        return RecoveryPolicy.REPLAY_SAFE
+    return RecoveryPolicy.NON_REPLAYABLE

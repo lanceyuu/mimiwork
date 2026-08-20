@@ -277,7 +277,16 @@ export function Composer(props: Props) {
       }
       accepted.push(file);
     }
-    const read = (await Promise.all(accepted.map(readFile))).filter(Boolean) as Attachment[];
+    const readAll = await Promise.all(accepted.map(readFile));
+    // A silently vanishing drop reads as a bug (owner hit it with a .docx before
+    // Office files were supported) — name the file and say why it was skipped.
+    readAll.forEach((r, i) => {
+      if (r === null)
+        showAttachNotice(
+          `${accepted[i].name} skipped — file type not supported or over 10 MB`,
+        );
+    });
+    const read = readAll.filter(Boolean) as Attachment[];
     const next: Attachment[] = [];
     for (const a of read) {
       if (a.kind === "pdf" && a.data_url) {
@@ -539,6 +548,11 @@ export function Composer(props: Props) {
                 <div className="absolute z-40 bottom-full mb-1 left-0 min-w-[180px] rounded-xl border border-line bg-panel shadow-2xl py-1.5">
                   {attachItem("image", "Photo or image", () => pickFiles("image/*"))}
                   {attachItem("file", "PDF", () => pickFiles("application/pdf,.pdf"))}
+                  {attachItem(
+                    "file",
+                    "Word, Excel, PowerPoint",
+                    () => pickFiles(".doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.pages,.numbers,.key,.epub"),
+                  )}
                   {attachItem(
                     "fileCode",
                     "Other files",
