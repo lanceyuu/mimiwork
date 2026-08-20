@@ -1686,20 +1686,12 @@ button:not(:disabled) {
 h1, h2, .text-\[18px\] { letter-spacing: -0.02em; }
 h1 { line-height: 1.05; }
 
-/* Materials: the nav is chrome, not content — translucent with vibrancy,
-   content scrolling underneath. Falls back to the solid token where the
-   platform (or the user) says no. */
-.sidebar {
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-}
-@supports not (background: color-mix(in srgb, red 50%, transparent)) {
-  .sidebar { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .sidebar { background: var(--panel); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
+/* Materials note: NO backdrop-filter on .sidebar. A filter (like a transform)
+   makes an element the containing block for position:fixed descendants — and
+   the sidebar hosts fixed overlays (search palette, row context menus), which
+   it silently re-anchored to a 260px column (bug shipped in v0.2.5, caught
+   2026-08-20). Vibrancy on chrome is welcome ONLY on elements with no fixed
+   descendants, or after those overlays are portaled to <body>. */
 
 /* Spatial consistency: the collapsed nav peeks in and out along the same
    path with the shared spring feel (was a generic 0.18s ease). */
@@ -1714,11 +1706,29 @@ h1 { line-height: 1.05; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
 }
 
-/* Agency: keyboard users always see where they are. */
-:focus-visible {
+/* Agency: keyboard users always see where they are — on CONTROLS. Text inputs
+   keep their own focus treatment (the global ring double-boxed the search
+   palette's input, which styles its container instead). */
+button:focus-visible,
+a:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+/* The search palette enters like a sheet: fade + settle, transform/opacity only. */
+.search-palette {
+  animation: palette-in 0.3s var(--spring);
+  transform-origin: 50% 0;
+}
+@keyframes palette-in {
+  from { opacity: 0; transform: translateX(-50%) scale(0.98) translateY(-6px); }
+  to { opacity: 1; transform: translateX(-50%) scale(1) translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .search-palette { animation: none; }
 }
 
 /* Reduced motion: comprehension-aiding fades stay; movement goes. */
