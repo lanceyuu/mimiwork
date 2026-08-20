@@ -20,6 +20,7 @@ import {
   resolveInboxItem,
   revealArtifact,
   forkSession,
+  addRoot,
   deleteSession,
   renameSession,
   runAutomation,
@@ -970,7 +971,9 @@ export function App() {
     // Knowledge family: a new conversation starts fresh (orphan) — clear the workspace so the
     // server provisions a NEW scratch dir for the new session id. Code keeps its repo.
     if (!gatesWorkspace(target)) setWorkspace(null);
-    setSessionId(newId());
+    const id = newId();
+    setSessionId(id);
+    return id;
   };
   // Inbox → session: the item carries its session's workspace/agent, so open it directly.
   // UX-026: 5s top-right toast when a SCHEDULED automation run starts (never for
@@ -1336,7 +1339,7 @@ export function App() {
       )}
       {onboarding && (
         <Onboarding
-          onDone={(next) => {
+          onDone={(next, starter) => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
@@ -1349,8 +1352,25 @@ export function App() {
             } else if (next === "work") {
               // "Start working" teaches by landing (§24, §32): a fresh session with the rail's
               // Access section expanded. Bump after the session switch settles.
-              startNewSession();
+              const id = startNewSession();
               setTimeout(openAccess, 80);
+              // Starter task (§42): grant the picked folder to the fresh session (retry
+              // until the server has the session), then PREFILL the prompt — the user
+              // presses Enter themselves, so the first action stays theirs.
+              if (starter) {
+                let tries = 0;
+                const attach = () => {
+                  addRoot(id, starter.workspace, starter.writable)
+                    .then((r) => {
+                      if (r.ok) prefillComposer(starter.prompt);
+                      else if (++tries < 15) setTimeout(attach, 400);
+                    })
+                    .catch(() => {
+                      if (++tries < 15) setTimeout(attach, 400);
+                    });
+                };
+                setTimeout(attach, 300);
+              }
             }
           }}
         />

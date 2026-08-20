@@ -5,6 +5,7 @@ import {
   type Connector,
 } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
+import { chooseFolder } from "../tauri";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 
 // First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
@@ -32,8 +33,53 @@ const TOOL_ROWS = [
 ];
 const TOOLS_SOON = ["gmail", "google_calendar"];
 
-export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "automations") => void }) {
-  const [step, setStep] = useState(0);
+// The step-3 starter tasks (design spec 2026-08-20 §4): one click = a session with the
+// picked folder granted and the prompt PREFILLED — never auto-sent; the user presses
+// Enter, so the first action is still theirs. "Tidy" needs write access; the card says so.
+const STARTERS = [
+  {
+    key: "summarize",
+    icon: "📋",
+    label: "Summarize what's in this folder",
+    prompt:
+      "Look through this folder and give me a short overview: what's in it, what seems " +
+      "most important, and anything that looks unfinished or out of place.",
+    needsWrite: false,
+  },
+  {
+    key: "tidy",
+    icon: "🧹",
+    label: "Tidy and organize these files",
+    prompt:
+      "Propose a tidy structure for this folder (groups, naming, what to archive). " +
+      "Show me the plan first — only move files after I approve.",
+    needsWrite: true,
+  },
+  {
+    key: "plan",
+    icon: "🗓️",
+    label: "Plan my week from what's here",
+    prompt:
+      "Based on the documents in this folder, draft a plan for my week: open threads, " +
+      "deadlines you can infer, and a suggested order of attack.",
+    needsWrite: false,
+  },
+] as const;
+
+export type OnboardingStarter = { workspace: string; writable: boolean; prompt: string };
+
+export function Onboarding({
+  onDone,
+  __startStep = 0,
+}: {
+  onDone: (next?: "work" | "gallery" | "automations", starter?: OnboardingStarter) => void;
+  // Test-only: render pre-advanced to a step (the earlier steps need live provider state).
+  __startStep?: number;
+}) {
+  const [step, setStep] = useState(__startStep);
+  // -- step 3: first task (folder + starter cards) --------------------------------
+  const [folder, setFolder] = useState<string | null>(null);
+  const [writable, setWritable] = useState(false);
 
   // -- step 1: model (provider gallery ⇄ key form, shared machinery) ---------------
   const ps = useProviderSetup();
@@ -65,9 +111,17 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
     getConnectors().then(setConnectors).catch(() => {});
   }, [step]);
 
-  const finish = async (next?: "work" | "gallery" | "automations") => {
+  const finish = async (
+    next?: "work" | "gallery" | "automations",
+    starter?: OnboardingStarter,
+  ) => {
     await setOnboarded(true).catch(() => {});
-    onDone(next);
+    onDone(next, starter);
+  };
+
+  const pickFolder = async () => {
+    const p = await chooseFolder();
+    if (p) setFolder(p);
   };
 
   // -- shared bits ----------------------------------------------------------------
@@ -219,52 +273,121 @@ export function Onboarding({ onDone }: { onDone: (next?: "work" | "gallery" | "a
         )}
 
         {step === 2 && (
-          <section data-testid="ob-step-done" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-            <div className="text-center">
-              <div className="w-12 h-12 rounded-full bg-okSoft text-ok grid place-items-center mx-auto mb-3 text-[22px]">
-                ✓
+          /* §42 (design spec 2026-08-20 §4): the last step hands over a FIRST TASK, not a
+             menu. Pick a folder → three starter cards light up; one click opens a session
+             with the folder granted and the prompt prefilled (never auto-sent). The old
+             "automation / blank session" doors survive as quiet footer links. */
+          <section data-testid="ob-step-first-task" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
+            <h1 className="text-[19px] font-semibold">Give Mimi her first task</h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-4">
+              Pick a folder Mimi may look at — everything stays on this computer, and she
+              only ever sees folders you hand her.
+            </p>
+
+            {!folder ? (
+              <button
+                className="w-full flex items-center gap-3 rounded-xl2 border border-dashed border-line hover:border-accent bg-panel px-4 py-3.5"
+                onClick={pickFolder}
+                data-testid="ob-pick-folder"
+              >
+                <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
+                  📁
+                </span>
+                <span className="flex-1 min-w-0 text-left">
+                  <b className="block text-[13.5px]">Choose a folder</b>
+                  <span className="text-[12px] text-muted">
+                    Your course folder, a project, this week's mess — any folder works.
+                  </span>
+                </span>
+                <span className="text-faint self-center">›</span>
+              </button>
+            ) : (
+              <div
+                className="flex items-center gap-3 rounded-xl2 border border-line bg-paper px-4 py-3"
+                data-testid="ob-folder-picked"
+              >
+                <span className="w-9 h-9 rounded-lg bg-okSoft text-ok grid place-items-center text-[15px] shrink-0">
+                  📁
+                </span>
+                <span className="flex-1 min-w-0">
+                  <b className="block text-[13.5px] truncate" title={folder}>
+                    {folder.split(/[\\/]/).filter(Boolean).pop()}
+                  </b>
+                  <label className="flex items-center gap-1.5 text-[12px] text-muted cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={writable}
+                      onChange={(e) => setWritable(e.target.checked)}
+                      data-testid="ob-folder-writable"
+                    />
+                    Allow Mimi to edit and organize files in it
+                  </label>
+                </span>
+                <button className="text-[12px] text-accent shrink-0" onClick={pickFolder}>
+                  Change
+                </button>
               </div>
-              <h1 className="text-[19px] font-semibold mb-1">You're set up</h1>
-              <p className="text-[13px] text-muted mb-5">Two good ways to start:</p>
+            )}
+
+            <p className="text-[12.5px] text-muted mt-4 mb-1.5">
+              {folder ? "Now pick her first task:" : "Then pick her first task:"}
+            </p>
+            <div className="space-y-2">
+              {STARTERS.map((s) => {
+                const blocked = !folder || (s.needsWrite && !writable);
+                return (
+                  <button
+                    key={s.key}
+                    className={
+                      "w-full flex items-start gap-3 rounded-xl2 border px-4 py-3 text-left " +
+                      (blocked
+                        ? "border-line opacity-45 cursor-not-allowed"
+                        : "border-line hover:border-accent bg-panel")
+                    }
+                    disabled={blocked}
+                    title={
+                      !folder
+                        ? "Choose a folder first"
+                        : s.needsWrite && !writable
+                          ? "Needs the edit permission above"
+                          : undefined
+                    }
+                    onClick={() =>
+                      folder && finish("work", { workspace: folder, writable, prompt: s.prompt })
+                    }
+                    data-testid={`ob-starter-${s.key}`}
+                  >
+                    <span className="text-[16px] shrink-0">{s.icon}</span>
+                    <span className="flex-1 min-w-0">
+                      <b className="block text-[13.5px]">{s.label}</b>
+                      {s.needsWrite && (
+                        <span className="text-[11.5px] text-faint">Uses the edit permission</span>
+                      )}
+                    </span>
+                    <span className="text-faint self-center">›</span>
+                  </button>
+                );
+              })}
             </div>
 
-            <button
-              className="w-full flex items-start gap-3 rounded-xl2 border border-line hover:border-accent bg-panel px-4 py-3.5"
-              onClick={() => finish("automations")}
-              data-testid="ob-cta-automation"
-            >
-              <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
-                ◷
-              </span>
-              <span className="flex-1 min-w-0 text-left">
-                <b className="block text-[13.5px]">Create your first automation</b>
-                <span className="text-[12px] text-muted">
-                  A weekly digest, a morning brief — pick a template, running in two minutes.
-                </span>
-              </span>
-              <span className="text-faint self-center">›</span>
-            </button>
-            <button
-              className="w-full flex items-start gap-3 rounded-xl2 border border-line hover:border-accent bg-panel px-4 py-3.5 mt-2.5"
-              onClick={() => finish("work")}
-              data-testid="ob-start"
-            >
-              <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
-                ✦
-              </span>
-              <span className="flex-1 min-w-0 text-left">
-                <b className="block text-[13.5px]">Start working with Coworker</b>
-                <span className="text-[12px] text-muted">
-                  Open a session and just ask — analyze files, draft, research, build.
-                </span>
-              </span>
-              <span className="text-faint self-center">›</span>
-            </button>
-
-            {/* The Specialist-coworkers gallery card and the per-session-scope line stay HIDDEN
-                (owner call 2026-07-12); the finish("gallery") plumbing remains for their return. */}
-
-            <p className="text-[11px] text-faint text-center mt-auto pt-5">
+            <div className="flex items-center justify-center gap-4 mt-auto pt-5">
+              <button
+                className="text-[12.5px] text-muted hover:text-ink"
+                onClick={() => finish("automations")}
+                data-testid="ob-cta-automation"
+              >
+                Create an automation instead
+              </button>
+              <span className="text-faint">·</span>
+              <button
+                className="text-[12.5px] text-muted hover:text-ink"
+                onClick={() => finish("work")}
+                data-testid="ob-start"
+              >
+                Just open a blank session
+              </button>
+            </div>
+            <p className="text-[11px] text-faint text-center mt-3">
               Replay this setup anytime: Settings ▸ Appearance ▸ Run setup again.
             </p>
           </section>
