@@ -212,7 +212,7 @@ class SessionManager:
         # App-wide activity (the floating Mimi companion): busy = any session turn OR
         # automation run in flight. Broadcast on /ws/events as {"type":"activity"} only
         # when the boolean FLIPS — the companion sleeps while busy and wakes on done.
-        self._activity_busy = False
+        self._activity_busy: Any = (False, False)  # (busy, needs-the-user)
         self._active_automation_runs = 0
         # Titles of automations currently mid-run — the companion's speech bubble
         # says WHAT Mimi is working on, not just that she is.
@@ -230,6 +230,8 @@ class SessionManager:
         # Inbox (cross-session human-attention queue), routing (named inboxes + Slack/Telegram
         # bindings), the Unattended toggle, and self-wake records.
         self.inbox = InboxStore(base / "inbox.json")
+        # Companion alert: any parked approval/question flips the activity signal.
+        self.inbox.on_change = self._announce_activity
         self.inbox_routing = InboxRouting(base / "inbox_routing.json")
         self.unattended = UnattendedRegistry(base / "unattended.json")
         self.wakes = WakeStore(base / "wakes.json")
@@ -2797,25 +2799,36 @@ class SessionManager:
 
     def activity(self) -> dict[str, Any]:
         """App-wide busy snapshot — what the floating Mimi companion renders.
-        `detail` names the work when it has a name (an automation title)."""
+        `detail` names the work when it has a name (an automation title);
+        `pending_input` counts parked items that need the USER (approvals,
+        questions, folder requests, plans — not mere notifications)."""
+        from ..inbox import KIND_NOTIFICATION
+
+        pending = [
+            i for i in self.inbox.pending() if i.kind != KIND_NOTIFICATION
+        ]
         return {
             "busy": bool(self._running_sessions) or self._active_automation_runs > 0,
             "running_sessions": len(self._running_sessions),
             "running_automations": self._active_automation_runs,
+            "pending_input": len(pending),
             "detail": self._active_automation_titles[0] if self._active_automation_titles else None,
         }
 
     def _announce_activity(self) -> None:
-        """Push an `activity` frame on /ws/events when the busy boolean flips.
+        """Push an `activity` frame on /ws/events when the busy boolean OR the
+        needs-the-user boolean flips (the inbox store's on_change hook routes
+        add/resolve here, so the companion's alert is push-latency, not poll).
 
         Sync-callable from every mark_* path: the broadcast is scheduled on the
         running loop; with no loop (unit tests building a manager outside asyncio)
         the flip is still recorded and GET /v1/activity keeps serving the truth.
         """
         snap = self.activity()
-        if snap["busy"] == self._activity_busy:
+        signal = (snap["busy"], snap["pending_input"] > 0)
+        if signal == self._activity_busy:
             return
-        self._activity_busy = snap["busy"]
+        self._activity_busy = signal
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:

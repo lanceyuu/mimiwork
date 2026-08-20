@@ -1568,6 +1568,8 @@ export interface Activity {
   busy: boolean;
   running_sessions: number;
   running_automations: number;
+  // Parked items that need the USER (approvals, questions, folder requests, plans).
+  pending_input?: number;
   // Name of the work when it has one (an automation title) — the companion's bubble.
   detail?: string | null;
 }

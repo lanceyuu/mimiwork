@@ -15,13 +15,17 @@ import { connectEvents, getActivity, type Activity } from "../api";
 import sleepSheet from "../assets/mimi-pet/mimi-sleep.png";
 import wakeSheet from "../assets/mimi-pet/mimi-wake-16.png";
 import idleSheet from "../assets/mimi-pet/mimi-idle-stable-48.png";
+import scratchSheet from "../assets/mimi-pet/mimi-scratch-16.png";
 
-type Phase = "sleep" | "wake" | "idle";
+type Phase = "sleep" | "wake" | "idle" | "alert";
 
 const SHEETS: Record<Phase, { src: string; frames: number; fps: number; loop: boolean }> = {
   sleep: { src: sleepSheet, frames: 8, fps: 8, loop: true },
   wake: { src: wakeSheet, frames: 16, fps: 10, loop: false },
   idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
+  // Needs-the-user: the scratch loop reads as "hey, let me in" — unmissably
+  // different from both the nap and the idle sit.
+  alert: { src: scratchSheet, frames: 16, fps: 10, loop: true },
 };
 
 const SIZE = 110; // displayed sprite size in px (frames are square)
@@ -43,6 +47,12 @@ const GEO: Record<Phase, Geo[]> = {
     [105, 13, 189], [94.5, 13, 189], [89, 13, 189], [84.5, 13, 189],
     [106.5, 9, 189], [97, 9, 189], [91, 10, 189], [87.5, 10, 189],
     [106, 8, 184], [95.5, 8, 184], [89.5, 8, 184], [84.5, 8, 184],
+  ],
+  alert: [
+    [101.5, 26, 166], [95, 26, 166], [88.5, 27, 168], [86.5, 28, 168],
+    [101, 22, 164], [93, 21, 164], [90, 21, 163], [87, 22, 163],
+    [98.5, 17, 160], [94.5, 18, 160], [89.5, 19, 161], [86, 18, 161],
+    [99.5, 14, 156], [93, 13, 156], [89.5, 14, 156], [86, 14, 156],
   ],
 };
 const TARGET = { anchorX: 96, bottom: 180, height: 165 };
@@ -115,6 +125,7 @@ const BUSY_LINES = [
   (what: string) => `${what} in progress… wake me when? I'll wake YOU.`,
 ];
 const DONE_LINE = "All done! Click me to take a look 🎉";
+const ALERT_LINE = "I need your OK to continue — click me ✋";
 
 export function MimiCompanion() {
   const [busy, setBusy] = useState<boolean | null>(null);
@@ -142,11 +153,14 @@ export function MimiCompanion() {
     document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
 
-    const apply = (nowBusy: boolean) => {
+    const apply = (nowBusy: boolean, pending: number) => {
       const was = busyRef.current;
       busyRef.current = nowBusy;
       setBusy(nowBusy);
-      if (nowBusy) setPhase("sleep");
+      // Needing the user beats everything — a napping dog reads as "all under
+      // control", which is exactly wrong while an approval sits parked.
+      if (pending > 0) setPhase("alert");
+      else if (nowBusy) setPhase("sleep");
       else if (was) setPhase("wake"); // busy → done: the wake-up moment
       else setPhase((p) => (p === "wake" ? p : "idle"));
     };
@@ -154,13 +168,14 @@ export function MimiCompanion() {
     getActivity()
       .then((a) => {
         setSnap(a);
-        apply(a.busy);
+        apply(a.busy, a.pending_input ?? 0);
       })
       .catch(() => setBusy(false));
     const stop = connectEvents((msg) => {
       if (msg.type === "activity" && msg.data) {
-        setSnap(msg.data as unknown as Activity);
-        apply(Boolean((msg.data as any).busy));
+        const a = msg.data as unknown as Activity;
+        setSnap(a);
+        apply(Boolean(a.busy), a.pending_input ?? 0);
       }
     });
     // Belt-and-suspenders: a missed frame (socket blip) self-heals within 15s —
@@ -168,7 +183,7 @@ export function MimiCompanion() {
     const poll = window.setInterval(() => {
       getActivity().then((a) => {
         setSnap(a);
-        if (a.busy !== busyRef.current) apply(a.busy);
+        apply(a.busy, a.pending_input ?? 0);
       }).catch(() => undefined);
     }, 15000);
     return () => {
@@ -193,7 +208,14 @@ export function MimiCompanion() {
     : snap && snap.running_sessions + snap.running_automations > 1
       ? `${snap.running_sessions + snap.running_automations} tasks`
       : "your task";
-  const bubble = busy ? BUSY_LINES[lineIdx](what) : showDone ? DONE_LINE : null;
+  const bubble =
+    phase === "alert"
+      ? ALERT_LINE
+      : busy
+        ? BUSY_LINES[lineIdx](what)
+        : showDone
+          ? DONE_LINE
+          : null;
 
   return (
     <div
@@ -242,8 +264,8 @@ export function MimiCompanion() {
           data-testid="companion-bubble"
           style={{
             maxWidth: 200,
-            background: "rgba(255,255,255,0.96)",
-            color: "#16272a",
+            background: phase === "alert" ? "rgba(255,247,230,0.98)" : "rgba(255,255,255,0.96)",
+            color: phase === "alert" ? "#92400e" : "#16272a",
             fontSize: 12,
             fontWeight: 600,
             lineHeight: 1.35,
@@ -266,14 +288,14 @@ export function MimiCompanion() {
               marginLeft: -5,
               width: 10,
               height: 10,
-              background: "rgba(255,255,255,0.96)",
+              background: phase === "alert" ? "rgba(255,247,230,0.98)" : "rgba(255,255,255,0.96)",
               transform: "rotate(45deg)",
               borderRadius: 2,
             }}
           />
         </div>
       )}
-      {busy && (
+      {busy && phase !== "alert" && (
         <div
           data-testid="companion-zzz"
           style={{

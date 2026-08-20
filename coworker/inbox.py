@@ -101,7 +101,20 @@ class InboxStore:
         self._lock = threading.Lock()
         self._items: dict[str, InboxItem] = {}
         self._waiters: dict[str, asyncio.Event] = {}
+        # Fired (best-effort) after any add/resolve — the server manager hangs
+        # its activity broadcast here so the floating companion learns "MimiWork
+        # needs the user" the moment an approval/question parks, not on a poll.
+        self.on_change: Optional[Any] = None
         self._load()
+
+    def _notify_change(self) -> None:
+        cb = self.on_change
+        if cb is None:
+            return
+        try:
+            cb()
+        except Exception:
+            pass  # a UI signal must never break the state machine
 
     # -- persistence ------------------------------------------------------------
     def _load(self) -> None:
@@ -163,6 +176,7 @@ class InboxStore:
         with self._lock:
             self._items[item.id] = item
             self._save()
+        self._notify_change()
         return item
 
     def for_tool_call(self, session_id: str, tool_call_id: str) -> Optional[InboxItem]:
@@ -322,6 +336,7 @@ class InboxStore:
         waiter = self._waiters.get(item_id)
         if waiter is not None:
             waiter.set()
+        self._notify_change()
         return True
 
     def resolve_session(

@@ -115,6 +115,7 @@ def test_activity_tracks_session_turns(tmp_path):
         "busy": False,
         "running_sessions": 0,
         "running_automations": 0,
+        "pending_input": 0,
         "detail": None,
     }
     mgr.mark_running("s1")
@@ -161,6 +162,7 @@ def test_activity_endpoint(tmp_path):
             "busy": False,
             "running_sessions": 0,
             "running_automations": 0,
+            "pending_input": 0,
             "detail": None,
         }
 
@@ -255,4 +257,29 @@ def test_blueprint_export_is_shareable_and_leak_free(tmp_path, monkeypatch):
 
     assert Path(res["path"]).name == "standup-notes.mimiflow.json"
     assert Path(res["path"]).is_file()
+
+
+def test_pending_inbox_items_flip_the_activity_signal(tmp_path):
+    """A parked approval must reach the companion as pending_input — and the
+    inbox's on_change hook must announce the flip (push, not poll)."""
+    import asyncio as _asyncio
+
+    mgr = _manager(tmp_path)
+    frames: list[dict] = []
+
+    async def scenario():
+        async def sink(message):
+            frames.append(message)
+
+        mgr.register_event_client(sink)
+        item = mgr.inbox.add_approval("s1", "Approve: run_shell", body="rm -rf x")
+        await _asyncio.sleep(0)
+        assert mgr.activity()["pending_input"] == 1
+        mgr.inbox.resolve(item.id, "deny")
+        await _asyncio.sleep(0)
+        assert mgr.activity()["pending_input"] == 0
+
+    _asyncio.run(scenario())
+    signals = [(f["data"]["busy"], f["data"]["pending_input"]) for f in frames if f["type"] == "activity"]
+    assert (False, 1) in signals and (False, 0) in signals
 

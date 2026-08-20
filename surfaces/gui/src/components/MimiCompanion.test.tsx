@@ -52,6 +52,18 @@ describe("MimiCompanion", () => {
     expect(screen.queryByTestId("companion-zzz")).toBeNull();
   });
 
+  it("scratches for attention when MimiWork needs the user", async () => {
+    getActivity.mockResolvedValue({
+      busy: true, running_sessions: 1, running_automations: 0, pending_input: 1,
+    });
+    render(<MimiCompanion />);
+    await waitFor(() =>
+      expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("alert"),
+    );
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("need your OK");
+    expect(screen.queryByTestId("companion-zzz")).toBeNull(); // not napping — asking
+  });
+
   it("idles when nothing was ever running", async () => {
     getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
     render(<MimiCompanion />);
