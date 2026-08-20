@@ -69,4 +69,14 @@ describe("MimiCompanion", () => {
     fireEvent.click(screen.getByTestId("mimi-companion"));
     expect(invoke).toHaveBeenCalledWith("companion_restore");
   });
+
+  it("the \u2715 dismisses without restoring the app", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    (globalThis as any).__TAURI__ = { core: { invoke } };
+    render(<MimiCompanion />);
+    fireEvent.click(screen.getByTestId("companion-dismiss"));
+    expect(invoke).toHaveBeenCalledWith("companion_dismiss");
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+  });
 });

@@ -123,23 +123,37 @@ fn server_log_file() -> Option<std::fs::File> {
     std::fs::File::create(&path).ok()
 }
 
-fn read_keep_awake_pref() -> bool {
+fn read_desktop_pref(key: &str, default: bool) -> bool {
     std::fs::read_to_string(desktop_prefs_path())
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("keep_awake").and_then(|b| b.as_bool()))
-        .unwrap_or(false)
+        .and_then(|v| v.get(key).and_then(|b| b.as_bool()))
+        .unwrap_or(default)
 }
 
-fn write_keep_awake_pref(enabled: bool) {
+/// Merge-write: read-modify-write so one preference never clobbers the others
+/// (the old writer serialized only its own key, silently dropping the rest).
+fn write_desktop_pref(key: &str, enabled: bool) {
     let path = desktop_prefs_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(
-        &path,
-        serde_json::json!({ "keep_awake": enabled }).to_string(),
-    );
+    let mut prefs = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(map) = prefs.as_object_mut() {
+        map.insert(key.to_string(), serde_json::Value::Bool(enabled));
+    }
+    let _ = std::fs::write(&path, prefs.to_string());
+}
+
+fn read_keep_awake_pref() -> bool {
+    read_desktop_pref("keep_awake", false)
+}
+
+fn write_keep_awake_pref(enabled: bool) {
+    write_desktop_pref("keep_awake", enabled);
 }
 
 // -- keep-awake: hold off idle + system sleep so the scheduler keeps firing -------------------
@@ -489,11 +503,45 @@ fn show_main(app: &tauri::AppHandle) {
 // is done (the webview side renders the sprite states from /ws/events activity
 // frames). Clicking Mimi restores the main window.
 
+/// "Not now": the pet's own ✕ hides it until the app restarts. The persistent
+/// off-switch is the Settings preference below; re-enabling there clears this.
+static COMPANION_DISMISSED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 fn show_companion(app: &tauri::AppHandle) {
+    if !read_desktop_pref("companion", true) {
+        return; // turned off in Settings
+    }
+    if COMPANION_DISMISSED.load(std::sync::atomic::Ordering::Relaxed) {
+        return; // dismissed from the pet itself, for this run
+    }
     if let Some(w) = app.get_webview_window("companion") {
         position_companion(&w);
         let _ = w.show();
     }
+}
+
+#[tauri::command]
+fn get_companion_enabled() -> bool {
+    read_desktop_pref("companion", true)
+}
+
+#[tauri::command]
+fn set_companion_enabled(app: tauri::AppHandle, enabled: bool) -> bool {
+    write_desktop_pref("companion", enabled);
+    if enabled {
+        // An explicit re-enable also forgives a same-session dismiss.
+        COMPANION_DISMISSED.store(false, std::sync::atomic::Ordering::Relaxed);
+    } else {
+        hide_companion(&app);
+    }
+    enabled
+}
+
+#[tauri::command]
+fn companion_dismiss(app: tauri::AppHandle) {
+    COMPANION_DISMISSED.store(true, std::sync::atomic::Ordering::Relaxed);
+    hide_companion(&app);
 }
 
 fn hide_companion(app: &tauri::AppHandle) {
@@ -666,7 +714,10 @@ pub fn run() {
             download_update,
             clear_pending_update,
             install_update,
-            companion_restore
+            companion_restore,
+            companion_dismiss,
+            get_companion_enabled,
+            set_companion_enabled
         ])
         .setup(move |app| {
             // 1. Start the Python server sidecar on the chosen port (inherits our env).

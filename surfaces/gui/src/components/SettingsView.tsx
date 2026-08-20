@@ -25,9 +25,11 @@ import {
   installUpdate,
   isTauri,
   listenDictationDownloadProgress,
+  getCompanionEnabled,
   markDictationTestPassed,
   pickFolder,
   setAutostart,
+  setCompanionEnabled,
   setKeepAwake,
   startDictation,
   stopDictation,
@@ -388,12 +390,14 @@ function AppearanceSection() {
   const [theme, setTheme] = useThemePref();
   const [autostart, setAuto] = useState(false);
   const [keepAwake, setKeep] = useState(false);
+  const [companion, setCompanion] = useState(true);
   const desktop = isTauri();
 
   useEffect(() => {
     if (isTauri()) {
       getAutostart().then((v) => setAuto(!!v));
       getKeepAwake().then((v) => setKeep(!!v));
+      getCompanionEnabled().then((v) => setCompanion(v !== false));
     }
   }, []);
 
@@ -443,6 +447,24 @@ function AppearanceSection() {
             <span>
               <span className="block text-[13px] text-ink">Keep this system awake</span>
               <span className="block text-[12px] text-muted">Prevent idle sleep so scheduled tasks fire on time.</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 py-2">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={companion}
+              data-testid="companion-toggle"
+              onChange={async (e) => {
+                setCompanion(e.target.checked);
+                await setCompanionEnabled(e.target.checked);
+              }}
+            />
+            <span>
+              <span className="block text-[13px] text-ink">Floating Mimi</span>
+              <span className="block text-[12px] text-muted">
+                Show Mimi in the screen corner when the app is minimized — she sleeps while work runs and wakes when it&rsquo;s done.
+              </span>
             </span>
           </label>
         </div>

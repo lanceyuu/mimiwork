@@ -106,6 +106,10 @@ export function MimiCompanion() {
   const restore = () => {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_restore");
   };
+  const dismiss = (e: React.MouseEvent) => {
+    e.stopPropagation(); // the ✕ must not ALSO restore the app
+    (globalThis as any).__TAURI__?.core?.invoke?.("companion_dismiss");
+  };
 
   const label = busy ? "Working… (Mimi is napping)" : phase === "wake" ? "All done!" : "Mimi";
 
@@ -115,6 +119,7 @@ export function MimiCompanion() {
       onClick={restore}
       title="Open MimiWork"
       style={{
+        position: "relative",
         width: "100vw",
         height: "100vh",
         display: "flex",
@@ -127,6 +132,29 @@ export function MimiCompanion() {
         overflow: "hidden",
       }}
     >
+      <button
+        data-testid="companion-dismiss"
+        onClick={dismiss}
+        title="Hide Mimi (until the app restarts — turn her off for good in Settings)"
+        aria-label="Hide floating Mimi"
+        style={{
+          position: "absolute",
+          top: 4,
+          right: 8,
+          border: "none",
+          background: "rgba(255,255,255,0.85)",
+          color: "#55696a",
+          borderRadius: "50%",
+          width: 20,
+          height: 20,
+          lineHeight: "18px",
+          fontSize: 12,
+          cursor: "pointer",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+        }}
+      >
+        ×
+      </button>
       {busy && (
         <div
           data-testid="companion-zzz"

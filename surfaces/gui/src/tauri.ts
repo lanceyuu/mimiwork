@@ -74,6 +74,13 @@ export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart
 export const getKeepAwake = () => invoke<boolean>("get_keep_awake");
 export const setKeepAwake = (enabled: boolean) => invoke<boolean>("set_keep_awake", { enabled });
 
+/** The floating Mimi companion (shown when the main window leaves the screen).
+ * The Settings toggle persists; the pet's own ✕ hides it for this run only. */
+export const getCompanionEnabled = () => invoke<boolean>("get_companion_enabled");
+export const setCompanionEnabled = (enabled: boolean) =>
+  invoke<boolean>("set_companion_enabled", { enabled });
+export const dismissCompanion = () => invoke<void>("companion_dismiss");
+
 /** Begin native window dragging from a custom title/header region. */
 export const startWindowDrag = () => invoke<boolean>("start_window_drag");
 
