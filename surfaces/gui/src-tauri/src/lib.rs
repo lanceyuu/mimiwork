@@ -910,6 +910,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building the MimiWork desktop app")
         .run(|app, event| {
+            // macOS Dock click = "reopen". AppKit's default only deminiaturizes a
+            // window when the app has NO other windows — and the companion (hidden
+            // or visible) always counts as one, so a minimized/tray-hidden main
+            // window never came back on Dock click (owner report 2026-08-20).
+            // Handle reopen explicitly: bring the app back, send the pet away.
+            #[cfg(target_os = "macos")]
+            if matches!(event, RunEvent::Reopen { .. }) {
+                show_main(app);
+            }
             // Also on Exit: belt-and-suspenders in case a quit path reaches teardown without
             // a preceding ExitRequested (observed with macOS Cmd+Q under the tray setup).
             if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
