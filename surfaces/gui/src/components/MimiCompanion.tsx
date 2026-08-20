@@ -26,6 +26,38 @@ const SHEETS: Record<Phase, { src: string; frames: number; fps: number; loop: bo
 
 const SIZE = 110; // displayed sprite size in px (frames are square)
 
+// Per-frame pose geometry, ported from QualiTaTi's mimiPetAssets.js: the dog
+// drifts inside the sheet from pose to pose (especially wake), so each frame
+// is re-anchored to a fixed point — anchor x=96, feet at y=180, body height
+// 165 — in the sheet's 192px logical space. Without this the pet visibly
+// wobbles left/right between frames (owner report 2026-08-20).
+type Geo = [anchorX: number, top: number, bottom: number];
+const GEO: Record<Phase, Geo[]> = {
+  idle: Array.from({ length: 48 }, () => [100.5, 12, 181] as Geo),
+  sleep: [
+    [104.5, 12, 184], [102.5, 12, 184], [102, 12, 184], [100.5, 12, 184],
+    [104.5, 13, 184], [102.5, 13, 184], [102, 13, 184], [100.5, 13, 184],
+  ],
+  wake: [
+    [106.5, 15, 190], [96, 15, 190], [90, 15, 190], [85.5, 15, 190],
+    [105, 13, 189], [94.5, 13, 189], [89, 13, 189], [84.5, 13, 189],
+    [106.5, 9, 189], [97, 9, 189], [91, 10, 189], [87.5, 10, 189],
+    [106, 8, 184], [95.5, 8, 184], [89.5, 8, 184], [84.5, 8, 184],
+  ],
+};
+const TARGET = { anchorX: 96, bottom: 180, height: 165 };
+const LOGICAL = 192; // the geometry's coordinate space (per source cell)
+
+function frameTransform(phase: Phase, frame: number): string {
+  const records = GEO[phase];
+  const [anchorX, top, bottom] = records[Math.min(frame, records.length - 1)];
+  const s = TARGET.height / (bottom - top);
+  const f = SIZE / LOGICAL;
+  const tx = (TARGET.anchorX - anchorX * s) * f;
+  const ty = (TARGET.bottom - bottom * s) * f;
+  return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${s.toFixed(4)})`;
+}
+
 function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
   const [frame, setFrame] = useState(0);
   const sheet = SHEETS[phase];
@@ -56,13 +88,23 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
       style={{
         width: SIZE,
         height: SIZE,
-        backgroundImage: `url(${sheet.src})`,
-        backgroundRepeat: "no-repeat",
-        backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
-        backgroundPosition: `-${frame * SIZE}px 0`,
+        overflow: "hidden",
         filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.25))",
       }}
-    />
+    >
+      <div
+        style={{
+          width: SIZE,
+          height: SIZE,
+          backgroundImage: `url(${sheet.src})`,
+          backgroundRepeat: "no-repeat",
+          backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
+          backgroundPosition: `-${frame * SIZE}px 0`,
+          transform: frameTransform(phase, frame),
+          transformOrigin: "0 0",
+        }}
+      />
+    </div>
   );
 }
 
