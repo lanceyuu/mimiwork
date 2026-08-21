@@ -620,6 +620,26 @@ def create_app(manager: SessionManager) -> FastAPI:
         # paths from web file dialogs). Off the event loop: blocks until pick/cancel.
         return await asyncio.to_thread(manager.pick_native_folder)
 
+    # -- projects (PROJECTS spec): a project = a real workspace folder + metadata ------
+    @app.get("/v1/projects")
+    def projects() -> dict[str, Any]:
+        return {"projects": manager.list_projects()}
+
+    @app.patch("/v1/projects")
+    def update_project(body: dict) -> dict[str, Any]:
+        b = body or {}
+        fields = {k: b[k] for k in ("name", "emoji", "pinned", "archived") if k in b}
+        return manager.update_project(str(b.get("path", "")), **fields)
+
+    @app.get("/v1/projects/detail")
+    def project_detail(path: str) -> dict[str, Any]:
+        return manager.project_detail(path)
+
+    @app.put("/v1/projects/instructions")
+    def project_instructions(body: dict) -> dict[str, Any]:
+        b = body or {}
+        return manager.set_project_instructions(str(b.get("path", "")), str(b.get("text", "")))
+
     @app.get("/v1/sessions")
     def sessions(workspace: str | None = None) -> dict[str, Any]:
         return {"sessions": manager.list_sessions(workspace)}
@@ -679,14 +699,16 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.memory_graph()
 
     @app.get("/v1/memory")
-    def memory() -> dict[str, Any]:
-        return {"memory": manager.list_memory()}
+    def memory(workspace: str | None = None) -> dict[str, Any]:
+        return {"memory": manager.list_memory(workspace or None)}
 
     @app.post("/v1/memory")
     def add_memory(body: dict) -> dict[str, Any]:
         body = body or {}
         return manager.add_memory(
-            str(body.get("content", "")), str(body.get("scope", "workspace"))
+            str(body.get("content", "")),
+            str(body.get("scope", "workspace")),
+            workspace=(str(body["workspace"]) if body.get("workspace") else None),
         )
 
     # Declared before the /{item_id} routes so "settings" can never be parsed as an id.

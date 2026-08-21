@@ -1796,3 +1796,82 @@ a:focus-visible,
 .brand-powered:hover { color: var(--muted); }
 .brand-powered-name { font-weight: 600; color: var(--muted); }
 .brand-powered:hover .brand-powered-name { color: var(--accent); }
+
+/* ---- Title strip: the collapse/pin control sized and aligned like the traffic lights ------- */
+/* Owner ask 2026-08-21: the pin read as a mismatched fourth light. Lights are 12px circles at
+   logical (19,24) with 20px center pitch (lib.rs traffic_light_position) → centers y=30, x=25/45/65.
+   The control is a 22px hit box centered on y=30 at x=85 — the next slot on that pitch. */
+.nav-pin-btn,
+.nav-reveal-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+.app.tauri-overlay .sidebar .brand { padding-top: 19px; padding-left: 74px; padding-bottom: 6px; }
+.app.tauri-overlay .nav-reveal-btn { top: 19px; left: 74px; }
+
+/* ---- Surface frame: every non-session view gets one "← Back" strip at the top ----------- */
+/* Owner ask 2026-08-21 ("very confusing for navigation"): Settings, Automations, Inbox,
+   Connectors, Activity, Persona and Project pages all open inside this frame, so the way back
+   is always in the same place. The strip is a window drag region on desktop. */
+.surface-frame { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* The wrapped view was a direct child of the .app grid before (row-bounded, its own panes
+   scrolled). As a flex child it must be allowed to shrink, or tall pages overflow the frame
+   and everything below the fold is clipped rather than scrollable. */
+.surface-frame > * { flex: 1 1 auto; min-height: 0; }
+.surface-frame > .surface-back { flex: 0 0 auto; }
+.surface-back {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  user-select: none;
+}
+.app.nav-collapsed .surface-back { padding-left: 50px; }
+.app.tauri-overlay .surface-back { height: 52px; padding-top: 8px; }
+.app.tauri-overlay.nav-collapsed .surface-back { padding-left: 104px; }
+.surface-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  padding: 4px 8px 4px 4px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.surface-back-btn:hover { color: var(--ink); background: var(--panel); }
+.surface-back-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.surface-back-sep { color: var(--faint); }
+
+/* ---- Project page ------------------------------------------------------------------------ */
+.project-emoji-btn {
+  width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+  font-size: 24px; background: var(--panel); border: 1px solid var(--line); cursor: pointer;
+}
+.project-emoji-btn:hover { border-color: var(--line-strong); }
+.project-emoji-pop {
+  position: absolute; z-index: 40; top: 48px; left: 0; width: 232px; padding: 8px;
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.12);
+}
+.project-emoji-pop button { font-size: 18px; height: 26px; border-radius: 6px; }
+.project-emoji-pop button:hover { background: var(--paper); }
+.project-name-input {
+  font: inherit; font-size: 20px; font-weight: 700; letter-spacing: -0.02em;
+  background: transparent; border: 0; border-bottom: 1px solid transparent; padding: 0; min-width: 0; width: 100%;
+  color: var(--ink);
+}
+.project-name-input:hover, .project-name-input:focus { border-bottom-color: var(--line-strong); outline: none; }
+
+/* Primary buttons never had a disabled look — a greyed "Save" that can't be clicked is the
+   whole signal that nothing changed yet (caught on the Project page, 2026-08-21). */
+button.btn-primary:disabled { opacity: 0.45; cursor: default; filter: none; }

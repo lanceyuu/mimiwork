@@ -390,6 +390,113 @@ class SessionManager:
             out.append({"path": path, "name": p.name, "exists": p.is_dir()})
         return out
 
+    # -- projects (PROJECTS spec, 2026-08-21) -------------------------------------
+    # A project IS a real workspace folder — the per-conversation scratch dirs are never
+    # projects. Metadata (name/emoji/pin/archive) lives on the workspaces row; instructions
+    # are the folder's AGENTS.md (already injected as "Project conventions"); memory is the
+    # workspace scope the `remember` tool already writes to. This layer only surfaces them.
+
+    def _is_scratch_path(self, path: str) -> bool:
+        try:
+            return Path(path).resolve().is_relative_to(self.scratch_base().resolve())
+        except OSError:
+            return False
+
+    def _project_row(self, meta: dict[str, Any], stats: dict[str, dict]) -> dict[str, Any]:
+        path = meta["path"]
+        p = Path(path)
+        st = stats.get(path) or {}
+        return {
+            "path": path,
+            "name": meta.get("name") or p.name or path,
+            "emoji": meta.get("emoji") or "",
+            "pinned": bool(meta.get("pinned")),
+            "archived": bool(meta.get("archived")),
+            "exists": p.is_dir(),
+            "sessions": int(st.get("sessions") or 0),
+            "last_activity": st.get("last_activity") or meta.get("last_used") or "",
+            "has_instructions": (p / "AGENTS.md").is_file(),
+        }
+
+    def list_projects(self, *, include_archived: bool = True) -> list[dict[str, Any]]:
+        stats = self.session_store.session_stats_by_workspace()
+        out = []
+        for meta in self.session_store.workspaces_with_meta():
+            if self._is_scratch_path(meta["path"]):
+                continue
+            row = self._project_row(meta, stats)
+            if row["archived"] and not include_archived:
+                continue
+            out.append(row)
+        # Pinned first, then most recent activity (stable sorts, applied innermost-first).
+        out.sort(key=lambda r: r["last_activity"] or "", reverse=True)
+        out.sort(key=lambda r: not r["pinned"])
+        return out
+
+    def _project_path(self, requested: str) -> Optional[str]:
+        """A known, non-scratch project path (canonical) — or None."""
+        if not requested:
+            return None
+        path = str(Path(requested).expanduser().resolve())
+        if self._is_scratch_path(path):
+            return None
+        if self.session_store.workspace_meta(path) is None:
+            return None
+        return path
+
+    def update_project(self, path: str, **fields: Any) -> dict[str, Any]:
+        canonical = self._project_path(path)
+        if canonical is None:
+            return {"ok": False, "error": "unknown project"}
+        if "name" in fields and fields["name"] is not None:
+            fields["name"] = str(fields["name"]).strip()[:80]
+        if "emoji" in fields and fields["emoji"] is not None:
+            fields["emoji"] = str(fields["emoji"]).strip()[:8]
+        self.session_store.set_workspace_meta(canonical, **fields)
+        meta = self.session_store.workspace_meta(canonical) or {"path": canonical}
+        return {"ok": True, "project": self._project_row(meta, self.session_store.session_stats_by_workspace())}
+
+    def project_detail(self, path: str) -> dict[str, Any]:
+        canonical = self._project_path(path)
+        if canonical is None:
+            return {"ok": False, "error": "unknown project"}
+        meta = self.session_store.workspace_meta(canonical) or {"path": canonical}
+        agents = Path(canonical) / "AGENTS.md"
+        try:
+            instructions = agents.read_text(encoding="utf-8") if agents.is_file() else ""
+        except OSError:
+            instructions = ""
+        sessions = [
+            s for s in self.list_sessions(canonical)
+            if not s.get("archived") and not str(s.get("session_id", "")).startswith("__")
+        ][:30]
+        return {
+            "ok": True,
+            "project": self._project_row(meta, self.session_store.session_stats_by_workspace()),
+            "instructions": instructions,
+            "instructions_file": str(agents),
+            "memory": self.list_memory(workspace=canonical),
+            "sessions": sessions,
+        }
+
+    def set_project_instructions(self, path: str, text: str) -> dict[str, Any]:
+        """Write the project's AGENTS.md — the block the agent injects as 'Project
+        conventions' at session start (applies to NEW conversations). Empty text removes
+        the file so an emptied editor doesn't leave a blank block behind."""
+        canonical = self._project_path(path)
+        if canonical is None:
+            return {"ok": False, "error": "unknown project"}
+        agents = Path(canonical) / "AGENTS.md"
+        text = (text or "").rstrip()
+        try:
+            if text:
+                agents.write_text(text + "\n", encoding="utf-8")
+            elif agents.is_file():
+                agents.unlink()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "instructions": text, "instructions_file": str(agents)}
+
     DEFAULT_SCRATCH_BASE = "~/MimiWork"
 
     def scratch_base(self) -> Path:
@@ -4162,16 +4269,23 @@ class SessionManager:
 
         return build_graph(self.memory_store.list())
 
-    def list_memory(self) -> list[dict[str, Any]]:
+    def list_memory(self, workspace: Optional[str] = None) -> list[dict[str, Any]]:
+        """All memories, or — with `workspace` — just that project's facts (PROJECTS)."""
+        items = (
+            self.memory_store.list(scope=Scope.WORKSPACE, workspace=workspace)
+            if workspace
+            else self.memory_store.list()
+        )
         return [
             {
                 "id": m.id,
                 "scope": m.scope.value,
+                "workspace": m.workspace,
                 "content": m.content,
                 "summary": m.summary or "",
                 "created_at": m.created_at or "",
             }
-            for m in self.memory_store.list()
+            for m in items
         ]
 
     def add_memory(

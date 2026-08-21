@@ -106,6 +106,11 @@ class ConversationStore:
             "ALTER TABLE sessions ADD COLUMN pinned INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN archived INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN origin TEXT",
+            # Project metadata (PROJECTS, 2026-08-21): a project IS a workspace row.
+            "ALTER TABLE workspaces ADD COLUMN name TEXT",
+            "ALTER TABLE workspaces ADD COLUMN emoji TEXT",
+            "ALTER TABLE workspaces ADD COLUMN pinned INTEGER DEFAULT 0",
+            "ALTER TABLE workspaces ADD COLUMN archived INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN origin_label TEXT",
             "ALTER TABLE sessions ADD COLUMN auto_title TEXT",
             "ALTER TABLE sessions ADD COLUMN renamed INTEGER DEFAULT 0",
@@ -415,20 +420,102 @@ class ConversationStore:
                         "UPDATE sessions SET workspace = ? WHERE workspace = ?",
                         (real, ws),
                     )
-            latest: dict[str, str] = {}
-            for path, last in self._conn.execute(
-                "SELECT path, last_used FROM workspaces"
-            ).fetchall():
-                real = os.path.realpath(path)
-                if real not in latest or (last or "") > latest[real]:
-                    latest[real] = last
+            latest: dict[str, sqlite3.Row] = {}
+            for row in self._conn.execute("SELECT * FROM workspaces").fetchall():
+                real = os.path.realpath(row["path"])
+                if real not in latest or (row["last_used"] or "") > (
+                    latest[real]["last_used"] or ""
+                ):
+                    latest[real] = row
             self._conn.execute("DELETE FROM workspaces")
-            for path, last in latest.items():
+            for path, row in latest.items():
+                # Project metadata rides along — collapsing /tmp vs /private/tmp must
+                # never drop a name, emoji, pin or archive flag.
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO workspaces (path, last_used) VALUES (?, ?)",
-                    (path, last),
+                    "INSERT OR REPLACE INTO workspaces "
+                    "(path, last_used, name, emoji, pinned, archived) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        path,
+                        row["last_used"],
+                        row["name"],
+                        row["emoji"],
+                        row["pinned"] or 0,
+                        row["archived"] or 0,
+                    ),
                 )
             self._conn.commit()
+
+    # -- projects (a project is a workspace row + display metadata) --------------
+    _PROJECT_FIELDS = ("name", "emoji", "pinned", "archived")
+
+    def workspaces_with_meta(self, limit: int = 200) -> list[dict]:
+        """Recent workspaces with their project metadata, most recently used first."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT path, last_used, name, emoji, pinned, archived FROM workspaces "
+                "ORDER BY last_used DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "path": r["path"],
+                "last_used": r["last_used"],
+                "name": r["name"],
+                "emoji": r["emoji"],
+                "pinned": bool(r["pinned"]),
+                "archived": bool(r["archived"]),
+            }
+            for r in rows
+        ]
+
+    def workspace_meta(self, path: str) -> Optional[dict]:
+        with self._lock:
+            r = self._conn.execute(
+                "SELECT path, last_used, name, emoji, pinned, archived FROM workspaces "
+                "WHERE path = ?",
+                (path,),
+            ).fetchone()
+        if r is None:
+            return None
+        return {
+            "path": r["path"],
+            "last_used": r["last_used"],
+            "name": r["name"],
+            "emoji": r["emoji"],
+            "pinned": bool(r["pinned"]),
+            "archived": bool(r["archived"]),
+        }
+
+    def set_workspace_meta(self, path: str, **fields) -> bool:
+        """Update project display metadata; unknown fields are ignored. Creates the
+        workspace row if needed so a project can be named before its first session."""
+        updates = {k: v for k, v in fields.items() if k in self._PROJECT_FIELDS}
+        if not updates:
+            return False
+        self.touch_workspace(path)
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        vals = [
+            (int(bool(v)) if k in ("pinned", "archived") else (v or None))
+            for k, v in updates.items()
+        ]
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE workspaces SET {sets} WHERE path = ?", (*vals, path)
+            )
+            self._conn.commit()
+        return True
+
+    def session_stats_by_workspace(self) -> dict[str, dict]:
+        """{workspace: {"sessions": n, "last_activity": iso}} over non-archived sessions."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT workspace, COUNT(*) AS n, MAX(updated_at) AS last "
+                "FROM sessions WHERE workspace IS NOT NULL AND archived = 0 "
+                "GROUP BY workspace"
+            ).fetchall()
+        return {
+            r["workspace"]: {"sessions": r["n"], "last_activity": r["last"]} for r in rows
+        }
 
     def delete(self, session_id: str) -> bool:
         with self._lock:

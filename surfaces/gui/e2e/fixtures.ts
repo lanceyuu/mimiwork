@@ -947,6 +947,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const match = /%%pages=(\d+)/.exec(atob(data.split(",")[1] || "") || "");
       return json({ ok: true, pages: match ? Number(match[1]) : 1, bytes: data.length });
     }
+    if (p.endsWith("/v1/projects") && m === "GET") return json({ projects: [] });
+    if (p.endsWith("/v1/projects/detail")) return json({ ok: false, error: "unknown project" });
     if (p.endsWith("/v1/workspaces/recent")) return json({ workspaces: [] });
     if (p.endsWith("/v1/workspaces/pick") && m === "POST") {
       return json({ ok: true, path: "/tmp/picked-folder" });

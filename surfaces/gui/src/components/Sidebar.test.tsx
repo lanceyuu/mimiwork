@@ -47,6 +47,7 @@ const baseProps = {
   onNewSession: vi.fn(),
   onSelectSession: vi.fn(),
   onNewProject: vi.fn(),
+  onOpenProject: vi.fn(),
   onRenameSession: vi.fn(),
   onForkSession: vi.fn(),
   onDeleteSession: vi.fn(),
@@ -314,5 +315,28 @@ describe("Sidebar brand footer", () => {
     expect(footer.textContent).toContain("MimiWork");
     expect(footer.textContent).toContain("Powered by QualiTaTi.com");
     expect(footer.querySelector("img")).toBeTruthy();
+  });
+});
+
+describe("Sidebar projects band", () => {
+  it("lists live projects, hides archived, and opens the project page", async () => {
+    stubFetch([]);
+    const onOpenProject = vi.fn();
+    render(
+      <Sidebar
+        {...baseProps}
+        onOpenProject={onOpenProject}
+        projects={[
+          { path: "/p/thesis", name: "Thesis", emoji: "🎓", pinned: true, archived: false, exists: true, sessions: 3, last_activity: "", has_instructions: true },
+          { path: "/p/old", name: "Old", emoji: "", pinned: false, archived: true, exists: true, sessions: 0, last_activity: "", has_instructions: false },
+        ]}
+      />,
+    );
+    const band = await screen.findByTestId("projects-band");
+    const rows = band.querySelectorAll('[data-testid="project-row"]');
+    expect(rows.length).toBe(1);
+    expect(rows[0].textContent).toContain("Thesis");
+    fireEvent.click(rows[0]);
+    expect(onOpenProject).toHaveBeenCalledWith("/p/thesis");
   });
 });

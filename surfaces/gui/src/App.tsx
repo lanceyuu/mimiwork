@@ -4,7 +4,6 @@ import {
   finalizeAutomationRun,
   getArtifacts,
   getHealth,
-  getRecentWorkspaces,
   getSessionMessages,
   getSessions,
   announceAutomationsChanged,
@@ -33,6 +32,9 @@ import {
   type RecentWorkspace,
   type SurfaceVisibility,
   type WorkspaceCommandTrust,
+  getProjects,
+  type Project,
+  openWorkspace,
 } from "./api";
 import type {
   ApprovalDecision,
@@ -65,6 +67,7 @@ import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { SettingsView } from "./components/SettingsView";
 import { PersonaView } from "./components/PersonaView";
+import { ProjectView } from "./components/ProjectView";
 import { AuditView } from "./components/AuditView";
 import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
@@ -158,6 +161,16 @@ function fallbackWorkspace(current: string | null, projects: RecentWorkspace[]):
   return existing?.path || projects[0]?.path || "";
 }
 
+type Surface =
+  | "session"
+  | "scheduled"
+  | "integrations"
+  | "audit"
+  | "inbox"
+  | "persona"
+  | "settings"
+  | "project";
+
 export function App() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
@@ -204,7 +217,7 @@ export function App() {
   };
   const [todo, setTodo] = useState<TodoItem[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [projects, setProjects] = useState<RecentWorkspace[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [sessionId, setSessionId] = useState<string>(newId());
   // Automation-run context (§ owner ask 2026-07-04): which task an open __run__ session belongs
   // to, driving the banner + "Back to runs". Best-effort — a run session without context still
@@ -230,9 +243,33 @@ export function App() {
   // composer's "No model connected" chip. Default true so we don't flash the chip before settings
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
-  const [surface, setSurface] = useState<
-    "session" | "scheduled" | "integrations" | "audit" | "inbox" | "persona" | "settings"
-  >("session");
+  const [surface, setSurface] = useState<Surface>("session");
+  // PROJECTS: which project the Project page shows (surface === "project").
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  // Navigation history (owner ask 2026-08-21: "very confusing for navigation"). Every
+  // surface change pushes the one it left, so the frame's "← Back" always returns to
+  // where the user actually came from — Settings → Persona → Back lands on Settings.
+  const surfaceHistory = useRef<Surface[]>([]);
+  const surfacePrev = useRef<Surface>("session");
+  const surfaceBackNav = useRef(false);
+  useEffect(() => {
+    if (surface === surfacePrev.current) return;
+    if (!surfaceBackNav.current) {
+      surfaceHistory.current.push(surfacePrev.current);
+      if (surfaceHistory.current.length > 20) surfaceHistory.current.shift();
+    }
+    surfaceBackNav.current = false;
+    surfacePrev.current = surface;
+  }, [surface]);
+  const goBack = () => {
+    const prev = surfaceHistory.current.pop() ?? "session";
+    surfaceBackNav.current = true;
+    setSurface(prev);
+  };
+  const openProject = (path: string) => {
+    setProjectPath(path);
+    setSurface("project");
+  };
   // A remembered Scheduled-detail target must not outlive the surface (see the
   // scheduledOpenId comment above): nav re-entry lands on the list, never a
   // possibly-deleted automation's dead detail.
@@ -244,7 +281,7 @@ export function App() {
   const [personaViewId, setPersonaViewId] = useState<string>("");
   // Where the persona page returns on "back": the active session, or Settings ▸ Personas when it
   // was opened from there (persona config now lives in Settings).
-  const [personaViewReturn, setPersonaViewReturn] = useState<"session" | "settings">("session");
+  const [, setPersonaViewReturn] = useState<"session" | "settings">("session");
   const openPersona = (id: string, from: "session" | "settings" = "session") => {
     setPersonaViewReturn(from);
     setPersonaViewId(id);
@@ -389,7 +426,7 @@ export function App() {
   // Fetch ALL sessions + known projects so the sidebar can group them.
   const refreshSessions = useCallback(() => {
     getSessions().then(setSessions).catch(() => setSessions([]));
-    getRecentWorkspaces().then(setProjects).catch(() => setProjects([]));
+    getProjects().then(setProjects).catch(() => setProjects([]));
   }, []);
 
   // initial: adopt the server's seed workspace if any, else force the gate.
@@ -437,7 +474,7 @@ export function App() {
       /* fall through */
     }
     try {
-      const recents = await getRecentWorkspaces();
+      const recents = await getProjects();
       setProjects(recents);
       // Only auto-adopt a recent folder for gated surfaces (Code). Cowork starts orphan.
       if (gatesWorkspace(agent)) {
@@ -1042,7 +1079,7 @@ export function App() {
     if (name === agent) return;
     rememberLastSession(agent, sessionId, workspace);
     const knownSessions = sessions.length ? sessions : await getSessions().catch(() => []);
-    const knownProjects = projects.length ? projects : await getRecentWorkspaces().catch(() => []);
+    const knownProjects = projects.length ? projects : await getProjects().catch(() => []);
     const target = resumeTargetForAgent(name, knownSessions);
 
     setAgent(name);
@@ -1109,11 +1146,20 @@ export function App() {
     setStreaming("");
     setTodo([]);
     setSessionId(newId());
-    getRecentWorkspaces().then(setProjects).catch(() => {});
+    getProjects().then(setProjects).catch(() => {});
   };
   // "New project" lives under a project-scoped persona's accordion. Switch to that persona, start a
   // fresh session with no folder yet, and open the gate in create mode — so the gate's
   // surface==="session" && gatesWorkspace(agent) guard passes even if the active session was Chat/Cowork.
+  // PROJECTS: start a fresh conversation bound to a known project folder (no gate — the
+  // folder was already chosen when the project was created).
+  const newSessionIn = async (path: string) => {
+    const res = await openWorkspace(path).catch(() => null);
+    if (!res?.ok) return;
+    setSurface("session");
+    setRunning(false);
+    chooseWorkspace(res.path, res.git_branch ?? null);
+  };
   const newProject = (forAgent?: string) => {
     const target = forAgent || agent;
     setSurface("session");
@@ -1386,6 +1432,7 @@ export function App() {
         onNewSession={startNewSession}
         onSelectSession={selectSession}
         onNewProject={newProject}
+        onOpenProject={openProject}
         onRenameSession={renameConversation}
         onForkSession={forkConversation}
         onDeleteSession={deleteConversation}
@@ -1413,7 +1460,18 @@ export function App() {
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
       />
-      {surface === "scheduled" ? (
+      {(() => {
+      const surfaceTitles: Record<Surface, string> = {
+        session: "",
+        scheduled: "Automations",
+        integrations: "Connectors",
+        audit: "Activity",
+        inbox: "Inbox",
+        persona: "Persona",
+        settings: "Settings",
+        project: projects.find((p) => p.path === projectPath)?.name || baseName(projectPath || ""),
+      };
+      const view = surface === "scheduled" ? (
         <ScheduledView
           onOpenRun={openRunSession}
           onRunNow={runTaskNow}
@@ -1445,12 +1503,37 @@ export function App() {
       ) : surface === "persona" ? (
         <PersonaView
           personaId={personaViewId || agent}
-          onBack={() =>
-            personaViewReturn === "settings" ? openSettings("personas") : setSurface("session")
-          }
           onOpenIntegrations={() => setSurface("integrations")}
         />
-      ) : (
+      ) : surface === "project" && projectPath ? (
+        <ProjectView
+          path={projectPath}
+          onNewSession={(path) => void newSessionIn(path)}
+          onSelectSession={(id, ws, ag) => void selectSession(id, ws, ag)}
+          onChanged={() => getProjects().then(setProjects).catch(() => {})}
+        />
+      ) : null;
+      if (view) {
+        return (
+          <div className="surface-frame" data-testid="surface-frame">
+            <div className="surface-back" data-tauri-drag-region onPointerDown={beginWindowDrag}>
+              <button
+                className="surface-back-btn"
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={goBack}
+                data-testid="surface-back"
+              >
+                <Icon name="arrowLeft" size={14} /> Back
+              </button>
+              <span className="surface-back-sep">·</span>
+              <span className="surface-back-title">{surfaceTitles[surface]}</span>
+            </div>
+            {view}
+          </div>
+        );
+      }
+      return (
       <div className={"main" + (surface === "session" && agent !== "chat" && !railHidden ? " rail-open" : "")}>
         <div className="main-topbar">
           {/* Left: the contextual cluster — [sidebar] [+ new session] [search] — rendered ONLY
@@ -1524,9 +1607,15 @@ export function App() {
                 data-testid="topbar-workspace"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() =>
-                  void revealArtifact(sessionId, workspace, "open").catch(() => undefined)
+                  projects.some((p) => p.path === workspace)
+                    ? openProject(workspace)
+                    : void revealArtifact(sessionId, workspace, "open").catch(() => undefined)
                 }
-                title={workspace}
+                title={
+                  projects.some((p) => p.path === workspace)
+                    ? `${workspace} — open project`
+                    : workspace
+                }
               >
                 <Icon name="folder" size={13} />
                 <span className="topbar-workspace-name">{baseName(workspace)}</span>
@@ -1765,7 +1854,8 @@ export function App() {
           />
         </div>
       </div>
-      )}
+      );
+      })()}
 
       {/* Search from the collapsed-sidebar topbar cluster (the sidebar's own instance is
           unreachable while it's collapsed). */}

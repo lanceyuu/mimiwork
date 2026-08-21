@@ -12,7 +12,7 @@ import {
   setNavLayout,
   type Automation,
   type Persona,
-  type RecentWorkspace,
+  type Project,
   type SurfaceVisibility,
 } from "../api";
 import type { SessionInfo } from "../types";
@@ -113,7 +113,8 @@ interface Props {
   workspace: string;
   surfaces: SurfaceVisibility;
   sessions: SessionInfo[];
-  projects: RecentWorkspace[];
+  projects: Project[];
+  onOpenProject: (path: string) => void;
   activeSession: string;
   onSwitchAgent: (agent: string) => void;
   onNewSession: (agent: string) => void;
@@ -699,6 +700,72 @@ export function Sidebar(props: Props) {
       </div>
     ) : null;
 
+  // PROJECTS band (PROJECTS spec, 2026-08-21): every persona sees the user's real project
+  // folders here (pinned first, most recent next; archived hidden). Click opens the Project
+  // page; "+" is the existing folder picker. The per-persona Codex-style accordion below
+  // still groups Code/Ops sessions by folder — this band is the cross-persona entry point.
+  const [projectsShowAll, setProjectsShowAll] = useState(false);
+  const projectsBand = () => {
+    const live = props.projects.filter((p) => !p.archived);
+    const PEEK = 6;
+    const shown = projectsShowAll ? live : live.slice(0, PEEK);
+    return (
+      <div data-testid="projects-band">
+        <div className="flex items-center justify-between px-1.5 mb-1">
+          <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+            Projects
+          </span>
+          <button
+            className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper -mr-1"
+            title="New project (pick a folder)"
+            aria-label="New project"
+            data-testid="projects-new"
+            onClick={() => props.onNewProject(props.agent)}
+          >
+            <Icon name="folderPlus" size={14} />
+          </button>
+        </div>
+        {live.length === 0 ? (
+          <div className="px-2 py-1 text-[12px] text-faint leading-snug">
+            No projects yet — a project is a folder Mimi works in.
+          </div>
+        ) : (
+          <div className="space-y-0.5">
+            {shown.map((p) => {
+              const active = p.path === props.workspace;
+              return (
+                <button
+                  key={p.path}
+                  className={
+                    "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left " +
+                    (active ? "bg-paper text-ink" : "text-muted hover:bg-paper hover:text-ink")
+                  }
+                  title={p.path}
+                  data-testid="project-row"
+                  onClick={() => props.onOpenProject(p.path)}
+                >
+                  <span className="w-4 text-center shrink-0 text-[13px] leading-none">
+                    {p.emoji || <Icon name="folder" size={14} className="inline-block text-faint" />}
+                  </span>
+                  <span className="flex-1 truncate">{p.name}</span>
+                  {p.pinned && <Icon name="pin" size={11} className="shrink-0 text-faint" />}
+                </button>
+              );
+            })}
+            {live.length > PEEK && (
+              <button
+                className="px-2 py-1 text-[12px] text-faint hover:text-ink"
+                onClick={() => setProjectsShowAll((v) => !v)}
+              >
+                {projectsShowAll ? "Show less" : `Show ${live.length - PEEK} more`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // RECENT header with the group/filter control (§20) — the group toggle moved off the brand bar.
   // "Group by" flips the persona accordion ↔ chronological list; "Filter by coworker" narrows to
   // the checked personas (none checked = all shown).
@@ -996,12 +1063,12 @@ export function Sidebar(props: Props) {
         {/* Collapse (dock) / pin the sidebar. ⌘B mirrors this. */}
         {props.onCollapse && (
           <button
-            className="nav-pin-btn w-7 h-7 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper shrink-0"
+            className="nav-pin-btn grid place-items-center text-faint hover:text-ink hover:bg-paper shrink-0"
             title={props.collapsed ? "Dock sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
             aria-label={props.collapsed ? "Dock sidebar" : "Collapse sidebar"}
             onClick={props.onCollapse}
           >
-            <Icon name="sidebar" size={16} />
+            <Icon name="sidebar" size={14} />
           </button>
         )}
         {/* The wordmark moved OUT of this strip (owner call 2026-08-21: the title bar was a
@@ -1054,6 +1121,7 @@ export function Sidebar(props: Props) {
             onOpenAutomation={props.onOpenAutomation}
             onOpenInbox={props.onOpenInbox}
           />
+          {projectsBand()}
           {pinnedBand()}
           {scheduledBand()}
           <div>

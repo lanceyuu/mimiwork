@@ -1309,6 +1309,7 @@ export async function setOnboarded(value: boolean): Promise<{ ok: boolean; onboa
 export interface MemoryEntry {
   id: number;
   scope: string;
+  workspace?: string | null;
   content: string;
   summary: string;
   created_at: string;
@@ -1328,9 +1329,84 @@ export function announceMemoryChanged() {
   window.dispatchEvent(new CustomEvent(MEMORY_CHANGED));
 }
 
-export async function getMemory(): Promise<MemoryEntry[]> {
-  const res = await fetch(`${httpBase()}/v1/memory`);
+export async function getMemory(workspace?: string): Promise<MemoryEntry[]> {
+  const q = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
+  const res = await fetch(`${httpBase()}/v1/memory${q}`);
   return (await res.json()).memory ?? [];
+}
+
+/** Add a fact by hand. With `workspace`, it's a PROJECT memory (the scope the
+ * `remember` tool writes to when a session runs in that folder). */
+export async function addMemory(
+  content: string,
+  scope: "workspace" | "global" = "workspace",
+  workspace?: string,
+): Promise<{ id?: number; ok?: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/memory`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, scope, ...(workspace ? { workspace } : {}) }),
+  });
+  return res.json();
+}
+
+// ── Projects (PROJECTS spec, 2026-08-21): a project = a real folder + metadata ──
+
+export interface Project {
+  path: string;
+  name: string;
+  emoji: string;
+  pinned: boolean;
+  archived: boolean;
+  exists: boolean;
+  sessions: number;
+  last_activity: string;
+  has_instructions: boolean;
+}
+
+export interface ProjectDetail {
+  ok: boolean;
+  error?: string;
+  project: Project;
+  /** The folder's AGENTS.md — injected into every new session as "Project conventions". */
+  instructions: string;
+  instructions_file: string;
+  memory: MemoryEntry[];
+  sessions: SessionInfo[];
+}
+
+export async function getProjects(): Promise<Project[]> {
+  const res = await fetch(`${httpBase()}/v1/projects`);
+  return (await res.json()).projects ?? [];
+}
+
+export async function updateProject(
+  path: string,
+  fields: Partial<Pick<Project, "name" | "emoji" | "pinned" | "archived">>,
+): Promise<{ ok: boolean; project?: Project; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/projects`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, ...fields }),
+  });
+  return res.json();
+}
+
+export async function getProjectDetail(path: string): Promise<ProjectDetail> {
+  const res = await fetch(`${httpBase()}/v1/projects/detail?path=${encodeURIComponent(path)}`);
+  return res.json();
+}
+
+export async function setProjectInstructions(
+  path: string,
+  text: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/projects/instructions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, text }),
+  });
+  return res.json();
 }
 
 export async function updateMemory(

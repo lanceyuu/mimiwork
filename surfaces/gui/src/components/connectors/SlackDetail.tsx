@@ -375,7 +375,18 @@ function PersonPicker({
   const toggle = () => {
     if (open) return setOpen(false);
     const r = btn.current?.getBoundingClientRect();
-    setPos(r ? { top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 300) } : null);
+    // Keep the drop on-screen: a fixed popover can't be scrolled into view, so near the
+    // bottom of a short window it clamps up (caught 2026-08-21 when the surface frame's
+    // back strip nudged the last group's button below the fold in the e2e viewport).
+    const MAX_H = 320;
+    setPos(
+      r
+        ? {
+            top: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - MAX_H - 8)),
+            left: Math.min(r.left, window.innerWidth - 300),
+          }
+        : null,
+    );
     setOpen(true);
   };
 
@@ -430,8 +441,8 @@ function PersonPicker({
       </button>
       {open && (
         <div
-          className="fixed z-50 w-72 rounded-xl border border-line bg-panel shadow-lg p-1"
-          style={{ top: pos?.top, left: pos?.left }}
+          className="fixed z-50 w-72 rounded-xl border border-line bg-panel shadow-lg p-1 overflow-y-auto"
+          style={{ top: pos?.top, left: pos?.left, maxHeight: 320 }}
           data-testid="person-picker"
         >
           <input
