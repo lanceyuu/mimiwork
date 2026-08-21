@@ -260,6 +260,13 @@ async def test_ui_refresh_cross_cutting_e2e(fake_slack, tmp_path, monkeypatch):
         assert mgr.inbox.get(item_id).state == "resolved"
 
         # -- Step 4: mute Slack for the session -> a further post does NOT wake it, still buffered -
+        # Let the turn's post-processing settle first: mark_idle fires auto-titling as a
+        # fire-and-forget provider call via asyncio.to_thread, which on a slow CI runner
+        # landed AFTER the snapshot below and read as a phantom wake (CI-only `4 == 3`,
+        # reproduced locally with a 50-150ms delay on the title task, 2026-08-21).
+        assert await _wait_until(
+            lambda: SID not in mgr._autotitle_inflight and not mgr._autotitle_tasks
+        ), "auto-title never settled"
         msgcount_before = len(mgr.session_messages(SID))
         calls_before = len(provider.calls)
         resp = client.post(
