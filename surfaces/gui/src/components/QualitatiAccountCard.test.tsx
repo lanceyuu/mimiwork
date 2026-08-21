@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QualitatiAccountCard } from "./QualitatiAccountCard";
 
+const { openExternal } = vi.hoisted(() => ({ openExternal: vi.fn() }));
+vi.mock("../tauri", () => ({ openExternal }));
+
 type Call = { url: string; method: string; body?: any };
 
 function stubFetch(routes: { match: string; method?: string; json: any }[]) {
@@ -24,6 +27,7 @@ function stubFetch(routes: { match: string; method?: string; json: any }[]) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 const SIGNED_OUT = { ok: true, signed_in: false };
@@ -113,6 +117,18 @@ describe("QualitatiAccountCard", () => {
 });
 
 describe("QualitatiAccountCard — create account", () => {
+  it("opens the canonical Terms and Privacy Policy pages", async () => {
+    stubFetch([{ match: "/v1/qualitati/status", json: SIGNED_OUT }]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-mode-register"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Terms" }));
+    fireEvent.click(screen.getByRole("button", { name: "Privacy Policy" }));
+
+    expect(openExternal).toHaveBeenNthCalledWith(1, "https://qualitati.com/terms");
+    expect(openExternal).toHaveBeenNthCalledWith(2, "https://qualitati.com/privacy-policy");
+  });
+
   it("registers through the sidecar, then flips to sign-in with a verify-email notice", async () => {
     const calls = stubFetch([
       { match: "/v1/qualitati/status", json: SIGNED_OUT },

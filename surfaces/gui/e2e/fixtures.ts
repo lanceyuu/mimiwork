@@ -2,15 +2,18 @@ import { test as base, expect, type Page } from "@playwright/test";
 
 // The app-wide /ws/events socket each page opened (UX-026 toast et al.) — specs
 // push server events through it via sendAppEvent below.
-const eventSockets = new WeakMap<Page, { send: (data: string) => void }>();
+type EventSocket = { send: (data: string) => void };
+const eventSockets = new WeakMap<Page, Set<EventSocket>>();
 
 /** Push an app-wide event exactly as the server would over /ws/events. Waits for
- * the GUI to have connected its socket first. */
+ * every connected GUI subscriber, matching the backend's broadcast semantics. */
 export async function sendAppEvent(page: Page, obj: unknown): Promise<void> {
-  for (let i = 0; i < 50 && !eventSockets.get(page); i++) await page.waitForTimeout(100);
-  const ws = eventSockets.get(page);
-  if (!ws) throw new Error("the app never opened /ws/events");
-  ws.send(JSON.stringify(obj));
+  await page.locator(".app:not(.boot-splash)").waitFor({ state: "visible", timeout: 5_000 });
+  for (let i = 0; i < 50 && !eventSockets.get(page)?.size; i++) await page.waitForTimeout(100);
+  const sockets = eventSockets.get(page);
+  if (!sockets?.size) throw new Error("the app never opened /ws/events");
+  const frame = JSON.stringify(obj);
+  for (const ws of sockets) ws.send(frame);
 }
 
 // Hermetic API mock. Every /v1 request the GUI makes is fulfilled from the fixtures below (shapes
@@ -579,7 +582,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
   //     SUSPENDS until the client's approval decision arrives (deny → skipped; else → ran)
   // App-wide event stream: register the socket so sendAppEvent can push into it.
   await page.routeWebSocket(/\/ws\/events$/, (ws) => {
-    eventSockets.set(page, ws);
+    let sockets = eventSockets.get(page);
+    if (!sockets) {
+      sockets = new Set();
+      eventSockets.set(page, sockets);
+    }
+    sockets.add(ws);
   });
 
   await page.routeWebSocket(/\/ws\/session\//, (ws) => {

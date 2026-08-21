@@ -116,20 +116,21 @@ test("tools page: informational rows, no sign-in gate, Next always armed", async
   await expect(page.getByTestId("ob-continue-tools")).toBeEnabled();
   await page.getByTestId("ob-continue-tools").click();
 
-  // Done step: the automation CTA lands on the Automations quickstart.
-  await expect(page.getByTestId("ob-step-done")).toBeVisible();
+  // First-task handoff: the quiet automation CTA lands on the Automations quickstart.
+  await expect(page.getByTestId("ob-step-first-task")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Give Mimi her first task" })).toBeVisible();
   await page.getByTestId("ob-cta-automation").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
 });
 
-test("tools page skips cleanly; Start working lands in a session with the panel open", async ({
+test("tools page skips cleanly; blank session lands with the panel open", async ({
   page,
 }) => {
   await openOnboarding(page);
   await page.getByTestId("ob-continue").click();
   await page.getByTestId("ob-continue-tools").click();
-  await expect(page.getByTestId("ob-step-done")).toBeVisible();
+  await expect(page.getByTestId("ob-step-first-task")).toBeVisible();
   await page.getByTestId("ob-start").click();
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
   // §32: "Start working" lands with the rail's Access section expanded (the drawer is gone).

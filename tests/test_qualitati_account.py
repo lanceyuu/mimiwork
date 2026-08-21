@@ -289,3 +289,57 @@ def test_register_surfaces_the_servers_reason(monkeypatch, secrets):
 
 def test_register_requires_all_three_fields(secrets):
     assert not QualitatiClient(secrets).register("a", "", "pw")["ok"]
+
+
+def test_register_non_json_success_is_a_clean_error(monkeypatch, secrets):
+    """A proxy/CDN HTML response must not turn the loopback endpoint into a 500."""
+    import coworker.qualitati as mod
+
+    def bad_json():
+        raise ValueError("not JSON")
+
+    monkeypatch.setattr(
+        mod,
+        "httpx",
+        SimpleNamespace(
+            post=lambda *_a, **_kw: SimpleNamespace(status_code=200, json=bad_json),
+            HTTPError=Exception,
+            Response=SimpleNamespace,
+        ),
+    )
+
+    result = QualitatiClient(secrets).register("newbie", "n@example.com", "Str0ng!pw")
+
+    assert result == {"ok": False, "error": "unexpected response from QualiTaTi"}
+
+
+def test_non_json_profile_does_not_undo_a_successful_login(monkeypatch, secrets):
+    """Profile refresh is optional after auth + durable provider-key creation succeed."""
+    import coworker.qualitati as mod
+
+    def post(url, **_kwargs):
+        if url.endswith("/api/login"):
+            return SimpleNamespace(status_code=200, json=lambda: {"access_token": "jwt"})
+        if url.endswith("/api/keys"):
+            return SimpleNamespace(status_code=200, json=lambda: {"id": 7, "key": "qt_key"})
+        raise AssertionError(url)
+
+    def bad_json():
+        raise ValueError("not JSON")
+
+    monkeypatch.setattr(
+        mod,
+        "httpx",
+        SimpleNamespace(
+            post=post,
+            get=lambda *_a, **_kw: SimpleNamespace(status_code=200, json=bad_json),
+            HTTPError=Exception,
+            Response=SimpleNamespace,
+        ),
+    )
+
+    result = QualitatiClient(secrets).login("newbie", "Str0ng!pw")
+
+    assert result == {"ok": True, "signed_in": True, "provider_configured": True}
+    assert secrets.store[AUTH_PROFILE]["access_token"] == "jwt"
+    assert secrets.store[PROVIDER_PROFILE]["api_key"] == "qt_key"

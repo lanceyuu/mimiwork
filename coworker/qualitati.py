@@ -56,7 +56,9 @@ class QualitatiClient:
         if r.status_code != 200:
             detail = _detail(r)
             return {"ok": False, "error": detail or f"login failed (HTTP {r.status_code})"}
-        body = r.json()
+        body = _json_object(r)
+        if body is None:
+            return {"ok": False, "error": "unexpected response from QualiTaTi"}
         if body.get("mfa_required"):
             # No token yet; remember who is mid-MFA so verify_mfa needs only the code.
             self.secrets.put(AUTH_PROFILE, {"pending_mfa_username": username, "base_url": self.base})
@@ -78,9 +80,10 @@ class QualitatiClient:
             )
         except httpx.HTTPError as e:
             return {"ok": False, "error": f"could not reach QualiTaTi: {e}"}
-        if r.status_code != 200 or not r.json().get("access_token"):
+        body = _json_object(r)
+        if r.status_code != 200 or not body or not body.get("access_token"):
             return {"ok": False, "error": _detail(r) or "invalid MFA code"}
-        return self._finish_login(pending, r.json()["access_token"])
+        return self._finish_login(pending, body["access_token"])
 
     def register(
         self,
@@ -111,7 +114,9 @@ class QualitatiClient:
             return {"ok": False, "error": f"could not reach QualiTaTi: {e}"}
         if r.status_code != 200:
             return {"ok": False, "error": _detail(r) or f"registration failed (HTTP {r.status_code})"}
-        body = r.json() or {}
+        body = _json_object(r)
+        if body is None:
+            return {"ok": False, "error": "unexpected response from QualiTaTi"}
         return {
             "ok": True,
             "username": username,
@@ -133,7 +138,7 @@ class QualitatiClient:
                 f"{self.base}/api/keys", json={"name": KEY_NAME}, headers=headers, timeout=_TIMEOUT
             )
             if r.status_code == 200:
-                body = r.json()
+                body = _json_object(r) or {}
                 # The raw key is shown exactly once, under `key`.
                 api_key = body.get("key") or body.get("api_key")
                 key_id = body.get("id")
@@ -220,13 +225,24 @@ class QualitatiClient:
             return None
         if r.status_code != 200:
             return None
-        body = r.json()
+        body = _json_object(r)
+        if body is None:
+            return None
         return {
             "username": body.get("username"),
             "email": body.get("email"),
             "credits": body.get("credits"),
             "plan": body.get("plan"),
         }
+
+
+def _json_object(r: httpx.Response) -> Optional[dict[str, Any]]:
+    """Decode an API response without letting an HTML/proxy body crash the app."""
+    try:
+        body = r.json()
+    except (TypeError, ValueError):
+        return None
+    return body if isinstance(body, dict) else None
 
 
 def _detail(r: httpx.Response) -> Optional[str]:

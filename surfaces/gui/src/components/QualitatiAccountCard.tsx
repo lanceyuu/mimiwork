@@ -353,7 +353,7 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
                   <button
                     type="button"
                     className="underline underline-offset-2 hover:text-ink"
-                    onClick={() => openExternal("https://qualitati.com/privacy")}
+                    onClick={() => openExternal("https://qualitati.com/privacy-policy")}
                   >
                     Privacy Policy
                   </button>

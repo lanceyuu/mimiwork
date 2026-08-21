@@ -60,48 +60,53 @@ export function MissionControl(props: {
       </div>
       <div className="space-y-0.5">
         {rows.map((r) => (
-          <button
+          <div
             key={`${r.kind}:${r.id}`}
-            data-testid={`mc-${r.kind}`}
             className={
-              "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[12.5px] text-left hover:bg-paper group " +
+              "w-full flex items-center rounded-lg text-[12.5px] group " +
               (r.kind === "approval" ? "mc-approval" : "text-muted hover:text-ink")
             }
-            title={
-              r.kind === "approval"
-                ? "Waiting for you — open it"
-                : r.kind === "automation"
-                  ? "Automation running — view it"
-                  : "Session working — open it"
-            }
-            onClick={() => {
-              if (r.kind === "session")
-                props.onSelectSession(r.id, r.workspace || "", r.agent || "cowork");
-              else if (r.kind === "automation") props.onOpenAutomation(r.id);
-              else props.onOpenInbox();
-            }}
           >
-            <Icon
-              name={r.kind === "automation" ? "clock" : r.kind === "approval" ? "inbox" : "chat"}
-              size={13}
-              className="shrink-0"
-            />
-            <span className="flex-1 truncate">{r.title}</span>
-            {r.kind !== "approval" && (
-              <span className="text-[11px] text-faint shrink-0">{elapsed(r.started_at)}</span>
-            )}
+            <button
+              type="button"
+              data-testid={`mc-${r.kind}`}
+              className="min-w-0 flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left hover:bg-paper"
+              title={
+                r.kind === "approval"
+                  ? "Waiting for you — open it"
+                  : r.kind === "automation"
+                    ? "Automation running — view it"
+                    : "Session working — open it"
+              }
+              onClick={() => {
+                if (r.kind === "session")
+                  props.onSelectSession(r.id, r.workspace || "", r.agent || "cowork");
+                else if (r.kind === "automation") props.onOpenAutomation(r.id);
+                else props.onOpenInbox();
+              }}
+            >
+              <Icon
+                name={r.kind === "automation" ? "clock" : r.kind === "approval" ? "inbox" : "chat"}
+                size={13}
+                className="shrink-0"
+              />
+              <span className="flex-1 truncate">{r.title}</span>
+              {r.kind !== "approval" && (
+                <span className="text-[11px] text-faint shrink-0">{elapsed(r.started_at)}</span>
+              )}
+            </button>
             {r.kind === "session" && (
-              <span
-                role="button"
+              <button
+                type="button"
                 aria-label="Stop this session"
                 title="Stop"
-                className="mc-stop opacity-0 group-hover:opacity-100 shrink-0"
+                className="mc-stop opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0 mr-2"
                 onClick={(e) => stopSession(e, r.id)}
               >
                 <Icon name="stop" size={12} />
-              </span>
+              </button>
             )}
-          </button>
+          </div>
         ))}
       </div>
     </div>

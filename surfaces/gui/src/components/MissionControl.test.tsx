@@ -86,7 +86,11 @@ describe("MissionControl", () => {
       />,
     );
     await waitFor(() => expect(screen.getByTestId("mission-control")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText("Stop this session"));
+    const stop = screen.getByRole("button", { name: "Stop this session" });
+    expect(stop.tagName).toBe("BUTTON");
+    stop.focus();
+    expect(document.activeElement).toBe(stop);
+    fireEvent.click(stop);
     expect(interruptSession).toHaveBeenCalledWith("s1");
     expect(onSelectSession).not.toHaveBeenCalled();
   });
