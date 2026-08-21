@@ -1086,6 +1086,17 @@ def create_app(manager: SessionManager) -> FastAPI:
             (body or {}).get("password", ""),
         )
 
+    @app.post("/v1/qualitati/register")
+    async def qualitati_register(body: dict) -> dict[str, Any]:
+        b = body or {}
+        return await asyncio.to_thread(
+            manager.qualitati_register,
+            b.get("username", ""),
+            b.get("email", ""),
+            b.get("password", ""),
+            b.get("referrer_code", "") or "",
+        )
+
     @app.post("/v1/qualitati/verify-mfa")
     async def qualitati_verify_mfa(body: dict) -> dict[str, Any]:
         return await asyncio.to_thread(

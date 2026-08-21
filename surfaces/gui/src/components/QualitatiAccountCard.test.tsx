@@ -111,3 +111,59 @@ describe("QualitatiAccountCard", () => {
     await waitFor(() => expect(screen.getByTestId("qualitati-username")).toBeTruthy());
   });
 });
+
+describe("QualitatiAccountCard — create account", () => {
+  it("registers through the sidecar, then flips to sign-in with a verify-email notice", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_OUT },
+      {
+        match: "/v1/qualitati/register",
+        method: "POST",
+        json: { ok: true, username: "newbie", email_sent: true, message: "…" },
+      },
+    ]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-mode-register"));
+    fireEvent.change(screen.getByTestId("qualitati-reg-username"), { target: { value: "newbie" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-email"), { target: { value: "n@x.com" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-password"), { target: { value: "weakpassword" } });
+    expect(screen.getByTestId("qualitati-reg-hint").textContent).toContain("uppercase");
+    fireEvent.change(screen.getByTestId("qualitati-reg-password"), { target: { value: "Str0ng!pw" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-confirm"), { target: { value: "Str0ng!pw" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-invite"), { target: { value: "ab12" } });
+    // Terms gate: the button stays disabled until the box is ticked.
+    expect((screen.getByTestId("qualitati-register") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("qualitati-reg-terms"));
+    expect((screen.getByTestId("qualitati-register") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("qualitati-register"));
+
+    await waitFor(() => expect(screen.getByTestId("qualitati-registered")).toBeTruthy());
+    const reg = calls.find((c) => c.url.includes("/v1/qualitati/register"))!;
+    expect(reg.body).toEqual({
+      username: "newbie", email: "n@x.com", password: "Str0ng!pw", referrer_code: "AB12",
+    });
+    // Back on the sign-in face, username kept, password wiped.
+    expect((screen.getByTestId("qualitati-username") as HTMLInputElement).value).toBe("newbie");
+    expect((screen.getByTestId("qualitati-password") as HTMLInputElement).value).toBe("");
+    expect(screen.getByTestId("qualitati-registered").textContent).toContain("n@x.com");
+  });
+
+  it("shows the server's reason when registration is refused", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_OUT },
+      { match: "/v1/qualitati/register", method: "POST", json: { ok: false, error: "Username already registered" } },
+    ]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-mode-register"));
+    fireEvent.change(screen.getByTestId("qualitati-reg-username"), { target: { value: "taken" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-email"), { target: { value: "t@x.com" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-password"), { target: { value: "Str0ng!pw" } });
+    fireEvent.change(screen.getByTestId("qualitati-reg-confirm"), { target: { value: "Str0ng!pw" } });
+    fireEvent.click(screen.getByTestId("qualitati-reg-terms"));
+    fireEvent.click(screen.getByTestId("qualitati-register"));
+    await waitFor(() =>
+      expect(screen.getByTestId("qualitati-error").textContent).toContain("Username already registered"),
+    );
+    expect(screen.getByTestId("qualitati-register-form")).toBeTruthy(); // stays on the form
+  });
+});

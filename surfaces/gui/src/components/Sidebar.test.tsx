@@ -305,3 +305,14 @@ describe("Footer account row — QualiTaTi identity", () => {
     expect(header.textContent).toContain("QualiTaTi");
   });
 });
+
+describe("Sidebar brand footer", () => {
+  it("carries the wordmark + powered-by line at the bottom, not in the title strip", async () => {
+    stubFetch([]);
+    render(<Sidebar {...baseProps} />);
+    const footer = await screen.findByTestId("brand-footer");
+    expect(footer.textContent).toContain("MimiWork");
+    expect(footer.textContent).toContain("Powered by QualiTaTi.com");
+    expect(footer.querySelector("img")).toBeTruthy();
+  });
+});

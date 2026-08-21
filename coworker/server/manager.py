@@ -1506,6 +1506,11 @@ class SessionManager:
     def qualitati_login(self, username: str, password: str) -> dict[str, Any]:
         return self._qualitati().login(username, password)
 
+    def qualitati_register(
+        self, username: str, email: str, password: str, referrer_code: str = ""
+    ) -> dict[str, Any]:
+        return self._qualitati().register(username, email, password, referrer_code)
+
     def qualitati_verify_mfa(self, code: str) -> dict[str, Any]:
         return self._qualitati().verify_mfa(code)
 

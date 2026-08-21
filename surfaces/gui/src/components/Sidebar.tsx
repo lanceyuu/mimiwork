@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
+import { openExternal } from "../tauri";
 import {
   AUTOMATIONS_CHANGED,
   getAutomations,
@@ -1003,8 +1004,9 @@ export function Sidebar(props: Props) {
             <Icon name="sidebar" size={16} />
           </button>
         )}
-        <img src={mimiMark} alt="" className="w-[22px] h-[22px] shrink-0 select-none" draggable={false} />
-        <div className="brand-wordmark text-[15px]">MimiWork<span className="beta-tag">BETA</span></div>
+        {/* The wordmark moved OUT of this strip (owner call 2026-08-21: the title bar was a
+            cramped pile-up of traffic lights + pin + mark + name). It lives in the brand footer
+            at the bottom of the sidebar now, at a size the mark deserves. */}
       </div>
 
       {/* New session: split button — primary starts the last-used persona; ▾ picks a specific one. */}
@@ -1156,7 +1158,7 @@ export function Sidebar(props: Props) {
                 ) : (
                   <>
                     <div className="px-3 py-1.5 text-[11px] text-faint border-b border-line">
-                      Not signed in — sign in to use your QualiTaTi credits and free DeepSeek
+                      Not signed in — sign in for free Mimi Puppy and your QualiTaTi credits
                     </div>
                     <button
                       className="w-full flex items-center gap-2.5 px-3 py-1.5 mb-1 text-[13px] text-left text-accent hover:bg-paper"
@@ -1167,7 +1169,7 @@ export function Sidebar(props: Props) {
                         props.onOpenModelSettings();
                       }}
                     >
-                      <Icon name="plug" size={15} className="shrink-0" /> Sign in to QualiTaTi
+                      <Icon name="plug" size={15} className="shrink-0" /> Sign in or create an account
                     </button>
                   </>
                 )}
@@ -1268,6 +1270,26 @@ export function Sidebar(props: Props) {
               size={14}
               className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
             />
+          </button>
+        </div>
+      </div>
+
+      {/* Brand footer (owner call 2026-08-21): the mark at a real size, the name, and the
+          "powered by" line — MimiWork's models and credits come from QualiTaTi. Lives at the
+          bottom so the title strip above stays a clean drag region. */}
+      <div className="brand-footer" data-testid="brand-footer">
+        <img src={mimiMark} alt="" className="brand-footer-mark" draggable={false} />
+        <div className="min-w-0">
+          <div className="brand-wordmark text-[15px] leading-tight">
+            MimiWork<span className="beta-tag">BETA</span>
+          </div>
+          <button
+            type="button"
+            className="brand-powered"
+            title="Open qualitati.com"
+            onClick={() => openExternal("https://qualitati.com")}
+          >
+            Powered by <span className="brand-powered-name">QualiTaTi.com</span>
           </button>
         </div>
       </div>

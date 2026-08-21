@@ -82,6 +82,44 @@ class QualitatiClient:
             return {"ok": False, "error": _detail(r) or "invalid MFA code"}
         return self._finish_login(pending, r.json()["access_token"])
 
+    def register(
+        self,
+        username: str,
+        email: str,
+        password: str,
+        referrer_code: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Create a QualiTaTi account from inside the app (mirrors qualitati.com/register).
+
+        Same loopback contract as login: the password travels to QualiTaTi and is
+        never stored. QualiTaTi emails a verification link; the user signs in
+        after clicking it, so this returns {ok, message, email_sent} — never a
+        token. Server-side validation (username/email taken, password policy)
+        comes back verbatim as `error` so the form can show the real reason.
+        """
+        username = (username or "").strip()
+        email = (email or "").strip()
+        if not username or not email or not password:
+            return {"ok": False, "error": "username, email and password are required"}
+        payload: dict[str, Any] = {"username": username, "email": email, "password": password}
+        code = (referrer_code or "").strip().upper()
+        if code:
+            payload["referrer_code"] = code
+        try:
+            r = httpx.post(f"{self.base}/api/register", json=payload, timeout=_TIMEOUT)
+        except httpx.HTTPError as e:
+            return {"ok": False, "error": f"could not reach QualiTaTi: {e}"}
+        if r.status_code != 200:
+            return {"ok": False, "error": _detail(r) or f"registration failed (HTTP {r.status_code})"}
+        body = r.json() or {}
+        return {
+            "ok": True,
+            "username": username,
+            "email_sent": bool(body.get("email_sent", True)),
+            "message": body.get("message")
+            or "Account created — check your email to verify it, then sign in.",
+        }
+
     def _finish_login(self, username: str, token: str) -> dict[str, Any]:
         """Store the JWT, mint the durable API key, configure the provider."""
         self.secrets.put(

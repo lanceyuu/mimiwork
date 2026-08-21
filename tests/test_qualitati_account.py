@@ -246,3 +246,46 @@ def test_legacy_qualitati_ids_keep_vision():
         assert capabilities_for(legacy).vision, legacy
     assert not capabilities_for("qualitati:puppy").vision
     assert not capabilities_for("qualitati:deepseek-v4-flash").vision
+
+
+# -- in-app registration (mirrors qualitati.com/register) --------------------------
+
+
+def test_register_posts_json_and_never_stores_anything(monkeypatch, secrets):
+    fake = wire(monkeypatch, {
+        ("POST", "/api/register"): (200, {
+            "success": True,
+            "message": "Registration successful! Please check your email to verify your account.",
+            "email_sent": True,
+        }),
+    })
+    result = QualitatiClient(secrets).register(" newbie ", "n@example.com", "Str0ng!pw", "abc12")
+
+    assert result["ok"] and result["email_sent"] and result["username"] == "newbie"
+    assert "verify" in result["message"].lower()
+    method, url, kw = fake.calls[0]
+    assert url.endswith("/api/register")
+    assert kw["json"] == {
+        "username": "newbie", "email": "n@example.com", "password": "Str0ng!pw",
+        "referrer_code": "ABC12",  # invite codes are upper-case server-side
+    }
+    assert secrets.store == {}  # no token, no password, nothing persisted
+
+
+def test_register_without_invite_code_omits_the_field(monkeypatch, secrets):
+    fake = wire(monkeypatch, {("POST", "/api/register"): (200, {"success": True, "email_sent": True})})
+    QualitatiClient(secrets).register("a", "a@b.co", "pw", "")
+    assert "referrer_code" not in fake.calls[0][2]["json"]
+
+
+def test_register_surfaces_the_servers_reason(monkeypatch, secrets):
+    wire(monkeypatch, {
+        ("POST", "/api/register"): (400, {"detail": "Password must contain at least one uppercase letter"}),
+    })
+    result = QualitatiClient(secrets).register("a", "a@b.co", "weak")
+    assert not result["ok"]
+    assert result["error"] == "Password must contain at least one uppercase letter"
+
+
+def test_register_requires_all_three_fields(secrets):
+    assert not QualitatiClient(secrets).register("a", "", "pw")["ok"]

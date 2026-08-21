@@ -2120,6 +2120,30 @@ export async function qualitatiLogin(username: string, password: string): Promis
   return res.json();
 }
 
+export type QualitatiRegisterResult = {
+  ok: boolean;
+  username?: string;
+  email_sent?: boolean;
+  message?: string;
+  error?: string;
+};
+
+/** Create a QualiTaTi account from inside the app. The password goes loopback → sidecar →
+ * QualiTaTi's /api/register and is never stored; QualiTaTi then emails a verification link. */
+export async function qualitatiRegister(body: {
+  username: string;
+  email: string;
+  password: string;
+  referrer_code?: string;
+}): Promise<QualitatiRegisterResult> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
 export async function qualitatiVerifyMfa(code: string): Promise<QualitatiStatus> {
   const res = await fetch(`${httpBase()}/v1/qualitati/verify-mfa`, {
     method: "POST",
