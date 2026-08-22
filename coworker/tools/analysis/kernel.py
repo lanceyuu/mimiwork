@@ -99,8 +99,14 @@ class PythonKernel:
             creationflags=creationflags,
             preexec_fn=preexec,
         )
-        self._replies = queue.Queue()
-        self._reader = threading.Thread(target=self._pump, args=(self._process,), daemon=True)
+        # Each child gets its own queue, bound to its pump thread at spawn time. A stale pump
+        # from a killed child must never drop its EOF sentinel into the new child's queue —
+        # on a slow runner that made start() report "did not start" before the ready line.
+        replies: "queue.Queue[Optional[str]]" = queue.Queue()
+        self._replies = replies
+        self._reader = threading.Thread(
+            target=self._pump, args=(self._process, replies), daemon=True
+        )
         self._reader.start()
 
         ready = self._await_reply(_STARTUP_TIMEOUT)
@@ -108,15 +114,15 @@ class PythonKernel:
             self.close()
             raise RuntimeError("the Python analysis kernel did not start")
 
-    def _pump(self, process: subprocess.Popen) -> None:
+    def _pump(self, process: subprocess.Popen, replies: "queue.Queue[Optional[str]]") -> None:
         """Drain the child's stdout on a thread so a slow reader can never deadlock the pipe."""
         try:
             for line in process.stdout:  # type: ignore[union-attr]
-                self._replies.put(line)
+                replies.put(line)
         except (ValueError, OSError):
             pass
         finally:
-            self._replies.put(None)  # EOF sentinel: the child is gone
+            replies.put(None)  # EOF sentinel: the child is gone
 
     def _await_reply(self, timeout: float) -> Optional[dict[str, Any]]:
         try:

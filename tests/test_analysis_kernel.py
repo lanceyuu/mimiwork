@@ -159,3 +159,36 @@ def test_a_dataframe_repr_is_bounded_by_display_options(kernel):
     result = kernel.run("pd.DataFrame({'a': range(10_000)})")
     assert result["ok"], result
     assert len(result["value"]) < 5_000
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="relies on POSIX process groups")
+def test_stale_pump_sentinel_cannot_poison_a_restarted_kernel(tmp_path):
+    """Regression: the killed child's reader thread used to drop its EOF sentinel into
+    whichever queue ``self._replies`` pointed at — after a restart, the *new* child's —
+    so the restarted kernel saw ``None`` and reported itself dead (flaky on slow CI)."""
+    k = PythonKernel(tmp_path, python=sys.executable)
+    k.start()
+    # A detached grandchild inherits the stdout pipe and outlives the SIGKILL'd child, so the
+    # old pump thread cannot reach EOF until well after the restart below — the CI ordering.
+    assert k.run(
+        "import subprocess, sys; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], "
+        "start_new_session=True)"
+    )["ok"]
+    old_queue, old_reader = k._replies, k._reader
+    k._kill(k._process)
+    k._process = None
+
+    k.start()
+    try:
+        old_reader.join(timeout=15)
+        assert not old_reader.is_alive()
+        # The dead child's sentinel went to its own queue; the live kernel's queue is untouched.
+        assert k._replies is not old_queue
+        assert old_queue.get_nowait() is None
+        assert k._replies.empty()
+        result = k.run("print('fresh')")
+        assert result["ok"], result
+        assert result["stdout"].strip() == "fresh"
+    finally:
+        k.close()
