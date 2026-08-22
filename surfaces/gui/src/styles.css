@@ -174,13 +174,17 @@ body {
 .nav-reveal-btn:hover { color: var(--ink); background: var(--paper); }
 /* On desktop, both the brand row and the reveal button shift right to clear the traffic lights
    (and down to align with them in their lowered position — see traffic_light_position in lib.rs). */
-/* Desktop overlay: the whole top strip sits lower (center ~30) to line up with the lowered
-   traffic lights — reveal/pin, the wordmark, and the topbar title all on that line. */
-.app.tauri-overlay .nav-reveal-btn { top: 13px; left: 84px; }
-.app.tauri-overlay .main-topbar { padding-top: 9px; }
+/* Desktop overlay: one line at y=22 (the traffic lights' measured center) carries the sidebar
+   control, the collapsed cluster, and the topbar title. The 48px bar keeps its height (the
+   chat pads under it); a 4px bottom pad centers its flex content at 22, and the title column
+   is 44px tall for the same reason. Owner catch 2026-08-22: the collapsed [sidebar][+][search]
+   cluster sat 7pt below the lights and 2pt off the expanded control's x. */
+.app.tauri-overlay .main-topbar { padding-top: 0; padding-bottom: 4px; }
+.app.tauri-overlay .main-title { height: 44px; }
 /* The session topbar's collapsed-state cluster is INLINE (§22), so only the overlay build pads
-   it — to clear the traffic lights. */
-.app.nav-collapsed.tauri-overlay .main-topbar { padding-left: 84px; }
+   it — to clear the traffic lights. 82 + half the 30px button = 97, the expanded control's
+   center (left 86 + 11), so collapsing/expanding never makes the glyph jump. */
+.app.nav-collapsed.tauri-overlay .main-topbar { padding-left: 82px; }
 /* Full-page sub-navs (Settings / Connectors) start at the window top; while the main nav is
    collapsed, the fixed reveal button (and, in the overlay build, the traffic lights) float over
    that corner — push the sub-nav header below the strip so they never overlap. */
