@@ -710,6 +710,9 @@ export function Sidebar(props: Props) {
   // page; "+" is the existing folder picker. The per-persona Codex-style accordion below
   // still groups Code/Ops sessions by folder — this band is the cross-persona entry point.
   const [projectsShowAll, setProjectsShowAll] = useState(false);
+  // Archived projects fold away under the band (owner ask 2026-08-22: "where is the
+  // archived project?" — they had simply vanished). Open one to unarchive it on its page.
+  const [archivedOpen, setArchivedOpen] = useState(false);
   // Drag a conversation onto a project to move it there (owner ask 2026-08-22). Native HTML5
   // DnD: rows carry the session id; project rows light up as targets and hand the drop to
   // App, which PATCHes the session's workspace and refreshes the lists.
@@ -740,6 +743,7 @@ export function Sidebar(props: Props) {
   });
   const projectsBand = () => {
     const live = props.projects.filter((p) => !p.archived);
+    const archived = props.projects.filter((p) => p.archived);
     const PEEK = 6;
     const shown = projectsShowAll ? live : live.slice(0, PEEK);
     return (
@@ -795,6 +799,39 @@ export function Sidebar(props: Props) {
               >
                 {projectsShowAll ? "Show less" : `Show ${live.length - PEEK} more`}
               </button>
+            )}
+          </div>
+        )}
+        {archived.length > 0 && (
+          <div className="mt-1" data-testid="projects-archived">
+            <button
+              className="w-full flex items-center gap-1.5 px-2 py-1 text-[12px] text-faint hover:text-ink text-left"
+              aria-expanded={archivedOpen}
+              data-testid="projects-archived-toggle"
+              onClick={() => setArchivedOpen((v) => !v)}
+            >
+              <Icon
+                name="chevronDown"
+                size={12}
+                className={"shrink-0 transition-transform " + (archivedOpen ? "" : "-rotate-90")}
+              />
+              Archived ({archived.length})
+            </button>
+            {archivedOpen && (
+              <div className="space-y-0.5">
+                {archived.map((p) => (
+                  <button
+                    key={p.path}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left text-faint hover:bg-paper hover:text-ink"
+                    title={`${p.path} — open to unarchive`}
+                    data-testid="project-row-archived"
+                    onClick={() => props.onOpenProject(p.path)}
+                  >
+                    <Icon name="archive" size={13} className="shrink-0" />
+                    <span className="flex-1 truncate">{p.name}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}

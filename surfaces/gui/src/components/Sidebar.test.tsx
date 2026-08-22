@@ -369,3 +369,31 @@ describe("Sidebar drag-to-project", () => {
     expect(target.getAttribute("data-drop-active")).toBeNull();
   });
 });
+
+describe("Sidebar archived projects", () => {
+  it("folds archived projects under the band; opening one goes to its page", async () => {
+    stubFetch([]);
+    const onOpenProject = vi.fn();
+    const mk = (name: string, archived: boolean) => ({
+      path: `/p/${name}`, name, emoji: "", pinned: false, archived, exists: true,
+      sessions: 0, last_activity: "", has_instructions: false,
+    });
+    render(
+      <Sidebar
+        {...baseProps}
+        projects={[mk("Live", false), mk("Old thesis", true)] as any}
+        onOpenProject={onOpenProject}
+      />,
+    );
+    await screen.findByTestId("projects-band");
+    expect(screen.getAllByTestId("project-row").map((r) => r.textContent)).toEqual(["Live"]);
+    const toggle = screen.getByTestId("projects-archived-toggle");
+    expect(toggle.textContent).toContain("Archived (1)");
+    expect(screen.queryByTestId("project-row-archived")).toBeNull();
+    fireEvent.click(toggle);
+    const row = screen.getByTestId("project-row-archived");
+    expect(row.textContent).toContain("Old thesis");
+    fireEvent.click(row);
+    expect(onOpenProject).toHaveBeenCalledWith("/p/Old thesis");
+  });
+});
