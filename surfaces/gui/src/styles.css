@@ -1875,3 +1875,11 @@ a:focus-visible,
 /* Primary buttons never had a disabled look — a greyed "Save" that can't be clicked is the
    whole signal that nothing changed yet (caught on the Project page, 2026-08-21). */
 button.btn-primary:disabled { opacity: 0.45; cursor: default; filter: none; }
+
+/* ---- revise_document approval preview --------------------------------------------- */
+.approval-revisions { margin: 6px 0 2px; display: flex; flex-direction: column; gap: 4px; }
+.approval-revision { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; line-height: 1.4; }
+.approval-revision-idx { color: var(--faint); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.approval-revision-text { color: var(--ink); overflow-wrap: anywhere; }
+.approval-revision-why { color: var(--muted); font-style: italic; }
+.approval-revision-more { font-size: 11.5px; color: var(--faint); }

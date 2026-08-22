@@ -98,8 +98,63 @@ _READ_SCHEMA = {
                     "type": "integer",
                     "description": f"How many blocks (default {_DEFAULT_LIMIT}).",
                 },
+                "revisions": {
+                    "type": "boolean",
+                    "description": (
+                        "Also list pending tracked changes (author, deleted/inserted text) "
+                        "under `revisions`."
+                    ),
+                },
             },
             "required": ["path"],
+        },
+    },
+}
+
+_REVISE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "revise_document",
+        "description": (
+            "Revise text blocks of an existing Word document as TRACKED CHANGES (Word's "
+            "Review ▸ Track Changes): the old text stays as a deletion and the new text is an "
+            "insertion, both attributed to Mimi, so the user accepts or rejects each change in "
+            "Word. Use this for documents the user wrote or that others will review; use "
+            "edit_document only for direct, silent edits to your own drafts. Read the document "
+            "first to get block indexes. The result lists every change as before → after with "
+            "your reason — repeat that list to the user in plain language."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The .docx file to revise."},
+                "edits": {
+                    "type": "array",
+                    "description": "Revisions to apply.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "index": {
+                                "type": "integer",
+                                "description": "Block index from read_document.",
+                            },
+                            "text": {
+                                "type": "string",
+                                "description": "The replacement text for the whole block.",
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": (
+                                    "One plain-language sentence on why (e.g. 'tightened the "
+                                    "claim to what the data supports')."
+                                ),
+                            },
+                        },
+                        "required": ["index", "text"],
+                    },
+                },
+            },
+            "required": ["path", "edits"],
         },
     },
 }
@@ -193,6 +248,136 @@ def _add_block(document: Any, block: Any) -> None:
         )
 
 
+# -- tracked changes (WordprocessingML revisions) ---------------------------------------------
+# A replacement becomes <w:del> around the paragraph's existing runs (their w:t → w:delText)
+# followed by one <w:ins> run carrying the first run's formatting. Word, LibreOffice and Pages
+# all render these as review marks with accept/reject. Ids must be unique per document.
+_REV_AUTHOR = "Mimi"
+
+
+def _revision_stamp() -> str:
+    import datetime as _dt
+
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _para_text(para: Any) -> str:
+    """The paragraph's ACCEPTED text: every w:t under it (runs inside <w:ins> included),
+    never w:delText. python-docx's `.text` reads direct runs only, so a revised paragraph
+    would otherwise read as empty and vanish from the block index."""
+    from docx.oxml.ns import qn
+
+    return "".join((t.text or "") for t in para._element.iter(qn("w:t")))
+
+
+def _indexed_blocks(document: Any) -> list[Any]:
+    """The block index space read_document exposes: non-empty paragraphs + tables (None)."""
+    indexed: list[Any] = []
+    paragraphs = {p._element: p for p in document.paragraphs}
+    tables = {t._element: t for t in document.tables}
+    for child in document.element.body.iterchildren():
+        if child in paragraphs:
+            para = paragraphs[child]
+            if _para_text(para).strip():
+                indexed.append(para)
+        elif child in tables:
+            indexed.append(None)
+    return indexed
+
+
+def _next_revision_id(document: Any) -> int:
+    from docx.oxml.ns import qn
+
+    highest = 0
+    for tag in ("w:ins", "w:del"):
+        for el in document.element.body.iter(qn(tag)):
+            try:
+                highest = max(highest, int(el.get(qn("w:id")) or 0))
+            except ValueError:
+                continue
+    return highest + 1
+
+
+def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> int:
+    """Wrap the paragraph's runs in <w:del>, append <w:ins> with the new text. Returns the
+    next free revision id."""
+    import copy
+
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    p = para._element
+    # Live runs = direct children plus runs inside earlier <w:ins> (a second revision of the
+    # same paragraph deletes the previously inserted text); runs already under <w:del> stay.
+    runs = [
+        r
+        for r in p.iter(qn("w:r"))
+        if r.getparent() is p or r.getparent().tag == qn("w:ins")
+    ]
+    rpr = None
+    if runs:
+        first_rpr = runs[0].find(qn("w:rPr"))
+        rpr = copy.deepcopy(first_rpr) if first_rpr is not None else None
+
+    if runs:
+        deletion = OxmlElement("w:del")
+        deletion.set(qn("w:id"), str(rev_id))
+        deletion.set(qn("w:author"), _REV_AUTHOR)
+        deletion.set(qn("w:date"), stamp)
+        rev_id += 1
+        runs[0].addprevious(deletion)
+        for run in runs:
+            for t in run.findall(qn("w:t")):
+                t.tag = qn("w:delText")
+            deletion.append(run)  # moves the run under <w:del>
+
+    insertion = OxmlElement("w:ins")
+    insertion.set(qn("w:id"), str(rev_id))
+    insertion.set(qn("w:author"), _REV_AUTHOR)
+    insertion.set(qn("w:date"), stamp)
+    rev_id += 1
+    new_run = OxmlElement("w:r")
+    if rpr is not None:
+        new_run.append(rpr)
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = new_text
+    new_run.append(t)
+    insertion.append(new_run)
+    p.append(insertion)
+    return rev_id
+
+
+def _list_revisions(document: Any) -> list[dict[str, Any]]:
+    """Pending tracked changes, in read_document's index space: {index, author, deleted, inserted}."""
+    from docx.oxml.ns import qn
+
+    out: list[dict[str, Any]] = []
+    for index, para in enumerate(_indexed_blocks(document)):
+        if para is None:
+            continue
+        p = para._element
+        dels = p.findall(qn("w:del"))
+        inss = p.findall(qn("w:ins"))
+        if not dels and not inss:
+            continue
+        deleted = "".join((t.text or "") for d in dels for t in d.iter(qn("w:delText")))
+        inserted = "".join((t.text or "") for i in inss for t in i.iter(qn("w:t")))
+        author = next(
+            (el.get(qn("w:author")) for el in (dels + inss) if el.get(qn("w:author"))),
+            "",
+        )
+        out.append(
+            {
+                "index": index,
+                "author": author,
+                "deleted": clip(deleted, 400),
+                "inserted": clip(inserted, 400),
+            }
+        )
+    return out
+
+
 def docx_tools(context: Any) -> list:
     roots = context_roots(context)
 
@@ -221,7 +406,7 @@ def docx_tools(context: Any) -> list:
 
     @guard
     def read_document(
-        path: str, start: int = 0, limit: int = _DEFAULT_LIMIT
+        path: str, start: int = 0, limit: int = _DEFAULT_LIMIT, revisions: bool = False
     ) -> dict[str, Any]:
         docx = require("docx", "python-docx")
         target = resolve_read(path, roots)
@@ -238,7 +423,7 @@ def docx_tools(context: Any) -> list:
         for child in body.iterchildren():
             if child in paragraphs:
                 para = paragraphs[child]
-                text = para.text.strip()
+                text = _para_text(para).strip()  # accepted view of any tracked changes
                 if not text:
                     continue
                 kind, level = _style_of(para)
@@ -270,6 +455,8 @@ def docx_tools(context: Any) -> list:
             "total_blocks": total,
             "blocks": window,
         }
+        if revisions:
+            result["revisions"] = _list_revisions(document)
         end = begin + len(window)
         if end < total:
             result["note"] = (
@@ -327,6 +514,56 @@ def docx_tools(context: Any) -> list:
         document.save(str(target))
         return {"path": display_path(target, roots), "edited": applied}
 
+    @guard
+    def revise_document(path: str, edits: list) -> dict[str, Any]:
+        docx = require("docx", "python-docx")
+        target = resolve_write(path, roots)
+        if not target.is_file():
+            raise FileNotFoundError(display_path(target, roots))
+        if not isinstance(edits, list) or not edits:
+            raise ValueError("'edits' must be a non-empty list")
+
+        document = docx.Document(str(target))
+        indexed = _indexed_blocks(document)
+        next_id = _next_revision_id(document)
+        stamp = _revision_stamp()
+        changes: list[dict[str, Any]] = []
+        for edit in edits:
+            if not isinstance(edit, dict):
+                raise ValueError("each edit must be an object with 'index' and 'text'")
+            index = edit.get("index")
+            if not isinstance(index, int) or not 0 <= index < len(indexed):
+                raise ValueError(
+                    f"block index {index!r} is out of range (document has {len(indexed)} blocks)"
+                )
+            para = indexed[index]
+            if para is None:
+                raise ValueError(f"block {index} is a table; revise_document only revises text blocks")
+            before = _para_text(para)
+            after = str(edit.get("text") or "")
+            if before == after:
+                continue  # nothing to track
+            next_id = _track_replacement(para, after, rev_id=next_id, stamp=stamp)
+            changes.append(
+                {
+                    "index": index,
+                    "before": clip(before, 400),
+                    "after": clip(after, 400),
+                    "reason": str(edit.get("reason") or "").strip(),
+                }
+            )
+
+        document.save(str(target))
+        return {
+            "path": display_path(target, roots),
+            "applied": len(changes),
+            "changes": changes,
+            "note": (
+                "Changes are tracked — the user accepts or rejects them in Word "
+                "(Review ▸ Track Changes). Tell the user what changed and why, in plain language."
+            ),
+        }
+
     return [
         decorate(
             write_document,
@@ -340,6 +577,13 @@ def docx_tools(context: Any) -> list:
             edit_document,
             name="edit_document",
             schema=_EDIT_SCHEMA,
+            risk="medium",
+            capabilities=["write"],
+        ),
+        decorate(
+            revise_document,
+            name="revise_document",
+            schema=_REVISE_SCHEMA,
             risk="medium",
             capabilities=["write"],
         ),

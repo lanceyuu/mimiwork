@@ -278,6 +278,22 @@ export function ApprovalCard({
       {item.name === "run_shell" && item.args?.command && (
         <PreviewBlock text={String(item.args.command)} />
       )}
+      {item.name === "revise_document" && Array.isArray(item.args?.edits) && (
+        <div className="approval-revisions" data-testid="approval-revisions">
+          {item.args.edits.slice(0, 3).map((e: any, i: number) => (
+            <div key={i} className="approval-revision">
+              <span className="approval-revision-idx">¶{Number(e?.index) + 1}</span>
+              <span className="approval-revision-text">{String(e?.text ?? "")}</span>
+              {e?.reason ? <span className="approval-revision-why">— {String(e.reason)}</span> : null}
+            </div>
+          ))}
+          {item.args.edits.length > 3 && (
+            <div className="approval-revision-more">
+              +{item.args.edits.length - 3} more — all as tracked changes you accept or reject in Word
+            </div>
+          )}
+        </div>
+      )}
       {FILE_WRITES.has(item.name) && content && <PreviewBlock text={content} />}
       {item.name === "send_file" && (
         <>

@@ -150,3 +150,85 @@ def test_nested_directories_are_created_on_write(tools):
     out = write("sub/dir/report.docx", [{"type": "paragraph", "text": "x"}])
     assert "error" not in out
     assert (tools[1] / "sub" / "dir" / "report.docx").is_file()
+
+
+# -- revise_document: Word tracked changes -----------------------------------------------
+
+
+def _xml(ws, name):
+    import zipfile
+
+    with zipfile.ZipFile(ws / name) as z:
+        return z.read("word/document.xml").decode("utf-8")
+
+
+def test_revise_document_writes_tracked_changes_and_a_plain_review(tools):
+    toolbox, ws = tools
+    write, revise, read = toolbox["write_document"], toolbox["revise_document"], toolbox["read_document"]
+    write(
+        "draft.docx",
+        [
+            {"type": "heading", "text": "Findings", "level": 1},
+            {"type": "paragraph", "text": "Sales went up a lot."},
+            {"type": "paragraph", "text": "Unchanged line."},
+        ],
+    )
+    out = revise(
+        "draft.docx",
+        [
+            {"index": 1, "text": "Sales rose 12% year on year.", "reason": "quantified the claim"},
+            {"index": 2, "text": "Unchanged line."},  # identical → no revision
+        ],
+    )
+    assert "error" not in out, out
+    assert out["applied"] == 1
+    (change,) = out["changes"]
+    assert change == {
+        "index": 1,
+        "before": "Sales went up a lot.",
+        "after": "Sales rose 12% year on year.",
+        "reason": "quantified the claim",
+    }
+    assert "tracked" in out["note"]
+
+    xml = _xml(ws, "draft.docx")
+    assert '<w:del ' in xml and '<w:ins ' in xml
+    assert 'w:author="Mimi"' in xml
+    assert "<w:delText" in xml and "Sales went up a lot." in xml
+    assert "Sales rose 12% year on year." in xml
+
+    # The plain read shows the accepted view; revisions=True lists the pending change.
+    doc = read("draft.docx", revisions=True)
+    assert [b["text"] for b in doc["blocks"]][:2] == ["Findings", "Sales rose 12% year on year."]
+    assert doc["revisions"] == [
+        {
+            "index": 1,
+            "author": "Mimi",
+            "deleted": "Sales went up a lot.",
+            "inserted": "Sales rose 12% year on year.",
+        }
+    ]
+    assert "revisions" not in read("draft.docx")
+
+
+def test_revise_document_ids_stay_unique_across_calls(tools):
+    toolbox, ws = tools
+    write, revise = toolbox["write_document"], toolbox["revise_document"]
+    write("d.docx", [{"type": "paragraph", "text": "one"}, {"type": "paragraph", "text": "two"}])
+    revise("d.docx", [{"index": 0, "text": "uno"}])
+    revise("d.docx", [{"index": 1, "text": "dos"}])
+    import re
+
+    ids = re.findall(r'<w:(?:ins|del) [^>]*w:id="(\d+)"', _xml(ws, "d.docx"))
+    assert len(ids) == 4 and len(set(ids)) == 4
+
+
+def test_revise_document_rejects_tables_and_bad_indexes(tools):
+    toolbox, _ = tools
+    write, revise = toolbox["write_document"], toolbox["revise_document"]
+    write(
+        "t.docx",
+        [{"type": "paragraph", "text": "intro"}, {"type": "table", "rows": [["a", "b"]]}],
+    )
+    assert "table" in revise("t.docx", [{"index": 1, "text": "x"}])["error"]
+    assert "out of range" in revise("t.docx", [{"index": 9, "text": "x"}])["error"]

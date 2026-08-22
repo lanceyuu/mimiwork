@@ -304,3 +304,27 @@ describe("InboxItemCard — parked save_skill proposals (SKILLS-SPEC §5.2)", ()
     expect(onResolve).toHaveBeenCalledWith("i9", "deny");
   });
 });
+
+describe("ApprovalCard — revise_document preview", () => {
+  it("lists the proposed tracked changes with their reasons, capped at three", () => {
+    const edits = [
+      { index: 0, text: "Sales rose 12%.", reason: "quantified the claim" },
+      { index: 3, text: "We therefore recommend B." },
+      { index: 4, text: "c" },
+      { index: 5, text: "d" },
+    ];
+    render(
+      <ApprovalCard
+        item={sendApproval({ name: "revise_document", category: "office", args: { path: "draft.docx", edits } })}
+        onApprove={vi.fn()}
+      />,
+    );
+    const box = screen.getByTestId("approval-revisions");
+    expect(box.textContent).toContain("¶1");
+    expect(box.textContent).toContain("Sales rose 12%.");
+    expect(box.textContent).toContain("quantified the claim");
+    expect(box.textContent).toContain("¶4");
+    expect(box.textContent).toContain("+1 more");
+    expect(box.textContent).toContain("tracked changes");
+  });
+});
