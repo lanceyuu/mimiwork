@@ -651,6 +651,8 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.patch("/v1/sessions/{session_id}")
     def session_patch(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}
+        if "workspace" in body:
+            return manager.move_session(session_id, str(body.get("workspace") or ""))
         if "pinned" in body or "archived" in body:
             return manager.set_session_flags(
                 session_id,

@@ -152,6 +152,19 @@ export async function getSessionMessages(sessionId: string): Promise<Conversatio
   return (await res.json()).messages ?? [];
 }
 
+/** Move a conversation into another project folder (sidebar drag-and-drop). */
+export async function moveSession(
+  sessionId: string,
+  workspace: string,
+): Promise<{ ok: boolean; workspace?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace }),
+  });
+  return res.json();
+}
+
 export async function renameSession(sessionId: string, title: string): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",

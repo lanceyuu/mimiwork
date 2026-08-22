@@ -3930,6 +3930,38 @@ class SessionManager:
             "title": " ".join((title or "").split())[:120],
         }
 
+    def move_session(self, session_id: str, workspace: str) -> dict[str, Any]:
+        """Move a conversation into another project folder (sidebar drag-and-drop).
+
+        The folder becomes the session's primary writable root; the previous folder
+        stays reachable as an extra root (a scratch conversation's earlier deliverables
+        must not vanish). A running session can't be moved mid-turn; an idle one has
+        its engine evicted so the next turn rebuilds on the new folder."""
+        if session_id.startswith("__"):
+            return {"ok": False, "error": "internal sessions cannot be moved"}
+        record = self.session_store.load(session_id)
+        if record is None:
+            return {"ok": False, "error": "not found"}
+        target = self.resolve_workspace(workspace)
+        if not target:
+            return {"ok": False, "error": "that folder does not exist"}
+        if self.is_running(session_id):
+            return {"ok": False, "error": "the session is busy — move it when it's idle"}
+        previous = record.workspace
+        if previous and Path(previous).resolve() == Path(target):
+            return {"ok": True, "session_id": session_id, "workspace": target, "unchanged": True}
+        extra = [dict(r) for r in (record.extra_roots or [])]
+        extra = [r for r in extra if str(r.get("path", "")) != target]
+        if previous and Path(previous).is_dir() and all(
+            str(r.get("path", "")) != previous for r in extra
+        ):
+            extra.append({"path": previous, "writable": True, "label": "previous folder"})
+        self.session_store.set_workspace(session_id, target)
+        self.session_store.set_extra_roots(session_id, extra)
+        self.session_store.touch_workspace(target)
+        self._engines.pop(session_id, None)
+        return {"ok": True, "session_id": session_id, "workspace": target}
+
     def set_session_flags(
         self,
         session_id: str,

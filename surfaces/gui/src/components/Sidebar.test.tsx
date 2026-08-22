@@ -49,6 +49,7 @@ const baseProps = {
   onNewProject: vi.fn(),
   onOpenProject: vi.fn(),
   onRenameSession: vi.fn(),
+  onMoveSession: vi.fn(),
   onForkSession: vi.fn(),
   onDeleteSession: vi.fn(),
   onArchiveSession: vi.fn(),
@@ -338,5 +339,33 @@ describe("Sidebar projects band", () => {
     expect(rows[0].textContent).toContain("Thesis");
     fireEvent.click(rows[0]);
     expect(onOpenProject).toHaveBeenCalledWith("/p/thesis");
+  });
+});
+
+describe("Sidebar drag-to-project", () => {
+  it("dropping a session row on a project row asks App to move it there", async () => {
+    stubFetch([]);
+    const onMoveSession = vi.fn();
+    const project = {
+      path: "/Users/me/Thesis", name: "Thesis", emoji: "", pinned: false, archived: false,
+      exists: true, sessions: 0, last_activity: "", has_instructions: false,
+    };
+    render(<Sidebar {...baseProps} projects={[project as any]} onMoveSession={onMoveSession} />);
+    const row = (await screen.findAllByTestId("session-row"))[0];
+    const target = screen.getAllByTestId("project-row")[0];
+    const store: Record<string, string> = {};
+    const dt = {
+      setData: (k: string, v: string) => { store[k] = v; },
+      getData: (k: string) => store[k] ?? "",
+      types: [] as string[],
+      effectAllowed: "", dropEffect: "",
+    };
+    fireEvent.dragStart(row, { dataTransfer: dt });
+    dt.types = Object.keys(store);
+    fireEvent.dragOver(target, { dataTransfer: dt });
+    expect(target.getAttribute("data-drop-active")).toBe("true");
+    fireEvent.drop(target, { dataTransfer: dt });
+    expect(onMoveSession).toHaveBeenCalledWith(baseProps.sessions[0].session_id, "/Users/me/Thesis");
+    expect(target.getAttribute("data-drop-active")).toBeNull();
   });
 });

@@ -21,6 +21,7 @@ import {
   forkSession,
   addRoot,
   deleteSession,
+  moveSession,
   renameSession,
   runAutomation,
   setSessionFlags,
@@ -1183,6 +1184,19 @@ export function App() {
     const res = await renameSession(id, title);
     if (res.ok) refreshSessions();
   };
+  // Drag-to-project (2026-08-22): re-bind the conversation's folder; if it's the open one,
+  // reselect so the rail's Access section and the workspace chip follow the move.
+  const moveConversation = async (id: string, workspace: string) => {
+    const res: Awaited<ReturnType<typeof moveSession>> = await moveSession(id, workspace).catch(
+      () => ({ ok: false, error: "server unreachable" }),
+    );
+    if (!res.ok) {
+      if (res.error) alert(`Couldn't move the conversation: ${res.error}`);
+      return;
+    }
+    refreshSessions();
+    if (id === sessionId && res.workspace) void selectSession(id, res.workspace, agent);
+  };
   // Fork (design spec 2026-08-20 §3): duplicate the thread server-side, then open the
   // copy — the original stays untouched in the list.
   const forkConversation = async (id: string) => {
@@ -1438,6 +1452,7 @@ export function App() {
         onNewProject={newProject}
         onOpenProject={openProject}
         onRenameSession={renameConversation}
+        onMoveSession={moveConversation}
         onForkSession={forkConversation}
         onDeleteSession={deleteConversation}
         onArchiveSession={toggleArchived}

@@ -701,6 +701,16 @@ class ConversationStore:
             )
             self._conn.commit()
 
+    def set_workspace(self, session_id: str, workspace: str) -> bool:
+        """Re-bind a session to another project folder (drag-to-project in the sidebar)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE sessions SET workspace = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (workspace, session_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
     def rename(self, session_id: str, title: str) -> bool:
         clean = " ".join((title or "").split())[:120]
         if not clean:

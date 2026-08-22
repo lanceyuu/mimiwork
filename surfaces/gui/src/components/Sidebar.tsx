@@ -121,6 +121,7 @@ interface Props {
   onSelectSession: (id: string, workspace: string, agent: string) => void;
   onNewProject: (persona: string) => void;
   onRenameSession: (id: string, title: string) => void;
+  onMoveSession: (id: string, workspace: string) => void;
   onForkSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onArchiveSession: (id: string, archived: boolean) => void;
@@ -545,6 +546,8 @@ export function Sidebar(props: Props) {
           if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
         }}
         title={editing ? undefined : title}
+        data-testid="session-row"
+        {...(editing ? {} : dragProps(s))}
       >
         {editing ? (
           <input
@@ -617,6 +620,8 @@ export function Sidebar(props: Props) {
         onClick={() => {
           if (!editing) props.onSelectSession(s.session_id, s.workspace, s.agent);
         }}
+        data-testid="session-row"
+        {...(editing ? {} : dragProps(s))}
       >
         {/* No leading glyph on session rows (Rohit's call 2026-07-07: the per-session icon
             read as noise in both grouped and chronological). */}
@@ -705,6 +710,34 @@ export function Sidebar(props: Props) {
   // page; "+" is the existing folder picker. The per-persona Codex-style accordion below
   // still groups Code/Ops sessions by folder — this band is the cross-persona entry point.
   const [projectsShowAll, setProjectsShowAll] = useState(false);
+  // Drag a conversation onto a project to move it there (owner ask 2026-08-22). Native HTML5
+  // DnD: rows carry the session id; project rows light up as targets and hand the drop to
+  // App, which PATCHes the session's workspace and refreshes the lists.
+  const DRAG_MIME = "application/x-mimiwork-session";
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const dragProps = (s: SessionInfo) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(DRAG_MIME, s.session_id);
+      e.dataTransfer.effectAllowed = "move";
+    },
+  });
+  const dropProps = (path: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (dropTarget !== path) setDropTarget(path);
+    },
+    onDragLeave: () => setDropTarget((cur) => (cur === path ? null : cur)),
+    onDrop: (e: React.DragEvent) => {
+      const id = e.dataTransfer.getData(DRAG_MIME);
+      setDropTarget(null);
+      if (!id) return;
+      e.preventDefault();
+      props.onMoveSession(id, path);
+    },
+  });
   const projectsBand = () => {
     const live = props.projects.filter((p) => !p.archived);
     const PEEK = 6;
@@ -738,11 +771,14 @@ export function Sidebar(props: Props) {
                   key={p.path}
                   className={
                     "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left " +
-                    (active ? "bg-paper text-ink" : "text-muted hover:bg-paper hover:text-ink")
+                    (active ? "bg-paper text-ink" : "text-muted hover:bg-paper hover:text-ink") +
+                    (dropTarget === p.path ? " project-drop-target" : "")
                   }
                   title={p.path}
                   data-testid="project-row"
+                  data-drop-active={dropTarget === p.path ? "true" : undefined}
                   onClick={() => props.onOpenProject(p.path)}
+                  {...dropProps(p.path)}
                 >
                   <span className="w-4 text-center shrink-0 text-[13px] leading-none">
                     {p.emoji || <Icon name="folder" size={14} className="inline-block text-faint" />}
@@ -1063,12 +1099,12 @@ export function Sidebar(props: Props) {
         {/* Collapse (dock) / pin the sidebar. ⌘B mirrors this. */}
         {props.onCollapse && (
           <button
-            className="nav-pin-btn grid place-items-center text-faint hover:text-ink hover:bg-paper shrink-0"
+            className="nav-pin-btn grid place-items-center text-muted hover:text-ink hover:bg-paper shrink-0"
             title={props.collapsed ? "Dock sidebar (⌘B)" : "Collapse sidebar (⌘B)"}
             aria-label={props.collapsed ? "Dock sidebar" : "Collapse sidebar"}
             onClick={props.onCollapse}
           >
-            <Icon name="sidebar" size={14} />
+            <Icon name="sidebar" size={16} />
           </button>
         )}
         {/* The wordmark moved OUT of this strip (owner call 2026-08-21: the title bar was a

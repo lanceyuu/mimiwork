@@ -1807,8 +1807,20 @@ a:focus-visible,
   height: 22px;
   border-radius: 6px;
 }
-.app.tauri-overlay .sidebar .brand { padding-top: 19px; padding-left: 74px; padding-bottom: 6px; }
-.app.tauri-overlay .nav-reveal-btn { top: 19px; left: 74px; }
+/* Title strip on desktop: the collapse control is the FOURTH slot on the traffic-lights
+   line — same vertical center as the lights (lib.rs places them at y=24, 12pt tall → center
+   30; the 22px button therefore tops at 19) and one light-pitch (20pt) right of the green
+   one at x=59..71 → button left 74. Re-measured 2026-08-22 against the Claude desktop
+   app's sidebar toggle after the owner caught it sitting ~8pt low and ~10pt right. */
+.app.tauri-overlay .sidebar .brand { padding-top: 11px; padding-left: 74px; padding-bottom: 6px; }
+.app.tauri-overlay .nav-reveal-btn { top: 11px; left: 74px; }
+/* Drag-to-project: the row under the dragged conversation. */
+.project-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft) !important;
+  color: var(--ink) !important;
+}
 
 /* ---- Surface frame: every non-session view gets one "← Back" strip at the top ----------- */
 /* Owner ask 2026-08-21 ("very confusing for navigation"): Settings, Automations, Inbox,
