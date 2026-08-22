@@ -12,8 +12,6 @@ from typing import Any, Callable, Optional
 
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
-from .selfwake import selfwake_tools
-from .subscriptions import subscription_tools
 from .config import load_config
 from .connectors import (
     connector_list,
@@ -24,7 +22,6 @@ from .connectors import (
 )
 from .engine import Approver, TurnEngine
 from .environment import environment_context
-from .workspace_map import build_workspace_map
 from .memory import (
     MemoryStore,
     Scope,
@@ -32,22 +29,25 @@ from .memory import (
     memory_tools,
     render_memory_block,
 )
+from .overrides import RiskOverrideStore
 from .permissions import Mode, PermissionEngine
 from .project import load_agents_md
-from .roots import RootDir, normalize_roots, render_context
 from .providers import ProviderClient, ProviderRouter
-from .overrides import RiskOverrideStore
+from .roots import RootDir, normalize_roots, render_context
 from .secrets import SecretStore, state_dir
+from .selfwake import selfwake_tools
 from .skills import SkillLoader, save_skill_tool, skill_catalog_text, skill_tools
+from .subscriptions import subscription_tools
 from .tools import ToolRegistry
 from .tools.ask import ask_user_tool
 from .tools.directories import request_directory_tool
 from .tools.plan import propose_plan_tool
-from .tools.subagent import explorer_tools
-from .web import make_web_fetch_tool, make_web_search_tool
-from .workspace_trust import WorkspaceTrustStore
 from .tools.shell import LocalExecutor
+from .tools.subagent import explorer_tools
 from .tools.todo import TodoList
+from .web import make_web_fetch_tool, make_web_search_tool
+from .workspace_map import build_workspace_map
+from .workspace_trust import WorkspaceTrustStore
 
 # Appended each turn while discuss mode is active: enforcement-only read-only, with no
 # pressure toward a plan proposal (that's what distinguishes it from plan mode).

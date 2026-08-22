@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._common import clip, decorate, guard, require
 from ... import deliverable_check
+from ._common import clip, decorate, guard, require
 from .paths import context_roots, display_path, resolve_read, resolve_write
 
 # python-pptx's default template layout indexes.

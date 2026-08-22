@@ -1,5 +1,4 @@
 from .anthropic_provider import AnthropicProvider
-from .bedrock_provider import BedrockProvider
 from .base import (
     AssistantTurn,
     ModelCapabilities,
@@ -7,6 +6,7 @@ from .base import (
     StreamChunk,
     ToolCall,
 )
+from .bedrock_provider import BedrockProvider
 from .capabilities import capabilities_for
 from .gemini_provider import GeminiProvider
 from .openai_provider import OpenAIProvider, resolve_api_key

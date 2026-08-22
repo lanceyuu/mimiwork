@@ -10,29 +10,13 @@ answer tags itself. Untagged channel traffic stays judgement-only (silence defau
 import asyncio
 import sqlite3
 
+from helpers import CapturingProvider
+
 from coworker.connectors.adapters import slack_event_to_event
 from coworker.connectors.base import MessageEvent, SessionSource
 from coworker.conversations import ConversationStore
-from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
 from coworker.server.manager import SessionManager
 from coworker.sessions import SessionRecord
-
-
-class CapturingProvider(ProviderClient):
-    def __init__(self, turns=()):
-        self._turns = list(turns)
-        self.calls: list[list[dict]] = []
-
-    def complete(self, *, model, messages, tools=None, **settings):
-        self.calls.append([dict(m) for m in messages])
-        return (
-            self._turns.pop(0)
-            if self._turns
-            else AssistantTurn(text="ok", finish_reason="stop")
-        )
-
-    def capabilities(self, model):
-        return ModelCapabilities()
 
 
 def _connect_slack(mgr):

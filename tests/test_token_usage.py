@@ -10,6 +10,7 @@ import asyncio
 from types import SimpleNamespace
 
 import aisuite as ai
+
 from coworker.engine import TurnEngine
 from coworker.events import EventType
 from coworker.permissions import PermissionEngine

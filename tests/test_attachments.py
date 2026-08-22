@@ -96,8 +96,8 @@ def test_content_to_text_flattens_parts():
 
 # -- (2) the assumption: image reaches the provider unmodified ------------------
 async def test_image_reaches_provider_unmodified():
-    from coworker.agents.chat import chat_agent
     from coworker.agent import build_engine
+    from coworker.agents.chat import chat_agent
     from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
 
     class Spy(ProviderClient):

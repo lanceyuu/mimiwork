@@ -7,9 +7,9 @@ else inherit-on). These tests pin the stores, the resolver, and the two runtime 
 """
 
 import asyncio
-from pathlib import Path
 
 import pytest
+from helpers import ScriptedProvider
 
 from coworker.connections import (
     PersonaConnectionStore,
@@ -17,9 +17,6 @@ from coworker.connections import (
     effective,
 )
 from coworker.connectors.base import MessageEvent, SessionSource
-from coworker.personas import registry as persona_registry
-from coworker.personas.manifest import load_manifest_file
-from coworker.providers import ModelCapabilities, ProviderClient
 from coworker.server.manager import SessionManager
 from coworker.sessions import SessionRecord
 
@@ -34,17 +31,6 @@ def _isolate_state_dir(tmp_path, monkeypatch):
     Pin it at a throwaway dir. (Harmless for the pure store/resolver tests that use explicit paths.)
     """
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
-
-
-class ScriptedProvider(ProviderClient):
-    def __init__(self, turns=None):
-        self._turns = list(turns or [])
-
-    def complete(self, *, model, messages, tools=None, **settings):
-        return self._turns.pop(0)
-
-    def capabilities(self, model):
-        return ModelCapabilities()
 
 
 def _ops_manifest():

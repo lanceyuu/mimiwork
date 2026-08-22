@@ -20,27 +20,17 @@ from typing import Any, Optional
 
 from ..agent import build_engine
 from ..agents import get_agent
+from ..agents import list_agents as _list_agents
+from ..audit import AuditStore
+from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
+from ..config import load_config, workspace_allowed_commands
 from ..connections import (
     PersonaConnectionStore,
     SessionConnectionStore,
+)
+from ..connections import (
     effective as effective_connections,
 )
-from ..inbox import InboxStore, args_preview
-from ..inbox_routing import InboxRouting
-from ..personas import PersonaRegistry
-from ..personas.registry import set_registry as set_persona_registry
-from ..selfwake import WakeStore
-from ..mentions import MentionSessionStore
-from ..subscriptions import ChannelBuffer, SubscriptionStore
-from ..unrouted import UnroutedStore
-from ..unattended import UnattendedRegistry
-from ..audit import AuditStore
-from ..config import load_config, workspace_allowed_commands
-from ..conversations import ConversationStore, title_from
-from ..engine import Approver, TurnEngine
-from ..roots import RootDir
-from ..workspace_trust import WorkspaceTrustStore
-from ..automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from ..connectors import (
     Gateway,
     MessageSource,
@@ -60,6 +50,10 @@ from ..connectors.browser_automation import (
     browser_take_screenshot,
 )
 from ..connectors.parked import ParkedStore
+from ..conversations import ConversationStore, title_from
+from ..engine import Approver, TurnEngine
+from ..inbox import InboxStore, args_preview
+from ..inbox_routing import InboxRouting
 from ..mcp import (
     MCPManager,
     build_callables,
@@ -70,8 +64,10 @@ from ..mcp import (
     read_global,
 )
 from ..memory import MemorySettingsStore, MemoryStore, Scope, SQLiteMemoryStore
+from ..mentions import MentionSessionStore
 from ..permissions import Mode
-from ..agents import list_agents as _list_agents
+from ..personas import PersonaRegistry
+from ..personas.registry import set_registry as set_persona_registry
 from ..providers import (
     ProviderClient,
     ProviderRouter,
@@ -80,7 +76,9 @@ from ..providers import (
     provider_descriptors,
     verify_provider_key,
 )
+from ..roots import RootDir
 from ..secrets import SecretStore, state_dir
+from ..selfwake import WakeStore
 from ..sessions import SessionRecord
 from ..skills import (
     SessionSkillStore,
@@ -88,6 +86,10 @@ from ..skills import (
     SkillStore,
     effective_skills,
 )
+from ..subscriptions import ChannelBuffer, SubscriptionStore
+from ..unattended import UnattendedRegistry
+from ..unrouted import UnroutedStore
+from ..workspace_trust import WorkspaceTrustStore
 
 _SCOPES = {s.value for s in Scope}
 
@@ -1047,7 +1049,6 @@ class SessionManager:
             mcp_tool_defs,
             tool_enabled,
         )
-
         from ..mcp import oauth as mcp_oauth
 
         ws = self.engine_workspace(session_id, workspace=workspace, agent=agent)
@@ -1122,9 +1123,8 @@ class SessionManager:
 
     def list_mcp(self) -> list[dict[str, Any]]:
         """Servers from the global config + connection status (does not connect)."""
-        from ..mcp import oauth as mcp_oauth
-
         from ..connectors.descriptors import get_descriptor
+        from ..mcp import oauth as mcp_oauth
 
         out = []
         for name, raw in read_global().items():

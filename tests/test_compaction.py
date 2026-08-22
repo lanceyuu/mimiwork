@@ -6,9 +6,9 @@ import json
 import pytest
 
 from coworker.compaction import (
-    CompactionState,
     DEFAULT_CAP_TOKENS,
     DEFAULT_CONTEXT_WINDOW,
+    CompactionState,
     apply_to_outbound,
     build_state,
     compacted_block,
@@ -23,7 +23,6 @@ from coworker.compaction import (
     trigger_tokens,
     trim_state,
 )
-
 
 # -- message builders ---------------------------------------------------------
 

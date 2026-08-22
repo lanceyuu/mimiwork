@@ -3,24 +3,13 @@ continues — rebuilt from the persisted thread, with no live await."""
 
 import asyncio
 
+from helpers import ScriptedProvider
+
 from coworker.providers import (
     AssistantTurn,
-    ModelCapabilities,
-    ProviderClient,
     ToolCall,
 )
 from coworker.server.manager import SessionManager
-
-
-class ScriptedProvider(ProviderClient):
-    def __init__(self, turns):
-        self._turns = list(turns)
-
-    def complete(self, *, model, messages, tools=None, **settings):
-        return self._turns.pop(0)
-
-    def capabilities(self, model):
-        return ModelCapabilities()
 
 
 def _tool(name, args, call_id):

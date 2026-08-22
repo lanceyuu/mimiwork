@@ -11,6 +11,7 @@ import asyncio
 import re
 
 import httpx
+from helpers import wait_until
 
 from coworker.connectors.adapters import SlackAdapter
 from coworker.connectors.base import InteractionEvent, MessageEvent
@@ -330,12 +331,10 @@ async def test_watchdog_revives_silently_dead_socket(fake_slack):
         client.is_connected = lambda: False
 
         # The watchdog must notice and re-open a fresh endpoint.
-        for _ in range(100):
-            if adapter._reconnects >= 1:
-                break
-            await asyncio.sleep(0.05)
+        assert await wait_until(lambda: adapter._reconnects >= 1, timeout=5), (
+            "watchdog did not reconnect a down socket"
+        )
         client.is_connected = original  # end the simulated outage
-        assert adapter._reconnects >= 1, "watchdog did not reconnect a down socket"
         assert fake_slack.socket_connections >= 2
 
         # Message flow resumes on the revived connection.

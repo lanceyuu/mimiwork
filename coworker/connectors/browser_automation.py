@@ -6,11 +6,11 @@ tools return a clear setup error instead of breaking engine construction.
 
 from __future__ import annotations
 
+import base64
 import re
 import tempfile
 import threading
 import time
-import base64
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional

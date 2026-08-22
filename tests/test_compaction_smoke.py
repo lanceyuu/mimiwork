@@ -4,9 +4,8 @@ view (summary block + verbatim tail), user intent must survive every compaction,
 state must survive a save/rebuild mid-conversation. This is the scripted stand-in for
 the live-model smoke (which needs a configured provider key)."""
 
-import json
-
 import asyncio
+import json
 
 from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
 from coworker.providers.base import TokenUsage

@@ -23,7 +23,6 @@ dir lives under `tmp_path`, so the machine-global secrets/config are never touch
 from __future__ import annotations
 
 import asyncio
-import time
 
 from fastapi.testclient import TestClient
 
@@ -71,14 +70,7 @@ def _text(text):
     return AssistantTurn(text=text, finish_reason="stop")
 
 
-async def _wait_until(predicate, *, timeout: float = 8.0, interval: float = 0.02):
-    """Poll `predicate` until it returns truthy (or the timeout elapses); return the last value."""
-    deadline = time.monotonic() + timeout
-    val = predicate()
-    while not val and time.monotonic() < deadline:
-        await asyncio.sleep(interval)
-        val = predicate()
-    return val
+from helpers import wait_until as _wait_until
 
 
 def _find_card(outbound):

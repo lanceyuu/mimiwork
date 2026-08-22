@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 
 import aisuite as ai
-import pytest
+from helpers import wait_until
 
 from coworker.automation import Schedule, ScheduledTask, Scheduler, TaskRun, TaskStore
 from coworker.automation.models import grant_entries, rule_entry, rule_parts
@@ -414,13 +414,11 @@ async def test_blocked_run_does_not_stall_other_tasks(tmp_path):
 
     sched = Scheduler(store, runner, tick_seconds=0.05)
     sched.start()
-    await asyncio.sleep(0.2)
+    assert await wait_until(lambda: store.get(quick.id).run_count == 1), "quick task never ran"
     # The quick task completed while the blocked one is still suspended.
-    assert store.get(quick.id).run_count == 1
     assert store.get(blocked.id).run_count == 0
     gate.set()
-    await asyncio.sleep(0.1)
-    assert store.get(blocked.id).run_count == 1
+    assert await wait_until(lambda: store.get(blocked.id).run_count == 1), "blocked task never resumed"
     await sched.stop()
 
 
@@ -428,6 +426,7 @@ async def test_blocked_run_does_not_stall_other_tasks(tmp_path):
 
 
 def test_engine_events_carry_standing_context(tmp_path):
+    from coworker.engine import TurnEngine
     from coworker.events import EventType
     from coworker.providers import (
         AssistantTurn,
@@ -435,7 +434,6 @@ def test_engine_events_carry_standing_context(tmp_path):
         ProviderClient,
         ToolCall,
     )
-    from coworker.engine import TurnEngine
     from coworker.tools import ToolRegistry
 
     def send_message(target: str, text: str):

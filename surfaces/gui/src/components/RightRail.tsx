@@ -9,6 +9,7 @@ import {
   type ArtifactInfo,
 } from "../api";
 import type { TodoItem } from "../types";
+import { clockTime } from "../time";
 import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
 import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
@@ -206,7 +207,7 @@ export function RightRail({
                     </span>
                     <span className="artifact-name">
                       {a.name}
-                      <span className="artifact-row-meta">{formatBytes(a.size)} · {formatTime(a.modified_at)}</span>
+                      <span className="artifact-row-meta">{formatBytes(a.size)} · {clockTime(a.modified_at)}</span>
                     </span>
                     <span className="artifact-open">Open</span>
                   </button>
@@ -599,9 +600,4 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTime(epochSeconds: number): string {
-  if (!epochSeconds) return "";
-  return new Date(epochSeconds * 1000).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }

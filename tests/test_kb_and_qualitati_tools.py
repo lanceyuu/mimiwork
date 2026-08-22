@@ -8,16 +8,14 @@ must prove auth handling and the Mimi-delegation contract, not the server.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
 
 from coworker import kb
-from coworker.tools.kb import kb_tools
 from coworker.tools import qualitati_tools as qt_mod
+from coworker.tools.kb import kb_tools
 from coworker.tools.qualitati_tools import qualitati_tools
-
 
 # ── knowledge base ───────────────────────────────────────────────────────────
 

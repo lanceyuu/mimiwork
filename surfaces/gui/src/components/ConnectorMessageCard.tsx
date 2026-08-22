@@ -15,30 +15,9 @@
 
 import { useState, type CSSProperties } from "react";
 import type { MessageSource } from "../api";
+import { clockTime, relativeTime } from "../time";
 import { ConnectorBadge, hexToRgba, NEUTRAL } from "../connectors/ConnectorIcon";
 import { resolveConnector } from "../connectors/registry";
-
-/** Coarse relative time from epoch seconds: "just now" / "5m ago" / "2h ago" / "3d ago" / a date. */
-function relativeTime(tsSeconds: number): string {
-  if (!tsSeconds || !isFinite(tsSeconds)) return "";
-  const then = tsSeconds * 1000;
-  const diff = Date.now() - then;
-  if (diff < 0) return "just now";
-  if (diff < 45_000) return "just now";
-  const mins = Math.round(diff / 60_000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(diff / 3_600_000);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.round(diff / 86_400_000);
-  if (days < 7) return `${days}d ago`;
-  return new Date(then).toLocaleDateString();
-}
-
-/** Absolute clock time (for the time element's title), e.g. "2:14 PM". */
-function clockTime(tsSeconds: number): string {
-  if (!tsSeconds || !isFinite(tsSeconds)) return "";
-  return new Date(tsSeconds * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
 
 export function ConnectorMessageCard({
   source,

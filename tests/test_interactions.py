@@ -3,23 +3,13 @@
 import asyncio
 import json
 
-from coworker.inbox import InboxStore
-from coworker.interactions import Button, buttons_for, decode, encode
+from helpers import ScriptedProvider
+
 from coworker.connectors.base import InteractionEvent
 from coworker.connectors.senders import _slack_blocks
-from coworker.providers import ModelCapabilities, ProviderClient
+from coworker.inbox import InboxStore
+from coworker.interactions import Button, buttons_for, decode, encode
 from coworker.server.manager import SessionManager
-
-
-class ScriptedProvider(ProviderClient):
-    def __init__(self, turns):
-        self._turns = list(turns)
-
-    def complete(self, *, model, messages, tools=None, **settings):
-        return self._turns.pop(0)
-
-    def capabilities(self, model):
-        return ModelCapabilities()
 
 
 def test_encode_decode_roundtrip():

@@ -51,7 +51,7 @@ def normalize_roots(roots: Iterable[Any] | None) -> list[RootDir]:
         else:  # duck-typed object with .path/.writable
             out.append(
                 RootDir(
-                    path=getattr(r, "path"),
+                    path=r.path,
                     writable=bool(getattr(r, "writable", False)),
                 )
             )

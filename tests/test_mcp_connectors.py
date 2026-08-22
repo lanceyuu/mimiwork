@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+from coworker.connectors.descriptors import list_descriptors
 from coworker.connectors.setup import (
     connector_list,
     disconnect_connector,
     update_connector_tools,
 )
-from coworker.connectors.descriptors import list_descriptors
 from coworker.connectors.tool_defs import mcp_pinned_tools, mcp_tool_defs, tool_dicts
 from coworker.mcp.config import put_global_server, read_global
 from coworker.secrets import SecretStore
@@ -246,10 +246,15 @@ def test_stale_token_reauth_never_opens_a_browser_mid_turn(tmp_path, monkeypatch
     )
     manager.secrets.put("mcp-oauth:granola", {"tokens": {"access_token": "stale"}})
 
+    def _group(*excs):
+        # Stand-in for ExceptionGroup (3.11+) that duck-types the one thing
+        # is_auth_required() unwraps: an `.exceptions` tuple.
+        g = Exception("transport")
+        g.exceptions = tuple(excs)
+        return g
+
     async def refuses(server):
-        raise ExceptionGroup(
-            "transport", [mcp_oauth.InteractiveAuthRequired("sign-in required")]
-        )
+        raise _group(mcp_oauth.InteractiveAuthRequired("sign-in required"))
 
     monkeypatch.setattr(manager.mcp, "ensure", refuses)
     assert asyncio.run(manager.prepare_mcp_tools("s1")) == []
@@ -270,7 +275,9 @@ def test_non_interactive_auth_wiring_refuses_the_browser():
 
     bare = mcp_oauth.InteractiveAuthRequired("x")
     assert mcp_oauth.is_auth_required(bare)
-    assert mcp_oauth.is_auth_required(ExceptionGroup("g", [ValueError(), bare]))
+    wrapped = Exception("g")
+    wrapped.exceptions = (ValueError(), bare)  # ExceptionGroup-shaped, 3.10-safe
+    assert mcp_oauth.is_auth_required(wrapped)
     chained = RuntimeError("wrapped")
     chained.__cause__ = bare
     assert mcp_oauth.is_auth_required(chained)

@@ -79,7 +79,7 @@ MimiWork is fully local: the agent loop, your conversations, connector tokens, a
 
 ## Quality
 
-The test suite is part of the product: **1,372 backend tests** cover the agent engine, tools, and connectors — including that every Office tool registers a schema a real provider accepts, that code-execution tools are approval-gated like the shell, and that a scanned PDF is flagged rather than silently summarized from nothing. **111 GUI tests** cover the desktop app.
+The test suite is part of the product: **1,362 backend tests** cover the agent engine, tools, and connectors — including that every Office tool registers a schema a real provider accepts, that code-execution tools are approval-gated like the shell, and that a scanned PDF is flagged rather than silently summarized from nothing. The desktop app is covered by **161 GUI unit tests** plus **150 hermetic Playwright e2e tests** (mocked backend, no network), with a separate small live-suite for the real thing. Lint (`ruff`, `eslint`) gates CI alongside the tests.
 
 ## Repository layout
 

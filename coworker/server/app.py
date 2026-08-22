@@ -152,6 +152,8 @@ _CONNECT_FAILED_DETAIL = (
 
 from ..attachments import (
     MAX_ATTACHMENTS as _MAX_ATTACHMENTS,
+)
+from ..attachments import (
     MAX_IMAGE_CHARS,
     MAX_PDF_CHARS,
     MAX_TEXT_CHARS,
@@ -1555,7 +1557,7 @@ def create_app(manager: SessionManager) -> FastAPI:
                     "model": engine.model,
                     "mode": engine.permissions.mode.value,
                     "workspace": (
-                        str(getattr(engine, "executor").cwd)
+                        str(engine.executor.cwd)
                         if getattr(engine, "executor", None)
                         else None
                     ),

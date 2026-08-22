@@ -16,6 +16,7 @@ import {
   type SurfaceVisibility,
 } from "../api";
 import type { SessionInfo } from "../types";
+import { compactAge } from "../time";
 import { isProjectScoped, shortPersonaName } from "../personaScope";
 import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { Icon, type IconName } from "./Icon";
@@ -39,29 +40,14 @@ const surfaceFromPersona = (p: Persona) => ({
   cls: `ico-${p.icon || "cowork"}`,
 });
 
-// Attention = Inbox items awaiting a session (an accent count that bubbles session → persona →
-// footer Inbox — all views of the one Inbox queue, never a second list).
-function AttnBadge({ n }: { n: number }) {
+// Quiet count pill shared by the Inbox attention badge and the Scheduled unseen-run badge
+// (identical treatment by owner call 2026-07-20: neutral, meaning lives in the tooltip).
+function CountBadge({ n, title }: { n: number; title: string }) {
   if (!n) return null;
   return (
     <span
       className="text-[10px] font-semibold text-ink bg-faint/30 rounded-full px-1.5 leading-[15px] shrink-0"
-      title={`${n} awaiting your attention`}
-    >
-      {n > 99 ? "99+" : n}
-    </span>
-  );
-}
-
-// UX-023: unseen-run count on a Scheduled entry. Deliberately QUIET — same neutral
-// treatment as the attention badge; failure only colors the tooltip's words, not the
-// sidebar (owner call 2026-07-20: no color, and the entry alone carries the count).
-function UnseenBadge({ n, failed }: { n: number; failed?: boolean }) {
-  if (!n) return null;
-  return (
-    <span
-      className="text-[10px] font-semibold text-ink bg-faint/30 rounded-full px-1.5 leading-[15px] shrink-0"
-      title={failed ? `${n} new run${n > 1 ? "s" : ""} — the latest failed` : `${n} new run${n > 1 ? "s" : ""}`}
+      title={title}
     >
       {n > 99 ? "99+" : n}
     </span>
@@ -147,26 +133,6 @@ interface Props {
   onCollapse?: () => void;
   onPeekLeave?: () => void;
 }
-
-// Compact age for project session rows: "now" / "5m" / "6h" / "3d" / "2w" / "4mo" / "2y".
-const compactAge = (iso?: string | null): string => {
-  if (!iso) return "";
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return "";
-  const secs = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (secs < 60) return "now";
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d`;
-  const weeks = Math.floor(days / 7);
-  if (days < 30) return `${weeks}w`;
-  const months = Math.floor(days / 30);
-  if (days < 365) return `${months}mo`;
-  return `${Math.floor(days / 365)}y`;
-};
 
 // Sessions shown per group before "Show more" comes from Settings (sessions_peek, default 5).
 
@@ -311,7 +277,8 @@ export function Sidebar(props: Props) {
   const toggleFilterPersona = (id: string) =>
     setFilterPersonas((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   const personaVisible = (agent: string) =>
@@ -332,7 +299,8 @@ export function Sidebar(props: Props) {
   const [personaShowAll, setPersonaShowAll] = useState<Set<string>>(new Set());
   const toggleSet = (set: Set<string>, key: string) => {
     const next = new Set(set);
-    next.has(key) ? next.delete(key) : next.add(key);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
     return next;
   };
 
@@ -585,7 +553,7 @@ export function Sidebar(props: Props) {
               )}
               <OriginIcon s={s} />
               <LiveDot state={s.liveness} />
-              <AttnBadge n={s.attention || 0} />
+              <CountBadge n={s.attention || 0} title={`${s.attention} awaiting your attention`} />
             </span>
             {rowActions(s, title)}
           </>
@@ -653,7 +621,7 @@ export function Sidebar(props: Props) {
               <OriginIcon s={s} />
               <ConnectorDot subs={s.subscriptions} />
               <LiveDot state={s.liveness} />
-              <AttnBadge n={s.attention || 0} />
+              <CountBadge n={s.attention || 0} title={`${s.attention} awaiting your attention`} />
             </span>
             {rowActions(s, title)}
           </>
@@ -698,7 +666,10 @@ export function Sidebar(props: Props) {
                 <div className="text-[13px] text-ink truncate">{a.title}</div>
                 <div className="text-[11px] text-faint truncate">{a.schedule}</div>
               </div>
-              <UnseenBadge n={a.unseen_runs || 0} failed={a.unseen_failed} />
+              <CountBadge
+                n={a.unseen_runs || 0}
+                title={`${a.unseen_runs || 0} new run${(a.unseen_runs || 0) > 1 ? "s" : ""}${a.unseen_failed ? " — the latest failed" : ""}`}
+              />
             </button>
           ))}
         </div>
@@ -1230,7 +1201,7 @@ export function Sidebar(props: Props) {
                         {s.label}
                       </span>
                       <LiveDot state={liveByPersona.get(s.key)} />
-                      <AttnBadge n={attnByPersona.get(s.key) || 0} />
+                      <CountBadge n={attnByPersona.get(s.key) || 0} title={`${attnByPersona.get(s.key) || 0} awaiting your attention`} />
                       {/* Persona configuration moved to Settings ▸ Personas (Rohit's call
                           2026-07-07) — the per-group gear read as clutter here. */}
                       <Icon
@@ -1319,7 +1290,7 @@ export function Sidebar(props: Props) {
                   "Inbox",
                   props.onOpenInbox,
                   props.inboxActive,
-                  <AttnBadge n={totalAttention} />,
+                  <CountBadge n={totalAttention} title={`${totalAttention} awaiting your attention`} />,
                 )}
                 {appMenuItem("plug", "Connectors", props.onOpenIntegrations, props.integrationsActive)}
                 <div className="h-px bg-line my-1 mx-2" />

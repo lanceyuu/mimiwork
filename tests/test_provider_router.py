@@ -14,8 +14,8 @@ from coworker.providers import (
     StreamChunk,
     capabilities_for,
 )
-from coworker.providers.registry import _normalize_ollama_url, build_provider_client
 from coworker.providers.openai_provider import _salvage_tool_calls_from_text
+from coworker.providers.registry import _normalize_ollama_url, build_provider_client
 
 
 # -- base_url passthrough -------------------------------------------------------

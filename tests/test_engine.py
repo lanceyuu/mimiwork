@@ -7,6 +7,8 @@ import threading
 import time
 
 import aisuite as ai
+from helpers import ScriptedProvider
+
 from coworker.engine import ApprovalOutcome, PermissionRequest, TurnEngine
 from coworker.events import EventType
 from coworker.permissions import PermissionEngine
@@ -29,22 +31,6 @@ def _tool_turn(name, args, call_id="call_1"):
         tool_calls=[ToolCall(id=call_id, name=name, arguments=args)],
         finish_reason="tool_calls",
     )
-
-
-class ScriptedProvider(ProviderClient):
-    """Returns queued AssistantTurns; streams via the base default (one final chunk)."""
-
-    def __init__(self, turns, *, loop=False):
-        self._turns = list(turns)
-        self._loop = loop
-        self.calls = 0
-
-    def complete(self, *, model, messages, tools=None, **settings):
-        self.calls += 1
-        return self._turns[0] if self._loop else self._turns.pop(0)
-
-    def capabilities(self, model):
-        return ModelCapabilities()
 
 
 def _engine(tmp_path, turns, *, approver=None, loop=False, max_iterations=12):

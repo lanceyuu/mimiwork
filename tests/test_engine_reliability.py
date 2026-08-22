@@ -3,7 +3,6 @@
 import asyncio
 
 import aisuite as ai
-import pytest
 
 from coworker.engine import ApprovalOutcome, PermissionRequest, TurnEngine
 from coworker.events import EventType

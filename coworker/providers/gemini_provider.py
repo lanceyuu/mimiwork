@@ -22,7 +22,8 @@ from __future__ import annotations
 import base64
 import json
 import re
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Any, Optional
 
 from .base import (

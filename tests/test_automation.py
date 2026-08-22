@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 
 import pytest
+from helpers import wait_until
 
 from coworker.automation import (
     Schedule,
@@ -118,9 +119,8 @@ async def test_scheduler_runs_due_task_and_advances(tmp_path):
 
     sched = Scheduler(store, runner, tick_seconds=0.05)
     sched.start()
-    await asyncio.sleep(0.2)
+    assert await wait_until(lambda: ran == [t.id]), "scheduler never ran the due task"
     await sched.stop()
-    assert ran == [t.id]
     advanced = store.get(t.id)
     assert advanced.run_count == 1 and advanced.last_status == "ok"
     assert (
@@ -143,7 +143,7 @@ async def test_scheduler_skips_overlapping_run(tmp_path):
 
     sched = Scheduler(store, slow_runner)
     first = asyncio.create_task(sched.run_task(t, trigger="manual"))
-    await asyncio.sleep(0.02)
+    assert await wait_until(lambda: started == 1), "first run never started"
     second = await sched.run_task(t, trigger="manual")  # overlaps → skipped
     assert second is None and started == 1
     gate.set()
@@ -261,6 +261,8 @@ def test_task_engine_has_no_scheduling_tools(tmp_path, monkeypatch):
     creates another automation instead of doing the task."""
     from coworker.providers import (
         AssistantTurn as _AT,
+    )
+    from coworker.providers import (
         ModelCapabilities,
         ProviderClient,
     )

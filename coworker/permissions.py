@@ -24,13 +24,24 @@ _SHELL_OPERATORS = (";", "&", "|", ">", "<", "`", "$(", "(", "\n", "\r")
 def _has_shell_operators(command: str) -> bool:
     return any(op in command for op in _SHELL_OPERATORS)
 
-from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS)
-    SHELL_TOOL,
-    WRITE_TOOLS,
-    RiskClass,
-    RiskOverrides,
-    classify,
-    is_consequential,
+from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS);
+    #                       redundant aliases mark them as intentional re-exports)
+    SHELL_TOOL as SHELL_TOOL,
+)
+from .risk import (
+    WRITE_TOOLS as WRITE_TOOLS,
+)
+from .risk import (
+    RiskClass as RiskClass,
+)
+from .risk import (
+    RiskOverrides as RiskOverrides,
+)
+from .risk import (
+    classify as classify,
+)
+from .risk import (
+    is_consequential as is_consequential,
 )
 
 
@@ -113,7 +124,7 @@ class PermissionEngine:
             elif isinstance(r, (str, Path)):
                 p, w = r, True
             else:  # duck-typed RootDir-like
-                p, w = getattr(r, "path"), bool(getattr(r, "writable", False))
+                p, w = r.path, bool(getattr(r, "writable", False))
             out.append((Path(p).expanduser().resolve(), w))
         return out
 

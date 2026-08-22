@@ -14,7 +14,7 @@ catalog (see ``PERMISSIONS-AND-INBOX.md``).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import aisuite as ai
@@ -25,12 +25,12 @@ from .tools.files import file_tools
 from .tools.git import git_tools
 from .tools.kb import kb_tools
 from .tools.listdir import list_directory_tool
-from .tools.qualitati_tools import qualitati_tools
 from .tools.office.docx_tools import docx_tools
 from .tools.office.image_tools import image_tools
 from .tools.office.pdf_tools import pdf_tools
 from .tools.office.pptx_tools import pptx_tools
 from .tools.office.xlsx_tools import xlsx_tools
+from .tools.qualitati_tools import qualitati_tools
 from .tools.search import search_tools
 from .tools.shell import shell_tools
 from .tools.todo import todo_tools

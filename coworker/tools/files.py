@@ -53,7 +53,7 @@ def file_tools(workspace: str, roots: Any = None) -> list:
     def _resolve(path: str) -> Path:
         """Multi-root read resolution: relative paths resolve against the primary root;
         absolute paths must land inside some root (the same rule the office tools use)."""
-        from .office.paths import PathError, resolve_read
+        from .office.paths import resolve_read
 
         return resolve_read(path, roots or root)
 

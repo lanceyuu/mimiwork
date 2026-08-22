@@ -16,14 +16,13 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Footer, Header, Input, Label, RichLog, Static
 
 from ..agent import build_cowork_engine
+from ..conversations import ConversationStore
 from ..engine import ApprovalOutcome, PermissionRequest
 from ..events import Event, EventType
-from ..conversations import ConversationStore
 from ..memory import MemoryStore
 from ..permissions import Mode
 from ..providers import ProviderClient
 from ..sessions import SessionRecord
-from ..secrets import state_dir
 
 
 def _short(value: Any, limit: int = 80) -> str:

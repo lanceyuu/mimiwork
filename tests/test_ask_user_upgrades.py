@@ -6,6 +6,8 @@ untouched by all of it."""
 import asyncio
 import json
 
+from test_durable_resume import ScriptedProvider, _run_until_pending, _text, _tool
+
 from coworker.inbox import InboxItem, InboxStore
 from coworker.interactions import buttons_for, decode
 from coworker.server.manager import SessionManager
@@ -18,9 +20,6 @@ from coworker.tools.ask import (
     option_label,
     question_item_fields,
 )
-
-from test_durable_resume import ScriptedProvider, _run_until_pending, _text, _tool
-
 
 # -- schema -------------------------------------------------------------------
 

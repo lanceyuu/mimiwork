@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._common import MAX_TEXT_CHARS, clip, decorate, guard, require
 from ... import deliverable_check
+from ._common import MAX_TEXT_CHARS, clip, decorate, guard, require
 from .paths import context_roots, display_path, resolve_read, resolve_write
 
 _DEFAULT_LIMIT = 200

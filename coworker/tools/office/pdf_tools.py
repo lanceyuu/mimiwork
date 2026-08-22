@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._common import MAX_TEXT_CHARS, clip, decorate, guard, require
+from ._common import clip, decorate, guard, require
 from .paths import context_roots, display_path, resolve_read
 
 _DEFAULT_PAGES = 10

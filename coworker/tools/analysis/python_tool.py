@@ -130,7 +130,7 @@ def python_tools(context: Any) -> list:
     handle = KernelHandle(Path(workspace))
     # Expose the handle so the session can shut the kernel down on teardown (the manager's
     # interrupt hooks own this the same way they own the shell executor's kill).
-    setattr(context, "python_kernel", handle)
+    context.python_kernel = handle
 
     def run_python(code: str, timeout: int = int(DEFAULT_TIMEOUT)) -> dict[str, Any]:
         if not isinstance(code, str) or not code.strip():

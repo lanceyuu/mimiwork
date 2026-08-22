@@ -12,15 +12,14 @@ from pathlib import Path
 import pytest
 
 from coworker.providers import ModelCapabilities, ProviderClient
+from coworker.server.manager import SessionManager
 from coworker.skills import (
     SessionSkillStore,
     SkillLoader,
-    SkillStore,
     effective_skills,
     skill_catalog_text,
     skill_tools,
 )
-from coworker.server.manager import SessionManager
 
 
 class ScriptedProvider(ProviderClient):

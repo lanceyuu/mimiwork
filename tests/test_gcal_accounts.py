@@ -8,8 +8,6 @@ account on every success so approvals/transcripts say whose calendar moved.
 
 from __future__ import annotations
 
-import time
-
 import pytest
 
 from coworker.connectors import gcal_accounts

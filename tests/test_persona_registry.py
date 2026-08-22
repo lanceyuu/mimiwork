@@ -4,9 +4,9 @@ default), third-party personas installed → enabled → surfaced on top of it."
 from __future__ import annotations
 
 import pytest
+from test_persona_loading import THIRD_PARTY
 
 from coworker.personas.registry import DEFAULT_PERSONA_ID, PersonaRegistry
-from test_persona_loading import THIRD_PARTY
 
 
 def _reg(tmp_path) -> PersonaRegistry:

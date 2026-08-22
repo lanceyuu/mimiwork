@@ -17,11 +17,10 @@ import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
-
-import urllib.request
-import urllib.error
 
 HERE = Path(__file__).parent
 BUNDLE_PATH = HERE / "research_bundle.json"

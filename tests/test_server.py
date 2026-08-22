@@ -359,8 +359,8 @@ def test_ws_simple_turn(tmp_path):
 
 
 def test_ws_rejects_oversized_message(tmp_path):
-    from coworker.server import app as app_mod
     from coworker.attachments import MAX_ATTACHMENTS
+    from coworker.server import app as app_mod
 
     client = _client(tmp_path, [_text("should not run")])
     with client.websocket_connect("/ws/session/big") as ws:
@@ -462,8 +462,9 @@ def test_ws_allows_only_one_inflight_turn_per_session(tmp_path):
 
 
 def test_ws_rate_limits_inbound_frames(tmp_path):
-    from coworker.server import app as app_mod
     from starlette.websockets import WebSocketDisconnect
+
+    from coworker.server import app as app_mod
 
     client = _client(tmp_path, [])
     with pytest.raises(WebSocketDisconnect):
@@ -588,8 +589,9 @@ def test_ws_allows_webview_origin(tmp_path):
 
 
 def test_sidecar_token_gates_rest_and_websockets(tmp_path, monkeypatch):
-    from coworker.mcp.config import global_mcp_path
     from starlette.websockets import WebSocketDisconnect as WSD
+
+    from coworker.mcp.config import global_mcp_path
 
     monkeypatch.setenv("COWORKER_API_TOKEN", "a" * 64)
     manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))

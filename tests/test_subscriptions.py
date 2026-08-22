@@ -2,17 +2,15 @@
 
 import asyncio
 
-import pytest
-
 from coworker.connectors.base import MessageEvent, SessionSource
+from coworker.providers import ModelCapabilities, ProviderClient
+from coworker.server.manager import SessionManager
 from coworker.subscriptions import (
     ChannelBuffer,
     SubscriptionStore,
     resolve_channel,
     subscription_tools,
 )
-from coworker.providers import ModelCapabilities, ProviderClient
-from coworker.server.manager import SessionManager
 
 
 class ScriptedProvider(ProviderClient):
@@ -46,6 +44,7 @@ def test_resolve_channel():
 
 def test_subscribe_rejects_bare_channel_names(tmp_path):
     from fastapi.testclient import TestClient
+
     from coworker.server import create_app
 
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
@@ -186,6 +185,7 @@ def test_dispatch_fans_out_to_subscribers(tmp_path, monkeypatch):
 
 def test_subscriptions_endpoint_and_collision(tmp_path):
     from fastapi.testclient import TestClient
+
     from coworker.server import create_app
 
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
@@ -205,6 +205,7 @@ def test_subscriptions_endpoint_and_collision(tmp_path):
 
 def test_subscribe_unsubscribe_and_recent_endpoints(tmp_path):
     from fastapi.testclient import TestClient
+
     from coworker.server import create_app
 
     mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))

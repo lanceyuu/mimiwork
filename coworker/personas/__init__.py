@@ -8,8 +8,8 @@ parties use. See `platform/docs/PERSONAS.md`.
 
 from __future__ import annotations
 
-from .manifest import PersonaManifest, ManifestError, parse_manifest, load_manifest_file
-from .registry import PersonaRegistry, PersonaState, DEFAULT_PERSONA_ID
+from .manifest import ManifestError, PersonaManifest, load_manifest_file, parse_manifest
+from .registry import DEFAULT_PERSONA_ID, PersonaRegistry, PersonaState
 
 __all__ = [
     "PersonaManifest",

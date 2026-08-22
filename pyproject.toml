@@ -15,8 +15,11 @@ dependencies = [
     "textual>=1.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",
-    # aisuite (toolkits/tracing), pinned to the commit this repo was imported from;
-    # swap for a PyPI pin ("aisuite>=x.y") once the next aisuite release ships.
+    # aisuite (toolkits/tracing), pinned to the exact upstream commit this repo imports.
+    # Do NOT swap for a PyPI pin without checking upstream first: as of 2026-08 the
+    # newest PyPI release (0.1.14, 2025-11) predates this commit by ~8 months, and the
+    # GitHub repo has since been archived into an "OpenWorker platform snapshot" —
+    # so this sha IS the freshest code available.
     "aisuite @ git+https://github.com/andrewyng/aisuite.git@1b4bbf303ec21968230b1ec869a144d054e9b3c4",
     "docstring_parser",
     "pyyaml>=6",  # persona manifest frontmatter (YAML)
@@ -38,7 +41,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio", "httpx"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio",
+    "httpx",
+    "pytest-xdist",   # `pytest -n auto` parallel runs (suite is hermetic per-test)
+    "pytest-cov",     # `pytest --cov=coworker --cov-report=term-missing`
+    "ruff>=0.5",
+]
 # Inbound messaging listeners (outbound send_message needs only httpx, already a core dep).
 # aiohttp is slack-bolt's Socket Mode transport at runtime (and the FakeSlack test harness
 # drives the real handler) — declare it so CI installs it, not just transitively.
@@ -64,18 +74,11 @@ analysis = [
     "matplotlib>=3.7",
     "scipy>=1.10",      # statistical tests in the analysis kernel
 ]
-# Everything a knowledge-work install needs in one extra.
+# Everything a knowledge-work install needs in one extra: office deliverables + the
+# analysis kernel (self-referential extras, so the lists stay in sync).
 knowledge = [
-    "python-docx>=1.1",
-    "openpyxl>=3.1",
-    "python-pptx>=0.6.23",
-    "pillow>=10",
-    "pdfplumber>=0.11",
-    "pandas>=2",
-    "numpy>=1.24",
-    "pyreadstat>=1.2",
-    "matplotlib>=3.7",
-    "scipy>=1.10",
+    "coworker[office]",
+    "coworker[analysis]",
 ]
 # AWS Bedrock provider (lazy-imported; desktop builds bundle it, pip users opt in).
 bedrock = ["boto3>=1.34"]
@@ -95,3 +98,31 @@ coworker = ["personas/builtin/*.md", "kb/*.jsonl", "skills/builtin/**/*", "skill
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: long-running tests (deselect with -m 'not slow')",
+    "integration: multi-component tests that are heavier than unit tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]
+ignore = [
+    # E501: the codebase has many long string/comment lines that mechanical
+    # wrapping would not improve.
+    "E501",
+    # E402: late imports are deliberate — sys.path/state-dir setup and optional
+    # heavy deps (office, analysis) load before the modules that need them.
+    "E402",
+    # Style-opinionated rules that would churn working code without behavior gain:
+    # B904 raise-from, B008 FastAPI DI defaults, E731 lambdas, E741 names,
+    # B017 pytest.raises idiom, B023 loop-var closures, B027 optional abstracts,
+    # B905 zip strictness on 3.10 floor.
+    "B904", "B008", "E731", "E741", "B017", "B023", "B027", "B905",
+]
+
+[tool.coverage.run]
+source = ["coworker"]
+omit = ["coworker/tui/*"]

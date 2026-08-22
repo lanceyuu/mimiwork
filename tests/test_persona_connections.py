@@ -68,7 +68,6 @@ You are Acme's ops coworker.
 
 
 def _install_ops(mgr) -> None:
-    vendor = mgr.default_workspace / "vendor" if hasattr(mgr.default_workspace, "__fspath__") else None
     import pathlib as _pl
     d = _pl.Path(str(mgr.default_workspace)) / "vendor"
     d.mkdir(exist_ok=True)
