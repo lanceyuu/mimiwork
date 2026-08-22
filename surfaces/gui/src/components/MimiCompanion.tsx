@@ -4,7 +4,8 @@
  * The metaphor is deliberate: while the coworker is BUSY, Mimi sleeps ("work is
  * running, nothing to do but wait"); the moment the last task finishes she wakes
  * up — a glance at the corner of the screen answers "is it done yet?". Clicking
- * her restores the app.
+ * her restores the app; dragging moves the window anywhere on screen (the Rust
+ * shell remembers the spot across restarts).
  *
  * State comes from the sidecar: GET /v1/activity for the initial snapshot, then
  * {"type":"activity"} frames on /ws/events whenever the app-wide busy boolean
@@ -198,6 +199,23 @@ export function MimiCompanion() {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_dismiss");
   };
 
+  // Drag-to-move: pressing anywhere starts an OS window drag (the shell moves the
+  // real always-on-top window; the Rust shell persists the dropped position). A
+  // drop must not count as the click that restores the app — so onClick only
+  // fires when the pointer didn't travel. In a plain browser (vite dev) there is
+  // no Tauri window: pressing does nothing and the click restores nothing.
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const startDrag = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    (globalThis as any).__TAURI__?.window?.getCurrentWindow?.()?.startDragging?.();
+  };
+  const maybeRestore = (e: React.MouseEvent) => {
+    const down = dragStartRef.current;
+    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // was a drag
+    restore();
+  };
+
   // The speech bubble: names the work while busy; celebrates when it lands.
   // (No permanent label under the pet — owner ask 2026-08-20: the bubble talks,
   // the pet stays clean.)
@@ -218,8 +236,9 @@ export function MimiCompanion() {
   return (
     <div
       data-testid="mimi-companion"
-      onClick={restore}
-      title="Open MimiWork"
+      onPointerDown={startDrag}
+      onClick={maybeRestore}
+      title="Open MimiWork (drag to move)"
       style={{
         position: "relative",
         width: "100vw",

@@ -131,9 +131,10 @@ fn read_desktop_pref(key: &str, default: bool) -> bool {
         .unwrap_or(default)
 }
 
-/// Merge-write: read-modify-write so one preference never clobbers the others
-/// (the old writer serialized only its own key, silently dropping the rest).
-fn write_desktop_pref(key: &str, enabled: bool) {
+/// Merge-write of arbitrary JSON values; the bool flavor below delegates here.
+/// Read-modify-write so one preference never clobbers the others (the old
+/// writer serialized only its own key, silently dropping the rest).
+fn write_desktop_pref_value(key: &str, value: serde_json::Value) {
     let path = desktop_prefs_path();
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -143,9 +144,13 @@ fn write_desktop_pref(key: &str, enabled: bool) {
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .unwrap_or_else(|| serde_json::json!({}));
     if let Some(map) = prefs.as_object_mut() {
-        map.insert(key.to_string(), serde_json::Value::Bool(enabled));
+        map.insert(key.to_string(), value);
     }
     let _ = std::fs::write(&path, prefs.to_string());
+}
+
+fn write_desktop_pref(key: &str, enabled: bool) {
+    write_desktop_pref_value(key, serde_json::Value::Bool(enabled));
 }
 
 fn read_keep_awake_pref() -> bool {
@@ -552,19 +557,86 @@ fn hide_companion(app: &tauri::AppHandle) {
 
 /// Bottom-right of the monitor the main window lives on, above the Dock/taskbar.
 fn position_companion(w: &tauri::WebviewWindow) {
+    let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
+    // A position the user dragged her to previously — but only if it still lands
+    // fully on a connected monitor (a saved spot on an unplugged display would
+    // otherwise make the pet unfindable).
+    if let Some((x, y)) = companion_saved_position(w, &ws) {
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        return;
+    }
     let monitor = w.current_monitor().ok().flatten().or_else(|| {
         w.primary_monitor().ok().flatten()
     });
     if let Some(mon) = monitor {
         let ms = mon.size();
         let mp = mon.position();
-        let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
         let sf = mon.scale_factor();
         let margin = (24.0 * sf) as i32;
         let x = mp.x + ms.width as i32 - ws.width as i32 - margin;
         let y = mp.y + ms.height as i32 - ws.height as i32 - (80.0 * sf) as i32;
         let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
     }
+}
+
+/// The last user-dragged companion position (physical px), if it fits entirely
+/// within one of the currently connected monitors.
+fn companion_saved_position(
+    w: &tauri::WebviewWindow,
+    ws: &tauri::PhysicalSize<u32>,
+) -> Option<(i32, i32)> {
+    let prefs = std::fs::read_to_string(desktop_prefs_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())?;
+    let x = prefs.get("companion_pos_x")?.as_i64()? as i32;
+    let y = prefs.get("companion_pos_y")?.as_i64()? as i32;
+    let monitors = w.available_monitors().ok()?;
+    monitors.into_iter().find(|mon| {
+        let mp = mon.position();
+        let ms = mon.size();
+        x >= mp.x
+            && y >= mp.y
+            && x + ws.width as i32 <= mp.x + ms.width as i32
+            && y + ws.height as i32 <= mp.y + ms.height as i32
+    })?;
+    Some((x, y))
+}
+
+// Drag persistence: WindowEvent::Moved fires continuously while the OS drags the
+// window (~60Hz), so saves are debounced — the event handler only parks the latest
+// coordinates and arms one writer thread; the thread drains whatever is parked
+// after 500ms of quiet and exits when there's nothing left.
+static COMPANION_POS_PENDING: std::sync::Mutex<Option<(i32, i32)>> =
+    std::sync::Mutex::new(None);
+static COMPANION_POS_SAVE_ARMED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+fn queue_companion_pos_save(x: i32, y: i32) {
+    if let Ok(mut pending) = COMPANION_POS_PENDING.lock() {
+        *pending = Some((x, y));
+    }
+    // The losing arm call does nothing: whichever thread is armed drains any
+    // newer value parked after it, so no save is lost either way.
+    if COMPANION_POS_SAVE_ARMED.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let parked = COMPANION_POS_PENDING
+            .lock()
+            .ok()
+            .and_then(|mut p| p.take());
+        match parked {
+            Some((x, y)) => {
+                write_desktop_pref_value("companion_pos_x", serde_json::json!(x));
+                write_desktop_pref_value("companion_pos_y", serde_json::json!(y));
+            }
+            None => {
+                COMPANION_POS_SAVE_ARMED.store(false, std::sync::atomic::Ordering::Release);
+                break;
+            }
+        }
+    });
 }
 
 /// Companion click-through to the app: restore the main window, hide the pet.
@@ -831,6 +903,13 @@ pub fn run() {
             match companion_builder.build() {
                 Ok(companion) => {
                     position_companion(&companion);
+                    // Persist wherever the user drags her (debounced in
+                    // queue_companion_pos_save); position_companion restores it.
+                    companion.on_window_event(|event| {
+                        if let WindowEvent::Moved(pos) = event {
+                            queue_companion_pos_save(pos.x, pos.y);
+                        }
+                    });
                 }
                 Err(e) => eprintln!("[coworker] companion window failed to build: {e}"),
             }

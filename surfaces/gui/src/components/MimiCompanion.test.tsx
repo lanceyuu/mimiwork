@@ -82,6 +82,46 @@ describe("MimiCompanion", () => {
     expect(invoke).toHaveBeenCalledWith("companion_restore");
   });
 
+  /** jsdom has no PointerEvent, so fireEvent.pointerDown drops init props (button/clientX);
+   *  dispatch a hand-built bubbling event so React's synthetic handler sees real values. */
+  function pointerDownAt(el: Element, x: number, y: number) {
+    const ev = new Event("pointerdown", { bubbles: true });
+    Object.assign(ev, { button: 0, clientX: x, clientY: y });
+    fireEvent(el, ev);
+  }
+
+  it("pressing her starts an OS window drag; dropping far away does not restore the app", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    const startDragging = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: { getCurrentWindow: () => ({ startDragging }) },
+    };
+    render(<MimiCompanion />);
+    const pet = screen.getByTestId("mimi-companion");
+    pointerDownAt(pet, 10, 10);
+    expect(startDragging).toHaveBeenCalledOnce();
+    // Drop far from where the press started: a drag, not a click.
+    fireEvent.click(pet, { clientX: 120, clientY: 90 });
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("a click that barely moves after the press still restores the app", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    const startDragging = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: { getCurrentWindow: () => ({ startDragging }) },
+    };
+    render(<MimiCompanion />);
+    const pet = screen.getByTestId("mimi-companion");
+    pointerDownAt(pet, 10, 10);
+    fireEvent.click(pet, { clientX: 12, clientY: 11 });
+    expect(invoke).toHaveBeenCalledWith("companion_restore");
+  });
+
   it("the \u2715 dismisses without restoring the app", async () => {
     getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
     const invoke = vi.fn();
