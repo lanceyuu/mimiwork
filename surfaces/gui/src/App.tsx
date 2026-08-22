@@ -230,6 +230,9 @@ export function App() {
   // "Loading…" forever (owner-hit 2026-07-20). Nav re-entry should land on the list.
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
+  // The Projects band's "+": a PROJECT gate, independent of the session surface — choosing
+  // a folder lands on the Project page (instructions, memory), not in a fresh conversation.
+  const [projectGate, setProjectGate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<
     "appearance" | "models" | "skills" | "voice" | "memory" | "personas"
@@ -1165,20 +1168,15 @@ export function App() {
     setRunning(false);
     chooseWorkspace(res.path, res.git_branch ?? null);
   };
-  const newProject = (forAgent?: string) => {
-    const target = forAgent || agent;
-    setSurface("session");
-    setItems([]);
-    setUsage(emptyUsage());
-    setStreaming("");
-    setTodo([]);
-    setRunning(false);
-    if (target !== agent) setAgent(target);
-    setWorkspace(null);
-    setBranch(null);
-    setSessionId(newId());
-    setGateCreate(true);
-    setShowGate(true);
+  // New project = a new PLACE. Nothing about the current conversation changes; the folder
+  // picker opens in create mode and a successful pick opens the Project page.
+  const newProject = (_forAgent?: string) => {
+    setProjectGate(true);
+  };
+  const createProject = (path: string) => {
+    setProjectGate(false);
+    refreshSessions(); // the projects list now includes it
+    openProject(path);
   };
   const renameConversation = async (id: string, title: string) => {
     const res = await renameSession(id, title);
@@ -1890,6 +1888,14 @@ export function App() {
         />
       )}
 
+      {projectGate && (
+        <FolderGate
+          create
+          mode="project"
+          onChoose={(path) => createProject(path)}
+          onCancel={() => setProjectGate(false)}
+        />
+      )}
       {showGate && surface === "session" && gatesWorkspace(agent) && (
         <FolderGate
           create={gateCreate}
