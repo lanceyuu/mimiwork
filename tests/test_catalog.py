@@ -54,6 +54,7 @@ COWORK_TOOLS = {
     "read_document",
     "write_document",
     "edit_document",
+    "revise_document",
     "read_workbook",
     "write_workbook",
     "edit_workbook",

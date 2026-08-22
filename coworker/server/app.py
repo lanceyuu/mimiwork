@@ -1292,6 +1292,13 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    @app.get("/v1/blueprints/builtin")
+    def builtin_blueprint_list() -> list[dict[str, Any]]:
+        """Starter blueprints bundled with the app (importable like a shared file)."""
+        from ..blueprints import builtin_blueprints
+
+        return builtin_blueprints()
+
     @app.post("/v1/automations/{task_id}/blueprint")
     def automation_blueprint(task_id: str) -> dict[str, Any]:
         """Export the automation as a shareable blueprint file (~/Downloads)."""

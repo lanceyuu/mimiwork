@@ -1,0 +1,8 @@
+{
+  "mimiwork_blueprint": 1,
+  "title": "Weekly research digest",
+  "instructions": "TOPICS (edit this line): AI in consumer research; qualitative research methods\n\nPrepare my weekly research digest on the topics above. Search the web for papers, preprints, and news from the last 7 days on each topic — prefer primary sources (journals, arXiv/SSRN, university and lab announcements, reputable outlets). Where a finding touches research methods, use kb_search to add methodological context from Mimi's knowledge base. Write a Word document with these sections: Top papers (title, venue, one-paragraph summary, why it matters), News, Why it matters for my work, Suggested reading. Cite every item with a link. Save it as the session deliverable.",
+  "schedule": { "kind": "cron", "cron": "0 8 * * 1" },
+  "notify_on_completion": true,
+  "permissions": []
+}

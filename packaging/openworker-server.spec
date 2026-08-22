@@ -59,6 +59,8 @@ datas += collect_data_files("coworker", includes=["**/*.jsonl"])
 datas += collect_data_files(
     "coworker", includes=["skills/builtin/**/*", "skills/*.json.gz"]
 )
+# blueprints/*.mimiflow.json — bundled starter automations (Automations ▸ starter blueprints).
+datas += collect_data_files("coworker", includes=["blueprints/*.json"])
 
 if not INCLUDE_EXPERIMENTAL:
     hiddenimports = [

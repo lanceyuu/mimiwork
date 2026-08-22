@@ -94,4 +94,4 @@ def test_the_catalog_still_builds_without_office_libraries(context, no_office_li
     from coworker.catalog import expand
 
     tools = expand(["documents", "spreadsheets", "slides"], context)
-    assert len(tools) == 8
+    assert len(tools) == 9  # docx ×4 (write/read/edit/revise), xlsx ×3, pptx ×2

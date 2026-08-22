@@ -1733,6 +1733,12 @@ export interface Blueprint {
   notify_on_completion?: boolean;
   permissions?: { tool: string; target: string; access: "read" | "write" }[];
 }
+/** Starter blueprints bundled with the app — imported exactly like a shared file. */
+export async function listBuiltinBlueprints(): Promise<{ name: string; blueprint: Blueprint }[]> {
+  const res = await fetch(`${httpBase()}/v1/blueprints/builtin`);
+  return res.json();
+}
+
 export async function exportBlueprint(
   id: string,
 ): Promise<{ ok: boolean; path?: string; blueprint?: Blueprint; error?: string }> {

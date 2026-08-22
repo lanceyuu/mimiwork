@@ -4,6 +4,7 @@ import {
   createAutomation,
   deleteAutomation,
   exportBlueprint,
+  listBuiltinBlueprints,
   getAutomation,
   getAutomations,
   markAutomationSeen,
@@ -15,6 +16,7 @@ import {
 } from "../api";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
+import { SelectMenu } from "./SelectMenu";
 import { AutomationQuickstart } from "./AutomationQuickstart";
 
 // Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
@@ -73,6 +75,11 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   // A parsed .mimiflow.json waiting in the creation form (import flow).
   const [prefill, setPrefill] = useState<Blueprint | null>(null);
+  // Starter blueprints bundled with the app — one click prefills the review form.
+  const [starters, setStarters] = useState<{ name: string; blueprint: Blueprint }[]>([]);
+  useEffect(() => {
+    listBuiltinBlueprints().then((l) => setStarters(Array.isArray(l) ? l : [])).catch(() => {});
+  }, []);
 
   // The sidebar's Scheduled band can retarget an ALREADY-open Automations surface —
   // initial state alone would ignore the change (UX-023).
@@ -160,6 +167,28 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
             }}
           />
         </label>
+        {starters.length > 0 && (
+          <div className="relative shrink-0" data-testid="starter-blueprints">
+            <SelectMenu
+              ariaLabel="Starter blueprints"
+              value="__starters"
+              options={[
+                { value: "__starters", label: "Starter blueprints" },
+                ...starters.map((s) => ({
+                  value: s.name,
+                  label: s.blueprint.title,
+                  sub: "Prefills the form — review, then create",
+                })),
+              ]}
+              onChange={(v) => {
+                const hit = starters.find((s) => s.name === v);
+                if (!hit) return;
+                setPrefill(hit.blueprint);
+                setShowForm(true);
+              }}
+            />
+          </div>
+        )}
         <button
           className="text-[12.5px] px-3 py-1.5 rounded-lg border border-lineStrong bg-panel hover:border-accent hover:text-accent shrink-0"
           onClick={() => setShowForm((v) => !v)}

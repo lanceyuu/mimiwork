@@ -47,11 +47,12 @@ interface QuickTemplate {
   conns: { name: string; why: string }[]; // [] = no connections needed
   needsRepo?: boolean;
   needsChannel?: boolean;
+  needsTopics?: boolean; // free-text topics the instructions are built around
   consent?: boolean; // write recipes carry the §25 consent line; reads carry disclosure
   deliver?: boolean; // Morning brief's deliver-to choice
   day: string;
   time: string;
-  instructions: (ctx: { repo: string; channel: string; deliver: "app" | "slack" }) => string;
+  instructions: (ctx: { repo: string; channel: string; deliver: "app" | "slack"; topics: string }) => string;
 }
 
 const TEMPLATES: QuickTemplate[] = [
@@ -108,6 +109,28 @@ const TEMPLATES: QuickTemplate[] = [
       `Prepare a short morning brief: today's calendar events and gaps, plus email that ` +
       `arrived since yesterday evening. ` +
       (deliver === "app" ? "Save it as the session deliverable." : "Send it to me as a Slack DM."),
+  },
+  {
+    key: "research",
+    title: "Weekly research digest",
+    blurb: "New papers and news on your topics, with context from Mimi's knowledge base, as a Word digest.",
+    cadence: "Weekly",
+    conns: [],
+    needsTopics: true,
+    deliver: true,
+    day: "mon",
+    time: "08:00",
+    instructions: ({ deliver, topics }) =>
+      `Prepare my weekly research digest on: ${topics.trim()}. Search the web for papers, ` +
+      `preprints, and news from the last 7 days on each topic — prefer primary sources ` +
+      `(journals, arXiv/SSRN, university and lab announcements, reputable outlets). Where a ` +
+      `finding touches research methods, use kb_search to add methodological context from ` +
+      `Mimi's knowledge base. Write a Word document with these sections: Top papers (title, ` +
+      `venue, one-paragraph summary, why it matters), News, Why it matters for my work, ` +
+      `Suggested reading. Cite every item with a link. ` +
+      (deliver === "app"
+        ? "Save it as the session deliverable."
+        : "Send it to me as a Slack DM with the document attached."),
   },
   {
     key: "news",
@@ -171,6 +194,7 @@ export function AutomationQuickstart({
   const [day, setDay] = useState("mon");
   const [time, setTime] = useState("09:00");
   const [deliver, setDeliver] = useState<"app" | "slack">("app");
+  const [topics, setTopics] = useState("");
   const [consent, setConsent] = useState(true);
 
   const refresh = () => {
@@ -229,7 +253,7 @@ export function AutomationQuickstart({
     if (!picked) return;
     onCreate({
       title: picked.title,
-      instructions: picked.instructions({ repo, channel, deliver }),
+      instructions: picked.instructions({ repo, channel, deliver, topics }),
       cron: cronFor(day, time),
       permissions:
         picked.consent && consent && channel
@@ -245,7 +269,9 @@ export function AutomationQuickstart({
         .join(" and ")} to continue`
     : picked?.needsChannel && !channel
       ? "Pick a channel to post to first"
-      : "";
+      : picked?.needsTopics && !topics.trim()
+        ? "Type the topics to follow first"
+        : "";
 
   const label = "block text-[12px] text-muted mt-3 mb-1";
   const input =
@@ -379,6 +405,18 @@ export function AutomationQuickstart({
                   />
                 </>
               )}
+              {picked.needsTopics && (
+                <>
+                  <label className={label}>Topics to follow</label>
+                  <input
+                    className={input}
+                    placeholder="e.g. AI in consumer research; qualitative methods"
+                    value={topics}
+                    onChange={(e) => setTopics(e.target.value)}
+                    data-testid="ob-topics"
+                  />
+                </>
+              )}
               {picked.needsChannel && (
                 <>
                   <label className={label}>Post to channel</label>
@@ -474,7 +512,12 @@ export function AutomationQuickstart({
                 (gateHint ? "" : "ml-auto ") +
                 "px-5 py-2 rounded-full bg-ink text-panel text-[13px] disabled:opacity-40"
               }
-              disabled={busy || !allConnected || (picked.needsChannel && !channel)}
+              disabled={
+                busy ||
+                !allConnected ||
+                (picked.needsChannel && !channel) ||
+                (picked.needsTopics && !topics.trim())
+              }
               onClick={create}
               data-testid="ob-create"
             >
