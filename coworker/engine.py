@@ -24,7 +24,7 @@ from . import compaction as _compaction
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
-from .providers.errors import friendly_model_error
+from .providers.errors import friendly_model_error, is_transient, retry_after_seconds
 from .tools import RecoveryPolicy, ToolRegistry
 
 
@@ -45,6 +45,13 @@ class PermissionRequest:
 
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
+
+
+_WRAP_UP_TEXT = (
+    "You are almost out of tool steps for this turn. Finish now: write the deliverable "
+    "with what you already have, then reply with a short summary of what is done and what "
+    "is still missing. Do not start new research."
+)
 
 
 @dataclass
@@ -121,6 +128,11 @@ class TurnEngine:
         # Plugin-style tool hooks (ToolHooks). Attached post-construction like `spill`
         # (see build_engine); None keeps old behaviour byte-identical.
         self.hooks: Optional[ToolHooks] = None
+        # Transient provider failures (429/5xx/timeouts) are retried with these delays
+        # before the turn surfaces an error — only when nothing has streamed yet, so the
+        # user never sees duplicated text. Tests shrink the delays to zero.
+        self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0)
+        self._wrap_up_sent = False
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
         # constructor footprint stays put. `compaction_settings` is a live getter (Settings
         # changes apply without a rebuild); `is_attended` gates the failure prompt (None →
@@ -356,6 +368,7 @@ class TurnEngine:
 
     async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
+        retries_used = 0
         while True:
             if iterations >= self.max_iterations:
                 yield Event(
@@ -364,6 +377,26 @@ class TurnEngine:
                 )
                 return
             iterations += 1
+            if (
+                iterations == self.max_iterations
+                and self.max_iterations > 2
+                and not self._wrap_up_sent
+            ):
+                # Last allowed model call: steer it to land the deliverable instead of
+                # starting more tool work and dying with max_iterations_exceeded.
+                self._wrap_up_sent = True
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": _WRAP_UP_TEXT,
+                        "ts": time.time(),
+                        "steering": "wrap_up",
+                    }
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {"kind": "wrap_up", "text": "Almost out of steps — asking Mimi to wrap up."},
+                )
 
             # Auto-compaction checkpoint (OPE-27): between tool turns and before a new
             # turn's first call. Deliberately no "wrap up" warning to the model. The
@@ -404,6 +437,30 @@ class TurnEngine:
                     if chunk.turn is not None:
                         turn = chunk.turn
             except Exception as exc:  # provider failure
+                # Momentary failure (rate limit, overload, network blip) with nothing
+                # streamed yet: wait and call again — the user sees a quiet "retrying"
+                # line, not a dead turn. Quota/auth/overflow errors never take this path.
+                if (
+                    is_transient(exc)
+                    and not streamed
+                    and not streamed_reasoning
+                    and retries_used < len(self.retry_delays)
+                    and not self._cancel.is_set()
+                ):
+                    delay = retry_after_seconds(exc) or self.retry_delays[retries_used]
+                    retries_used += 1
+                    yield Event(
+                        EventType.NOTICE,
+                        {
+                            "kind": "retry",
+                            "text": f"Model busy — retrying ({retries_used}/{len(self.retry_delays)})…",
+                            "attempt": retries_used,
+                            "delay": delay,
+                        },
+                    )
+                    await asyncio.sleep(delay)
+                    iterations -= 1  # the retry is the same step, not a new one
+                    continue
                 # A raw context-overflow 400 (compaction mispredicted, e.g. the estimate
                 # path) routes into the compaction policy instead of surfacing. The retry
                 # is progress-guarded: each pass moves the boundary forward or gives up,
@@ -438,6 +495,7 @@ class TurnEngine:
                 return
             if turn is None:
                 turn = AssistantTurn()
+            retries_used = 0  # a successful call resets the transient-retry budget
             if turn.usage is not None:
                 # The trigger signal: the prompt-side total that actually occupied the
                 # window on this round-trip (estimate fallback when never reported).
@@ -1099,6 +1157,11 @@ class TurnEngine:
                 result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
             except Exception as exc:
                 result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
+        if result[1] == "ok" and tool_call.name == "write_file":
+            # Text deliverables written through the generic file tool get the same
+            # reopen-and-check the Office writers do (those check themselves — they
+            # know the absolute target; here we resolve against the workspace root).
+            result = (self._verify_written_file(tool_call.arguments, result[0]), "ok")
         if hooks is not None:
             for hook in hooks.post:
                 try:
@@ -1127,6 +1190,38 @@ class TurnEngine:
                     reason=str(exc),
                 )
         return result
+
+    def _verify_written_file(self, arguments: dict[str, Any], result: Any) -> Any:
+        from pathlib import Path as _Path
+
+        from . import deliverable_check
+
+        raw = arguments.get("path") if isinstance(arguments, dict) else None
+        if not isinstance(raw, str) or not raw:
+            return result
+        target = _Path(raw).expanduser()
+        if not target.is_absolute():
+            root = getattr(self.permissions, "workspace_root", None)
+            if root is None:
+                return result
+            target = _Path(root) / target
+        if target.suffix.lower() not in deliverable_check.CHECKED_SUFFIXES:
+            return result
+        try:
+            report = deliverable_check.check(target)
+        except Exception:
+            return result
+        if report["ok"]:
+            return result
+        shaped: dict[str, Any] = (
+            dict(result) if isinstance(result, dict) else {"result": result}
+        )
+        shaped["verification"] = {
+            "ok": False,
+            "issues": report["issues"],
+            "instruction": "Fix these before telling the user the deliverable is ready.",
+        }
+        return shaped
 
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
         # A `_display` key on a tool result is user-facing metadata the AGENT must
@@ -1386,7 +1481,7 @@ class TurnEngine:
         # (thinking text), and `usage` (token counts) — copying only messages that carry
         # one. Whole `notice` messages (error/interrupted/model-switch markers) are
         # display-only too: dropped entirely.
-        _SIDECARS = ("source", "_display", "ts", "reasoning", "usage")
+        _SIDECARS = ("source", "_display", "ts", "reasoning", "usage", "steering")
         # Auto-compaction (OPE-27): everything before the boundary is represented by the
         # compacted block. Outbound-only — the canonical history stays intact — and the
         # block+tail are byte-stable between turns, so prompt caching keeps working.

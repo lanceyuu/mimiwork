@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from ._common import clip, decorate, guard, require
+from ... import deliverable_check
 from .paths import context_roots, display_path, resolve_read, resolve_write
 
 # python-pptx's default template layout indexes.
@@ -212,13 +213,16 @@ def pptx_tools(context: Any) -> list:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         deck.save(str(target))
-        return {
-            "path": display_path(target, roots),
-            "slides_written": len(slides),
-            "total_slides": len(list(deck.slides)),
-            "appended": bool(append),
-            "bytes": target.stat().st_size,
-        }
+        return deliverable_check.attach(
+            {
+                "path": display_path(target, roots),
+                "slides_written": len(slides),
+                "total_slides": len(list(deck.slides)),
+                "appended": bool(append),
+                "bytes": target.stat().st_size,
+            },
+            target,
+        )
 
     @guard
     def read_presentation(path: str) -> dict[str, Any]:

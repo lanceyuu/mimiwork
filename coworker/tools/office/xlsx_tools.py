@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from ._common import clip, decorate, guard, require
+from ... import deliverable_check
 from .paths import context_roots, display_path, resolve_read, resolve_write
 
 _DEFAULT_ROWS = 100
@@ -265,12 +266,15 @@ def xlsx_tools(context: Any) -> list:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         book.save(str(target))
-        return {
-            "path": display_path(target, roots),
-            "sheets": [str(e.get("name")) for e in plan],
-            "rows_written": written,
-            "bytes": target.stat().st_size,
-        }
+        return deliverable_check.attach(
+            {
+                "path": display_path(target, roots),
+                "sheets": [str(e.get("name")) for e in plan],
+                "rows_written": written,
+                "bytes": target.stat().st_size,
+            },
+            target,
+        )
 
     @guard
     def edit_workbook(path: str, cells: list, sheet: str = "") -> dict[str, Any]:

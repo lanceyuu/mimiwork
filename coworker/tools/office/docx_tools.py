@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from ._common import MAX_TEXT_CHARS, clip, decorate, guard, require
+from ... import deliverable_check
 from .paths import context_roots, display_path, resolve_read, resolve_write
 
 _DEFAULT_LIMIT = 200
@@ -211,12 +212,12 @@ def docx_tools(context: Any) -> list:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         document.save(str(target))
-        return {
+        return deliverable_check.attach({
             "path": display_path(target, roots),
             "blocks_written": len(blocks),
             "appended": bool(append),
             "bytes": target.stat().st_size,
-        }
+        }, target)
 
     @guard
     def read_document(

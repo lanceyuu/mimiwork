@@ -55,3 +55,64 @@ def friendly_model_error(model: str, exc: Exception) -> Optional[str]:
     if "not_found_error" in text and f"model: {model.split(':')[-1].lower()}" in text:
         return no_access
     return None
+
+
+# -- transient failures (retry-worthy) ---------------------------------------------------
+# Rate limits, upstream overloads and network blips: the call can succeed a moment later,
+# so the engine retries with backoff instead of ending the turn. Quota exhaustion wears a
+# 429 too but is NOT transient — it stays an error the user must act on.
+_TRANSIENT_STATUS = {408, 409, 425, 429, 500, 502, 503, 504, 529}
+_TRANSIENT_MARKERS = (
+    "rate limit",
+    "rate_limit",
+    "too many requests",
+    "overloaded",
+    "overloaded_error",
+    "server_error",
+    "temporarily unavailable",
+    "service unavailable",
+    "bad gateway",
+    "gateway time",
+    "timed out",
+    "timeout",
+    "connection reset",
+    "connection error",
+    "remote protocol error",
+    "incomplete chunked read",
+    "try again",
+)
+
+
+def is_transient(exc: Exception) -> bool:
+    """True when a provider failure looks momentary (429/5xx/timeouts/network)."""
+    text = str(exc).lower()
+    if any(marker in text for marker in _NO_QUOTA):
+        return False
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if isinstance(status, int) and status in _TRANSIENT_STATUS:
+        return True
+    if any(marker in text for marker in _TRANSIENT_MARKERS):
+        return True
+    name = type(exc).__name__.lower()
+    return any(k in name for k in ("timeout", "connecterror", "connectionerror", "ratelimit", "apiconnection"))
+
+
+def retry_after_seconds(exc: Exception, cap: float = 30.0) -> Optional[float]:
+    """The server's own Retry-After hint (seconds), when the exception carries a response."""
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if not headers:
+        return None
+    try:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        return min(float(raw), cap)
+    except (TypeError, ValueError):
+        return None

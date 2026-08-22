@@ -28,6 +28,12 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
     if (m.role === "user") {
       // Connector message → structured card; the framed `content` stays for the model, but display
       // renders from the source sidecar.
+      if (m.steering === "wrap_up") {
+        // Engine-injected steering (not the user's words): shown as the quiet line the
+        // live view rendered, never as a user bubble.
+        items.push({ kind: "notice", tone: "info", text: "Almost out of steps — asked Mimi to wrap up." });
+        continue;
+      }
       if (m.source?.connector) {
         items.push({ kind: "connector", source: m.source });
         continue;

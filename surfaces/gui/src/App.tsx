@@ -797,6 +797,10 @@ export function App() {
           // this divider just shows where the model's memory was summarized.
           setItems((p) => [...p, { kind: "notice", tone: "info", text: d.text || "Context compacted" }]);
           break;
+        case "notice":
+          // Transient engine line (model retry, wrap-up nudge): informational, not an error.
+          setItems((p) => [...p, { kind: "notice", tone: "info", text: d.text || "" }]);
+          break;
         case "interrupted":
           flushPartialStream();
           setItems((p) => [...p, { kind: "notice", tone: "warn", text: "Interrupted." }]);
