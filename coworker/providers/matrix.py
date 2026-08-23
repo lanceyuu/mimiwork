@@ -8,8 +8,9 @@ source of truth the capability probe and the GUI's pickers read from.
 Deliberately SMALL (owner call, 2026-07-04): current-generation, agent-capable (tool-calling)
 models only. It is not user-editable — users can still add any custom model string, which
 falls back to the conservative heuristics in ``capabilities.py`` at their own risk of
-degraded results. Ids verified against vendor/reseller catalogs on 2026-07-04; refresh the
-reseller rows when catalogs rotate (they rename on every model generation).
+degraded results. Ids verified against vendor/reseller catalogs on 2026-08-23 (Claude 5
+generation, Gemini 3.7 Flash, Kimi K3, MiniMax M3, Grok 4.6, Qwen 3.8 Max, GLM-5.3);
+refresh the reseller rows when catalogs rotate (they rename on every model generation).
 
 Context windows (``context_window``, tokens) feed the GUI's context-fill meter. Entries
 where the vendor spec wasn't re-checked stay ``None`` — the meter simply hides rather than
@@ -62,11 +63,11 @@ MATRIX: dict[str, ModelEntry] = {
     "anthropic:claude-fable-5": ModelEntry(
         "Claude Fable 5 · Anthropic", _AGENTIC_VISION, 1_000_000
     ),
-    "anthropic:claude-opus-4-8": ModelEntry(
-        "Claude Opus 4.8 · Anthropic", _AGENTIC_VISION, 200_000
+    "anthropic:claude-opus-5": ModelEntry(
+        "Claude Opus 5 · Anthropic", _AGENTIC_VISION, 1_000_000
     ),
-    "anthropic:claude-sonnet-4-6": ModelEntry(
-        "Claude Sonnet 4.6 · Anthropic", _AGENTIC_VISION, 200_000
+    "anthropic:claude-sonnet-5": ModelEntry(
+        "Claude Sonnet 5 · Anthropic", _AGENTIC_VISION, 1_000_000
     ),
     "anthropic:claude-haiku-4-5": ModelEntry(
         "Claude Haiku 4.5 · Anthropic", _AGENTIC_VISION, 200_000
@@ -76,8 +77,8 @@ MATRIX: dict[str, ModelEntry] = {
     "gemini:gemini-3.1-pro-preview": ModelEntry(
         "Gemini 3.1 Pro · Google", _AGENTIC_VISION, 1_048_576
     ),
-    "gemini:gemini-3.6-flash": ModelEntry(
-        "Gemini 3.6 Flash · Google", _AGENTIC_VISION, 1_048_576
+    "gemini:gemini-3.7-flash": ModelEntry(
+        "Gemini 3.7 Flash · Google", _AGENTIC_VISION, 1_048_576
     ),
     "gemini:gemini-2.5-pro": ModelEntry(
         "Gemini 2.5 Pro · Google", _AGENTIC_VISION, 1_048_576
@@ -95,6 +96,9 @@ MATRIX: dict[str, ModelEntry] = {
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
     ),
+    # GLM-5.3's API went live 2026-08-18 at GLM-5.2's price. Its window is reported as
+    # larger than 5.2's but not confirmed in the vendor spec — left unset rather than guessed.
+    "zai:glm-5.3": ModelEntry("GLM-5.3 · Z AI", _AGENTIC),
     "zai:glm-5.2": ModelEntry("GLM-5.2 · Z AI", _AGENTIC, 128_000),
     # QualiTaTi gateway. Names are deliberately vendor-blind Mimi dog tiers the
     # user picks by PRICE — which vendor model answers is the server's admin
@@ -128,10 +132,28 @@ MATRIX: dict[str, ModelEntry] = {
     "deepseek:deepseek-v4-pro": ModelEntry(
         "DeepSeek V4 Pro · DeepSeek", _AGENTIC, 128_000
     ),
+    "kimi:kimi-k3": ModelEntry(
+        "Kimi K3 · Moonshot",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
     "kimi:kimi-k2.6": ModelEntry("Kimi K2.6 · Moonshot", _AGENTIC, 256_000),
-    "minimax:MiniMax-M2.5": ModelEntry("MiniMax M2.5 · MiniMax"),
+    # M3 (1M window) takes images and video on MiniMax's own API; PDFs are not an
+    # inline part on their compat surface, so pdf stays off and pdf_support.py covers it.
+    "minimax:MiniMax-M3": ModelEntry(
+        "MiniMax M3 · MiniMax",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
+    # Qwen 3.8 Max (2026-08-02) is the production id — the "-preview" that circulated in
+    # July is not. Window unverified against the vendor spec, so the meter stays hidden.
+    "qwen:qwen3.8-max": ModelEntry("Qwen 3.8 Max · Alibaba", _AGENTIC),
     "qwen:qwen3-max": ModelEntry("Qwen3 Max · Alibaba", _AGENTIC, 256_000),
-    "xai:grok-4.3": ModelEntry("Grok 4.3 · xAI", _AGENTIC, 256_000),
+    "xai:grok-4.6": ModelEntry("Grok 4.6 · xAI", _AGENTIC, 500_000),
     "mistral:mistral-large-latest": ModelEntry(
         "Mistral Large · Mistral", _AGENTIC, 128_000
     ),
@@ -173,9 +195,24 @@ MATRIX: dict[str, ModelEntry] = {
     ),
     # OpenRouter slugs are lowercase `<lab>/<model>` (checked against their catalog
     # 2026-07-25); same labs as above, one key for all of them.
+    "openrouter:z-ai/glm-5.3": ModelEntry("GLM-5.3 · via OpenRouter", _AGENTIC),
     "openrouter:z-ai/glm-5.2": ModelEntry("GLM-5.2 · via OpenRouter", _AGENTIC, 128_000),
+    "openrouter:moonshotai/kimi-k3": ModelEntry(
+        "Kimi K3 · via OpenRouter",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
     "openrouter:moonshotai/kimi-k2.6": ModelEntry(
         "Kimi K2.6 · via OpenRouter", _AGENTIC, 256_000
+    ),
+    "openrouter:minimax/minimax-m3": ModelEntry(
+        "MiniMax M3 · via OpenRouter",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
     ),
     "openrouter:deepseek/deepseek-v4-pro": ModelEntry(
         "DeepSeek V4 Pro · via OpenRouter", _AGENTIC, 128_000
@@ -187,8 +224,11 @@ MATRIX: dict[str, ModelEntry] = {
     # Bedrock ids carry a family segment (claude/ → native Anthropic path, other/ →
     # Converse) plus AWS's own `-v<n>:<m>` version suffix. Some regions require the
     # `us.`/`eu.` cross-region inference-profile prefix — custom add-model accepts those.
-    "bedrock:claude/anthropic.claude-sonnet-4-6-v1:0": ModelEntry(
-        "Claude Sonnet 4.6 · AWS Bedrock", _AGENTIC_VISION, 200_000
+    "bedrock:claude/anthropic.claude-sonnet-5": ModelEntry(
+        "Claude Sonnet 5 · AWS Bedrock", _AGENTIC_VISION, 1_000_000
+    ),
+    "bedrock:claude/anthropic.claude-opus-5": ModelEntry(
+        "Claude Opus 5 · AWS Bedrock", _AGENTIC_VISION, 1_000_000
     ),
     "bedrock:claude/anthropic.claude-haiku-4-5-v1:0": ModelEntry(
         "Claude Haiku 4.5 · AWS Bedrock", _AGENTIC_VISION, 200_000
@@ -215,11 +255,11 @@ MATRIX: dict[str, ModelEntry] = {
     "vertex:gemini/gemini-3.1-pro-preview": ModelEntry(
         "Gemini 3.1 Pro · Vertex AI", _AGENTIC_VISION, 1_048_576
     ),
-    "vertex:gemini/gemini-3.6-flash": ModelEntry(
-        "Gemini 3.6 Flash · Vertex AI", _AGENTIC_VISION, 1_048_576
+    "vertex:gemini/gemini-3.7-flash": ModelEntry(
+        "Gemini 3.7 Flash · Vertex AI", _AGENTIC_VISION, 1_048_576
     ),
-    "vertex:claude/claude-sonnet-4-6": ModelEntry(
-        "Claude Sonnet 4.6 · Vertex AI", _AGENTIC_VISION, 200_000
+    "vertex:claude/claude-sonnet-5": ModelEntry(
+        "Claude Sonnet 5 · Vertex AI", _AGENTIC_VISION, 200_000
     ),
     "vertex:claude/claude-haiku-4-5": ModelEntry(
         "Claude Haiku 4.5 · Vertex AI", _AGENTIC_VISION, 200_000

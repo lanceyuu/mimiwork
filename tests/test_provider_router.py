@@ -335,7 +335,7 @@ def test_manager_curated_models(tmp_path, monkeypatch):
     # a provider key unlocks exactly that provider's matrix models
     mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})
     models = mgr.get_settings()["models"]
-    assert "anthropic:claude-opus-4-8" in models
+    assert "anthropic:claude-opus-5" in models
     assert "gpt-4o" not in models  # no OpenAI seed anywhere
 
     added = mgr.add_model("ollama:qwen2.5-coder:32b")  # keyless provider → selectable
@@ -438,7 +438,7 @@ def test_anthropic_gemini_provider_config(tmp_path, monkeypatch):
     provs = {p["name"]: p for p in mgr.get_providers()}
     assert provs["anthropic"]["configured"] is False
     assert provs["gemini"]["needs_key"] is True
-    assert "claude-sonnet-4-6" in provs["anthropic"]["suggested_models"]
+    assert "claude-sonnet-5" in provs["anthropic"]["suggested_models"]
     assert "gemini-2.5-flash" in provs["gemini"]["suggested_models"]
 
     res = mgr.set_provider("anthropic", {"api_key": "sk-ant-test"})

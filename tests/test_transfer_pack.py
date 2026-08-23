@@ -205,6 +205,46 @@ def test_plugin_skills_are_importable_and_named_by_their_plugin(tmp_path, monkey
     assert row["source"] == "plugin: marketing"
 
 
+def test_discovery_finds_the_layouts_that_actually_exist_on_disk(tmp_path, monkeypatch):
+    """Regression (owner report 2026-08-23: "it does not find my claude skills"). Real
+    machines carry at least three shapes — a marketplace whose skills sit DIRECTLY under
+    it (no `skills/` segment), a plugin with one, and Codex's own folder. Assuming a shape
+    found a fraction of what was there; discovery walks instead."""
+    home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+    def _skill(folder: Path, name: str) -> None:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: d\n---\nBody.\n", encoding="utf-8"
+        )
+
+    _skill(home / ".claude" / "plugins" / "marketplaces" / "daymade-skills" / "transcript-fixer",
+           "transcript-fixer")
+    _skill(home / ".claude" / "plugins" / "repos" / "acme" / "skills" / "deck-review", "deck-review")
+    _skill(home / ".codex" / "skills" / "migrate-to-codex", "migrate-to-codex")
+    # Resources inside a skill are not skills of their own.
+    _skill(home / ".claude" / "skills" / "brand", "brand")
+    (home / ".claude" / "skills" / "brand" / "examples").mkdir()
+    (home / ".claude" / "skills" / "brand" / "examples" / "SKILL.md").write_text(
+        "---\nname: nested\n---\nx\n", encoding="utf-8"
+    )
+
+    client, _ = _fixture(tmp_path)
+    rows = {r["name"]: r for r in client.get("/v1/skills/importable").json()["skills"]}
+    assert rows["transcript-fixer"]["source"] == "plugin: daymade-skills"
+    assert rows["deck-review"]["source"] == "plugin: acme"
+    assert rows["migrate-to-codex"]["source"] == "Codex"
+    assert rows["brand"]["source"] == "Claude Code"
+    assert "nested" not in rows  # a skill folder's children are its resources
+
+    # And a discovered skill in any of those layouts really imports.
+    done = client.post(
+        "/v1/skills/import", json={"path": rows["migrate-to-codex"]["path"]}
+    ).json()
+    assert done["ok"], done
+
+
 def test_import_refuses_a_folder_outside_the_known_skill_locations(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
     rogue = tmp_path / "elsewhere" / "evil"

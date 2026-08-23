@@ -691,58 +691,89 @@ class SessionManager:
         hits.sort(key=lambda h: -h[0])
         return [row for _mtime, row in hits[: max(1, min(int(limit or 20), 50))]]
 
-    # Where Claude Code and Cowork keep skills on this machine. Importing them is what
-    # makes a plugin's skills usable here without rewriting anything.
-    def _claude_skill_dirs(self, workspace: Optional[str] = None) -> list[tuple[Path, str]]:
-        home = Path.home()
-        out: list[tuple[Path, str]] = [(home / ".claude" / "skills", "Claude Code")]
-        plugins = home / ".claude" / "plugins"
-        if plugins.is_dir():
-            for entry in sorted(plugins.iterdir()):
-                if (entry / "skills").is_dir():
-                    out.append((entry / "skills", f"plugin: {entry.name}"))
-                # Marketplace layout: plugins/<marketplace>/<plugin>/skills
-                elif entry.is_dir():
-                    for sub in sorted(entry.iterdir()):
-                        if (sub / "skills").is_dir():
-                            out.append((sub / "skills", f"plugin: {sub.name}"))
+    # Where the other agentic tools keep skills on this machine. The layouts differ and
+    # aren't documented as stable, so this WALKS the trees looking for SKILL.md instead of
+    # assuming a shape: plugin skills sit under `plugins/<name>/skills/` on one machine and
+    # directly under `plugins/marketplaces/<name>/` on another, and Codex keeps its own
+    # `~/.codex/skills` (owner report 2026-08-23 — "it does not find my claude skills").
+    # Depth-bounded so a deep tree can't turn discovery into a crawl.
+    _IMPORT_ROOTS = (
+        (".claude/skills", "Claude Code"),
+        (".claude/plugins", "Claude Code plugin"),
+        (".codex/skills", "Codex"),
+        (".codex/plugins", "Codex plugin"),
+    )
+    _IMPORT_DEPTH = 5
+    _IMPORT_PRUNE = {".git", "node_modules", "__pycache__", "dist", "build", ".venv"}
+
+    def _import_search_roots(self, workspace: Optional[str] = None) -> list[tuple[Path, str]]:
+        roots = [(Path.home() / rel, label) for rel, label in self._IMPORT_ROOTS]
         ws = self._project_path(workspace) if workspace else None
         if ws:
-            out.append((Path(ws) / ".claude" / "skills", "this folder"))
-        return out
+            roots.append((Path(ws) / ".claude" / "skills", "this folder"))
+            roots.append((Path(ws) / ".codex" / "skills", "this folder"))
+        return roots
+
+    def _discover_skill_folders(
+        self, workspace: Optional[str] = None
+    ) -> list[tuple[Path, str]]:
+        """Every folder holding a SKILL.md under the known roots, with a source label."""
+        found: list[tuple[Path, str]] = []
+        seen: set[Path] = set()
+        for base, source in self._import_search_roots(workspace):
+            if not base.is_dir():
+                continue
+            base_depth = len(base.parts)
+            for dirpath, dirnames, filenames in os.walk(base):
+                here = Path(dirpath)
+                if len(here.parts) - base_depth >= self._IMPORT_DEPTH:
+                    dirnames[:] = []
+                    continue
+                dirnames[:] = [d for d in dirnames if d not in self._IMPORT_PRUNE]
+                if "SKILL.md" not in filenames or here in seen:
+                    continue
+                seen.add(here)
+                dirnames[:] = []  # a skill folder's children are its resources, not skills
+                label = source
+                if source.endswith("plugin"):
+                    # Name the plugin it came from: "plugin: daymade-skills" says more.
+                    rel = here.relative_to(base).parts
+                    owner = next(
+                        (part for part in rel if part not in ("marketplaces", "repos", "skills")),
+                        "",
+                    )
+                    if owner and owner != here.name:
+                        label = f"plugin: {owner}"
+                found.append((here, label))
+        return found
 
     def importable_skills(self, workspace: Optional[str] = None) -> list[dict[str, Any]]:
-        """SKILL.md folders that exist for Claude Code / Cowork but not yet here."""
+        """SKILL.md folders this machine already has for Claude Code / Cowork / Codex."""
         from ..skills.base import _parse_skill  # the parser the store itself uses
 
         have = {row.get("name") for row in self.list_skills(workspace)}
         found: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for base, source in self._claude_skill_dirs(workspace):
-            if not base.is_dir():
+        for folder, source in self._discover_skill_folders(workspace):
+            try:
+                parsed = _parse_skill(folder / "SKILL.md")
+            except Exception:
                 continue
-            for folder in sorted(base.iterdir()):
-                md = folder / "SKILL.md"
-                if not md.is_file():
-                    continue
-                try:
-                    parsed = _parse_skill(md)
-                except Exception:
-                    continue
-                name = str(parsed.name or folder.name)
-                if name in seen:
-                    continue
-                seen.add(name)
-                found.append(
-                    {
-                        "name": name,
-                        "description": str(parsed.description or ""),
-                        "source": source,
-                        "path": str(folder),
-                        "installed": name in have,
-                    }
-                )
-        return found
+            name = str(parsed.name or folder.name)
+            if name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            found.append(
+                {
+                    "name": name,
+                    "description": str(parsed.description or ""),
+                    "source": source,
+                    "path": str(folder),
+                    "installed": name in have,
+                }
+            )
+        # Not-yet-imported first: the list is a shopping list, not an inventory.
+        return sorted(found, key=lambda r: (r["installed"], r["name"].lower()))
 
     def import_skill(
         self, path: str, scope: str = "global", workspace: Optional[str] = None
@@ -752,8 +783,8 @@ class SessionManager:
         source = Path(path).expanduser()
         if not (source / "SKILL.md").is_file():
             return {"ok": False, "error": "not a skill folder (no SKILL.md)"}
-        allowed = {str(base) for base, _ in self._claude_skill_dirs(workspace)}
-        if str(source.parent) not in allowed:
+        allowed = {f.resolve() for f, _ in self._discover_skill_folders(workspace)}
+        if source.resolve() not in allowed:
             return {"ok": False, "error": "that folder is not an importable skill location"}
         try:
             base = self.skill_store._base(scope, workspace)
@@ -2029,13 +2060,15 @@ class SessionManager:
 
     # Suggestions for the OpenAI-compatible vendor providers (checked against vendor docs
     # 2026-07-04; refresh alongside `recommended_model` in providers/registry.py).
+    # Extras the matrix doesn't vouch for, offered in the "add model" datalist. Refreshed
+    # with the matrix on 2026-08-23.
     COMPAT_MODELS = {
-        "zai": ["glm-5.2", "glm-4.6"],
+        "zai": ["glm-5.3", "glm-5.2-turbo", "glm-5.2"],
         "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
-        "kimi": ["kimi-k2.6", "kimi-k2.5"],
-        "minimax": ["MiniMax-M2.5", "MiniMax-M2.5-highspeed", "MiniMax-M3"],
-        "qwen": ["qwen3-max", "qwen3-coder-plus", "qwen-plus"],
-        "xai": ["grok-4.3", "grok-4"],
+        "kimi": ["kimi-k3", "kimi-k2.6"],
+        "minimax": ["MiniMax-M3", "MiniMax-M2.5"],
+        "qwen": ["qwen3.8-max", "qwen3-max", "qwen3-coder-plus", "qwen-plus"],
+        "xai": ["grok-4.6", "grok-4.3"],
         "mistral": ["mistral-large-latest", "mistral-small-latest"],
     }
 
