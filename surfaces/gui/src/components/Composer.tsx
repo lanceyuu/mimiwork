@@ -26,28 +26,24 @@ import {
   type DictationStatus,
 } from "../tauri";
 
-// The four modes a user can pick, in escalating order — ⇧⇥ cycles them, exactly like
-// Claude Code. Each description names the same mode in the other tools, so the habit
-// transfers in both directions (owner ask 2026-08-23). Plan came back with the transfer
-// pack (it was hidden 2026-07-22 while its approval flow was rough); Custom stays out —
-// it's a config.toml power-user mode with no in-app explanation.
+// Three modes, in escalating order — ⇧⇥ cycles them, like Claude Code. Kept to three on
+// purpose (owner ask 2026-08-23: the four-row menu read as complex): Plan takes the slot
+// Discuss had, since a read-only conversation that also proposes a plan is strictly more
+// useful than one that only talks. Discuss and Custom still work server-side — a session
+// already in one keeps running; the picker just doesn't offer them. How these map onto
+// Cowork and Claude Code lives on the Transfer guide, not in this menu.
 const PERMISSION_OPTIONS: Option[] = [
-  { value: "discuss", label: "Discuss", description: "Chat and explore — nothing runs" },
   {
     value: "plan",
-    label: "Plan first",
-    description: "Propose a plan, act only once you approve — Claude Code: plan mode",
+    label: "Plan",
+    description: "Explore and propose a plan — nothing runs until you approve",
   },
   {
     value: "interactive",
     label: "Ask for approval",
-    description: "Ask before edits and commands — Cowork calls this Manual",
+    description: "Ask before edits and commands",
   },
-  {
-    value: "auto",
-    label: "Full access",
-    description: "Run everything without asking — Cowork calls this Skip",
-  },
+  { value: "auto", label: "Full access", description: "Run everything without asking" },
 ];
 
 /** The built-in "/" commands. Names match Claude Code and Cowork so the muscle memory
@@ -57,7 +53,7 @@ export const APP_COMMANDS: { name: string; description: string }[] = [
   { name: "init", description: "Write an AGENTS.md of house rules for this folder" },
   { name: "clear", description: "Start a fresh conversation in this folder" },
   { name: "compact", description: "Condense this conversation's history now" },
-  { name: "plan", description: "Switch to Plan first — propose before acting" },
+  { name: "plan", description: "Switch to Plan — propose before acting" },
   { name: "permissions", description: "Change what needs your approval" },
   { name: "model", description: "Switch the model for this conversation" },
   { name: "memory", description: "What MimiWork remembers about this work" },

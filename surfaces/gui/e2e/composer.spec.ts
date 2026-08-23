@@ -26,11 +26,12 @@ test("composer: send-gating, + attach menu, Mode menu", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Photo or image" })).toHaveCount(0);
 
   // Mode menu: the three shipped permission options with the current one marked, plus the
-  // Unattended/send-to-Inbox toggle (§22). Plan + Custom hidden for this release (2026-07-22).
+  // Unattended/send-to-Inbox toggle (§22). Plan replaced Discuss in the picker (owner ask
+  // 2026-08-23 — three rows, no more); Discuss + Custom still work but aren't offered.
   await page.getByRole("button", { name: "Mode", exact: true }).click();
   const menu = page.getByTestId("mode-menu");
-  await expect(menu.getByText("Discuss")).toBeVisible();
-  await expect(menu.getByText("Plan", { exact: true })).toHaveCount(0);
+  await expect(menu.getByText("Plan", { exact: true })).toBeVisible();
+  await expect(menu.getByText("Discuss", { exact: true })).toHaveCount(0);
   await expect(menu.getByText("Custom", { exact: true })).toHaveCount(0);
   // The current mode is marked with a ✓.
   await expect(menu.locator("button").filter({ hasText: "Ask for approval" })).toContainText("✓");

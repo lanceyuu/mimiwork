@@ -179,13 +179,14 @@ describe("permission modes", () => {
     expect(p.onModeChange).toHaveBeenCalledWith("auto"); // …→ Ask → Full access → wraps
   });
 
-  it("offers Plan first, and names each mode's equivalent elsewhere", () => {
+  it("offers exactly three modes: Plan, Ask for approval, Full access", () => {
     stubFetch();
     render(<Composer {...props()} />);
     fireEvent.click(screen.getByLabelText("Mode"));
     const menu = screen.getByTestId("mode-menu");
-    expect(menu.textContent).toContain("Plan first");
-    expect(menu.textContent).toContain("Cowork calls this Manual");
-    expect(menu.textContent).toContain("Claude Code: plan mode");
+    expect(menu.textContent).toContain("Plan");
+    expect(menu.textContent).toContain("Ask for approval");
+    expect(menu.textContent).toContain("Full access");
+    expect(menu.textContent).not.toContain("Discuss"); // kept simple (owner ask)
   });
 });

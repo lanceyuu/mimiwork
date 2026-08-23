@@ -43,7 +43,7 @@ describe("the transfer guide", () => {
     }
     // The rows are things this app really has.
     expect(guide.textContent).toContain("AGENTS.md");
-    expect(guide.textContent).toContain("Plan first");
+    expect(guide.textContent).toContain("Plan mode (⇧⇥)");
     expect(guide.textContent).toContain("⇧⇥");
   });
 

@@ -31,7 +31,7 @@ const ROWS: Row[] = [
     codex: "@ file mentions",
   },
   {
-    here: "Plan first",
+    here: "Plan",
     what: "The coworker proposes a plan and waits for your approval before acting.",
     cowork: "Plan before acting",
     code: "Plan mode (⇧⇥)",
@@ -105,7 +105,7 @@ const ROWS: Row[] = [
 const GESTURES: { keys: string; what: string }[] = [
   { keys: "/", what: "Commands and skills" },
   { keys: "@", what: "Point at a file" },
-  { keys: "⇧⇥", what: "Cycle Discuss → Plan → Ask → Full access" },
+  { keys: "⇧⇥", what: "Cycle Plan → Ask for approval → Full access" },
   { keys: "⏎", what: "Send · ⇧⏎ new line" },
   { keys: "Esc", what: "Close a popup" },
 ];
