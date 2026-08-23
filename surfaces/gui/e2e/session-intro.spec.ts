@@ -16,20 +16,20 @@ test("three rows, no Set-me-up; gated rows show Configure › and expand the rai
   await expect(page.getByText("Set me up (optional)")).toHaveCount(0);
   await expect(page.getByText("Give me access to a folder")).toHaveCount(0);
 
-  // Fixture session state: slack + github live, hubspot not → the HubSpot row is gated,
-  // with the Configure affordance visible AT REST (no hover needed — it IS the row's action);
-  // the github+slack automation row has everything it needs.
-  const hs = page.getByTestId("intro-task-hubspot");
-  await expect(hs).toContainText("Configure ›");
-  await expect(hs.locator(".task-card-act")).toHaveCSS("opacity", "1");
-  await expect(page.getByTestId("intro-task-github-slack")).toContainText("Start →");
+  // Fixture session state: canva is not connected → that row is gated, with the Configure
+  // affordance visible AT REST (no hover needed — it IS the row's action). The skill row
+  // needs no source at all, so it is always ready.
+  const canva = page.getByTestId("intro-task-canva");
+  await expect(canva).toContainText("Configure ›");
+  await expect(canva.locator(".task-card-act")).toHaveCSS("opacity", "1");
+  await expect(page.getByTestId("intro-task-skill")).toContainText("Start →");
 
   // Sub-lines describe the task's outcome, never connection state.
-  await expect(hs).toContainText("Sources, stages, and who needs follow-up");
-  await expect(hs).not.toContainText(/connect/i);
+  await expect(canva).toContainText("I'll pull the design you pick and build the slides");
+  await expect(canva).not.toContainText(/connect/i);
 
   // Configure → the rail's Access section expands (§32), not a bespoke setup surface.
-  await hs.click();
+  await canva.click();
   await expect(page.getByRole("region", { name: "Session access" })).toBeVisible();
   // No composer prefill happened on the gated click.
   await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue("");
@@ -42,7 +42,7 @@ test("ready rows reveal Start → on hover and prefill the composer", async ({ p
       contentType: "application/json",
       body: JSON.stringify({
         connected: [
-          { connector: "hubspot", enabled: true, detail: "" },
+          { connector: "canva", enabled: true, detail: "" },
           { connector: "github", enabled: true, detail: "" },
           { connector: "slack", enabled: true, detail: "" },
         ],
@@ -53,21 +53,21 @@ test("ready rows reveal Start → on hover and prefill the composer", async ({ p
   );
   await page.goto("/");
 
-  const hs = page.getByTestId("intro-task-hubspot");
-  await expect(hs).toContainText("Start →");
+  const canva = page.getByTestId("intro-task-canva");
+  await expect(canva).toContainText("Start →");
   // The action is hover-revealed on ready rows (hidden at rest).
-  await expect(hs.locator(".task-card-act")).toHaveCSS("opacity", "0");
-  await hs.hover();
-  await expect(hs.locator(".task-card-act")).toHaveCSS("opacity", "1");
+  await expect(canva.locator(".task-card-act")).toHaveCSS("opacity", "0");
+  await canva.hover();
+  await expect(canva.locator(".task-card-act")).toHaveCSS("opacity", "1");
 
-  await hs.click();
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/HubSpot leads/);
+  await canva.click();
+  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/Canva designs/);
 
-  // Both sources live → the automation row is ready too; its prefill is the recipe stem.
-  const gh = page.getByTestId("intro-task-github-slack");
-  await expect(gh).toContainText("Start →");
-  await gh.click();
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/weekly progress report/);
+  // The skill row needs no source; its prefill is the fill-in-the-blanks brand brief.
+  const skill = page.getByTestId("intro-task-skill");
+  await expect(skill).toContainText("Start →");
+  await skill.click();
+  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/Package my style guidelines/);
 });
 
 test("folder task opens the inline add-folder form; adding a folder prefills the composer", async ({
@@ -83,6 +83,6 @@ test("folder task opens the inline add-folder form; adding a folder prefills the
   await page.getByRole("button", { name: "Add", exact: true }).click();
 
   await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(
-    /Analyze the files in this folder/,
+    /Work in this folder/,
   );
 });

@@ -15,11 +15,23 @@ import { AddFolderForm } from "./AddFolderForm";
 // composer. Not ready → "Configure ›" always visible (for a gated row the setup action IS the
 // row's meaning), opening the §23 Session settings drawer — no second setup surface here.
 
-const FOLDER_PROMPT = "Analyze the files in this folder and summarize what matters.";
-const HUBSPOT_PROMPT =
-  "Create a report on my recent HubSpot leads: sources, stages, and who needs follow-up.";
-const GH_SLACK_PROMPT =
-  "Set up a weekly progress report: summarize activity in my GitHub repos and post it to Slack every Friday morning.";
+// The three starters are the three ways in (owner call 2026-08-23): work in a folder,
+// work with something you've connected, and teach the coworker your way of doing things.
+const FOLDER_PROMPT =
+  "Work in this folder: read what's here, tell me what matters, and suggest what to produce next.";
+const CANVA_PROMPT =
+  "Look at my Canva designs, then build a slide deck that matches the one I point you at. " +
+  "Start by listing what's there so I can pick.";
+// Deliberately a fill-in-the-blanks brief, not a finished sentence: the user replaces the
+// bracketed bits and sends. Packaging your own style is the highest-leverage first skill —
+// once encoded, every deck, doc and sheet comes out in it without being asked.
+const SKILL_PROMPT = `Package my style guidelines into a skill, so every presentation, document and spreadsheet you make comes out in my style without me asking.
+
+Colors: [paste your hex codes — e.g. dark #141413 for text, #faf9f5 for backgrounds, an accent or two]
+Fonts: headings [font], body text [font], with fallbacks if they aren't installed
+Rules: [anything that matters — when to use each accent, heading sizes, spacing, what to avoid]
+
+Ask me about anything that's missing, then save it as a skill and show me an example slide and page in it.`;
 
 export function SessionIntro({
   sessionId,
@@ -48,8 +60,7 @@ export function SessionIntro({
   }, [sessionId]);
 
   const shared = roots.filter((r) => !r.primary);
-  const hubspotReady = live.has("hubspot");
-  const ghSlackReady = live.has("github") && live.has("slack");
+  const canvaReady = live.has("canva");
 
   const dot = (name: string, on: boolean) => (
     <span className={"task-dot" + (on ? "" : " off")} key={name}>
@@ -76,8 +87,8 @@ export function SessionIntro({
       <div className="intro-tasks">
         <button className="task-card" data-testid="intro-task-folder" onClick={pickFolder}>
           <span className="task-card-body">
-            <span className="task-card-title">Analyze the files in a directory</span>
-            <span className="task-card-sub">I'll read them and summarize what matters</span>
+            <span className="task-card-title">Work in a folder</span>
+            <span className="task-card-sub">I'll read what's there and produce what you need</span>
           </span>
           <span className="task-card-act">Pick a folder →</span>
         </button>
@@ -98,34 +109,33 @@ export function SessionIntro({
         )}
 
         <button
-          className={"task-card" + (hubspotReady ? "" : " gated")}
-          data-testid="intro-task-hubspot"
-          onClick={() => (hubspotReady ? onPrefill(HUBSPOT_PROMPT) : onOpenSessionSettings())}
+          className={"task-card" + (canvaReady ? "" : " gated")}
+          data-testid="intro-task-canva"
+          onClick={() => (canvaReady ? onPrefill(CANVA_PROMPT) : onOpenSessionSettings())}
         >
           <span className="task-card-body">
-            <span className="task-card-title">Create a report from my HubSpot leads</span>
+            <span className="task-card-title">Build a deck from my Canva designs</span>
             <span className="task-card-sub">
-              {dot("hubspot", hubspotReady)}
-              Sources, stages, and who needs follow-up
+              {dot("canva", canvaReady)}
+              I'll pull the design you pick and build the slides
             </span>
           </span>
-          <span className="task-card-act">{hubspotReady ? "Start →" : "Configure ›"}</span>
+          <span className="task-card-act">{canvaReady ? "Start →" : "Configure ›"}</span>
         </button>
 
+        {/* No source to connect: teaching the coworker your style needs nothing but you. */}
         <button
-          className={"task-card" + (ghSlackReady ? "" : " gated")}
-          data-testid="intro-task-github-slack"
-          onClick={() => (ghSlackReady ? onPrefill(GH_SLACK_PROMPT) : onOpenSessionSettings())}
+          className="task-card"
+          data-testid="intro-task-skill"
+          onClick={() => onPrefill(SKILL_PROMPT)}
         >
           <span className="task-card-body">
-            <span className="task-card-title">Automate a weekly GitHub progress report to Slack</span>
+            <span className="task-card-title">Package your style guidelines into a skill</span>
             <span className="task-card-sub">
-              {dot("github", live.has("github"))}
-              {dot("slack", live.has("slack"))}
-              Repo activity, summarized and posted every Friday
+              Your colors, fonts and rules — applied to everything from then on
             </span>
           </span>
-          <span className="task-card-act">{ghSlackReady ? "Start →" : "Configure ›"}</span>
+          <span className="task-card-act">Start →</span>
         </button>
       </div>
     </div>
