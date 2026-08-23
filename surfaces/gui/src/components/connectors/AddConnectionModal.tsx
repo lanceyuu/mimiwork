@@ -33,7 +33,7 @@ export function AddConnectionModal({
   // it IS the connect flow.
   const mcpBacked = !!c.mcp;
   // The broker-based one-clicks (Slack/GitHub/HubSpot/generic) were removed with
-  // the MimiWork Cloud dependency; only the fully-local MCP OAuth keeps a
+  // the hosted relay; only the fully-local MCP OAuth keeps a
   // one-click pane. Slack keeps its guided manual (Socket Mode) flow.
   const twoModes = mcpBacked && c.fields.length > 0;
   const [pane, setPane] = useState<"one" | "manual">("one");

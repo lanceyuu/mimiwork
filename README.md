@@ -45,11 +45,54 @@ No lock-in, no markup — paste your own API key and switch providers anytime:
 
 Or skip keys entirely: **sign in with your QualiTaTi account** (Settings → Models) and the "Mimi" model spends your existing QualiTaTi credits through a metered gateway — nothing to configure.
 
+## What's new
+
+**The same habits work in Claude Code, Cowork and Codex.** MimiWork now uses the same
+gestures and words as the other agentic tools, so nothing you learn here is trapped here:
+
+- **`/` in the message box** — app commands with the names you already know (`/help`,
+  `/init`, `/clear`, `/compact`, `/model`, `/permissions`, `/memory`, `/skills`, `/plan`,
+  `/usage`), your own saved markdown commands, and your skills, in one palette.
+- **`@` to point at a file** inside any folder you granted.
+- **Three permission modes** — **Plan** (propose first, run nothing), **Ask for approval**,
+  **Full access** — cycled with **⇧⇥**.
+- **`CLAUDE.md` is read alongside `AGENTS.md`**, at both folder and global scope, so an
+  instructions file written for another tool works here unchanged. `/init` writes one for
+  the current folder; Settings ▸ Instructions holds the global one.
+- **Import skills you already have** from `~/.claude/skills` and Claude Code plugin
+  bundles — same `SKILL.md` folders, nothing to rewrite.
+- **Settings ▸ Transfer guide** maps every concept to its name in Cowork, Claude Code and Codex.
+
+**Projects** — a folder with its own identity, standing instructions, memory and
+conversations. Drag a conversation onto one to move it; archive the ones you're done with.
+
+**A skill store you can browse.** Shelves by topic (Research, Writing, Data, Slides…) so an
+empty search box isn't a dead end, honest counts with "show more", one row per skill rather
+than one per collection, and a **Read** button that shows a skill's actual instructions —
+and which tools it wants — before anything lands on your disk.
+
+**Your QualiTaTi work, usable here.** Sign in and Mimi can pull a project, an interview
+transcript, or a survey's responses in for analysis — **each retrieval asks your approval
+first**, and nothing is fetched on its own.
+
+**Projects you can delete.** Removing a project clears its card, memory and (optionally) its
+conversations. Your folder and every file in it stay exactly where they are.
+
+**A floating Mimi** who naps while the work runs and wakes up when it lands — drag her
+anywhere, click to jump back in.
+
 ## Install
 
-### macOS (Apple Silicon)
+Every release ships a Mac app and a Windows app. The app updates itself from then on.
 
-Grab the `.dmg` from [Releases](https://github.com/lanceyuu/mimiwork/releases), drag to Applications. Builds are not yet signed, so the first launch needs right-click → Open.
+| Your machine | Download | First launch |
+|---|---|---|
+| **Mac — Apple Silicon** (M1–M4) | [MimiWork-macos-arm64.dmg](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) | Drag to Applications, then **right-click → Open** once |
+| **Mac — Intel** | [MimiWork-macos-x64.dmg](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) | Drag to Applications, then **right-click → Open** once |
+| **Windows 10/11** | [MimiWork-windows-setup.exe](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) · [.msi](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows.msi) | Run it; SmartScreen → **More info → Run anyway** |
+
+The builds are not code-signed yet, which is why each OS asks once on first launch. Every
+release, with checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
 
 ### Run from source
 
@@ -79,7 +122,7 @@ MimiWork is fully local: the agent loop, your conversations, connector tokens, a
 
 ## Quality
 
-The test suite is part of the product: **1,362 backend tests** cover the agent engine, tools, and connectors — including that every Office tool registers a schema a real provider accepts, that code-execution tools are approval-gated like the shell, and that a scanned PDF is flagged rather than silently summarized from nothing. The desktop app is covered by **161 GUI unit tests** plus **150 hermetic Playwright e2e tests** (mocked backend, no network), with a separate small live-suite for the real thing. Lint (`ruff`, `eslint`) gates CI alongside the tests.
+The test suite is part of the product: **1,393 backend tests** cover the agent engine, tools, and connectors — including that every Office tool registers a schema a real provider accepts, that code-execution tools are approval-gated like the shell, and that a scanned PDF is flagged rather than silently summarized from nothing. The desktop app is covered by **192 GUI unit tests** plus **150 hermetic Playwright e2e tests** (mocked backend, no network), with a separate small live-suite for the real thing. Lint (`ruff`, `eslint`) gates CI alongside the tests.
 
 ## Repository layout
 

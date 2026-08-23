@@ -405,7 +405,7 @@ def make_adapter(
 
     Everything here runs on the USER'S OWN credentials: Telegram bot token,
     Slack Socket Mode bot + app tokens. The managed cloud relay modes
-    (`mode == "relay"`) were removed with the MimiWork Cloud dependency —
+    (`mode == "relay"`) were removed when the hosted relay was dropped —
     a leftover relay profile builds nothing and logs how to reconnect.
     """
     if platform == "telegram" and profile.get("bot_token"):

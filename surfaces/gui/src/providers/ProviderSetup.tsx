@@ -234,7 +234,12 @@ export function useProviderSetup(opts?: { onSaved?: () => void }): ProviderSetup
 
   return {
     providers,
-    ordered: [...providers].sort((a, b) => providerRank(a.name) - providerRank(b.name)),
+    // QualiTaTi is a sign-in, not a key: the account card above the gallery does the whole
+    // job (username + password → the gateway key is minted for you). Listing it here too
+    // asked people to paste an API key that they never have (owner report 2026-08-23).
+    ordered: [...providers]
+      .filter((p) => p.name !== "qualitati")
+      .sort((a, b) => providerRank(a.name) - providerRank(b.name)),
     refreshProviders,
     sel,
     info,

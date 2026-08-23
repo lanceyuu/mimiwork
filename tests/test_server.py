@@ -634,7 +634,7 @@ def test_sidecar_token_gates_rest_and_websockets(tmp_path, monkeypatch):
 
     # The MCP OAuth redirect callback remains tokenless, then enforces its own
     # signed state. (The cloud /auth/callback and managed /oauth/callback routes
-    # were removed with the MimiWork Cloud dependency.)
+    # were removed when the hosted relay was dropped.)
     assert client.get("/mcp/oauth/callback").status_code == 400
     assert client.get("/auth/callback").status_code == 404
     assert client.post("/oauth/callback").status_code == 404

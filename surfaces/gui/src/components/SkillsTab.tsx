@@ -9,7 +9,11 @@ import {
   installStoreSkill,
   listSkills,
   revealSkill,
-  searchSkillStore,
+  browseSkillStore,
+  skillStoreCategories,
+  previewStoreSkill,
+  type SkillStoreCategory,
+  type SkillStorePreview,
   stageSkillUpload,
   confirmSkillUpload,
   updateSkill,
@@ -96,6 +100,50 @@ export function SkillsTab({
   const [storeQuery, setStoreQuery] = useState("");
   const [storeResults, setStoreResults] = useState<SkillStoreEntry[]>([]);
   const [storeBusy, setStoreBusy] = useState<string | null>(null); // name mid-install
+  // Browsing: an empty box used to show an empty page in front of 8,400 skills. Shelves
+  // are the way in when you don't yet know the word to type.
+  const [storeCats, setStoreCats] = useState<SkillStoreCategory[]>([]);
+  const [storeCat, setStoreCat] = useState("");
+  const [storeTotal, setStoreTotal] = useState(0);
+  const [storeLoading, setStoreLoading] = useState(false);
+  // Preview: read the SKILL.md before it lands on disk.
+  const [preview, setPreview] = useState<SkillStorePreview | null>(null);
+  const [previewFor, setPreviewFor] = useState<SkillStoreEntry | null>(null);
+  const STORE_PAGE = 24;
+
+  /** Install one listed skill; the safety flag routes to the same confirm strip as before. */
+  const install = async (r: SkillStoreEntry) => {
+    setStoreBusy(r.name);
+    const res = await installStoreSkill(r.name, r.repo);
+    setStoreBusy(null);
+    if (res.flagged) {
+      setStoreFlag({ entry: r, text: res.error || "", url: res.url });
+      return;
+    }
+    if (!fail(res)) {
+      setNotice({ name: r.name, text: CONFIRMATION, tone: "ok" });
+      setPreview(null);
+      setPreviewFor(null);
+      await loadStore();
+      refresh();
+    }
+  };
+
+  /** One loader for both paths (query wins over shelf); `more` appends a page. */
+  const loadStore = async (
+    opts: { q?: string; category?: string; more?: boolean } = {},
+  ) => {
+    const q = opts.q ?? storeQuery;
+    const category = opts.category ?? storeCat;
+    const offset = opts.more ? storeResults.length : 0;
+    setStoreLoading(true);
+    const page = await browseSkillStore({ q, category, limit: STORE_PAGE, offset }).catch(
+      () => ({ results: [], total: 0, offset: 0 }),
+    );
+    setStoreLoading(false);
+    setStoreResults((cur) => (opts.more ? [...cur, ...page.results] : page.results));
+    setStoreTotal(page.total);
+  };
   const [storeFlag, setStoreFlag] = useState<{ entry: SkillStoreEntry; text: string; url?: string } | null>(null);
   // Skills this machine already has for Claude Code / Cowork (including plugin bundles):
   // the folder layout is identical, so importing is a copy, not a rewrite.
@@ -276,11 +324,16 @@ export function SkillsTab({
                   onClick={() => {
                     setAddOpen(false);
                     setStoreOpen(true);
+                    void skillStoreCategories()
+                      .then(setStoreCats)
+                      .catch(() => setStoreCats([]));
+                    void loadStore({ q: "", category: "research" });
+                    setStoreCat("research");
                   }}
                 >
                   <div className="text-[13px] font-medium">Browse the skill store</div>
                   <div className="text-[11.5px] text-muted">
-                    ~7,200 community skills — search and install in one click
+                    8,400 community skills — browse by shelf, read one before you install it
                   </div>
                 </button>
               </div>
@@ -366,8 +419,8 @@ export function SkillsTab({
             <div>
               <div className="text-[13.5px] font-semibold">Skill store</div>
               <div className="text-[11.5px] text-muted">
-                ~7,200 community skills from three curated GitHub collections — installs are
-                pinned to the reviewed version.
+                8,400 community skills from curated GitHub collections — installs are pinned
+                to the reviewed version.
               </div>
             </div>
             <button
@@ -386,13 +439,43 @@ export function SkillsTab({
             value={storeQuery}
             autoFocus
             data-testid="skill-store-search"
-            onChange={async (e) => {
+            onChange={(e) => {
               const q = e.target.value;
               setStoreQuery(q);
               setStoreFlag(null);
-              setStoreResults(q.trim() ? await searchSkillStore(q) : []);
+              setPreview(null);
+              setPreviewFor(null);
+              void loadStore({ q });
             }}
           />
+
+          {/* Shelves — the browsing path. Hidden while a query is typed: the query IS
+              the filter, and two competing filters is one too many. */}
+          {!storeQuery.trim() && storeCats.length > 0 ? (
+            <div className="mt-2.5 flex flex-wrap gap-1.5" data-testid="skill-store-shelves">
+              {storeCats.map((c) => (
+                <button
+                  key={c.key}
+                  data-testid={`skill-store-shelf-${c.key}`}
+                  aria-pressed={storeCat === c.key}
+                  className={
+                    "text-[12px] px-2.5 py-1 rounded-full border " +
+                    (storeCat === c.key
+                      ? "border-accent text-accent bg-paper"
+                      : "border-line text-muted hover:border-lineStrong")
+                  }
+                  onClick={() => {
+                    setStoreCat(c.key);
+                    setPreview(null);
+                    setPreviewFor(null);
+                    void loadStore({ q: "", category: c.key });
+                  }}
+                >
+                  {c.label} <span className="opacity-60">{c.count}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {storeFlag ? (
             <div
               className="mt-2.5 rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-[12px]"
@@ -423,7 +506,7 @@ export function SkillsTab({
                     setStoreFlag(null);
                     if (!fail(res)) {
                       setNotice({ name: storeFlag.entry.name, text: CONFIRMATION, tone: "ok" });
-                      setStoreResults(await searchSkillStore(storeQuery));
+                      await loadStore();
                       refresh();
                     }
                   }}
@@ -433,6 +516,82 @@ export function SkillsTab({
               </div>
             </div>
           ) : null}
+          {/* What this skill would tell the agent to do — read before it lands on disk. */}
+          {preview && previewFor ? (
+            <div
+              className="mt-2.5 rounded-lg border border-line bg-paper p-3"
+              data-testid="skill-store-preview"
+            >
+              {preview.ok ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] font-medium">{preview.name}</div>
+                      <div className="text-[11.5px] text-muted">{preview.description}</div>
+                    </div>
+                    <button
+                      className="text-[12px] text-muted hover:text-ink shrink-0"
+                      aria-label="Close preview"
+                      onClick={() => {
+                        setPreview(null);
+                        setPreviewFor(null);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  {preview.allowed_tools?.length ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11.5px] text-muted">Wants to use:</span>
+                      {preview.allowed_tools.map((t) => (
+                        <span key={t} className={BADGE}>
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {preview.flagged ? (
+                    <div
+                      className="mt-2 rounded-lg border border-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11.5px]"
+                      data-testid="skill-store-preview-flag"
+                    >
+                      Worth a human look: its instructions contain{" "}
+                      <code>{preview.flag_hit}</code>.
+                    </div>
+                  ) : null}
+                  <pre className="mt-2 max-h-56 overflow-y-auto whitespace-pre-wrap text-[11.5px] text-muted leading-relaxed">
+                    {preview.instructions}
+                    {preview.truncated ? "\n\n…" : ""}
+                  </pre>
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      className={BTN_ACCENT}
+                      disabled={previewFor.installed || storeBusy === previewFor.name}
+                      data-testid="skill-store-preview-install"
+                      onClick={() => void install(previewFor)}
+                    >
+                      {previewFor.installed ? "Installed" : "Install this skill"}
+                    </button>
+                    {preview.url ? (
+                      <a
+                        className="text-[12px] underline underline-offset-2 text-muted"
+                        href={preview.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open on GitHub
+                      </a>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[12px] text-muted">
+                  {preview.error || "Could not read this skill."}
+                </div>
+              )}
+            </div>
+          ) : null}
+
           <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-line">
             {storeResults.map((r) => (
               <div key={`${r.repo}/${r.path}`} className="py-2.5 flex items-start gap-3">
@@ -440,36 +599,70 @@ export function SkillsTab({
                   <div className="flex items-center gap-2">
                     <span className="text-[13px] font-medium truncate">{r.name}</span>
                     <span className={BADGE}>{r.repo.split("/")[0]}</span>
+                    {r.also_in ? (
+                      <span className="text-[11px] text-faint shrink-0">
+                        +{r.also_in} more {r.also_in === 1 ? "collection" : "collections"}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-[11.5px] text-muted line-clamp-2">{r.description}</div>
                 </div>
                 <button
                   className={`${BTN_BORDERED} disabled:opacity-40`}
+                  data-testid={`skill-store-preview-${r.name}`}
+                  onClick={async () => {
+                    setPreviewFor(r);
+                    setPreview(null);
+                    setPreview(await previewStoreSkill(r.name, r.repo).catch(() => ({
+                      ok: false,
+                      error: "Could not reach GitHub.",
+                    })));
+                  }}
+                >
+                  Read
+                </button>
+                <button
+                  className={`${BTN_BORDERED} disabled:opacity-40`}
                   disabled={r.installed || storeBusy === r.name}
                   data-testid={`skill-store-install-${r.name}`}
-                  onClick={async () => {
-                    setStoreBusy(r.name);
-                    const res = await installStoreSkill(r.name, r.repo);
-                    setStoreBusy(null);
-                    if (res.flagged) {
-                      setStoreFlag({ entry: r, text: res.error || "", url: res.url });
-                      return;
-                    }
-                    if (!fail(res)) {
-                      setNotice({ name: r.name, text: CONFIRMATION, tone: "ok" });
-                      setStoreResults(await searchSkillStore(storeQuery));
-                      refresh();
-                    }
-                  }}
+                  onClick={() => void install(r)}
                 >
                   {r.installed ? "Installed" : storeBusy === r.name ? "Installing…" : "Install"}
                 </button>
               </div>
             ))}
-            {storeQuery.trim() && storeResults.length === 0 ? (
-              <div className="py-3 text-[12px] text-muted">No skills match that search.</div>
+            {storeLoading && storeResults.length === 0 ? (
+              <div className="py-3 text-[12px] text-muted">Looking…</div>
+            ) : null}
+            {!storeLoading && storeQuery.trim() && storeResults.length === 0 ? (
+              <div className="py-3 text-[12px] text-muted">
+                No skills match that search. Try a plainer word, or clear the box to browse
+                by shelf.
+              </div>
             ) : null}
           </div>
+
+          {/* Say how many there are and let the list grow — a silent cap at 24 reads as
+              "that's all there is". */}
+          {storeResults.length > 0 ? (
+            <div
+              className="mt-2 flex items-center gap-3 text-[11.5px] text-muted"
+              data-testid="skill-store-count"
+            >
+              <span>
+                Showing {storeResults.length} of {storeTotal}
+              </span>
+              {storeResults.length < storeTotal ? (
+                <button
+                  className="underline underline-offset-2"
+                  data-testid="skill-store-more"
+                  onClick={() => void loadStore({ more: true })}
+                >
+                  {storeLoading ? "Loading…" : "Show more"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {error ? (

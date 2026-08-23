@@ -1,7 +1,7 @@
 // The HubSpot detail page (M3.6 Step 4, UX-DECISIONS §21): multi-portal with
 // Default/Sandbox/access tags and the hidden-fields denylist. Connects are the
 // manual private-app token — the broker one-click (and its consent radios) went
-// with the MimiWork Cloud removal.
+// with the the hosted relay's removal.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 

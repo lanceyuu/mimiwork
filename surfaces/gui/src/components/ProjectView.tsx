@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   addMemory,
   deleteMemory,
+  deleteProject,
   getProjectDetail,
   setProjectInstructions,
   updateMemory,
@@ -44,6 +45,8 @@ export function ProjectView(props: {
   onSelectSession: (id: string, workspace: string, agent: string) => void;
   /** Metadata changed (name/emoji/pin/archive) — the sidebar band re-reads. */
   onChanged?: () => void;
+  /** The project was deleted — the page must close (its data is gone). */
+  onDeleted?: (path: string) => void;
 }) {
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +57,14 @@ export function ProjectView(props: {
   const [saving, setSaving] = useState(false);
   const [newFact, setNewFact] = useState("");
   const [editing, setEditing] = useState<{ id: number; content: string } | null>(null);
+  // Delete is a two-step: the button arms a panel that says exactly what goes and what
+  // stays, because "delete project" reads like "delete my folder" to anyone sane.
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [alsoSessions, setAlsoSessions] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+  // Its own error slot: the page-level `error` replaces the whole view, and a refused
+  // delete must leave the project exactly where the user can see it.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   const load = () =>
@@ -234,11 +245,84 @@ export function ProjectView(props: {
               <Icon name="archive" size={13} /> {proj.archived ? "Unarchive" : "Archive"}
             </span>
           </button>
+          <button
+            className="btn sm danger-btn text-[12.5px]"
+            onClick={() => setConfirmDelete((v) => !v)}
+            data-testid="project-delete"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="trash" size={13} /> Delete
+            </span>
+          </button>
           <span className="text-[12px] text-faint ml-auto">
             {proj.sessions} {proj.sessions === 1 ? "conversation" : "conversations"}
             {proj.last_activity ? ` · active ${relTime(proj.last_activity)}` : ""}
           </span>
         </div>
+
+        {confirmDelete && (
+          <div
+            className="mt-3 rounded-xl2 border border-line bg-panel p-3.5"
+            data-testid="project-delete-confirm"
+          >
+            <div className="text-[13px] font-medium text-ink">
+              Delete “{proj.name || proj.path}” from MimiWork?
+            </div>
+            <p className="text-[12px] text-muted mt-1.5 leading-relaxed">
+              This removes the project card, its instructions link, and what Mimi remembers
+              about it. <strong className="font-medium text-ink">Your folder and every file
+              in it stay exactly where they are</strong> — including AGENTS.md.
+            </p>
+            {proj.sessions > 0 && (
+              <label className="mt-2.5 flex items-center gap-2 text-[12.5px] text-ink">
+                <input
+                  type="checkbox"
+                  checked={alsoSessions}
+                  onChange={(e) => setAlsoSessions(e.target.checked)}
+                  data-testid="project-delete-sessions"
+                />
+                Also delete its {proj.sessions}{" "}
+                {proj.sessions === 1 ? "conversation" : "conversations"}
+              </label>
+            )}
+            {deleteError && (
+              <div className="mt-2 text-[12px] text-danger" data-testid="project-delete-error">
+                {deleteError}
+              </div>
+            )}
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                className="btn sm danger-btn text-[12.5px]"
+                disabled={deleting}
+                data-testid="project-delete-confirm-btn"
+                onClick={async () => {
+                  setDeleting(true);
+                  setDeleteError(null);
+                  const r = await deleteProject(props.path, {
+                    deleteSessions: alsoSessions,
+                  }).catch(() => ({ ok: false, error: "could not reach the server" }));
+                  setDeleting(false);
+                  if (!r.ok) {
+                    setDeleteError(r.error || "could not delete this project");
+                    return;
+                  }
+                  setConfirmDelete(false);
+                  props.onChanged?.();
+                  props.onDeleted?.(props.path);
+                }}
+              >
+                {deleting ? "Deleting…" : "Delete project"}
+              </button>
+              <button
+                className="btn text-[12.5px]"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Instructions — the folder's AGENTS.md. */}
         <section className="mt-8" data-testid="project-instructions">

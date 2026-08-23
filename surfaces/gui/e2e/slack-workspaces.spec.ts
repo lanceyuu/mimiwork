@@ -32,7 +32,7 @@ test("Add workspace opens the manual Socket Mode form (one-click went with the c
   const modal = page.getByTestId("add-connection-modal");
   await expect(modal.getByPlaceholder("Bot token · xoxb-…")).toBeVisible();
   await expect(modal.getByTestId("modal-add-to-slack")).toHaveCount(0);
-  await expect(modal).not.toContainText("Sign in to MimiWork Cloud");
+  await expect(modal).not.toContainText("Sign in to"); // no hosted service to sign in to
 });
 
 test("disconnect removes one workspace and keeps the rest relaying", async ({ page }) => {

@@ -1,7 +1,7 @@
 // The generic multi-account detail page (AccountsDetail), exercised via Notion —
 // the pattern all batch-2 connectors share (accounts.py layer: AccountRow shape,
 // Default badge, per-account ×). Connects are manual-token only since the managed
-// broker went with the MimiWork Cloud removal.
+// broker went with the the hosted relay's removal.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 

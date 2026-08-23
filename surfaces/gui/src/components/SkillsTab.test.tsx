@@ -283,4 +283,76 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
     // The one-file skill carries no count at all — only rich skills are marked.
     expect(screen.getAllByTitle("Show folder")).toHaveLength(1);
   });
+
+  // ── the skill store: browsing, honest counts, and reading before installing ──────
+  const STORE_ROUTES = (results: any[], total = results.length) => [
+    { match: "/v1/skills/store/categories", json: { categories: [
+      { key: "research", label: "Research", count: 513 },
+      { key: "writing", label: "Writing & editing", count: 207 },
+    ] } },
+    { match: "/v1/skills/store/preview", json: {
+      ok: true, name: "lit-review", repo: "acme/skills", description: "Reads papers",
+      allowed_tools: ["WebSearch", "Write"], instructions: "# Literature review\n\nStep one.",
+      truncated: false, flagged: false, url: "https://github.com/acme/skills",
+    } },
+    { match: "/v1/skills/store", json: { results, total, offset: 0 } },
+    { match: "/v1/skills", json: { skills: [ROW] } },
+  ];
+  const ENTRY = {
+    name: "lit-review", description: "Structured literature search", repo: "acme/skills",
+    path: "skills/lit-review", installed: false, also_in: 2,
+  };
+
+  const openStore = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
+    fireEvent.click(screen.getByTestId("skill-store-open"));
+  };
+
+  it("opens on a shelf instead of an empty page, and says how many there are", async () => {
+    const calls = stubFetch(STORE_ROUTES([ENTRY], 513));
+    render(<SkillsTab />);
+    await openStore();
+    // Shelves arrive with counts, and one is already loaded — no typing required.
+    await screen.findByTestId("skill-store-shelves");
+    expect(screen.getByTestId("skill-store-shelf-research").textContent).toContain("513");
+    expect((await screen.findByTestId("skill-store-count")).textContent).toContain("of 513");
+    expect(screen.getByTestId("skill-store-more")).toBeTruthy();
+    expect(calls.some((c) => c.url.includes("category=research"))).toBe(true);
+  });
+
+  it("shelf clicks and typed searches both go through the same list", async () => {
+    const calls = stubFetch(STORE_ROUTES([ENTRY], 30));
+    render(<SkillsTab />);
+    await openStore();
+    fireEvent.click(await screen.findByTestId("skill-store-shelf-writing"));
+    await waitFor(() => expect(calls.some((c) => c.url.includes("category=writing"))).toBe(true));
+    fireEvent.change(screen.getByTestId("skill-store-search"), { target: { value: "seo audit" } });
+    await waitFor(() => expect(calls.some((c) => c.url.includes("q=seo+audit"))).toBe(true));
+    // The shelves step aside while a query is typed — one filter at a time.
+    expect(screen.queryByTestId("skill-store-shelves")).toBeNull();
+  });
+
+  it("reads a skill's own instructions before anything is installed", async () => {
+    const calls = stubFetch(STORE_ROUTES([ENTRY]));
+    render(<SkillsTab />);
+    await openStore();
+    fireEvent.click(await screen.findByTestId("skill-store-preview-lit-review"));
+    const panel = await screen.findByTestId("skill-store-preview");
+    expect(panel.textContent).toContain("Literature review");
+    expect(panel.textContent).toContain("WebSearch"); // what it wants to use
+    expect(calls.some((c) => c.url.includes("/v1/skills/store/install"))).toBe(false);
+    // …and installing from the panel is the same install as the row's button.
+    fireEvent.click(screen.getByTestId("skill-store-preview-install"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/v1/skills/store/install"))).toBe(true),
+    );
+  });
+
+  it("shows where else a skill is listed instead of repeating the row", async () => {
+    stubFetch(STORE_ROUTES([ENTRY]));
+    render(<SkillsTab />);
+    await openStore();
+    const row = await screen.findByTestId("skill-store-install-lit-review");
+    expect(row.closest("div")!.parentElement!.textContent).toContain("+2 more collections");
+  });
 });

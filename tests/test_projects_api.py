@@ -24,6 +24,22 @@ def _fixture(tmp_path):
     return TestClient(create_app(manager)), manager
 
 
+def _session(manager, session_id, workspace):
+    """A saved conversation in that folder — enough for the delete paths to see it."""
+    from coworker.conversations import SessionRecord
+
+    manager.session_store.save(
+        SessionRecord(
+            session_id=session_id,
+            workspace=str(workspace.resolve()),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "hi"}],
+            title="hi",
+        )
+    )
+
+
 def _open(client, path):
     assert client.post("/v1/workspaces/open", json={"path": str(path)}).json()["ok"]
 
@@ -128,3 +144,71 @@ def test_canonicalize_keeps_project_metadata(tmp_path):
     store.canonicalize_workspaces()
     meta = store.workspace_meta(str(proj.resolve()))
     assert meta["name"] == "Keep me" and meta["emoji"] == "📌" and meta["pinned"] is True
+
+
+def test_deleting_a_project_forgets_it_but_never_touches_the_folder(tmp_path):
+    """Delete = bookkeeping. The project's identity, memory and conversations go; the
+    folder and its files (AGENTS.md included) are the user's and stay put."""
+    client, manager = _fixture(tmp_path)
+    proj = tmp_path / "old-study"
+    proj.mkdir()
+    (proj / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    _open(client, proj)
+    client.patch("/v1/projects", json={"path": str(proj), "name": "Old study", "emoji": "📚"})
+    client.put("/v1/projects/instructions", json={"path": str(proj), "text": "Cite APA."})
+    client.post(
+        "/v1/memory",
+        json={
+            "content": "the pilot ran in March",
+            "scope": "workspace",
+            "workspace": str(proj.resolve()),
+        },
+    )
+
+    r = client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json()
+    assert r["ok"] and r["forgotten_memories"] == 1
+
+    assert str(proj.resolve()) not in [p["path"] for p in client.get("/v1/projects").json()["projects"]]
+    assert manager.list_memory(workspace=str(proj.resolve())) == []
+    # The folder is untouched — files and the instructions file are still there.
+    assert (proj / "data.csv").read_text(encoding="utf-8") == "a,b\n1,2\n"
+    assert (proj / "AGENTS.md").is_file()
+    # Unknown afterwards: a second delete is a clean no-op, not a crash.
+    assert client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json() == {
+        "ok": False,
+        "error": "unknown project",
+    }
+
+
+def test_deleting_a_project_takes_its_conversations_unless_asked_to_keep_them(tmp_path):
+    client, manager = _fixture(tmp_path)
+    keep = tmp_path / "keeper"
+    keep.mkdir()
+    _open(client, keep)
+    _session(manager, "s-keep-1", keep)
+    r = client.request(
+        "DELETE", "/v1/projects", params={"path": str(keep), "delete_sessions": "false"}
+    ).json()
+    assert r["ok"] and r["deleted_sessions"] == 0
+    assert manager.session_store.load("s-keep-1") is not None
+
+    drop = tmp_path / "dropper"
+    drop.mkdir()
+    _open(client, drop)
+    _session(manager, "s-drop-1", drop)
+    r = client.request("DELETE", "/v1/projects", params={"path": str(drop)}).json()
+    assert r["ok"] and r["deleted_sessions"] == 1
+    assert manager.session_store.load("s-drop-1") is None
+
+
+def test_a_running_conversation_blocks_the_delete(tmp_path):
+    client, manager = _fixture(tmp_path)
+    proj = tmp_path / "busy"
+    proj.mkdir()
+    _open(client, proj)
+    _session(manager, "s-busy-1", proj)
+    manager.mark_running("s-busy-1")
+    r = client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json()
+    assert not r["ok"] and "running" in r["error"]
+    assert manager.session_store.load("s-busy-1") is not None
+    assert str(proj.resolve()) in [p["path"] for p in client.get("/v1/projects").json()["projects"]]

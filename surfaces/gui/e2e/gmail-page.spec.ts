@@ -13,7 +13,7 @@ async function openConnectors(page) {
 async function connectFirstAccount(page) {
   await openConnectors(page);
   // gmail starts disconnected → Available row → modal → manual token connect
-  // (the managed one-click went with the MimiWork Cloud removal).
+  // (the managed one-click went with the the hosted relay's removal).
   await page.getByTestId("connector-gmail").getByRole("button", { name: "Connect", exact: true }).click();
   await page.getByPlaceholder("").first(); // modal open
   await page.locator(".conn-field input").first().fill("ya29.token");

@@ -623,10 +623,22 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.reveal_skill(name, str((body or {}).get("workspace", "")) or None)
 
     @app.get("/v1/skills/store")
-    def skill_store(q: str = "") -> dict[str, Any]:
-        """Search the community skill store (bundled index; installs download
-        from GitHub pinned to the indexed commit)."""
-        return manager.skill_store_search(q)
+    def skill_store(
+        q: str = "", category: str = "", limit: int = 24, offset: int = 0
+    ) -> dict[str, Any]:
+        """Search the community skill store, or browse one shelf when `q` is empty
+        (bundled index; installs download from GitHub pinned to the indexed commit)."""
+        return manager.skill_store_search(q, category=category, limit=limit, offset=offset)
+
+    @app.get("/v1/skills/store/categories")
+    def skill_store_categories() -> dict[str, Any]:
+        """The browsing shelves, with how many skills each holds."""
+        return manager.skill_store_categories()
+
+    @app.get("/v1/skills/store/preview")
+    def skill_store_preview(name: str, repo: str = "") -> dict[str, Any]:
+        """Read a listed skill's SKILL.md before installing it."""
+        return manager.skill_store_preview(name, repo or None)
 
     @app.post("/v1/skills/store/install")
     def skill_store_install(body: dict) -> dict[str, Any]:
@@ -689,6 +701,12 @@ def create_app(manager: SessionManager) -> FastAPI:
         b = body or {}
         fields = {k: b[k] for k in ("name", "emoji", "pinned", "archived") if k in b}
         return manager.update_project(str(b.get("path", "")), **fields)
+
+    @app.delete("/v1/projects")
+    def delete_project(path: str, delete_sessions: bool = True) -> dict[str, Any]:
+        """Remove a project from MimiWork (identity, memory and — by default — its
+        conversations). The folder on disk is left exactly as it is."""
+        return manager.delete_project(path, delete_sessions=delete_sessions)
 
     @app.get("/v1/projects/detail")
     def project_detail(path: str) -> dict[str, Any]:
@@ -1036,7 +1054,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         action = str((body or {}).get("action", "")).strip()
         return await manager.resolve_unauthorized(name, item_id, action)
 
-    # -- MimiWork Cloud: sign-in + managed one-click connect ---------------
+    # -- QualiTaTi account: sign-in + credits -----------------------------
     # All optional: the app is fully functional signed out (manual token paste
     # stays available for every connector, before and after sign-in).
 

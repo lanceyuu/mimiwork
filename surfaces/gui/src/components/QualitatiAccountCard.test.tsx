@@ -182,4 +182,21 @@ describe("QualitatiAccountCard — create account", () => {
     );
     expect(screen.getByTestId("qualitati-register-form")).toBeTruthy(); // stays on the form
   });
+
+  it("tells the signed-in user their QualiTaTi data is usable — and that it will ask first", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+    ]);
+    render(<QualitatiAccountCard />);
+    const note = await screen.findByTestId("qualitati-data-note");
+    expect(note.textContent).toContain("Your QualiTaTi work is available here");
+    expect(note.textContent).toContain("approval");
+  });
+
+  it("says nothing about data while signed out", async () => {
+    stubFetch([{ match: "/v1/qualitati/status", json: SIGNED_OUT }]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-username");
+    expect(screen.queryByTestId("qualitati-data-note")).toBeNull();
+  });
 });

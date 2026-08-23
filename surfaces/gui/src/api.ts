@@ -1405,6 +1405,20 @@ export async function updateProject(
   return res.json();
 }
 
+/** Remove a project from MimiWork. The folder on disk is never touched — only the
+ *  project's identity, its workspace memory and (unless kept) its conversations. */
+export async function deleteProject(
+  path: string,
+  opts: { deleteSessions?: boolean } = {},
+): Promise<{ ok: boolean; deleted_sessions?: number; error?: string }> {
+  const keep = opts.deleteSessions === false ? "false" : "true";
+  const res = await fetch(
+    `${httpBase()}/v1/projects?path=${encodeURIComponent(path)}&delete_sessions=${keep}`,
+    { method: "DELETE" },
+  );
+  return res.json();
+}
+
 export async function getProjectDetail(path: string): Promise<ProjectDetail> {
   const res = await fetch(`${httpBase()}/v1/projects/detail?path=${encodeURIComponent(path)}`);
   return res.json();
@@ -1616,10 +1630,63 @@ export interface SkillStoreEntry {
   repo: string;
   path: string;
   installed: boolean;
+  /** How many other collections list the same skill (rows are collapsed by name). */
+  also_in?: number;
+}
+export interface SkillStorePage {
+  results: SkillStoreEntry[];
+  total: number;
+  offset: number;
+  category?: string;
+}
+export interface SkillStoreCategory {
+  key: string;
+  label: string;
+  count: number;
+}
+export interface SkillStorePreview {
+  ok: boolean;
+  name?: string;
+  repo?: string;
+  description?: string;
+  allowed_tools?: string[];
+  instructions?: string;
+  truncated?: boolean;
+  flagged?: boolean;
+  flag_hit?: string;
+  url?: string;
+  error?: string;
+}
+
+/** One entry point for both ways in: a typed query, or a shelf when the box is empty. */
+export async function browseSkillStore(
+  opts: { q?: string; category?: string; limit?: number; offset?: number } = {},
+): Promise<SkillStorePage> {
+  const params = new URLSearchParams();
+  if (opts.q) params.set("q", opts.q);
+  if (opts.category) params.set("category", opts.category);
+  params.set("limit", String(opts.limit ?? 24));
+  params.set("offset", String(opts.offset ?? 0));
+  const res = await fetch(`${httpBase()}/v1/skills/store?${params.toString()}`);
+  const page = await res.json();
+  return { results: page.results ?? [], total: page.total ?? 0, offset: page.offset ?? 0 };
 }
 export async function searchSkillStore(q: string): Promise<SkillStoreEntry[]> {
-  const res = await fetch(`${httpBase()}/v1/skills/store?q=${encodeURIComponent(q)}`);
-  return (await res.json()).results ?? [];
+  return (await browseSkillStore({ q })).results;
+}
+export async function skillStoreCategories(): Promise<SkillStoreCategory[]> {
+  const res = await fetch(`${httpBase()}/v1/skills/store/categories`);
+  return (await res.json()).categories ?? [];
+}
+/** Read a listed skill's SKILL.md before installing it. */
+export async function previewStoreSkill(
+  name: string,
+  repo: string,
+): Promise<SkillStorePreview> {
+  const res = await fetch(
+    `${httpBase()}/v1/skills/store/preview?name=${encodeURIComponent(name)}&repo=${encodeURIComponent(repo)}`,
+  );
+  return res.json();
 }
 export async function installStoreSkill(
   name: string,

@@ -176,6 +176,21 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           )}
         </div>
       ) : null}
+      {/* Signing in buys credits AND opens the account's research data. Say so once, here,
+        * with the guarantee attached: nothing is fetched until you approve that fetch. */}
+      {state.signed_in ? (
+        <div
+          className="mt-2.5 rounded-lg border border-line bg-paper px-3 py-2 text-[12px] leading-relaxed"
+          data-testid="qualitati-data-note"
+        >
+          <span className="text-ink font-medium">Your QualiTaTi work is available here.</span>{" "}
+          <span className="text-muted">
+            Ask for a project, an interview transcript, or a survey's responses and Mimi can
+            pull them in to analyse — <span className="text-ink">each retrieval asks your
+            approval first</span>, and nothing is fetched on its own.
+          </span>
+        </div>
+      ) : null}
       {state.signed_in && footprint?.ok && footprint.carbon_g !== undefined ? (
         <div
           className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted"

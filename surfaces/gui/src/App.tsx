@@ -1030,8 +1030,12 @@ export function App() {
     dropSessionInbox("question");
     sessionRef.current?.respondQuestion(answer);
   };
+  // The nonce must never go backwards: the composer ignores a nonce it has already applied,
+  // and the prefill state is cleared once consumed — so deriving the next nonce from the
+  // state restarted at 1 and the SECOND starter card silently did nothing.
+  const prefillNonce = useRef(0);
   const prefillComposer = (text: string, attachments?: Attachment[]) =>
-    setComposerPrefill((p) => ({ text, attachments, nonce: (p?.nonce ?? 0) + 1 }));
+    setComposerPrefill({ text, attachments, nonce: ++prefillNonce.current });
   const interrupt = () => sessionRef.current?.interrupt();
   const retry = () => {
     // Optimistic running: turn_start confirms; a rejected retry still ends in turn_done.
@@ -1583,6 +1587,13 @@ export function App() {
           onNewSession={(path) => void newSessionIn(path)}
           onSelectSession={(id, ws, ag) => void selectSession(id, ws, ag)}
           onChanged={() => getProjects().then(setProjects).catch(() => {})}
+          onDeleted={() => {
+            // The page's subject is gone — leave it before it can re-fetch a dead path.
+            setProjectPath(null);
+            setSurface("session");
+            void getProjects().then(setProjects).catch(() => {});
+            void refreshSessions();
+          }}
         />
       ) : null;
       if (view) {
@@ -1858,6 +1869,7 @@ export function App() {
               unattended={unattended}
               onUnattendedChange={agent !== "chat" ? toggleUnattended : undefined}
               prefill={composerPrefill}
+              onPrefillConsumed={() => setComposerPrefill(undefined)}
               resetKey={sessionId}
               usage={usage}
               contextWindow={modelContextWindows[model]}

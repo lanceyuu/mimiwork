@@ -15,6 +15,8 @@ function stubFetch(detail: any) {
     calls.push({ url, method, body });
     if (url.includes("/v1/projects/detail")) return { ok: true, json: async () => detail } as Response;
     if (url.includes("/v1/projects/instructions")) return { ok: true, json: async () => ({ ok: true }) } as Response;
+    if (url.includes("/v1/projects") && method === "DELETE")
+      return { ok: true, json: async () => ({ ok: true, deleted_sessions: 1 }) } as Response;
     if (url.includes("/v1/projects") && method === "PATCH")
       return { ok: true, json: async () => ({ ok: true, project: { ...detail.project, ...body } }) } as Response;
     if (url.includes("/v1/memory") && method === "POST") return { ok: true, json: async () => ({ id: 9 }) } as Response;
@@ -93,5 +95,78 @@ describe("ProjectView", () => {
         workspace: "/p/thesis",
       }),
     );
+  });
+
+  it("deleting asks first, says the folder is safe, and reports the page is done", async () => {
+    const calls = stubFetch(DETAIL);
+    const onDeleted = vi.fn();
+    const onChanged = vi.fn();
+    render(
+      <ProjectView
+        path="/p/thesis"
+        onNewSession={() => {}}
+        onSelectSession={() => {}}
+        onChanged={onChanged}
+        onDeleted={onDeleted}
+      />,
+    );
+    await screen.findByTestId("project-instructions");
+    // Nothing happens on the first click — it only arms the confirm panel.
+    fireEvent.click(screen.getByTestId("project-delete"));
+    const panel = screen.getByTestId("project-delete-confirm");
+    expect(panel.textContent).toContain("stay exactly where they are");
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith("/p/thesis"));
+    const del = calls.find((c) => c.method === "DELETE")!;
+    expect(del.url).toContain("delete_sessions=true");
+    expect(decodeURIComponent(del.url)).toContain("/p/thesis");
+    expect(onChanged).toHaveBeenCalled(); // the sidebar band re-reads
+  });
+
+  it("keeps the conversations when the box is unticked", async () => {
+    const calls = stubFetch(DETAIL);
+    render(
+      <ProjectView path="/p/thesis" onNewSession={() => {}} onSelectSession={() => {}} />,
+    );
+    await screen.findByTestId("project-instructions");
+    fireEvent.click(screen.getByTestId("project-delete"));
+    fireEvent.click(screen.getByTestId("project-delete-sessions")); // untick
+    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.find((c) => c.method === "DELETE")!.url).toContain("delete_sessions=false");
+  });
+
+  it("keeps the page open and shows why when the server refuses", async () => {
+    stubFetch(DETAIL);
+    const fn = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = (init?.method || "GET").toUpperCase();
+      if (url.includes("/v1/projects/detail"))
+        return { ok: true, json: async () => DETAIL } as Response;
+      if (method === "DELETE")
+        return {
+          ok: true,
+          json: async () => ({ ok: false, error: "a conversation in this project is still running" }),
+        } as Response;
+      return { ok: true, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fn);
+    const onDeleted = vi.fn();
+    render(
+      <ProjectView
+        path="/p/thesis"
+        onNewSession={() => {}}
+        onSelectSession={() => {}}
+        onDeleted={onDeleted}
+      />,
+    );
+    await screen.findByTestId("project-instructions");
+    fireEvent.click(screen.getByTestId("project-delete"));
+    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
+    await waitFor(() =>
+      expect(screen.getByTestId("project-delete-confirm").textContent).toContain("still running"),
+    );
+    expect(onDeleted).not.toHaveBeenCalled();
   });
 });

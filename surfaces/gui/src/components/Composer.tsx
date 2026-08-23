@@ -125,6 +125,10 @@ interface Props {
   // Push text + attachments into the composer (e.g. a start-panel task card). The `nonce` makes
   // repeated identical prefills re-apply; the user can still edit before sending.
   prefill?: { text: string; attachments?: Attachment[]; nonce: number };
+  /** Fired once the prefill has landed in the box, so the host can drop it. A prefill left
+   *  standing in the host's state re-applies on every remount — that is how a starter-card
+   *  sentence ended up reappearing forever (owner report 2026-08-23). */
+  onPrefillConsumed?: () => void;
   // Changes when the active conversation changes; clears any unsent draft.
   resetKey?: string;
   // Surface-specific hint shown in the empty textarea.
@@ -314,6 +318,7 @@ export function Composer(props: Props) {
     setText(p.text);
     if (p.attachments?.length) setAttachments((cur) => mergeAttachments(cur, p.attachments!));
     textareaRef.current?.focus();
+    props.onPrefillConsumed?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.prefill?.nonce]);
 

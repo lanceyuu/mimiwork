@@ -458,6 +458,45 @@ class SessionManager:
         meta = self.session_store.workspace_meta(canonical) or {"path": canonical}
         return {"ok": True, "project": self._project_row(meta, self.session_store.session_stats_by_workspace())}
 
+    def delete_project(self, path: str, *, delete_sessions: bool = True) -> dict[str, Any]:
+        """Delete a project from MimiWork: its identity (name/emoji/pin), its place in the
+        Projects band, its workspace memory and — unless asked otherwise — its conversations.
+
+        The folder on disk is never touched, AGENTS.md included: a project IS a real folder
+        the user owns, and removing it here is bookkeeping, not a file operation. Refused
+        while one of its conversations is running, so nothing is deleted mid-turn.
+        """
+        canonical = self._project_path(path)
+        if canonical is None:
+            return {"ok": False, "error": "unknown project"}
+        sessions = [
+            s
+            for s in self.list_sessions(canonical)
+            if not str(s.get("session_id", "")).startswith("__")
+        ]
+        busy = [s for s in sessions if self.is_running(str(s.get("session_id")))]
+        if busy:
+            return {
+                "ok": False,
+                "error": "a conversation in this project is still running — stop it first",
+            }
+        deleted = 0
+        if delete_sessions:
+            for row in sessions:
+                if self.delete_session(str(row["session_id"])).get("ok"):
+                    deleted += 1
+        forgotten = 0
+        for item in self.list_memory(workspace=canonical):
+            if self.memory_store.delete(int(item["id"])):
+                forgotten += 1
+        self.session_store.delete_workspace(canonical)
+        return {
+            "ok": True,
+            "path": canonical,
+            "deleted_sessions": deleted,
+            "forgotten_memories": forgotten,
+        }
+
     def project_detail(self, path: str) -> dict[str, Any]:
         canonical = self._project_path(path)
         if canonical is None:
@@ -2703,7 +2742,7 @@ class SessionManager:
 
     def slack_status(self) -> dict[str, Any]:
         """Slack connection health for the manual Socket Mode workspace (the managed
-        relay layers were removed with the MimiWork Cloud dependency)."""
+        relay layers were removed when the hosted relay was dropped)."""
         default = self.secrets.get("slack:default") or {}
         return {
             "ok": True,
@@ -2714,7 +2753,7 @@ class SessionManager:
 
     def github_status(self) -> dict[str, Any]:
         """GitHub connection health for the manual PAT profile (the managed relay
-        layers were removed with the MimiWork Cloud dependency)."""
+        layers were removed when the hosted relay was dropped)."""
         default = self.secrets.get("github:default") or {}
         return {"ok": True, "connected": bool(default.get("token"))}
 
@@ -4324,18 +4363,38 @@ class SessionManager:
         adds that project's skills, with project copies shadowing same-named global ones."""
         return self.skill_store.rows(workspace or None)
 
-    def skill_store_search(self, query: str) -> dict[str, Any]:
-        """Search the bundled community-skill index (~7,200 entries, three repos).
-        Marks rows already installed so the UI can disable their Install button."""
+    def skill_store_search(
+        self, query: str, *, category: str = "", limit: int = 24, offset: int = 0
+    ) -> dict[str, Any]:
+        """One entry point for both ways into the store: a typed query, or a shelf to
+        browse when the box is empty. Rows carry `installed` so the UI can say so, and
+        the page carries `total` so it can offer "show more" honestly."""
         from ..skills import marketplace
 
-        results = marketplace.search(query, limit=30)
+        page = (
+            marketplace.search_page(query, limit=limit, offset=offset)
+            if (query or "").strip()
+            else marketplace.browse_page(category, limit=limit, offset=offset)
+        )
         installed = {r["name"] for r in self.skill_store.rows(None)}
         return {
+            **page,
+            "category": category if not (query or "").strip() else "",
             "results": [
-                {**r, "installed": r["name"] in installed} for r in results
-            ]
+                {**r, "installed": r["name"] in installed} for r in page["results"]
+            ],
         }
+
+    def skill_store_categories(self) -> dict[str, Any]:
+        from ..skills import marketplace
+
+        return {"categories": marketplace.categories()}
+
+    def skill_store_preview(self, name: str, repo: Optional[str] = None) -> dict[str, Any]:
+        """What this skill would tell the agent to do — read before installing."""
+        from ..skills import marketplace
+
+        return marketplace.preview(name, repo or None)
 
     def skill_store_install(
         self, name: str, repo: Optional[str] = None, force: bool = False

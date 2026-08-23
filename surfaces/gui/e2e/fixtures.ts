@@ -391,7 +391,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
     { id: "gh-pk1", platform: "github", chat_id: "acme/site#7", chat_name: "acme/site#7", user_id: "maya-dev", user_name: "maya-dev", chat_type: "channel", text: "@ocw please take a look at this flaky test", ts: Date.now() / 1000 - 90, team_id: "101" },
   ];
   // Manual-PAT world (the managed App-installation relay was removed with the
-  // MimiWork Cloud dependency): starts disconnected, a manual token connects it.
+  // hosted relay): starts disconnected, a manual token connects it.
   const githubState = {
     connected: false,
     mode: "" as "" | "relay",

@@ -142,7 +142,7 @@ export function Sidebar(props: Props) {
   // The account row (§26): cloud sign-in status drives the avatar/name/dot; refreshed on
   // focus and whenever the menu opens (sign-in completes out-of-band in the browser).
   // Footer identity = the QualiTaTi account (owner ask 2026-08-19): username + credit
-  // balance, replacing the MimiWork Cloud rows. Cloud sign-in keeps its homes inside
+  // balance. Account sign-in keeps its homes inside
   // the connector panes; this row is about whose credits the models spend.
   const [qt, setQt] = useState<QualitatiStatus | null>(null);
   // Inbox chip sticky unlock (§26): absent until the product first parks an item (or a

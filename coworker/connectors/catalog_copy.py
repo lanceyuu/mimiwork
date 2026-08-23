@@ -4,7 +4,7 @@ Served with every /v1/connectors entry so the GUI's pre-connect detail page
 (UX-DECISIONS §38) can show About / Access before any credentials exist. Plain
 statements of behavior, not marketing: every bullet must stay true to the
 connector's actual tools (tool_defs.py) and, for managed connectors, the scopes
-the MimiWork Cloud app requests. Overclaiming here is a product bug.
+the connector's own OAuth app requests. Overclaiming here is a product bug.
 
 ABOUT is optional (the list blurb is the fallback subtitle); ACCESS is required
 for every available connector — tests/test_connectors.py enforces it.

@@ -147,4 +147,23 @@ describe("Composer — the doorway prefill (SKILLS-SPEC §5.2)", () => {
       );
     });
   });
+
+  it("reports the prefill as consumed, so the host can stop handing it back", async () => {
+    // Regression (owner report 2026-08-23): the starter-card sentence reappeared in every
+    // new conversation, because the host kept the prefill in state and each remount of the
+    // composer applied it again. The composer now says when it has landed.
+    stubFetch();
+    const onPrefillConsumed = vi.fn();
+    const prefill = { text: "Analyze the files in this folder.", nonce: 7 };
+    const { unmount } = render(
+      <Composer {...props({ prefill, onPrefillConsumed })} />,
+    );
+    await waitFor(() => expect(onPrefillConsumed).toHaveBeenCalledTimes(1));
+    expect((box() as HTMLTextAreaElement).value).toBe("Analyze the files in this folder.");
+    unmount();
+
+    // What the host does with that: drops it. A fresh composer then starts empty.
+    render(<Composer {...props({ prefill: undefined })} />);
+    expect((box() as HTMLTextAreaElement).value).toBe("");
+  });
 });

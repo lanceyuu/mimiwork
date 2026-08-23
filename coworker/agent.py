@@ -333,6 +333,18 @@ def build_engine(
         registry.register_all(
             scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
         )
+    # The signed-in QualiTaTi account's own research data (projects, interviews, surveys).
+    # Registered only while signed in — an unusable tool in the catalog is a lie to the
+    # model — and every one of them is approval-gated: pulling personal research data off
+    # a server is the user's call, each time (owner ask 2026-08-23).
+    from .qualitati import AUTH_PROFILE
+
+    _qt = secrets.get(AUTH_PROFILE) or {}
+    if isinstance(_qt, dict) and _qt.get("access_token"):
+        from .tools.qualitati_data import qualitati_data_tools
+
+        registry.register_all(qualitati_data_tools(secrets, workspace=ws))
+
     # Custom commands (opencode-style markdown /commands with $ARGUMENTS): project commands
     # under .coworker/commands, user commands under the state dir. Available to any workspace
     # session; the model discovers them via list_commands.

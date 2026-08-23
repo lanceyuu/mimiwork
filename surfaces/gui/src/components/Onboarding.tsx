@@ -105,7 +105,7 @@ export function Onboarding({
 
   // The onboarding tools page is informational now: connectors are set up with
   // the user's own credentials from the Connectors page (the managed one-click
-  // path went with the MimiWork Cloud dependency).
+  // path went with the hosted relay).
   useEffect(() => {
     if (step !== 1) return;
     getConnectors().then(setConnectors).catch(() => {});

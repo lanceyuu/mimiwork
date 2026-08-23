@@ -77,10 +77,9 @@ class ConnectorDescriptor:
     # (connectors/experimental/) that release builds exclude entirely.
     experimental: bool = False
     risk_notice: str = ""
-    # One-click managed OAuth via MimiWork Cloud (requires cloud sign-in).
-    # Manual token paste ALWAYS remains available — signed out or in — managed
-    # is an extra path, never a replacement (local-only open-source flow is
-    # sacred).
+    # Legacy field from the managed-OAuth era. There is no hosted MimiWork service:
+    # every connector authenticates locally, with your own token or a vendor's own
+    # OAuth. Kept only so old settings files still load.
     managed: bool = False
     # One-click temporarily unavailable (e.g. Google pending CASA verification):
     # the GUI shows a disabled button with a "Coming soon" badge, the server
@@ -450,7 +449,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="slack",
         title="Slack",
         icon="💬",
-        blurb="Two-way messaging — one-click via MimiWork Cloud, or a manual Slack app (Socket Mode).",
+        blurb="Two-way messaging through your own Slack app (Socket Mode).",
         auth="socket_app",
         two_way=True,
         channels=True,
@@ -653,8 +652,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via MimiWork Cloud (recommended).",
-            "Manual: paste a Microsoft Graph access token with Mail and Calendar scopes.",
+            "Paste a Microsoft Graph access token with Mail and Calendar scopes.",
         ],
         validate=_validate_outlook,
         available=True,
@@ -1256,8 +1254,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via MimiWork Cloud (recommended).",
-            "Manual: create an internal integration at notion.so/my-integrations,",
+            "Create an internal integration at notion.so/my-integrations,",
             "copy its secret, and share the relevant pages with the integration.",
         ],
         validate=_validate_notion,
@@ -1285,8 +1282,7 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "One click connects via MimiWork Cloud (recommended).",
-            "Manual: create an API key under Workspace Settings → Developers.",
+            "Create an API key under Workspace Settings → Developers.",
         ],
         validate=_validate_attio,
         brand_color="#2d7ff9",

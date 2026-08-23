@@ -486,6 +486,14 @@ class ConversationStore:
             "archived": bool(r["archived"]),
         }
 
+    def delete_workspace(self, path: str) -> bool:
+        """Forget a workspace row (project identity + recents entry). Sessions are deleted
+        separately and the folder itself is never touched — this is bookkeeping only."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM workspaces WHERE path = ?", (path,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
     def set_workspace_meta(self, path: str, **fields) -> bool:
         """Update project display metadata; unknown fields are ignored. Creates the
         workspace row if needed so a project can be named before its first session."""
