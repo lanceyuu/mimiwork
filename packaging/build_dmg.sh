@@ -171,6 +171,20 @@ rm -f "$DMG"
 #      `tell disk "$APP"` then styles the WRONG (stale) volume, so our image never gets a
 #      .DS_Store. Detach any pre-existing mount first, and target the ACTUAL mounted name.
 #   2. Finder writes .DS_Store asynchronously — detaching too soon drops it. Poll until it lands.
+# Ejecting a just-written image races Spotlight (mds indexes the new volume) and any
+# Finder window still on it: "hdiutil: couldn't eject … Resource busy", which then failed
+# the convert and produced no .dmg at all. Retry, escalating to diskutil.
+detach_disk() {
+  local target="$1" i
+  for i in 1 2 3 4 5; do
+    hdiutil detach "$target" -force >/dev/null 2>&1 && return 0
+    sleep $((i * 3))
+    diskutil unmount force "$target" >/dev/null 2>&1 && return 0
+  done
+  echo "    (could not eject $target after retries)" >&2
+  return 1
+}
+
 style_dmg() {
   # Clear any earlier mount of this volume so we don't collide into "$APP 1".
   [ -d "/Volumes/$APP" ] && hdiutil detach "/Volumes/$APP" -force >/dev/null 2>&1 || true
@@ -213,16 +227,30 @@ OSA
   local i; for i in $(seq 1 15); do [ -f "$mnt/.DS_Store" ] && break; sleep 1; done
   [ -f "$mnt/.DS_Store" ] || { hdiutil detach "$dev" -force >/dev/null 2>&1 || true; return 1; }
   sync; sync
-  hdiutil detach "$dev" -force >/dev/null
-  hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null
+  detach_disk "$dev" || return 1
+  # convert refuses while anything still holds the image; the detach above usually settles
+  # it, but Spotlight can hang on a beat longer.
+  local c; for c in 1 2 3; do
+    hdiutil convert "$rw" -format UDZO -imagekey zlib-level=9 -o "$DMG" >/dev/null && break
+    [ "$c" = 3 ] && { rm -f "$rw"; return 1; }
+    sleep 5
+  done
   rm -f "$rw"
 }
 
 if ! style_dmg; then
   echo "    (Finder styling unavailable — writing a plain .dmg)"
+  # Leave nothing mounted behind: a still-attached volume is what made the styled path
+  # fail, and it would fail this one too.
+  [ -d "/Volumes/$APP" ] && detach_disk "/Volumes/$APP" || true
+  rm -f "$DMG"
   hdiutil create -volname "$APP" -srcfolder "$STAGING" -ov -format UDZO "$DMG" >/dev/null
 fi
 rm -rf "$STAGING"
+
+# A missing .dmg used to surface three steps later as a cp: No such file (CI run 32669424302,
+# an Intel runner where hdiutil hit "Resource busy"). Say it where it happened.
+[ -f "$DMG" ] || { echo "ERROR: no .dmg was produced — see the hdiutil output above" >&2; exit 1; }
 
 if [ "${OCW_SKIP_NOTARIZE:-}" = "1" ] && [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
   # Local-iteration escape hatch: sign (seconds) but skip the notary round-trip
