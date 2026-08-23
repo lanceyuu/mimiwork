@@ -263,6 +263,63 @@ def create_app(manager: SessionManager) -> FastAPI:
         outside its own WebSocket."""
         return manager.interrupt_session(session_id)
 
+    # -- transfer pack (Cowork / Claude Code parity) --------------------------------
+
+    @app.post("/v1/sessions/{session_id}/compact")
+    async def compact_session(session_id: str) -> dict[str, Any]:
+        """"/compact" — condense this conversation's history now, same policy the
+        automatic compaction uses."""
+        return await manager.compact_session(session_id)
+
+    @app.get("/v1/commands")
+    def list_commands(workspace: str = "") -> dict[str, Any]:
+        """Saved markdown commands (`.coworker/commands`, `<state>/commands`) — the
+        composer's "/" palette lists these next to skills."""
+        return {"commands": manager.list_commands(workspace or None)}
+
+    @app.post("/v1/commands/expand")
+    def expand_command(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.expand_command(
+            str(body.get("name", "")),
+            str(body.get("arguments", "")),
+            str(body.get("workspace", "")) or None,
+        )
+
+    @app.get("/v1/instructions")
+    def global_instructions() -> dict[str, Any]:
+        """Cowork's "Global instructions": the AGENTS.md every session starts with."""
+        return manager.global_instructions()
+
+    @app.put("/v1/instructions")
+    def set_global_instructions(body: dict) -> dict[str, Any]:
+        return manager.set_global_instructions(str((body or {}).get("instructions", "")))
+
+    @app.get("/v1/files/search")
+    def search_files(
+        q: str = "", workspace: str = "", session_id: str = "", limit: int = 20
+    ) -> dict[str, Any]:
+        """Path search inside the session's granted folders, for "@" mentions."""
+        return {
+            "files": manager.search_files(
+                q, workspace or None, session_id or None, limit
+            )
+        }
+
+    @app.get("/v1/skills/importable")
+    def importable_skills(workspace: str = "") -> dict[str, Any]:
+        """Skills this machine already has for Claude Code / Cowork plugins."""
+        return {"skills": manager.importable_skills(workspace or None)}
+
+    @app.post("/v1/skills/import")
+    def import_skill(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.import_skill(
+            str(body.get("path", "")),
+            str(body.get("scope", "global")),
+            str(body.get("workspace", "")) or None,
+        )
+
     @app.get("/v1/agents")
     def agents() -> dict[str, Any]:
         return {"agents": manager.list_agents()}

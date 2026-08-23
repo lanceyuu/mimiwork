@@ -499,6 +499,254 @@ class SessionManager:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "instructions": text, "instructions_file": str(agents)}
 
+    # -- transfer pack: commands, instructions, @-mentions, skill import ------------
+    # The vocabulary here is deliberately the one Claude Code / Cowork / Codex use, so a
+    # user who learns MimiWork can drive those and vice-versa (owner ask 2026-08-23).
+
+    def _command_store(self, workspace: Optional[str] = None):
+        from ..commands import CommandStore
+
+        dirs: list[Path] = []
+        ws = self._project_path(workspace) if workspace else None
+        if ws:
+            dirs.append(Path(ws) / ".coworker" / "commands")
+        dirs.append(state_dir() / "commands")
+        return CommandStore(dirs), dirs
+
+    def list_commands(self, workspace: Optional[str] = None) -> list[dict[str, Any]]:
+        """The saved markdown commands reachable from this workspace, project scope first
+        — the rows behind the composer's "/" palette."""
+        store, dirs = self._command_store(workspace)
+        project_dir = dirs[0] if len(dirs) > 1 else None
+        out: list[dict[str, Any]] = []
+        for row in store.catalog():
+            cmd = store.get(row["name"])
+            path = getattr(cmd, "path", None)
+            scope = (
+                "project"
+                if project_dir is not None and path is not None and project_dir in path.parents
+                else "global"
+            )
+            out.append({**row, "scope": scope, "path": str(path) if path else ""})
+        return sorted(out, key=lambda r: (r["scope"] != "project", r["name"]))
+
+    def expand_command(
+        self, name: str, arguments: str = "", workspace: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Substitute $ARGUMENTS and hand back the instruction text. Expanding here (not in
+        the model) keeps a saved command deterministic — same input, same prompt."""
+        from ..commands import CommandError
+
+        store, _ = self._command_store(workspace)
+        try:
+            return {"ok": True, "name": name, "text": store.expand(name, arguments or "")}
+        except CommandError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def global_instructions(self) -> dict[str, Any]:
+        """Cowork calls this "Global instructions": one file that applies to every session."""
+        from ..project import default_global_agents_path
+
+        path = default_global_agents_path()
+        try:
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+        except OSError:
+            text = ""
+        return {"ok": True, "instructions": text, "path": str(path)}
+
+    def set_global_instructions(self, text: str) -> dict[str, Any]:
+        from ..project import default_global_agents_path
+
+        path = default_global_agents_path()
+        text = (text or "").rstrip()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if text:
+                path.write_text(text + "\n", encoding="utf-8")
+            elif path.is_file():
+                path.unlink()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "instructions": text, "path": str(path)}
+
+    def _mention_roots(
+        self, workspace: Optional[str], session_id: Optional[str]
+    ) -> list[Path]:
+        """Folders the @-picker may look inside: the session's workspace plus the folders
+        the user added to it. Nothing outside a granted root is ever searchable."""
+        roots: list[Path] = []
+        record = self.session_store.load(session_id) if session_id else None
+        candidates: list[str] = []
+        if record is not None:
+            if record.workspace:
+                candidates.append(record.workspace)
+            for extra in record.extra_roots or []:
+                path = extra.get("path") if isinstance(extra, dict) else None
+                if path:
+                    candidates.append(str(path))
+        if workspace:
+            candidates.append(workspace)
+        for raw in candidates:
+            try:
+                path = Path(raw).expanduser().resolve()
+            except OSError:
+                continue
+            if path.is_dir() and path not in roots:
+                roots.append(path)
+        return roots
+
+    def search_files(
+        self,
+        query: str,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Fuzzy-ish path search under the granted roots, for the composer's @ mentions.
+        Substring match on the relative path, most-recently-modified first."""
+        from ..workspace_map import _PRUNE_DIRS
+
+        needle = (query or "").strip().lower()
+        hits: list[tuple[float, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for root in self._mention_roots(workspace, session_id):
+            walked = 0
+            for dirpath, dirnames, filenames in os.walk(root):
+                dirnames[:] = [
+                    d for d in dirnames if not d.startswith(".") and d not in _PRUNE_DIRS
+                ]
+                for name in filenames:
+                    if name.startswith("."):
+                        continue
+                    walked += 1
+                    if walked > 20000:  # bounded work on pathological trees
+                        break
+                    full = Path(dirpath) / name
+                    try:
+                        rel = full.relative_to(root).as_posix()
+                    except ValueError:
+                        continue
+                    if needle and needle not in rel.lower():
+                        continue
+                    key = str(full)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    try:
+                        mtime = full.stat().st_mtime
+                    except OSError:
+                        mtime = 0.0
+                    hits.append(
+                        (
+                            mtime,
+                            {
+                                "path": rel,
+                                "full_path": key,
+                                "root": str(root),
+                                "root_label": root.name,
+                            },
+                        )
+                    )
+                if walked > 20000:
+                    break
+        hits.sort(key=lambda h: -h[0])
+        return [row for _mtime, row in hits[: max(1, min(int(limit or 20), 50))]]
+
+    # Where Claude Code and Cowork keep skills on this machine. Importing them is what
+    # makes a plugin's skills usable here without rewriting anything.
+    def _claude_skill_dirs(self, workspace: Optional[str] = None) -> list[tuple[Path, str]]:
+        home = Path.home()
+        out: list[tuple[Path, str]] = [(home / ".claude" / "skills", "Claude Code")]
+        plugins = home / ".claude" / "plugins"
+        if plugins.is_dir():
+            for entry in sorted(plugins.iterdir()):
+                if (entry / "skills").is_dir():
+                    out.append((entry / "skills", f"plugin: {entry.name}"))
+                # Marketplace layout: plugins/<marketplace>/<plugin>/skills
+                elif entry.is_dir():
+                    for sub in sorted(entry.iterdir()):
+                        if (sub / "skills").is_dir():
+                            out.append((sub / "skills", f"plugin: {sub.name}"))
+        ws = self._project_path(workspace) if workspace else None
+        if ws:
+            out.append((Path(ws) / ".claude" / "skills", "this folder"))
+        return out
+
+    def importable_skills(self, workspace: Optional[str] = None) -> list[dict[str, Any]]:
+        """SKILL.md folders that exist for Claude Code / Cowork but not yet here."""
+        from ..skills.base import _parse_skill  # the parser the store itself uses
+
+        have = {row.get("name") for row in self.list_skills(workspace)}
+        found: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for base, source in self._claude_skill_dirs(workspace):
+            if not base.is_dir():
+                continue
+            for folder in sorted(base.iterdir()):
+                md = folder / "SKILL.md"
+                if not md.is_file():
+                    continue
+                try:
+                    parsed = _parse_skill(md)
+                except Exception:
+                    continue
+                name = str(parsed.name or folder.name)
+                if name in seen:
+                    continue
+                seen.add(name)
+                found.append(
+                    {
+                        "name": name,
+                        "description": str(parsed.description or ""),
+                        "source": source,
+                        "path": str(folder),
+                        "installed": name in have,
+                    }
+                )
+        return found
+
+    def import_skill(
+        self, path: str, scope: str = "global", workspace: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Copy a Claude Code / Cowork skill folder into this app's store, resources and
+        all. The folder layout is identical, so nothing is rewritten."""
+        source = Path(path).expanduser()
+        if not (source / "SKILL.md").is_file():
+            return {"ok": False, "error": "not a skill folder (no SKILL.md)"}
+        allowed = {str(base) for base, _ in self._claude_skill_dirs(workspace)}
+        if str(source.parent) not in allowed:
+            return {"ok": False, "error": "that folder is not an importable skill location"}
+        try:
+            base = self.skill_store._base(scope, workspace)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        target = base / source.name
+        if target.exists():
+            return {"ok": False, "error": f"a skill folder named '{source.name}' already exists"}
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source, target)
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "name": source.name, "path": str(target)}
+
+    async def compact_session(self, session_id: str) -> dict[str, Any]:
+        """Manual "/compact" — run the same policy auto-compaction uses, now. Refused while
+        a turn is in flight (the engine owns its message list during a run)."""
+        engine = self.get_engine(session_id)
+        if engine is None:
+            return {"ok": False, "error": "unknown session"}
+        if not self.try_mark_running(session_id):
+            return {"ok": False, "error": "that conversation is busy — try again when it finishes"}
+        try:
+            notice = await engine._compact_now(force=True)
+            self.save(session_id, engine)
+        except Exception as exc:  # summarizer/provider failure must not kill the session
+            return {"ok": False, "error": str(exc)}
+        finally:
+            self.mark_idle(session_id)
+        return {"ok": True, "compacted": bool(notice), "notice": notice or ""}
+
     DEFAULT_SCRATCH_BASE = "~/MimiWork"
 
     def scratch_base(self) -> Path:

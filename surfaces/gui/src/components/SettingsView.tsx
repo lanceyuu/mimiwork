@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  getGlobalInstructions,
+  setGlobalInstructions,
   getSettings,
   getTrustedWorkspaces,
   setCompactionSettings,
@@ -44,6 +46,7 @@ import { ModelsTab } from "./ManageTabs";
 import { MemorySection } from "./MemorySection";
 import { PersonasTab } from "./PersonasTab";
 import { SkillsTab } from "./SkillsTab";
+import { TransferGuide } from "./TransferGuide";
 import { showPersonas } from "../flags";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
@@ -53,7 +56,15 @@ import { showPersonas } from "../flags";
 // Models + Personas host the existing tab components inside the page shell (field re-skin to follow).
 // "appearance" is the General tab's stable key — callers deep-link with it, so the
 // rename (UX-021) changed only the label. "files" folded into General as a card.
-type SetTab = "appearance" | "models" | "skills" | "voice" | "memory" | "personas";
+type SetTab =
+  | "appearance"
+  | "models"
+  | "instructions"
+  | "skills"
+  | "voice"
+  | "memory"
+  | "personas"
+  | "transfer";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
@@ -67,14 +78,16 @@ const BTN_BORDERED =
 const SET_TABS: {
   key: SetTab;
   label: string;
-  icon: "sliders" | "code" | "mic" | "archive" | "sparkle" | "book";
+  icon: "sliders" | "code" | "mic" | "archive" | "sparkle" | "book" | "file";
 }[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
+  { key: "instructions", label: "Instructions", icon: "file" },
   { key: "skills", label: "Skills", icon: "book" },
   { key: "voice", label: "Voice input", icon: "mic" },
   { key: "memory", label: "Memory", icon: "archive" },
   { key: "personas", label: "Personas", icon: "sparkle" },
+  { key: "transfer", label: "Transfer guide", icon: "sparkle" },
 ];
 
 export function SettingsView({
@@ -137,6 +150,10 @@ export function SettingsView({
                 <CompactionCard />
               </div>
             </section>
+          ) : tab === "instructions" ? (
+            <GlobalInstructionsSection />
+          ) : tab === "transfer" ? (
+            <TransferGuide />
           ) : tab === "skills" ? (
             <SkillsTab onCreateSkill={onCreateSkill} />
           ) : tab === "voice" ? (
@@ -952,5 +969,72 @@ function FilesCard() {
       </div>
       {scratchMsg && <div className="text-[12.5px] text-muted mt-2.5">{scratchMsg}</div>}
     </div>
+  );
+}
+
+
+/** Cowork's "Global instructions", by the same name: one file the coworker reads at the
+ *  start of every conversation, whatever folder it's working in. It is a real AGENTS.md
+ *  on disk, so Codex reads it too, and the path is shown so it can be edited elsewhere. */
+function GlobalInstructionsSection() {
+  const [text, setText] = useState("");
+  const [saved, setSaved] = useState("");
+  const [path, setPath] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getGlobalInstructions()
+      .then((out) => {
+        setText(out.instructions || "");
+        setSaved(out.instructions || "");
+        setPath(out.path || "");
+      })
+      .catch(() => setError("Could not read the instructions file."));
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    const out = await setGlobalInstructions(text).catch(() => ({
+      ok: false as const,
+      error: "could not reach the server",
+    }));
+    setBusy(false);
+    if (!out.ok) return setError(out.error || "Could not save.");
+    setError(null);
+    setSaved(text);
+  };
+
+  return (
+    <section data-testid="global-instructions">
+      <PanelHead
+        title="Instructions"
+        sub="Standing context for every conversation — how you like things done, what to avoid. A folder can add its own in AGENTS.md (or CLAUDE.md)."
+      />
+      <div className={CARD + " p-4"}>
+        <textarea
+          className="w-full min-h-[220px] px-3 py-2.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent leading-relaxed"
+          placeholder={"e.g.\nWrite in British English.\nAsk before emailing anyone.\nKeep summaries under a page."}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          data-testid="global-instructions-text"
+        />
+        <div className="flex items-center gap-3 mt-3">
+          <button
+            className={BTN_ACCENT}
+            onClick={() => void save()}
+            disabled={busy || text === saved}
+          >
+            {busy ? "Saving…" : text === saved ? "Saved" : "Save"}
+          </button>
+          {path && (
+            <span className="text-[11.5px] text-faint truncate" title={path}>
+              {path}
+            </span>
+          )}
+        </div>
+        {error && <div className="text-[12px] text-danger mt-2">{error}</div>}
+      </div>
+    </section>
   );
 }

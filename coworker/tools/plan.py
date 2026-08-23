@@ -1,6 +1,7 @@
 """The `propose_plan` tool — the agent presents its plan and asks to start executing.
 
-Registered only when the session starts in plan mode. Like `request_directory`, it is
+Always registered — a surface can flip a live session into plan mode (⇧⇥, "/plan") and the
+engine rejects the call when the session isn't in plan mode. Like `request_directory`, it is
 intercepted by the TurnEngine: it emits a PLAN_PROPOSED event and waits for the user's
 out-of-band decision. Approval flips the live PermissionEngine out of plan mode (same
 session, full exploration context kept); rejection returns the user's feedback so the

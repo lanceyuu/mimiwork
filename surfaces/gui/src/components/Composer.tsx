@@ -1,7 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { Attachment, SessionUsage } from "../types";
 import { isPdfFile, readFile } from "../attach";
-import { getSettings, inspectPdf, sessionSkills, type SessionSkillRow } from "../api";
+import {
+  expandCommand,
+  getSettings,
+  inspectPdf,
+  listCommands,
+  searchFiles,
+  sessionSkills,
+  type FileHit,
+  type SavedCommand,
+  type SessionSkillRow,
+} from "../api";
 import { formatTokens, totalTokens } from "../usage";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
@@ -16,15 +26,54 @@ import {
   type DictationStatus,
 } from "../tauri";
 
-// Plan + Custom hidden for this release (owner ask 2026-07-22): Plan's approval flow isn't
-// polished enough to ship, and Custom (config.toml auto-allow rules) is a power-user mode
-// with no in-app explanation. The server still honors both — a session already in one of
-// those modes keeps working; the picker just doesn't offer them.
+// The four modes a user can pick, in escalating order — ⇧⇥ cycles them, exactly like
+// Claude Code. Each description names the same mode in the other tools, so the habit
+// transfers in both directions (owner ask 2026-08-23). Plan came back with the transfer
+// pack (it was hidden 2026-07-22 while its approval flow was rough); Custom stays out —
+// it's a config.toml power-user mode with no in-app explanation.
 const PERMISSION_OPTIONS: Option[] = [
-  { value: "discuss", label: "Discuss", description: "Chat and explore — no edits or commands" },
-  { value: "interactive", label: "Ask for approval", description: "Ask before edits and commands" },
-  { value: "auto", label: "Full access", description: "Run everything without asking" },
+  { value: "discuss", label: "Discuss", description: "Chat and explore — nothing runs" },
+  {
+    value: "plan",
+    label: "Plan first",
+    description: "Propose a plan, act only once you approve — Claude Code: plan mode",
+  },
+  {
+    value: "interactive",
+    label: "Ask for approval",
+    description: "Ask before edits and commands — Cowork calls this Manual",
+  },
+  {
+    value: "auto",
+    label: "Full access",
+    description: "Run everything without asking — Cowork calls this Skip",
+  },
 ];
+
+/** The built-in "/" commands. Names match Claude Code and Cowork so the muscle memory
+ *  transfers; each one does something real here, none are decoration. */
+export const APP_COMMANDS: { name: string; description: string }[] = [
+  { name: "help", description: "How MimiWork maps to Claude Code, Cowork and Codex" },
+  { name: "init", description: "Write an AGENTS.md of house rules for this folder" },
+  { name: "clear", description: "Start a fresh conversation in this folder" },
+  { name: "compact", description: "Condense this conversation's history now" },
+  { name: "plan", description: "Switch to Plan first — propose before acting" },
+  { name: "permissions", description: "Change what needs your approval" },
+  { name: "model", description: "Switch the model for this conversation" },
+  { name: "memory", description: "What MimiWork remembers about this work" },
+  { name: "skills", description: "Skills, plugins and what's enabled here" },
+];
+
+type PaletteRow =
+  | { kind: "app"; name: string; description: string }
+  | { kind: "command"; name: string; description: string; scope: string }
+  | { kind: "skill"; name: string; description: string; scope: string; skill: SessionSkillRow };
+
+const KIND_LABEL: Record<PaletteRow["kind"], string> = {
+  app: "app",
+  command: "command",
+  skill: "skill",
+};
 
 // No hardcoded model fallback: until the server supplies the list (a few seconds after a
 // cold app boot), the picker renders a disabled "Loading models…" chip. A baked-in list
@@ -60,6 +109,9 @@ interface Props {
   onConnectModel?: () => void;
   onConfigureVoiceInput?: () => void;
   onSend: (text: string, attachments?: Attachment[], skill?: string) => void;
+  // A built-in "/" command the composer can't perform itself (open Settings, start a
+  // fresh conversation, compact…). Absent = those rows don't appear.
+  onAppCommand?: (name: string) => void;
   // Feeds the "/" force-run popup (SKILLS-SPEC §4.1 #3): the popup lists this session's
   // effective skill menu. Absent (e.g. tests without sessions) → the popup never opens.
   sessionId?: string;
@@ -99,9 +151,16 @@ export function Composer(props: Props) {
   // inserts "/name " INLINE in the box (Claude-Code style — the slash text IS the state);
   // the user keeps typing after it, and on send the prefix is stripped while the skill name
   // rides the user_message as its own field. Editing the prefix away un-picks the skill.
+  // Caret offset, tracked so "@" mentions know which token is being typed.
+  const caretRef = useRef<number | null>(null);
   const [pendingSkill, setPendingSkill] = useState<SessionSkillRow | null>(null);
   const [slashSkills, setSlashSkills] = useState<SessionSkillRow[] | null>(null);
+  const [savedCommands, setSavedCommands] = useState<SavedCommand[] | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
+  // "@" file mentions — the same gesture as Claude Code, Cowork and Codex. The query is
+  // the token being typed at the caret; picking a hit rewrites that token.
+  const [mentionHits, setMentionHits] = useState<FileHit[] | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const prefixIntact =
     pendingSkill !== null &&
     (text === `/${pendingSkill.name}` || text.startsWith(`/${pendingSkill.name} `));
@@ -112,13 +171,34 @@ export function Composer(props: Props) {
     !prefixIntact && props.sessionId && text.startsWith("/") && !/\s/.test(text.slice(1))
       ? text.slice(1).toLowerCase()
       : null;
-  const slashMatches = (slashSkills ?? []).filter((s) =>
-    s.name.toLowerCase().includes(slashQuery ?? ""),
+  // One palette, three row kinds: app commands, the user's saved markdown commands, and
+  // this session's skills. Everything reachable by "/" lives here.
+  const paletteRows: PaletteRow[] = [
+    ...(props.onAppCommand
+      ? APP_COMMANDS.map((c) => ({ kind: "app" as const, ...c }))
+      : []),
+    ...(savedCommands ?? []).map((c) => ({
+      kind: "command" as const,
+      name: c.name,
+      description: c.description,
+      scope: c.scope,
+    })),
+    ...(slashSkills ?? []).map((s) => ({
+      kind: "skill" as const,
+      name: s.name,
+      description: s.description,
+      scope: s.scope,
+      skill: s,
+    })),
+  ];
+  const slashMatches = paletteRows.filter((r) =>
+    r.name.toLowerCase().includes(slashQuery ?? ""),
   );
   useEffect(() => {
     // Fetch on each popup open (fresh menu); drop when closed.
     if (slashQuery === null) {
       setSlashSkills(null);
+      setSavedCommands(null);
       setSlashIndex(0);
       return;
     }
@@ -127,11 +207,65 @@ export function Composer(props: Props) {
         .then((all) => setSlashSkills(all.filter((s) => s.enabled)))
         .catch(() => setSlashSkills([]));
     }
+    if (savedCommands === null) {
+      listCommands(props.workspace)
+        .then(setSavedCommands)
+        .catch(() => setSavedCommands([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slashQuery === null]);
   const pickSkill = (s: SessionSkillRow) => {
     setPendingSkill(s);
     setText(`/${s.name} `);
+    textareaRef.current?.focus();
+  };
+  const pickPaletteRow = (row: PaletteRow) => {
+    if (row.kind === "skill") return pickSkill(row.skill);
+    if (row.kind === "app") {
+      // App commands take no arguments: run on pick, exactly like picking from a menu.
+      setText("");
+      runAppCommand(row.name);
+      return;
+    }
+    // Saved commands take $ARGUMENTS: leave the prefix in the box so the user can type them.
+    setText(`/${row.name} `);
+    textareaRef.current?.focus();
+  };
+
+  // "@" mentions: the token at the caret, e.g. "…look at @chap" → "chap".
+  const mentionQuery = (() => {
+    const upToCaret = text.slice(0, caretRef.current ?? text.length);
+    const m = /(?:^|\s)@([^\s@]*)$/.exec(upToCaret);
+    return m ? m[1] : null;
+  })();
+  useEffect(() => {
+    if (mentionQuery === null) {
+      setMentionHits(null);
+      setMentionIndex(0);
+      return;
+    }
+    let live = true;
+    const id = window.setTimeout(() => {
+      searchFiles(mentionQuery, {
+        workspace: props.workspace,
+        sessionId: props.sessionId,
+        limit: 8,
+      })
+        .then((hits) => live && setMentionHits(hits))
+        .catch(() => live && setMentionHits([]));
+    }, 120);
+    return () => {
+      live = false;
+      window.clearTimeout(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionQuery, props.workspace, props.sessionId]);
+  const pickMention = (hit: FileHit) => {
+    const caret = caretRef.current ?? text.length;
+    const before = text.slice(0, caret).replace(/@[^\s@]*$/, `@${hit.path} `);
+    setText(before + text.slice(caret));
+    caretRef.current = before.length;
+    setMentionHits(null);
     textareaRef.current?.focus();
   };
   const [dragging, setDragging] = useState(false);
@@ -318,9 +452,60 @@ export function Composer(props: Props) {
 
   const needsModel = props.modelReady === false;
 
+  // Two of the built-in commands are about controls the composer itself owns; the rest
+  // are the app's business (open Settings, start a fresh conversation, compact…).
+  const [modeMenuNonce, setModeMenuNonce] = useState(0);
+  const runAppCommand = (name: string) => {
+    if (name === "plan") return props.onModeChange("plan");
+    if (name === "permissions") return setModeMenuNonce((n) => n + 1);
+    props.onAppCommand?.(name);
+  };
+
+  // A saved command is expanded server-side ($ARGUMENTS substituted) and sent as the
+  // message, so running one is deterministic: same command, same prompt, every time.
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const runSavedCommand = async (name: string, args: string, fallback?: string) => {
+    const out = await expandCommand(name, args.trim(), props.workspace).catch(() => ({
+      ok: false as const,
+      error: "could not reach the server",
+    }));
+    if (!out.ok || !out.text) {
+      // Not a command after all: send what the user typed rather than swallowing it.
+      if (fallback !== undefined) {
+        props.onSend(fallback.trim(), attachments);
+        setText("");
+        setAttachments([]);
+        setPendingSkill(null);
+        return;
+      }
+      setCommandError(out.error || `could not run /${name}`);
+      return;
+    }
+    setCommandError(null);
+    props.onSend(out.text, attachments);
+    setText("");
+    setAttachments([]);
+    setPendingSkill(null);
+  };
+
   const submit = () => {
-    // While the "/" popup is open the draft is a query, not a message — never send it.
-    if (slashQuery !== null) return;
+    // While a popup is open the draft is a query, not a message — never send it.
+    if (slashQuery !== null || mentionQuery !== null) return;
+    // "/name …" that isn't a skill: an app command runs, a saved command expands.
+    const typed = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
+    if (typed && !prefixIntact) {
+      const [, name, rest] = typed;
+      if (props.onAppCommand && APP_COMMANDS.some((c) => c.name === name)) {
+        setText("");
+        runAppCommand(name);
+        return;
+      }
+      // Try it as a saved command even when the palette was never opened — someone who
+      // knows their commands types them from memory. Unknown names fall through and send
+      // as ordinary text.
+      void runSavedCommand(name, rest ?? "", text);
+      return;
+    }
     // The visible "/name " prefix is UI state, not message text — strip it for the send;
     // the skill rides as its own field.
     const skill = prefixIntact ? pendingSkill!.name : undefined;
@@ -344,6 +529,37 @@ export function Composer(props: Props) {
   };
 
   const onKey = (e: React.KeyboardEvent) => {
+    // ⇧⇥ cycles permission modes — the Claude Code gesture, same order as the menu.
+    if (e.key === "Tab" && e.shiftKey && props.workspace !== undefined) {
+      e.preventDefault();
+      const i = PERMISSION_OPTIONS.findIndex((o) => o.value === props.mode);
+      const next = PERMISSION_OPTIONS[(i + 1) % PERMISSION_OPTIONS.length];
+      props.onModeChange(String(next.value));
+      return;
+    }
+    if (mentionQuery !== null && (mentionHits?.length ?? 0) > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => Math.min(i + 1, (mentionHits?.length ?? 1) - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionHits([]);
+        return;
+      }
+      if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+        e.preventDefault();
+        const hit = mentionHits?.[mentionIndex];
+        if (hit) pickMention(hit);
+        return;
+      }
+    }
     if (slashQuery !== null) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -360,10 +576,10 @@ export function Composer(props: Props) {
         setText("");
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
         e.preventDefault();
         const chosen = slashMatches[slashIndex];
-        if (chosen) pickSkill(chosen);
+        if (chosen) pickPaletteRow(chosen);
         return;
       }
     }
@@ -488,35 +704,70 @@ export function Composer(props: Props) {
           if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
         }}
       >
-        {/* "/" force-run popup — in-flow above the textarea; rows are the session's
-            effective menu only (muted/disabled skills never appear). */}
+        {/* "/" palette — app commands, saved markdown commands and this session's skills,
+            the same three things "/" offers in Claude Code and Cowork. */}
         {slashQuery !== null && (
-          <div className="px-2 pt-2" data-testid="skill-popup" role="listbox" aria-label="Skills">
-            {slashSkills === null ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">Loading skills…</div>
+          <div className="px-2 pt-2" data-testid="skill-popup" role="listbox" aria-label="Commands and skills">
+            {slashSkills === null && savedCommands === null && !props.onAppCommand ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">Loading…</div>
             ) : slashMatches.length === 0 ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">No matching skills.</div>
+              <div className="px-2 py-1.5 text-[12px] text-faint">Nothing matches.</div>
             ) : (
-              slashMatches.map((s, i) => (
+              slashMatches.map((row, i) => (
                 <button
-                  key={s.name}
+                  key={`${row.kind}:${row.name}`}
                   role="option"
                   aria-selected={i === slashIndex}
+                  data-kind={row.kind}
                   className={
                     "w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg " +
                     (i === slashIndex ? "bg-paper" : "hover:bg-paper")
                   }
                   onMouseEnter={() => setSlashIndex(i)}
-                  onClick={() => pickSkill(s)}
+                  onClick={() => pickPaletteRow(row)}
                 >
-                  <span className="text-[13px] font-medium text-accent shrink-0">/{s.name}</span>
-                  <span className="text-[12px] text-faint truncate flex-1">{s.description}</span>
+                  <span className="text-[13px] font-medium text-accent shrink-0">/{row.name}</span>
+                  <span className="text-[12px] text-faint truncate flex-1">{row.description}</span>
                   <span className="text-[10.5px] px-1.5 py-0.5 rounded-full border border-line text-faint shrink-0">
-                    {s.scope}
+                    {row.kind === "app" ? KIND_LABEL.app : (row as any).scope}
                   </span>
                 </button>
               ))
             )}
+          </div>
+        )}
+
+        {/* "@" file mentions — paths inside the folders this session may read. */}
+        {mentionQuery !== null && (mentionHits === null || mentionHits.length > 0) && (
+          <div className="px-2 pt-2" data-testid="mention-popup" role="listbox" aria-label="Files">
+            {mentionHits === null ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">Looking for files…</div>
+            ) : (
+              mentionHits.map((hit, i) => (
+                <button
+                  key={hit.full_path}
+                  role="option"
+                  aria-selected={i === mentionIndex}
+                  className={
+                    "w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg " +
+                    (i === mentionIndex ? "bg-paper" : "hover:bg-paper")
+                  }
+                  onMouseEnter={() => setMentionIndex(i)}
+                  onClick={() => pickMention(hit)}
+                >
+                  <span className="text-[13px] truncate flex-1">{hit.path}</span>
+                  <span className="text-[10.5px] px-1.5 py-0.5 rounded-full border border-line text-faint shrink-0">
+                    {hit.root_label}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {commandError && (
+          <div className="px-3.5 pt-2 text-[12px] text-danger" data-testid="command-error">
+            {commandError}
           </div>
         )}
         <textarea
@@ -524,7 +775,13 @@ export function Composer(props: Props) {
           className="w-full block px-3.5 pt-3.5 pb-1.5 text-[14.5px]"
           placeholder={props.placeholder || "Ask the coworker…  (drop or paste files)"}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            caretRef.current = e.target.selectionStart;
+            setText(e.target.value);
+          }}
+          onSelect={(e) => {
+            caretRef.current = (e.target as HTMLTextAreaElement).selectionStart;
+          }}
           onKeyDown={onKey}
           onPaste={onPaste}
           rows={1}
@@ -592,6 +849,7 @@ export function Composer(props: Props) {
               onModeChange={props.onModeChange}
               unattended={props.unattended}
               onUnattendedChange={props.onUnattendedChange}
+              openNonce={modeMenuNonce}
             />
           ) : null}
 
@@ -853,13 +1111,19 @@ function ModeMenu({
   onModeChange,
   unattended,
   onUnattendedChange,
+  openNonce,
 }: {
   mode: string;
   onModeChange: (mode: string) => void;
   unattended?: boolean;
   onUnattendedChange?: (on: boolean) => void;
+  // Bumped by "/permissions" so the palette can pop this menu open.
+  openNonce?: number;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (openNonce) setOpen(true);
+  }, [openNonce]);
   const current = PERMISSION_OPTIONS.find((o) => o.value === mode);
   return (
     <div className="relative">

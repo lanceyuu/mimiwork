@@ -2271,3 +2271,109 @@ export async function getMemoryGraph(): Promise<MemoryGraphData> {
   const res = await fetch(`${httpBase()}/v1/memory/graph`);
   return res.json();
 }
+
+// -- transfer pack: the vocabulary shared with Claude Code / Cowork / Codex -----------
+
+export interface SavedCommand {
+  name: string;
+  description: string;
+  scope: "project" | "global";
+  path: string;
+}
+
+/** Markdown `/commands` from `.coworker/commands` and the state dir. */
+export async function listCommands(workspace?: string): Promise<SavedCommand[]> {
+  const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
+  const res = await fetch(`${httpBase()}/v1/commands${qs}`);
+  return (await res.json()).commands ?? [];
+}
+
+/** Substitute `$ARGUMENTS` server-side: a saved command always expands the same way. */
+export async function expandCommand(
+  name: string,
+  args: string,
+  workspace?: string,
+): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/commands/expand`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, arguments: args, workspace: workspace || "" }),
+  });
+  return await res.json();
+}
+
+/** Cowork's "Global instructions" — one AGENTS.md that applies to every session. */
+export async function getGlobalInstructions(): Promise<{ instructions: string; path: string }> {
+  const res = await fetch(`${httpBase()}/v1/instructions`);
+  return await res.json();
+}
+
+export async function setGlobalInstructions(
+  instructions: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/instructions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ instructions }),
+  });
+  return await res.json();
+}
+
+export interface FileHit {
+  path: string;
+  full_path: string;
+  root: string;
+  root_label: string;
+}
+
+/** Paths inside the session's granted folders, for "@" mentions. */
+export async function searchFiles(
+  query: string,
+  opts: { workspace?: string; sessionId?: string; limit?: number } = {},
+): Promise<FileHit[]> {
+  const qs = new URLSearchParams({ q: query });
+  if (opts.workspace) qs.set("workspace", opts.workspace);
+  if (opts.sessionId) qs.set("session_id", opts.sessionId);
+  if (opts.limit) qs.set("limit", String(opts.limit));
+  const res = await fetch(`${httpBase()}/v1/files/search?${qs.toString()}`);
+  return (await res.json()).files ?? [];
+}
+
+export interface ImportableSkill {
+  name: string;
+  description: string;
+  source: string; // "Claude Code" · "plugin: <name>" · "this folder"
+  path: string;
+  installed: boolean;
+}
+
+/** Skills this machine already has for Claude Code / Cowork (including plugin bundles). */
+export async function importableSkills(workspace?: string): Promise<ImportableSkill[]> {
+  const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
+  const res = await fetch(`${httpBase()}/v1/skills/importable${qs}`);
+  return (await res.json()).skills ?? [];
+}
+
+export async function importSkill(
+  path: string,
+  scope: "global" | "project" = "global",
+  workspace?: string,
+): Promise<{ ok: boolean; name?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/skills/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, scope, workspace: workspace || "" }),
+  });
+  return await res.json();
+}
+
+/** "/compact" — condense the conversation now (same policy as auto-compaction). */
+export async function compactSession(
+  sessionId: string,
+): Promise<{ ok: boolean; compacted?: boolean; notice?: string; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/compact`,
+    { method: "POST" },
+  );
+  return await res.json();
+}

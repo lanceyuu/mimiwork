@@ -1,6 +1,9 @@
 import { useRef, useState } from "react";
 import { useEffect } from "react";
 import {
+  importSkill,
+  importableSkills,
+  type ImportableSkill,
   createSkill,
   deleteSkill,
   installStoreSkill,
@@ -94,6 +97,17 @@ export function SkillsTab({
   const [storeResults, setStoreResults] = useState<SkillStoreEntry[]>([]);
   const [storeBusy, setStoreBusy] = useState<string | null>(null); // name mid-install
   const [storeFlag, setStoreFlag] = useState<{ entry: SkillStoreEntry; text: string; url?: string } | null>(null);
+  // Skills this machine already has for Claude Code / Cowork (including plugin bundles):
+  // the folder layout is identical, so importing is a copy, not a rewrite.
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<ImportableSkill[] | null>(null);
+  const [importBusy, setImportBusy] = useState<string | null>(null);
+  const loadImportable = () => {
+    setImportRows(null);
+    importableSkills()
+      .then(setImportRows)
+      .catch(() => setImportRows([]));
+  };
 
   // Confirmation copy (SKILLS-SPEC §4.1 #2): name-first, outcome + remedy only, in words a
   // person already owns — now / everywhere / off / start a new one. Never mechanism ("the
@@ -242,6 +256,21 @@ export function SkillsTab({
                 </button>
                 <button
                   role="menuitem"
+                  data-testid="skill-import-claude"
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-paper"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setImportOpen(true);
+                    loadImportable();
+                  }}
+                >
+                  <div className="text-[13px] font-medium">Import from Claude Code</div>
+                  <div className="text-[11.5px] text-muted">
+                    Skills and plugin bundles already on this Mac — same SKILL.md format
+                  </div>
+                </button>
+                <button
+                  role="menuitem"
                   data-testid="skill-store-open"
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-paper"
                   onClick={() => {
@@ -270,6 +299,66 @@ export function SkillsTab({
           e.target.value = "";
         }}
       />
+
+      {importOpen ? (
+        <div className={`${CARD} p-4 mb-4`} data-testid="skill-import">
+          <div className="flex items-center justify-between mb-2.5">
+            <div>
+              <div className="text-[13.5px] font-semibold">Import from Claude Code</div>
+              <div className="text-[11.5px] text-muted">
+                Skills in <code>~/.claude/skills</code> and installed plugins. A skill is a
+                folder with a SKILL.md — the same thing here, so nothing is rewritten.
+              </div>
+            </div>
+            <button className={BTN_BORDERED} onClick={() => setImportOpen(false)}>
+              Close
+            </button>
+          </div>
+          {importRows === null ? (
+            <div className="text-[12px] text-muted py-2">Looking…</div>
+          ) : importRows.length === 0 ? (
+            <div className="text-[12px] text-muted py-2">
+              Nothing found. Claude Code keeps skills in <code>~/.claude/skills</code>.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {importRows.map((row) => (
+                <div
+                  key={row.path}
+                  className="flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-paper"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium truncate">{row.name}</div>
+                    <div className="text-[11.5px] text-muted truncate">{row.description}</div>
+                  </div>
+                  <span className="text-[10.5px] px-1.5 py-0.5 rounded-full border border-line text-faint shrink-0">
+                    {row.source}
+                  </span>
+                  <button
+                    className={BTN_BORDERED}
+                    disabled={row.installed || importBusy === row.path}
+                    onClick={async () => {
+                      setImportBusy(row.path);
+                      const out = await importSkill(row.path);
+                      setImportBusy(null);
+                      if (!out.ok) {
+                        setError(out.error || "Could not import that skill.");
+                        return;
+                      }
+                      setError("");
+                      setNotice({ name: row.name, text: CONFIRMATION, tone: "ok" });
+                      await refresh();
+                      loadImportable();
+                    }}
+                  >
+                    {row.installed ? "Installed" : importBusy === row.path ? "Importing…" : "Import"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {storeOpen ? (
         <div className={`${CARD} p-4 mb-4`} data-testid="skill-store">

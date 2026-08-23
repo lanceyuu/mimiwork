@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
+  compactSession,
   announceInboxUnlock,
   finalizeAutomationRun,
   getArtifacts,
@@ -172,6 +173,16 @@ type Surface =
   | "settings"
   | "project";
 
+type SettingsTab =
+  | "appearance"
+  | "models"
+  | "instructions"
+  | "skills"
+  | "voice"
+  | "memory"
+  | "personas"
+  | "transfer";
+
 export function App() {
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [branch, setBranch] = useState<string | null>(null);
@@ -234,12 +245,8 @@ export function App() {
   // a folder lands on the Project page (instructions, memory), not in a fresh conversation.
   const [projectGate, setProjectGate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
-  const [settingsTab, setSettingsTab] = useState<
-    "appearance" | "models" | "skills" | "voice" | "memory" | "personas"
-  >("appearance");
-  const openSettings = (
-    tab: "appearance" | "models" | "skills" | "voice" | "memory" | "personas" = "appearance",
-  ) => {
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
+  const openSettings = (tab: SettingsTab = "appearance") => {
     setSettingsTab(tab);
     setSurface("settings");
   };
@@ -946,6 +953,54 @@ export function App() {
     // The visible model rides along with the message (single source of truth per turn).
     sessionRef.current?.userMessage(text, attachments, model, skill);
     followLatest(); // sending always re-engages stream-following, wherever the user had scrolled
+  };
+
+  // The built-in "/" commands the composer hands over — same names as Claude Code and
+  // Cowork, so what a user learns here works there (owner ask 2026-08-23).
+  const runAppCommand = (name: string) => {
+    switch (name) {
+      case "help":
+        return openSettings("transfer");
+      case "skills":
+        return openSettings("skills");
+      case "memory":
+        return openSettings("memory");
+      case "model":
+        return openSettings("models");
+      case "clear":
+        startNewSession(agent);
+        return;
+      case "init":
+        // Claude Code's /init, in this app's vocabulary: read the folder, write the
+        // house rules the next session will start from.
+        send(
+          "Set up this folder's house rules: look at what is here, then write an " +
+            "AGENTS.md at the folder root with the conventions you should follow — how " +
+            "I like documents written, where things go, what to leave alone. Keep it " +
+            "short and concrete, and show me the file when it's written.",
+        );
+        return;
+      case "compact": {
+        if (!sessionId) return;
+        void compactSession(sessionId).then((out) => {
+          setItems((p) => [
+            ...p,
+            {
+              kind: "notice",
+              tone: out.ok ? "info" : "warn",
+              text: out.ok
+                ? out.compacted
+                  ? out.notice || "Conversation compacted — older turns are now a summary."
+                  : "Nothing to compact yet — this conversation still fits comfortably."
+                : out.error || "Could not compact this conversation.",
+            },
+          ]);
+        });
+        return;
+      }
+      default:
+        return;
+    }
   };
   // Resolving a LIVE prompt also resolves its parked Inbox mirror server-side, but the polled
   // `sessionInbox` copy stays "pending" for up to a poll cycle — long enough for the docked
@@ -1794,6 +1849,7 @@ export function App() {
               onConnectModel={openModelSetup}
               onConfigureVoiceInput={() => openSettings("voice")}
               onSend={send}
+              onAppCommand={runAppCommand}
               onInterrupt={interrupt}
               onModeChange={changeMode}
               onModelChange={changeModel}
