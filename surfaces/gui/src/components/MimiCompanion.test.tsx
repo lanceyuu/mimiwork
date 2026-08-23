@@ -84,9 +84,15 @@ describe("MimiCompanion", () => {
 
   /** jsdom has no PointerEvent, so fireEvent.pointerDown drops init props (button/clientX);
    *  dispatch a hand-built bubbling event so React's synthetic handler sees real values. */
-  function pointerDownAt(el: Element, x: number, y: number) {
+  function pointerDownAt(el: Element, x: number, y: number, screen?: { x: number; y: number }) {
     const ev = new Event("pointerdown", { bubbles: true });
-    Object.assign(ev, { button: 0, clientX: x, clientY: y });
+    Object.assign(ev, {
+      button: 0,
+      clientX: x,
+      clientY: y,
+      screenX: screen?.x ?? x,
+      screenY: screen?.y ?? y,
+    });
     fireEvent(el, ev);
   }
 
@@ -103,8 +109,56 @@ describe("MimiCompanion", () => {
     pointerDownAt(pet, 10, 10);
     expect(startDragging).toHaveBeenCalledOnce();
     // Drop far from where the press started: a drag, not a click.
-    fireEvent.click(pet, { clientX: 120, clientY: 90 });
+    fireEvent.click(pet, { clientX: 120, clientY: 90, screenX: 120, screenY: 90 });
     expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("dropping an OS window drag does not open the app, even though the pointer never moved inside the window", async () => {
+    // The window travels WITH the cursor during startDragging(), so the drop
+    // lands on the same client coordinates as the press — only the SCREEN
+    // position moved. Measuring client-only used to open the app on every drop.
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: { getCurrentWindow: () => ({ startDragging: vi.fn() }) },
+    };
+    render(<MimiCompanion />);
+    const pet = screen.getByTestId("mimi-companion");
+    pointerDownAt(pet, 55, 60, { x: 400, y: 300 });
+    fireEvent.click(pet, { clientX: 55, clientY: 60, screenX: 760, screenY: 520 });
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("a window-moved event from the shell also marks the gesture a drag", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    let onMovedCb: (() => void) | null = null;
+    const unlisten = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: {
+        getCurrentWindow: () => ({
+          startDragging: vi.fn(),
+          onMoved: (cb: () => void) => {
+            onMovedCb = cb;
+            return Promise.resolve(unlisten);
+          },
+        }),
+      },
+    };
+    render(<MimiCompanion />);
+    await waitFor(() => expect(onMovedCb).toBeTruthy());
+    const pet = screen.getByTestId("mimi-companion");
+    pointerDownAt(pet, 55, 60, { x: 400, y: 300 });
+    act(() => onMovedCb?.()); // the shell moved the window under the cursor
+    fireEvent.click(pet, { clientX: 55, clientY: 60, screenX: 400, screenY: 300 });
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+
+    // …and the next real click, with no move in between, still opens the app.
+    pointerDownAt(pet, 55, 60, { x: 400, y: 300 });
+    fireEvent.click(pet, { clientX: 55, clientY: 60, screenX: 400, screenY: 300 });
+    expect(invoke).toHaveBeenCalledWith("companion_restore");
   });
 
   it("a click that barely moves after the press still restores the app", async () => {
@@ -118,8 +172,39 @@ describe("MimiCompanion", () => {
     render(<MimiCompanion />);
     const pet = screen.getByTestId("mimi-companion");
     pointerDownAt(pet, 10, 10);
-    fireEvent.click(pet, { clientX: 12, clientY: 11 });
+    fireEvent.click(pet, { clientX: 12, clientY: 11, screenX: 12, screenY: 11 });
     expect(invoke).toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("hides the \u2715 until the mouse is on Mimi", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    render(<MimiCompanion />);
+    const x = screen.getByTestId("companion-dismiss");
+    expect(x.dataset.visible).toBe("false");
+    fireEvent.pointerEnter(screen.getByTestId("companion-pet-zone"));
+    expect(x.dataset.visible).toBe("true");
+    fireEvent.pointerLeave(screen.getByTestId("companion-pet-zone"));
+    expect(x.dataset.visible).toBe("false");
+    // Keyboard users still reach it: focus reveals it too.
+    fireEvent.focus(x);
+    expect(x.dataset.visible).toBe("true");
+  });
+
+  it("clicking what Mimi said dismisses that message without opening the app", async () => {
+    getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
+    const invoke = vi.fn();
+    (globalThis as any).__TAURI__ = { core: { invoke } };
+    render(<MimiCompanion />);
+    await waitFor(() => expect(screen.getByTestId("companion-bubble")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("companion-bubble"));
+    expect(screen.queryByTestId("companion-bubble")).toBeNull();
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+    // The pet is still there, and the next thing she says shows up again.
+    expect(screen.getByTestId("companion-sprite")).toBeTruthy();
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: false } });
+    });
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
   });
 
   it("the \u2715 dismisses without restoring the app", async () => {

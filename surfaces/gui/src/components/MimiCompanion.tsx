@@ -132,6 +132,8 @@ export function MimiCompanion() {
   const [snap, setSnap] = useState<Activity | null>(null);
   const [lineIdx, setLineIdx] = useState(0);
   const [showDone, setShowDone] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [dismissedBubble, setDismissedBubble] = useState("");
   const busyRef = useRef<boolean | null>(null);
 
   // Rotate the busy line every 9s; show the done bubble for 45s after waking.
@@ -140,6 +142,11 @@ export function MimiCompanion() {
     const id = window.setInterval(() => setLineIdx((i) => (i + 1) % BUSY_LINES.length), 9000);
     return () => window.clearInterval(id);
   }, [busy]);
+  // A dismissal only silences the message that was on screen: once Mimi moves on
+  // to something else, the same line may come round again and should be heard.
+  useEffect(() => {
+    setDismissedBubble("");
+  }, [phase, busy, lineIdx, showDone]);
   useEffect(() => {
     if (phase !== "wake") return;
     setShowDone(true);
@@ -201,18 +208,60 @@ export function MimiCompanion() {
 
   // Drag-to-move: pressing anywhere starts an OS window drag (the shell moves the
   // real always-on-top window; the Rust shell persists the dropped position). A
-  // drop must not count as the click that restores the app — so onClick only
-  // fires when the pointer didn't travel. In a plain browser (vite dev) there is
-  // no Tauri window: pressing does nothing and the click restores nothing.
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  // drop must not count as the click that restores the app.
+  //
+  // Measuring that in CLIENT coordinates does not work: during an OS drag the
+  // window travels WITH the cursor, so the pointer keeps the same position
+  // inside the webview and the drop looks like a stationary click — which is why
+  // dropping Mimi used to open the app (owner report 2026-08-23). Screen
+  // coordinates are the ones that actually move, and the shell's own "window
+  // moved" event is the definitive signal; either one marks the gesture a drag.
+  // In a plain browser (vite dev) there is no Tauri window: the client delta
+  // still catches a drag there.
+  const dragStartRef = useRef<{ cx: number; cy: number; sx: number; sy: number } | null>(null);
+  const pressedRef = useRef(false);
+  const movedRef = useRef(false);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let dead = false;
+    const w = (globalThis as any).__TAURI__?.window?.getCurrentWindow?.();
+    Promise.resolve(w?.onMoved?.(() => {
+      if (pressedRef.current) movedRef.current = true; // ignore strays after the drop
+    }))
+      .then((fn: unknown) => {
+        if (typeof fn === "function") {
+          if (dead) (fn as () => void)();
+          else unlisten = fn as () => void;
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      dead = true;
+      unlisten?.();
+    };
+  }, []);
+
   const startDrag = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    dragStartRef.current = { cx: e.clientX, cy: e.clientY, sx: e.screenX, sy: e.screenY };
+    pressedRef.current = true;
+    movedRef.current = false;
     (globalThis as any).__TAURI__?.window?.getCurrentWindow?.()?.startDragging?.();
   };
   const maybeRestore = (e: React.MouseEvent) => {
     const down = dragStartRef.current;
-    if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return; // was a drag
+    const moved = movedRef.current;
+    dragStartRef.current = null;
+    pressedRef.current = false;
+    if (moved) return; // the shell moved the window: that was a drag
+    if (down) {
+      const travelled = Math.max(
+        Math.hypot(e.clientX - down.cx, e.clientY - down.cy),
+        Math.hypot(e.screenX - down.sx, e.screenY - down.sy),
+      );
+      if (travelled > 6) return;
+    }
     restore();
   };
 
@@ -224,7 +273,7 @@ export function MimiCompanion() {
     : snap && snap.running_sessions + snap.running_automations > 1
       ? `${snap.running_sessions + snap.running_automations} tasks`
       : "your task";
-  const bubble =
+  const said =
     phase === "alert"
       ? ALERT_LINE
       : busy
@@ -232,6 +281,11 @@ export function MimiCompanion() {
         : showDone
           ? DONE_LINE
           : null;
+  // Clicking a bubble dismisses THAT message (owner ask 2026-08-23); the next
+  // thing Mimi says — a rotated busy line, the done cheer, an approval ping —
+  // has a different key, so it speaks up again.
+  const bubbleKey = phase === "alert" ? "alert" : busy ? `busy:${lineIdx}` : showDone ? "done" : "";
+  const bubble = said && bubbleKey !== dismissedBubble ? said : null;
 
   return (
     <div
@@ -253,35 +307,26 @@ export function MimiCompanion() {
         overflow: "hidden",
       }}
     >
-      <button
-        data-testid="companion-dismiss"
-        onClick={dismiss}
-        title="Hide Mimi (until the app restarts — turn her off for good in Settings)"
-        aria-label="Hide floating Mimi"
-        style={{
-          // Beside Mimi's leg (owner ask 2026-08-20), not floating high above her:
-          // sprite is 110px wide, centered, feet at the window bottom.
-          position: "absolute",
-          bottom: 18,
-          left: "calc(50% + 62px)",
-          border: "none",
-          background: "rgba(255,255,255,0.85)",
-          color: "#55696a",
-          borderRadius: "50%",
-          width: 20,
-          height: 20,
-          lineHeight: "18px",
-          fontSize: 12,
-          cursor: "pointer",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-        }}
-      >
-        ×
-      </button>
       {bubble && (
         <div
           data-testid="companion-bubble"
+          role="button"
+          tabIndex={0}
+          title="Click to dismiss"
+          onPointerDown={(e) => e.stopPropagation()} // pressing the bubble must not drag the window
+          onClick={(e) => {
+            e.stopPropagation(); // reading a message is not "open the app"
+            setDismissedBubble(bubbleKey);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              setDismissedBubble(bubbleKey);
+            }
+          }}
           style={{
+            cursor: "pointer",
             maxWidth: 200,
             background: phase === "alert" ? "rgba(255,247,230,0.98)" : "rgba(255,255,255,0.96)",
             color: phase === "alert" ? "#92400e" : "#16272a",
@@ -328,7 +373,51 @@ export function MimiCompanion() {
           z Z z
         </div>
       )}
-      <Sprite phase={phase} onDone={() => setPhase("idle")} />
+      {/* Sprite + ✕ share one hover zone: the ✕ only appears while the mouse is on
+        * Mimi (owner ask 2026-08-23), and hovering the ✕ itself keeps it visible
+        * instead of flickering out from under the pointer. */}
+      <div
+        data-testid="companion-pet-zone"
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        style={{ position: "relative", width: SIZE + 84, height: SIZE }}
+      >
+        <div style={{ position: "absolute", bottom: 0, left: "50%", marginLeft: -SIZE / 2 }}>
+          <Sprite phase={phase} onDone={() => setPhase("idle")} />
+        </div>
+        <button
+          data-testid="companion-dismiss"
+          data-visible={hovered ? "true" : "false"}
+          onPointerDown={(e) => e.stopPropagation()} // pressing ✕ must not drag the window
+          onClick={dismiss}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          title="Hide Mimi (until the app restarts — turn her off for good in Settings)"
+          aria-label="Hide floating Mimi"
+          style={{
+            // Beside Mimi's leg (owner ask 2026-08-20), not floating high above her:
+            // sprite is 110px wide, centered, feet at the window bottom.
+            position: "absolute",
+            bottom: 18,
+            left: "calc(50% + 62px)",
+            border: "none",
+            background: "rgba(255,255,255,0.85)",
+            color: "#55696a",
+            borderRadius: "50%",
+            width: 20,
+            height: 20,
+            lineHeight: "18px",
+            fontSize: 12,
+            cursor: "pointer",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            opacity: hovered ? 1 : 0,
+            pointerEvents: hovered ? "auto" : "none",
+            transition: "opacity 0.15s ease",
+          }}
+        >
+          ×
+        </button>
+      </div>
       <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"] { animation: none !important; } }`}</style>
     </div>
   );
