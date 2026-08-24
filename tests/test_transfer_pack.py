@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from coworker.conversations import SessionRecord
 from coworker.project import load_agents_md
 from coworker.providers import ModelCapabilities, ProviderClient
 from coworker.server import SessionManager, create_app
@@ -253,3 +254,77 @@ def test_import_refuses_a_folder_outside_the_known_skill_locations(tmp_path, mon
     client, _ = _fixture(tmp_path)
     out = client.post("/v1/skills/import", json={"path": str(rogue)}).json()
     assert not out["ok"] and "importable skill location" in out["error"]
+
+
+# -- opening a granted folder ---------------------------------------------------------
+
+
+def test_a_granted_folder_opens_and_anything_else_is_refused(tmp_path, monkeypatch):
+    """The Access list's folder names are clickable. What opens is a folder the user
+    already granted to THIS conversation — a row is a shortcut to their own decision,
+    never a way to open an arbitrary path that arrived in a payload."""
+    opened: list = []
+    monkeypatch.setattr(
+        "coworker.server.manager._os_reveal",
+        lambda target, mode="reveal": opened.append((str(target), mode)) or {"ok": True},
+    )
+    client, manager = _fixture(tmp_path)
+    shared = tmp_path / "Online marketing course"
+    shared.mkdir()
+    sid = "s-roots-1"
+    (tmp_path / "ws").mkdir()
+    manager.session_store.save(
+        SessionRecord(
+            session_id=sid,
+            workspace=str((tmp_path / "ws").resolve()),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "hi"}],
+            title="hi",
+            extra_roots=[{"path": str(shared), "writable": True, "label": "Online marketing course"}],
+        )
+    )
+
+    assert client.post(
+        f"/v1/sessions/{sid}/roots/reveal", json={"path": str(shared)}
+    ).json()["ok"]
+    assert opened and opened[0] == (str(shared.resolve()), "open")
+
+    # The workspace itself counts too…
+    assert client.post(
+        f"/v1/sessions/{sid}/roots/reveal", json={"path": str(tmp_path / "ws")}
+    ).json()["ok"]
+
+    # …and a folder that was never granted does not, however it is spelled.
+    outsider = tmp_path / "private"
+    outsider.mkdir()
+    for path in (str(outsider), f"{shared}/../private", str(Path.home())):
+        out = client.post(f"/v1/sessions/{sid}/roots/reveal", json={"path": path}).json()
+        assert not out["ok"], path
+    assert len(opened) == 2  # nothing else reached the file manager
+
+
+def test_opening_a_folder_that_has_since_vanished_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "coworker.server.manager._os_reveal",
+        lambda target, mode="reveal": {"ok": True},
+    )
+    client, manager = _fixture(tmp_path)
+    gone = tmp_path / "moved-away"
+    gone.mkdir()
+    sid = "s-roots-2"
+    (tmp_path / "ws2").mkdir()
+    manager.session_store.save(
+        SessionRecord(
+            session_id=sid,
+            workspace=str((tmp_path / "ws2").resolve()),
+            model="m",
+            mode="interactive",
+            messages=[],
+            title="t",
+            extra_roots=[{"path": str(gone), "writable": True, "label": "gone"}],
+        )
+    )
+    gone.rmdir()
+    out = client.post(f"/v1/sessions/{sid}/roots/reveal", json={"path": str(gone)}).json()
+    assert not out["ok"] and "not on this computer" in out["error"]

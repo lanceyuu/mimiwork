@@ -112,6 +112,39 @@ def _approval_body(request) -> str:
     return "\n".join(p for p in (reason, preview) if p)
 
 
+def _os_reveal(target: Path, mode: str = "reveal") -> dict[str, Any]:
+    """Show a path in the OS file manager (`reveal`) or open it with its default app
+    (`open`). The server runs on the user's own machine in both desktop and browser
+    builds, so this is always local. A folder "opens" as itself either way."""
+    import os
+    import subprocess
+    import sys
+
+    is_dir = target.is_dir()
+    try:
+        if sys.platform == "darwin":
+            args = (
+                ["open", "-R", str(target)]
+                if mode == "reveal" and not is_dir
+                else ["open", str(target)]
+            )
+            subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif sys.platform == "win32":
+            if mode == "reveal" and not is_dir:
+                # Explorer wants the path glued to the switch: /select,<path>
+                subprocess.Popen(["explorer", f"/select,{target}"])
+            else:
+                os.startfile(str(target))  # type: ignore[attr-defined]  # default app
+        else:  # Linux/BSD
+            tgt = str(target.parent) if mode == "reveal" and not is_dir else str(target)
+            subprocess.Popen(
+                ["xdg-open", tgt], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+    except OSError as exc:
+        return {"ok": False, "error": str(exc)}
+    return {"ok": True}
+
+
 class SessionManager:
     def __init__(
         self,
@@ -1788,6 +1821,29 @@ class SessionManager:
             )
         return target, None
 
+    def reveal_root(self, session_id: str, path: str) -> dict[str, Any]:
+        """Open one of this session's granted folders in the OS file manager — the Access
+        list's folder names are clickable (owner ask 2026-08-24).
+
+        Only a folder the user already granted TO THIS SESSION opens: the row is a shortcut
+        to a decision they made, never a way to browse the disk from a path in a payload.
+        """
+        target = Path(path).expanduser()
+        try:
+            target = target.resolve()
+        except OSError as exc:
+            return {"ok": False, "error": str(exc)}
+        granted = {
+            Path(r["path"]).expanduser().resolve()
+            for r in self.get_roots(session_id)
+            if r.get("path")
+        }
+        if target not in granted:
+            return {"ok": False, "error": "that folder is not one of this conversation's"}
+        if not target.is_dir():
+            return {"ok": False, "error": "that folder is not on this computer any more"}
+        return _os_reveal(target, "open")
+
     def read_artifact(self, session_id: str, path: str) -> dict[str, Any]:
         # Folders are readable too (a model sometimes links a whole package, e.g. a skill
         # build dir): return a listing the viewer can render instead of a dead end.
@@ -1855,44 +1911,11 @@ class SessionManager:
         self, session_id: str, path: str, mode: str = "reveal"
     ) -> dict[str, Any]:
         """Show the file in the OS file manager (`reveal`) or open it with its default app
-        (`open`). The server runs on the user's machine in both desktop and browser builds, so
-        this is local. Cross-platform: macOS `open`, Windows Explorer/ShellExecute, Linux
-        `xdg-open`."""
-        import os
-        import subprocess
-        import sys
-
+        (`open`), once the path is confirmed to live inside this session's workspace."""
         target, err = self._artifact_target(session_id, path, allow_dir=True)
         if target is None:
             return {"ok": False, "error": err}
-        # A folder "opens" as itself in the file manager, whatever the mode.
-        is_dir = target.is_dir()
-        try:
-            if sys.platform == "darwin":
-                args = (
-                    ["open", "-R", str(target)]
-                    if mode == "reveal" and not is_dir
-                    else ["open", str(target)]
-                )
-                subprocess.Popen(
-                    args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-                )
-            elif sys.platform == "win32":
-                if mode == "reveal" and not is_dir:
-                    # Explorer wants the path glued to the switch: /select,<path>
-                    subprocess.Popen(["explorer", f"/select,{target}"])
-                else:
-                    os.startfile(str(target))  # type: ignore[attr-defined]  # open in default app
-            else:  # Linux/BSD
-                tgt = str(target.parent) if mode == "reveal" and not is_dir else str(target)
-                subprocess.Popen(
-                    ["xdg-open", tgt],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        except OSError as exc:
-            return {"ok": False, "error": str(exc)}
-        return {"ok": True}
+        return _os_reveal(target, mode)
 
     # -- web search -------------------------------------------------------------
     def get_web_search(self) -> dict[str, Any]:

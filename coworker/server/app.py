@@ -742,6 +742,11 @@ def create_app(manager: SessionManager) -> FastAPI:
     def session_delete(session_id: str) -> dict[str, Any]:
         return manager.delete_session(session_id)
 
+    @app.post("/v1/sessions/{session_id}/roots/reveal")
+    def reveal_session_root(session_id: str, body: dict) -> dict[str, Any]:
+        """Open one of this conversation's granted folders in the OS file manager."""
+        return manager.reveal_root(session_id, str((body or {}).get("path", "")))
+
     @app.get("/v1/sessions/{session_id}/roots")
     def session_roots(session_id: str) -> dict[str, Any]:
         return {"roots": manager.get_roots(session_id)}

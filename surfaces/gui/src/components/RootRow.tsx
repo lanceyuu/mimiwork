@@ -12,6 +12,7 @@ export function RootRow({
   branch,
   onToggle,
   onRemove,
+  onOpen,
 }: {
   root: RootInfo;
   busy?: boolean;
@@ -20,6 +21,8 @@ export function RootRow({
   branch?: string | null;
   onToggle: (r: RootInfo) => void;
   onRemove: (path: string) => void;
+  /** Open the folder on the user's computer. Absent → the row stays plain text. */
+  onOpen?: (r: RootInfo) => void;
 }) {
   const label = root.primary
     ? scratchPrimary
@@ -29,19 +32,43 @@ export function RootRow({
   return (
     <div className={"root-row" + (root.exists ? "" : " missing")}>
       <Icon name="folder" size={14} className="root-ico" />
-      <span className="root-text" title={root.path}>
-        <span className="root-label">
-          {label}
-          {root.primary && !scratchPrimary && <span className="root-tag"> main</span>}
-          {branch && (
-            <span className="root-tag root-branch">
-              {" "}
-              <Icon name="branch" size={11} /> {branch}
-            </span>
-          )}
+      {/* The name IS the way in: clicking a folder you granted opens it on your computer
+        * (owner ask 2026-08-24). Missing folders stay inert — there is nothing to open. */}
+      {onOpen && root.exists ? (
+        <button
+          type="button"
+          className="root-text root-open"
+          data-testid={`root-open-${root.path}`}
+          title={`Open ${root.path}`}
+          onClick={() => onOpen(root)}
+        >
+          <span className="root-label">
+            {label}
+            {root.primary && !scratchPrimary && <span className="root-tag"> main</span>}
+            {branch && (
+              <span className="root-tag root-branch">
+                {" "}
+                <Icon name="branch" size={11} /> {branch}
+              </span>
+            )}
+          </span>
+          <span className="root-path">{root.path}</span>
+        </button>
+      ) : (
+        <span className="root-text" title={root.path}>
+          <span className="root-label">
+            {label}
+            {root.primary && !scratchPrimary && <span className="root-tag"> main</span>}
+            {branch && (
+              <span className="root-tag root-branch">
+                {" "}
+                <Icon name="branch" size={11} /> {branch}
+              </span>
+            )}
+          </span>
+          <span className="root-path">{root.path}</span>
         </span>
-        <span className="root-path">{root.path}</span>
-      </span>
+      )}
       {!root.exists && <span className="root-tag warn">missing</span>}
       <button
         className={"root-access" + (root.writable ? " rw" : " ro")}

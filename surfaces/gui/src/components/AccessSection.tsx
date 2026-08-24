@@ -18,6 +18,7 @@ import {
   setSessionConnection,
   subscribeChannel,
   unsubscribeChannel,
+  revealRoot,
   type Connector,
   type RecentChannel,
   type SessionConnections,
@@ -422,6 +423,7 @@ export function AccessSection({
                       branch={r.primary ? branch : undefined}
                       onToggle={toggleAccess}
                       onRemove={removeRoot}
+                      onOpen={(r) => void revealRoot(sessionId, r.path)}
                     />
                   ))}
                 </div>

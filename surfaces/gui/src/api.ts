@@ -224,6 +224,19 @@ export async function readArtifact(sessionId: string, path: string): Promise<Art
 }
 
 /** Show the artifact in the OS file manager ("reveal") or open it with its default app ("open"). */
+/** Open one of this conversation's granted folders in the OS file manager. */
+export async function revealRoot(
+  sessionId: string,
+  path: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${sessionId}/roots/reveal`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  return res.json();
+}
+
 export async function revealArtifact(
   sessionId: string,
   path: string,
