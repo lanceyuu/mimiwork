@@ -705,9 +705,10 @@ class SessionManager:
                         continue
                     seen.add(key)
                     try:
-                        mtime = full.stat().st_mtime
+                        st = full.stat()
+                        mtime, size = st.st_mtime, st.st_size
                     except OSError:
-                        mtime = 0.0
+                        mtime, size = 0.0, 0
                     hits.append(
                         (
                             mtime,
@@ -716,6 +717,10 @@ class SessionManager:
                                 "full_path": key,
                                 "root": str(root),
                                 "root_label": root.name,
+                                # Size lets a drop tell two same-named files apart before it
+                                # mentions one of them.
+                                "size": size,
+                                "modified_at": mtime,
                             },
                         )
                     )

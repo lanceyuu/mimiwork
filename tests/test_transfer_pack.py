@@ -246,6 +246,18 @@ def test_discovery_finds_the_layouts_that_actually_exist_on_disk(tmp_path, monke
     assert done["ok"], done
 
 
+def test_a_file_hit_carries_the_size_that_tells_two_same_named_files_apart(tmp_path):
+    """A dropped file is matched by name against the granted folders; two folders can hold
+    a "report.docx", so each hit carries its size for the drop to disambiguate."""
+    client, _ = _fixture(tmp_path)
+    (tmp_path / "report.docx").write_bytes(b"12345")
+    hits = client.get(
+        "/v1/files/search", params={"q": "report", "workspace": str(tmp_path)}
+    ).json()["files"]
+    row = next(h for h in hits if h["path"] == "report.docx")
+    assert row["size"] == 5 and row["modified_at"] > 0
+
+
 def test_import_refuses_a_folder_outside_the_known_skill_locations(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
     rogue = tmp_path / "elsewhere" / "evil"

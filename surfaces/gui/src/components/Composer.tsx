@@ -268,6 +268,52 @@ export function Composer(props: Props) {
     setMentionHits(null);
     textareaRef.current?.focus();
   };
+  /** Insert one or more "@path" mentions at the caret, as if they had been picked from
+   *  the "@" popup. */
+  const insertMentions = (paths: string[]) => {
+    if (!paths.length) return;
+    const caret = caretRef.current ?? text.length;
+    const head = text.slice(0, caret);
+    const joined = paths.map((p) => `@${p}`).join(" ");
+    const before = head + (head && !/\s$/.test(head) ? " " : "") + joined + " ";
+    setText(before + text.slice(caret));
+    caretRef.current = before.length;
+    textareaRef.current?.focus();
+  };
+
+  /** A dropped file is a REFERENCE first, an upload second (owner ask 2026-08-24).
+   *
+   *  Dragging a document in means "work on this one", not "make a copy of it inside the
+   *  conversation" — and uploading refused whatever the attachment path couldn't parse,
+   *  so dropping a .docx from a folder Mimi can already read said "file type not
+   *  supported" about a file it reads perfectly well. So: look the drop up by name in
+   *  the folders this session was granted and mention the path it finds. Only a file
+   *  from OUTSIDE those folders (nothing to point at) falls back to attaching. */
+  const dropFiles = async (list: FileList) => {
+    const files = Array.from(list);
+    const mentions: string[] = [];
+    const leftovers: File[] = [];
+    for (const file of files) {
+      let hit: FileHit | undefined;
+      try {
+        const hits = await searchFiles(file.name, {
+          workspace: props.workspace,
+          sessionId: props.sessionId,
+          limit: 8,
+        });
+        const named = hits.filter((h) => h.path.split("/").pop() === file.name);
+        // Same name in two granted folders: the size says which one was actually dragged.
+        hit = named.find((h) => h.size === file.size) ?? named[0];
+      } catch {
+        hit = undefined;
+      }
+      if (hit) mentions.push(hit.path);
+      else leftovers.push(file);
+    }
+    insertMentions(mentions);
+    if (leftovers.length) addFiles(leftovers);
+  };
+
   const [dragging, setDragging] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [dictation, setDictation] = useState<DictationStatus | null>(null);
@@ -418,7 +464,9 @@ export function Composer(props: Props) {
     readAll.forEach((r, i) => {
       if (r === null)
         showAttachNotice(
-          `${accepted[i].name} skipped — file type not supported or over 10 MB`,
+          `${accepted[i].name} is outside the folders this chat can read — add its ` +
+            `folder under Access to work on it in place, or drop an image, PDF or text file ` +
+            `to attach a copy.`,
         );
     });
     const read = readAll.filter(Boolean) as Attachment[];
@@ -702,7 +750,7 @@ export function Composer(props: Props) {
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+          if (e.dataTransfer.files.length) void dropFiles(e.dataTransfer.files);
         }}
       >
         {/* "/" palette — app commands, saved markdown commands and this session's skills,

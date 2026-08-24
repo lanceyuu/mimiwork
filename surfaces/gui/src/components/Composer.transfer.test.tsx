@@ -189,4 +189,53 @@ describe("permission modes", () => {
     expect(menu.textContent).toContain("Full access");
     expect(menu.textContent).not.toContain("Discuss"); // kept simple (owner ask)
   });
+
+  // ── dropping a file: a reference, not an upload ───────────────────────────────────
+  function drop(el: Element, files: { name: string; type?: string }[]) {
+    const list = files.map((f) => new File(["x"], f.name, { type: f.type ?? "" }));
+    fireEvent.drop(el, { dataTransfer: { files: list, items: [], types: ["Files"] } });
+  }
+
+  it("a file dragged in from a folder Mimi can read becomes an @mention, not an upload", async () => {
+    // The complaint (owner, 2026-08-24): dropping a .docx said "file type not supported"
+    // about a document the coworker reads perfectly well from disk.
+    const calls = stubFetch();
+    render(<Composer {...props()} />);
+    drop(screen.getByPlaceholderText(/Ask the coworker/).closest("div")!, [
+      { name: "intro.docx" },
+    ]);
+    await waitFor(() =>
+      expect((box() as HTMLTextAreaElement).value).toBe("@chapters/intro.docx "),
+    );
+    // It was located by name in the granted folders — nothing was uploaded or refused.
+    expect(calls.some((c) => c.url.includes("/v1/files/search"))).toBe(true);
+    expect(screen.queryByTestId("attach-notice")).toBeNull();
+    expect(screen.queryByText(/not supported/)).toBeNull();
+  });
+
+  it("keeps whatever is already typed and appends the mention at the caret", async () => {
+    stubFetch();
+    render(<Composer {...props()} />);
+    fireEvent.change(box(), { target: { value: "summarise" } });
+    drop(box().closest("div")!, [{ name: "intro.docx" }]);
+    await waitFor(() =>
+      expect((box() as HTMLTextAreaElement).value).toBe("summarise @chapters/intro.docx "),
+    );
+  });
+
+  it("still attaches a file that is not in any granted folder", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/v1/files/search"))
+          return { ok: true, json: async () => ({ files: [] }) } as Response;
+        if (url.includes("/skills")) return { ok: true, json: async () => SKILLS } as Response;
+        return { ok: true, json: async () => ({}) } as Response;
+      }),
+    );
+    render(<Composer {...props()} />);
+    drop(box().closest("div")!, [{ name: "photo.png", type: "image/png" }]);
+    // Nothing is mentioned — there is no path to point at — so the upload path runs.
+    await waitFor(() => expect((box() as HTMLTextAreaElement).value).toBe(""));
+  });
 });

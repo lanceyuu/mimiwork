@@ -2404,6 +2404,8 @@ export interface FileHit {
   full_path: string;
   root: string;
   root_label: string;
+  size?: number;
+  modified_at?: number;
 }
 
 /** Paths inside the session's granted folders, for "@" mentions. */
