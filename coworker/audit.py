@@ -159,6 +159,7 @@ def _resource(tool: str, args: dict[str, Any], result: Any) -> str:
         "ticket_id",
         "calendar_id",
         "message_id",
+        "survey_id",
     ):
         if isinstance(args, dict) and args.get(key):
             return str(args[key])

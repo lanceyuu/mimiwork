@@ -13,6 +13,11 @@ for every available connector — tests/test_connectors.py enforces it.
 from __future__ import annotations
 
 ABOUT: dict[str, str] = {
+    "qualtrics": "Work with your Qualtrics surveys from here: see what's in the "
+    "account, read a questionnaire so answers arrive with their real question "
+    "text instead of Q4_1, watch fielding progress, and pull a survey's "
+    "responses into your folder as a CSV or an SPSS .sav the analysis tools can "
+    "open. Read-only in Qualtrics — nothing is edited, sent, or deleted there.",
     "telegram": "Chat with your coworker from Telegram. Messages to your bot "
     "reach the agent and replies come back to the same chat — only senders on "
     "your allow-list get through.",
@@ -59,6 +64,13 @@ ABOUT: dict[str, str] = {
 # What connecting actually grants, as short honest bullets. Write powers always
 # name themselves; reads state their boundary ("…your account can see").
 ACCESS: dict[str, list[str]] = {
+    "qualtrics": [
+        "Lists the surveys in your account and reads their questionnaires.",
+        "Reads distribution and response counts to show how fielding is going.",
+        "Downloads a survey's responses into your session folder — only when you "
+        "approve that download.",
+        "Never edits, activates, deletes, or sends anything in Qualtrics.",
+    ],
     "telegram": [
         "Reads messages sent to your bot — never your personal chats.",
         "Sends messages as the bot.",

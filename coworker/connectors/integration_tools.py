@@ -11,6 +11,7 @@ import base64
 import datetime as _dt
 import json
 import re
+import time
 from email.message import EmailMessage
 from html.parser import HTMLParser
 from typing import Any, Callable, Optional
@@ -20,6 +21,7 @@ import aisuite as ai
 
 from ..secrets import SecretStore
 from ..web.guard import get_checked
+from . import qualtrics as _qualtrics
 from .browser_automation import make_browser_automation_tools
 from .email_tools import make_email_tools
 from .tool_defs import approval_for_tool, connector_for_tool
@@ -327,6 +329,23 @@ def _request(
             return {"ok": True, "data": data}
     except Exception as exc:
         return {"error": str(exc)}
+
+
+def _download_bytes(
+    url: str, *, headers: Optional[dict[str, str]] = None, timeout: float = 120.0
+) -> tuple[bytes, Optional[dict[str, Any]]]:
+    """`_request` for a file: (bytes, None) or (b"", error). Vendor endpoints only —
+    every caller builds the URL from a hardcoded host, same rule as `_request`."""
+    try:
+        import httpx
+
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+            if resp.status_code >= 400:
+                return b"", {"error": f"HTTP {resp.status_code}", "details": resp.text[:500]}
+            return resp.content, None
+    except Exception as exc:
+        return b"", {"error": str(exc)}
 
 
 class _TextExtractor(HTMLParser):
@@ -4878,6 +4897,307 @@ def make_integration_tools(
                 ["export_id"],
             ),
             caps=["canva", "read"],
+        )
+    )
+
+    # --- Qualtrics ----------------------------------------------------------
+    # The questionnaire reads freely; the responses do not. `qualtrics_export_responses`
+    # is registered as a WRITE in tool_defs, so the permission engine asks before a
+    # survey's answers land on this disk — the same line drawn for QualiTaTi data, for
+    # the same reason: that is other people's data, and the user says when it moves.
+
+    def _qualtrics_session() -> tuple[dict[str, Any], str, dict[str, str], Optional[dict[str, str]]]:
+        profile, err = _profile(secrets, "qualtrics", "datacenter", "api_token")
+        if err:
+            return {}, "", {}, err
+        base = _qualtrics.api(profile["datacenter"])
+        if not base:
+            return (
+                {},
+                "",
+                {},
+                {
+                    "error": "the stored Qualtrics datacenter isn't a qualtrics.com host; "
+                    "reconnect with the short code from Account Settings \u25b8 Qualtrics IDs "
+                    "(for example fra1)"
+                },
+            )
+        headers = {
+            "X-API-TOKEN": profile["api_token"],
+            "Content-Type": "application/json",
+        }
+        return profile, base, headers, None
+
+    def _qualtrics_result(out: dict[str, Any]) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+        if "error" in out:
+            return {}, out
+        data = out.get("data")
+        if not isinstance(data, dict):
+            return {}, {"error": "Qualtrics returned something that isn't JSON"}
+        result = data.get("result")
+        return (result if isinstance(result, dict) else {}), None
+
+    def qualtrics_list_surveys(
+        name_contains: str = "", max_results: int = 50
+    ) -> dict[str, Any]:
+        profile, base, headers, err = _qualtrics_session()
+        if err:
+            return err
+        want = _clamp(max_results, default=50, ceiling=200)
+        needle = (name_contains or "").strip().lower()
+        url = f"{base}/surveys"
+        rows: list[dict[str, Any]] = []
+        pages = 0
+        while url and pages < 5 and len(rows) < want:
+            result, err = _qualtrics_result(_request("GET", url, headers=headers))
+            if err:
+                return err
+            for element in result.get("elements") or []:
+                if not isinstance(element, dict):
+                    continue
+                if needle and needle not in str(element.get("name", "")).lower():
+                    continue
+                rows.append(
+                    {
+                        k: element.get(k)
+                        for k in ("id", "name", "isActive", "lastModified")
+                        if element.get(k) is not None
+                    }
+                )
+                if len(rows) >= want:
+                    break
+            nxt = str(result.get("nextPage") or "")
+            # `nextPage` is a URL the API hands back; only follow it while it still
+            # points at the account's own datacenter host.
+            url = nxt if _qualtrics.same_host(nxt, profile["datacenter"]) else ""
+            pages += 1
+        return {"surveys": rows, "count": len(rows), "more": bool(url)}
+
+    qualtrics_list_surveys.__name__ = "qualtrics_list_surveys"
+    tools.append(
+        _attach(
+            qualtrics_list_surveys,
+            _schema(
+                "qualtrics_list_surveys",
+                "List surveys in the Qualtrics account (id, name, active, last modified). "
+                "Optionally filter by a substring of the name.",
+                {
+                    "name_contains": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                [],
+            ),
+            caps=["qualtrics", "read"],
+        )
+    )
+
+    def qualtrics_get_survey(survey_id: str) -> dict[str, Any]:
+        profile, base, headers, err = _qualtrics_session()
+        if err:
+            return err
+        sid = (survey_id or "").strip()
+        if not sid:
+            return {"error": "survey_id is required (from qualtrics_list_surveys)"}
+        result, err = _qualtrics_result(
+            _request("GET", f"{base}/surveys/{quote(sid)}", headers=headers)
+        )
+        if err:
+            return err
+        return _qualtrics.summarize_survey(result, clean=_html_to_text)
+
+    qualtrics_get_survey.__name__ = "qualtrics_get_survey"
+    tools.append(
+        _attach(
+            qualtrics_get_survey,
+            _schema(
+                "qualtrics_get_survey",
+                "Read a Qualtrics questionnaire: every question's wording, type and choices, "
+                "the response counts, and what each export column (Q4_1) actually asks. "
+                "Read this before interpreting an export.",
+                {"survey_id": {"type": "string"}},
+                ["survey_id"],
+            ),
+            caps=["qualtrics", "read"],
+        )
+    )
+
+    def qualtrics_list_distributions(
+        survey_id: str, max_results: int = 20
+    ) -> dict[str, Any]:
+        profile, base, headers, err = _qualtrics_session()
+        if err:
+            return err
+        sid = (survey_id or "").strip()
+        if not sid:
+            return {"error": "survey_id is required (from qualtrics_list_surveys)"}
+        result, err = _qualtrics_result(
+            _request(
+                "GET",
+                f"{base}/distributions",
+                headers=headers,
+                params={"surveyId": sid},
+            )
+        )
+        if err:
+            return err
+        rows = [
+            {
+                k: element.get(k)
+                for k in ("id", "requestStatus", "sendDate", "stats")
+                if element.get(k) is not None
+            }
+            for element in (result.get("elements") or [])
+            if isinstance(element, dict)
+        ]
+        return {
+            "survey_id": sid,
+            "distributions": rows[: _clamp(max_results, default=20, ceiling=100)],
+            "count": len(rows),
+        }
+
+    qualtrics_list_distributions.__name__ = "qualtrics_list_distributions"
+    tools.append(
+        _attach(
+            qualtrics_list_distributions,
+            _schema(
+                "qualtrics_list_distributions",
+                "List a survey's distributions with their send/open/finish counts — how "
+                "fielding is going, without reading anyone's answers.",
+                {"survey_id": {"type": "string"}, "max_results": {"type": "integer"}},
+                ["survey_id"],
+            ),
+            caps=["qualtrics", "read"],
+        )
+    )
+
+    def qualtrics_export_responses(
+        survey_id: str,
+        fmt: str = "csv",
+        use_labels: bool = True,
+        start_date: str = "",
+        end_date: str = "",
+        limit: int = 0,
+        filename: str = "",
+        max_wait_seconds: int = 180,
+    ) -> dict[str, Any]:
+        profile, base, headers, err = _qualtrics_session()
+        if err:
+            return err
+        sid = (survey_id or "").strip()
+        if not sid:
+            return {"error": "survey_id is required (from qualtrics_list_surveys)"}
+        fmt = (fmt or "csv").strip().lower()
+        if fmt not in _qualtrics.EXPORT_FORMATS:
+            return {
+                "error": f"fmt must be one of {', '.join(_qualtrics.EXPORT_FORMATS)}"
+            }
+        scratch = roots[0] if roots else None
+        if scratch is None or not scratch.writable:
+            return {"error": "no writable session folder to save the export into"}
+
+        start = f"{base}/surveys/{quote(sid)}/export-responses"
+        result, err = _qualtrics_result(
+            _request(
+                "POST",
+                start,
+                headers=headers,
+                json=_qualtrics.export_body(
+                    fmt,
+                    use_labels=use_labels,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                ),
+            )
+        )
+        if err:
+            return err
+        progress_id = str(result.get("progressId") or "")
+        if not progress_id:
+            return {"error": "Qualtrics did not start the export"}
+
+        # Poll. Qualtrics builds the file on its side; a big survey takes a while, and
+        # giving up quietly at 30s would look like an empty survey.
+        deadline = time.monotonic() + max(5, min(int(max_wait_seconds or 180), 900))
+        file_id = ""
+        percent: Any = 0
+        while time.monotonic() < deadline:
+            result, err = _qualtrics_result(
+                _request("GET", f"{start}/{quote(progress_id)}", headers=headers)
+            )
+            if err:
+                return err
+            status = str(result.get("status") or "").lower()
+            percent = result.get("percentComplete", percent)
+            if status == "complete" and result.get("fileId"):
+                file_id = str(result["fileId"])
+                break
+            if status == "failed":
+                return {"error": "Qualtrics could not build the export for this survey"}
+            time.sleep(1.0)
+        if not file_id:
+            return {
+                "error": f"the export was still running after {max_wait_seconds}s "
+                f"({percent}% done) — try again, or narrow it with start_date/end_date"
+            }
+
+        payload, err = _download_bytes(
+            f"{start}/{quote(file_id)}/file", headers={"X-API-TOKEN": profile["api_token"]}
+        )
+        if err:
+            return err
+
+        members = _qualtrics.unpack(payload) or [("", payload)]
+        saved: list[str] = []
+        written = 0
+        for index, (member, blob) in enumerate(members):
+            wanted = filename if (filename and index == 0) else member
+            name = _qualtrics.safe_name(wanted, fmt, fallback=f"qualtrics-{sid}")
+            target = scratch.path / name
+            counter = 1
+            while target.exists():
+                target = scratch.path / f"{target.stem}-{counter}{target.suffix}"
+                counter += 1
+            try:
+                target.write_bytes(blob)
+            except OSError as exc:
+                return {"error": f"could not save the export: {exc}"}
+            saved.append(str(target))
+            written += len(blob)
+        return {
+            "ok": True,
+            "survey_id": sid,
+            "format": fmt,
+            "labels": bool(use_labels),
+            "path": saved[0],
+            "files": saved,
+            "bytes": written,
+            "note": "Column names are Qualtrics IDs; qualtrics_get_survey says what each one asks.",
+        }
+
+    qualtrics_export_responses.__name__ = "qualtrics_export_responses"
+    tools.append(
+        _attach(
+            qualtrics_export_responses,
+            _schema(
+                "qualtrics_export_responses",
+                "Download a survey's responses into the session folder as a real file "
+                "(csv, tsv, spss/.sav, json, ndjson) for the analysis tools. Waits for "
+                "Qualtrics to build the export. Optional date window and row limit; "
+                "use_labels=false gives numeric codes instead of answer text.",
+                {
+                    "survey_id": {"type": "string"},
+                    "fmt": {"type": "string"},
+                    "use_labels": {"type": "boolean"},
+                    "start_date": {"type": "string"},
+                    "end_date": {"type": "string"},
+                    "limit": {"type": "integer"},
+                    "filename": {"type": "string"},
+                    "max_wait_seconds": {"type": "integer"},
+                },
+                ["survey_id"],
+            ),
+            caps=["qualtrics", "write"],
         )
     )
 

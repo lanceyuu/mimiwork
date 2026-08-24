@@ -165,6 +165,30 @@ def _validate_whoami(
         return ValidationResult(False, error="unexpected response from API")
 
 
+def _validate_qualtrics(creds: dict) -> ValidationResult:
+    """Confirm the token against the account it claims, and show back whose it is.
+
+    Both fields can be wrong in the same way — a token from one brand with another
+    brand's datacenter — and Qualtrics answers that with a flat 401. Naming the
+    datacenter in the error is the difference between a fix and a shrug.
+    """
+    from .qualtrics import api
+
+    url = api(creds.get("datacenter", ""), "/whoami")
+    if not url:
+        return ValidationResult(
+            False,
+            error="Datacenter ID looks wrong — it's the short code in Account Settings "
+            "\u25b8 Qualtrics IDs, like fra1 or iad1.",
+        )
+    return _validate_whoami(
+        "GET",
+        url,
+        headers={"X-API-TOKEN": creds.get("api_token", "")},
+        identity=lambda d: d["result"].get("userName") or d["result"]["email"],
+    )
+
+
 def _validate_notion(creds: dict) -> ValidationResult:
     return _validate_whoami(
         "GET",
@@ -1422,6 +1446,47 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         brand_color="#fa5320",
         logo="hunter",
         account_field="@identity",
+    ),
+    ConnectorDescriptor(
+        name="qualtrics",
+        title="Qualtrics",
+        icon="◑",
+        blurb="List surveys, read the questionnaire, and pull responses in for analysis.",
+        auth="api_token",
+        two_way=False,
+        brand_color="#00b4ef",
+        logo="qualtrics",
+        aliases=(
+            "survey",
+            "surveys",
+            "questionnaire",
+            "responses",
+            "research",
+            "fieldwork",
+            "xm",
+        ),
+        fields=[
+            Field(
+                "datacenter",
+                "Datacenter ID",
+                secret=False,
+                help="The short code on the same page as the token — fra1, iad1, syd1. "
+                "A full https://fra1.qualtrics.com URL works too.",
+                placeholder="fra1",
+            ),
+            Field(
+                "api_token",
+                "API token",
+                secret=True,
+                help="Generated in Account Settings \u25b8 Qualtrics IDs \u25b8 API.",
+            ),
+        ],
+        instructions=[
+            "In Qualtrics, click your avatar \u2192 Account Settings \u2192 Qualtrics IDs.",
+            "Under API, click Generate Token, and copy the Datacenter ID from the same page.",
+            "Paste both below \u2014 the token stays on this computer.",
+        ],
+        validate=_validate_qualtrics,
     ),
     ConnectorDescriptor(
         name="pagerduty",

@@ -52,6 +52,12 @@ Calendar and Drive, GitHub, Jira, Notion, Linear, HubSpot, Canva, monday.com —
 anything reachable over [MCP](https://modelcontextprotocol.io/). Tag it in a Slack channel
 and the finished work comes back as a thread reply.
 
+**Including where your data lives.** Connect **Qualtrics** and ask for the December wave:
+it reads the questionnaire so `Q4_1` arrives as *"How satisfied were you with — speed of
+setup"*, then downloads the responses as a CSV or a labelled SPSS `.sav` in your folder,
+ready for the analyst. It never edits or sends anything in Qualtrics, and the download
+itself asks you first.
+
 **It runs while you don't.** A Monday brief, a weekly report, a standing watch on a
 channel: automations run locally with full transcripts, and anything needing a decision
 waits in an Inbox instead of guessing.

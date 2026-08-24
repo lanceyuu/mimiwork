@@ -17,6 +17,16 @@ describe("ConnectorIcon", () => {
     expect(el.style.getPropertyValue("--brand")).toBe("#611f69");
   });
 
+  it("has a real mark for Qualtrics rather than the fallback plug", () => {
+    // A missing registry entry doesn't break anything — it silently degrades to the
+    // generic plug, which is exactly the kind of thing nobody notices in review.
+    const { container } = render(
+      <ConnectorIcon connector={{ logo: "qualtrics", brand_color: "#00b4ef" }} />,
+    );
+    const el = container.querySelector("[data-logo]") as HTMLElement;
+    expect(el.getAttribute("data-logo")).toBe("qualtrics");
+  });
+
   it("falls back to the plug glyph for an unknown id while keeping the provided color", () => {
     const { container } = render(
       <ConnectorIcon connector={{ logo: "does-not-exist", brand_color: "#123456" }} />,
