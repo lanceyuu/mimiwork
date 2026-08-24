@@ -134,6 +134,8 @@ export function MimiCompanion() {
   const [showDone, setShowDone] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [dismissedBubble, setDismissedBubble] = useState("");
+  const petRef = useRef<HTMLDivElement | null>(null);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef<boolean | null>(null);
 
   // Rotate the busy line every 9s; show the done bubble for 45s after waking.
@@ -290,12 +292,31 @@ export function MimiCompanion() {
   const bubbleKey = phase === "alert" ? "alert" : busy ? `busy:${lineIdx}` : showDone ? "done" : "";
   const bubble = said && bubbleKey !== dismissedBubble ? said : null;
 
+  // Tell the shell which part of this transparent window is actually alive, so it can let
+  // the mouse through everywhere else (owner ask 2026-08-24: "just on the icon, not the
+  // surrounding area"). The union of the pet and — while she is saying something — her
+  // bubble; re-reported whenever either changes.
+  useEffect(() => {
+    const pet = petRef.current?.getBoundingClientRect();
+    if (!pet) return;
+    const parts = [pet, bubbleRef.current?.getBoundingClientRect()].filter(
+      Boolean,
+    ) as DOMRect[];
+    const left = Math.min(...parts.map((r) => r.left));
+    const top = Math.min(...parts.map((r) => r.top));
+    const right = Math.max(...parts.map((r) => r.right));
+    const bottom = Math.max(...parts.map((r) => r.bottom));
+    (globalThis as any).__TAURI__?.core?.invoke?.("companion_hot_rect", {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    });
+  }, [bubble, phase, hovered]);
+
   return (
     <div
       data-testid="mimi-companion"
-      onPointerDown={startDrag}
-      onClick={maybeRestore}
-      title="Open MimiWork (drag to move)"
       style={{
         position: "relative",
         width: "100vw",
@@ -304,7 +325,11 @@ export function MimiCompanion() {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "flex-end",
-        cursor: "pointer",
+        // The window is a transparent box around a small dog. Only the dog (and what she
+        // says) answers to the mouse — clicking the empty air beside her used to open the
+        // app (owner ask 2026-08-24), which is startling when you meant to click what is
+        // behind her. `default`, not `pointer`: the empty area isn't a control.
+        cursor: "default",
         userSelect: "none",
         background: "transparent",
         overflow: "hidden",
@@ -313,6 +338,7 @@ export function MimiCompanion() {
       {bubble && (
         <div
           data-testid="companion-bubble"
+          ref={bubbleRef}
           role="button"
           tabIndex={0}
           title="Click to dismiss"
@@ -381,9 +407,13 @@ export function MimiCompanion() {
         * instead of flickering out from under the pointer. */}
       <div
         data-testid="companion-pet-zone"
+        ref={petRef}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
-        style={{ position: "relative", width: SIZE + 84, height: SIZE }}
+        onPointerDown={startDrag}
+        onClick={maybeRestore}
+        title="Open MimiWork (drag to move)"
+        style={{ position: "relative", width: SIZE + 84, height: SIZE, cursor: "pointer" }}
       >
         <div style={{ position: "absolute", bottom: 0, left: "50%", marginLeft: -SIZE / 2 }}>
           <Sprite phase={phase} onDone={() => setPhase("idle")} />

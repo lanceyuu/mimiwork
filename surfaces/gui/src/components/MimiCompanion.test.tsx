@@ -78,7 +78,7 @@ describe("MimiCompanion", () => {
     const invoke = vi.fn();
     (globalThis as any).__TAURI__ = { core: { invoke } };
     render(<MimiCompanion />);
-    fireEvent.click(screen.getByTestId("mimi-companion"));
+    fireEvent.click(screen.getByTestId("companion-pet-zone"));
     expect(invoke).toHaveBeenCalledWith("companion_restore");
   });
 
@@ -105,7 +105,7 @@ describe("MimiCompanion", () => {
       window: { getCurrentWindow: () => ({ startDragging }) },
     };
     render(<MimiCompanion />);
-    const pet = screen.getByTestId("mimi-companion");
+    const pet = screen.getByTestId("companion-pet-zone");
     pointerDownAt(pet, 10, 10);
     expect(startDragging).toHaveBeenCalledOnce();
     // Drop far from where the press started: a drag, not a click.
@@ -124,7 +124,7 @@ describe("MimiCompanion", () => {
       window: { getCurrentWindow: () => ({ startDragging: vi.fn() }) },
     };
     render(<MimiCompanion />);
-    const pet = screen.getByTestId("mimi-companion");
+    const pet = screen.getByTestId("companion-pet-zone");
     pointerDownAt(pet, 55, 60, { x: 400, y: 300 });
     fireEvent.click(pet, { clientX: 55, clientY: 60, screenX: 760, screenY: 520 });
     expect(invoke).not.toHaveBeenCalledWith("companion_restore");
@@ -139,7 +139,7 @@ describe("MimiCompanion", () => {
       window: { getCurrentWindow: () => ({ startDragging }) },
     };
     render(<MimiCompanion />);
-    pointerDownAt(screen.getByTestId("mimi-companion"), 10, 10);
+    pointerDownAt(screen.getByTestId("companion-pet-zone"), 10, 10);
     expect(invoke).toHaveBeenCalledWith("companion_drag_begin");
     expect(startDragging).toHaveBeenCalledOnce();
   });
@@ -163,7 +163,7 @@ describe("MimiCompanion", () => {
     };
     render(<MimiCompanion />);
     await waitFor(() => expect(onMovedCb).toBeTruthy());
-    const pet = screen.getByTestId("mimi-companion");
+    const pet = screen.getByTestId("companion-pet-zone");
     pointerDownAt(pet, 55, 60, { x: 400, y: 300 });
     act(() => onMovedCb?.()); // the shell moved the window under the cursor
     fireEvent.click(pet, { clientX: 55, clientY: 60, screenX: 400, screenY: 300 });
@@ -184,7 +184,7 @@ describe("MimiCompanion", () => {
       window: { getCurrentWindow: () => ({ startDragging }) },
     };
     render(<MimiCompanion />);
-    const pet = screen.getByTestId("mimi-companion");
+    const pet = screen.getByTestId("companion-pet-zone");
     pointerDownAt(pet, 10, 10);
     fireEvent.click(pet, { clientX: 12, clientY: 11, screenX: 12, screenY: 11 });
     expect(invoke).toHaveBeenCalledWith("companion_restore");
@@ -229,5 +229,55 @@ describe("MimiCompanion", () => {
     fireEvent.click(screen.getByTestId("companion-dismiss"));
     expect(invoke).toHaveBeenCalledWith("companion_dismiss");
     expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("ignores the empty air around her", async () => {
+    // The window is a transparent box; only the dog is a control (owner ask 2026-08-24).
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    const startDragging = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: { getCurrentWindow: () => ({ startDragging }) },
+    };
+    render(<MimiCompanion />);
+    const window_ = await screen.findByTestId("mimi-companion");
+    pointerDownAt(window_, 10, 10);
+    fireEvent.click(window_, { clientX: 10, clientY: 10, screenX: 10, screenY: 10 });
+    expect(startDragging).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith("companion_restore");
+
+    // …while the dog herself still opens the app.
+    fireEvent.click(screen.getByTestId("companion-pet-zone"));
+    expect(invoke).toHaveBeenCalledWith("companion_restore");
+  });
+
+  it("tells the shell where she actually is, so the rest of the window lets clicks through", async () => {
+    getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
+    const invoke = vi.fn();
+    (globalThis as any).__TAURI__ = { core: { invoke } };
+    // jsdom gives every element a zero rect; stand in for a real layout so the union means
+    // something: the pet near the bottom, her bubble above it.
+    const rects: Record<string, DOMRect> = {
+      "companion-pet-zone": { left: 65, top: 140, right: 175, bottom: 250 } as DOMRect,
+      "companion-bubble": { left: 20, top: 40, right: 220, bottom: 100 } as DOMRect,
+    };
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const id = this.getAttribute("data-testid") || "";
+      return rects[id] ?? (original.call(this) as DOMRect);
+    };
+    try {
+      render(<MimiCompanion />);
+      await waitFor(() =>
+        expect(invoke).toHaveBeenCalledWith(
+          "companion_hot_rect",
+          // The union of what is alive: bubble on top, pet at the bottom.
+          { x: 20, y: 40, width: 200, height: 210 },
+        ),
+      );
+    } finally {
+      Element.prototype.getBoundingClientRect = original;
+    }
   });
 });

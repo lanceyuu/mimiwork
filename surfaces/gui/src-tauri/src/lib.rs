@@ -762,6 +762,107 @@ fn companion_drag_begin() {
     COMPANION_MOVING.store(false, std::sync::atomic::Ordering::Release);
 }
 
+// --- Click-through: only the dog answers the mouse ---------------------------------
+// The companion window is a transparent 240x250 box around a ~110px dog, and a window
+// swallows clicks across its whole rectangle however transparent it looks — so clicking
+// the air beside her hit nothing instead of the document behind her (owner ask
+// 2026-08-24). The webview reports the rectangle its live controls occupy; a slow poller
+// compares the cursor against it and turns cursor-ignoring on and off.
+//
+// Fail-safe by construction: ignoring is only ever switched ON while we hold a rect AND
+// know where the cursor is. Any doubt — no rect yet, no cursor reading, no window — leaves
+// the pet clickable, because a pet that cannot be clicked is worse than one with a halo.
+static COMPANION_HOT_RECT: std::sync::Mutex<Option<(f64, f64, f64, f64)>> =
+    std::sync::Mutex::new(None);
+static COMPANION_IGNORING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static COMPANION_WATCH_ARMED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Is the cursor inside the pet's live area? Rect is (x, y, w, h) in physical pixels,
+/// relative to the window's top-left; cursor and window origin are screen coordinates.
+fn cursor_on_pet(
+    cursor: (f64, f64),
+    window: (f64, f64),
+    rect: (f64, f64, f64, f64),
+) -> bool {
+    let (cx, cy) = cursor;
+    let (wx, wy) = window;
+    let (rx, ry, rw, rh) = rect;
+    let left = wx + rx;
+    let top = wy + ry;
+    cx >= left && cx <= left + rw && cy >= top && cy <= top + rh
+}
+
+/// The webview reports where its live controls are (the pet, plus her speech bubble while
+/// she has something to say), in CSS pixels relative to the window.
+#[tauri::command]
+fn companion_hot_rect(app: tauri::AppHandle, x: f64, y: f64, width: f64, height: f64) {
+    let scale = app
+        .get_webview_window("companion")
+        .and_then(|w| w.scale_factor().ok())
+        .unwrap_or(1.0);
+    if let Ok(mut rect) = COMPANION_HOT_RECT.lock() {
+        *rect = if width > 0.0 && height > 0.0 {
+            Some((x * scale, y * scale, width * scale, height * scale))
+        } else {
+            None
+        };
+    }
+    start_companion_click_through(&app);
+}
+
+fn set_companion_ignoring(w: &tauri::WebviewWindow, ignore: bool) {
+    if COMPANION_IGNORING.swap(ignore, std::sync::atomic::Ordering::AcqRel) != ignore {
+        let _ = w.set_ignore_cursor_events(ignore);
+    }
+}
+
+fn start_companion_click_through(app: &tauri::AppHandle) {
+    if COMPANION_WATCH_ARMED.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return; // one watcher is enough
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        loop {
+            // 120ms while she is on screen — fast enough that the cursor never lands on her
+            // "dead"; a lazy half-second while she is hidden, which is most of the time.
+            let visible = app
+                .get_webview_window("companion")
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false);
+            std::thread::sleep(std::time::Duration::from_millis(if visible {
+                120
+            } else {
+                500
+            }));
+            let Some(w) = app.get_webview_window("companion") else {
+                continue;
+            };
+            // Hidden pet: nothing to ignore, and nothing to poll for.
+            if !w.is_visible().unwrap_or(false) {
+                set_companion_ignoring(&w, false);
+                continue;
+            }
+            let rect = COMPANION_HOT_RECT.lock().ok().and_then(|r| *r);
+            let cursor = app.cursor_position().ok();
+            let origin = w.outer_position().ok();
+            match (rect, cursor, origin) {
+                (Some(rect), Some(cursor), Some(origin)) => {
+                    let on_pet = cursor_on_pet(
+                        (cursor.x, cursor.y),
+                        (origin.x as f64, origin.y as f64),
+                        rect,
+                    );
+                    set_companion_ignoring(&w, !on_pet);
+                }
+                // Missing anything at all → clickable. Never strand the pet.
+                _ => set_companion_ignoring(&w, false),
+            }
+        }
+    });
+}
+
 /// Companion click-through to the app: restore the main window, hide the pet.
 #[tauri::command]
 fn companion_restore(app: tauri::AppHandle) {
@@ -912,6 +1013,7 @@ pub fn run() {
             companion_restore,
             companion_dismiss,
             companion_drag_begin,
+            companion_hot_rect,
             get_companion_enabled,
             set_companion_enabled
         ])
@@ -1141,7 +1243,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_rect, rect_visible};
+    use super::{clamp_rect, cursor_on_pet, rect_visible};
 
     // A 2x 1512x982 display, in physical pixels — the machine the bug was reported on.
     const SCREEN: (i32, i32, i32, i32) = (0, 0, 3024, 1964);
@@ -1153,6 +1255,26 @@ mod tests {
 
     fn visible(x: i32, y: i32) -> bool {
         rect_visible(pet_at(x, y), SCREEN)
+    }
+
+    #[test]
+    fn only_the_dog_answers_the_mouse() {
+        // Window parked at (1000, 800); her live area is the lower middle of it.
+        let window = (1000.0, 800.0);
+        let rect = (65.0, 140.0, 110.0, 110.0); // x, y, w, h inside the window
+        assert!(cursor_on_pet((1100.0, 950.0), window, rect)); // on the dog
+        assert!(cursor_on_pet((1065.0, 940.0), window, rect)); // her top-left corner
+        assert!(!cursor_on_pet((1010.0, 810.0), window, rect)); // empty air, top-left
+        assert!(!cursor_on_pet((1230.0, 1040.0), window, rect)); // empty air, bottom-right
+        assert!(!cursor_on_pet((1100.0, 900.0), window, rect)); // just above her head
+    }
+
+    #[test]
+    fn the_live_area_follows_the_window() {
+        let rect = (65.0, 140.0, 110.0, 110.0);
+        // Same cursor, window dragged away: no longer on the dog.
+        assert!(cursor_on_pet((1100.0, 950.0), (1000.0, 800.0), rect));
+        assert!(!cursor_on_pet((1100.0, 950.0), (200.0, 100.0), rect));
     }
 
     #[test]
