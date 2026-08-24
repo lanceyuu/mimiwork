@@ -98,8 +98,18 @@ if ($env:TAURI_SIGNING_PRIVATE_KEY) {
 }
 Push-Location $Gui
 try {
-    & npm run tauri build -- --bundles $Bundles @UpdaterArgs
-    if ($LASTEXITCODE -ne 0) { throw "tauri build failed (exit $LASTEXITCODE)" }
+    # Retry the bundle step: tauri downloads the NSIS toolchain from GitHub at bundle
+    # time, and a dropped connection there ("An existing connection was forcibly closed
+    # by the remote host", v0.4.6 run 32735525435) fails a release that had already
+    # compiled cleanly. Two extra attempts cost minutes; a lost release costs a re-tag.
+    $Attempts = 3
+    for ($i = 1; $i -le $Attempts; $i++) {
+        & npm run tauri build -- --bundles $Bundles @UpdaterArgs
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($i -eq $Attempts) { throw "tauri build failed (exit $LASTEXITCODE) after $Attempts attempts" }
+        Write-Host "    tauri build failed (exit $LASTEXITCODE) - retrying ($i/$($Attempts - 1))..." -ForegroundColor Yellow
+        Start-Sleep -Seconds (10 * $i)
+    }
 }
 finally {
     Pop-Location
