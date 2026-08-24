@@ -1242,6 +1242,14 @@ def create_app(manager: SessionManager) -> FastAPI:
             manager.verify_provider, name, (body or {}).get("fields")
         )
 
+    @app.post("/v1/models/test")
+    async def models_test(body: dict) -> dict[str, Any]:
+        """One tiny completion through a specific model — the Test button next to the
+        QualiTaTi tiers. Off the event loop: providers are sync httpx."""
+        return await asyncio.to_thread(
+            manager.test_model, str((body or {}).get("model", ""))
+        )
+
     # -- settings (model API key) -----------------------------------------------
     @app.get("/v1/settings")
     def settings_get() -> dict[str, Any]:

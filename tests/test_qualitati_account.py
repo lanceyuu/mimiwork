@@ -9,12 +9,14 @@ profile survives.
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from coworker.qualitati import (
     AUTH_PROFILE,
     PROVIDER_PROFILE,
     QualitatiClient,
 )
+from coworker.server import SessionManager, create_app
 
 
 class FakeSecrets:
@@ -417,3 +419,51 @@ def test_reconnect_that_still_fails_explains_where_to_look(monkeypatch, secrets)
     wire(monkeypatch, {("POST", "/api/keys"): (403, {"detail": "nope"})})
     out = QualitatiClient(secrets).ensure_provider_key()
     assert not out["ok"] and "qualitati.com" in out["error"]
+
+
+# -- the Mimi tiers, testable from the account card -----------------------------------
+
+
+def test_testing_a_model_asks_it_to_answer_and_reports_what_came_back(tmp_path):
+    """Listing a provider's catalog proves the key works; only a real completion proves the
+    tier does. The card's Test button needs the second thing."""
+    from types import SimpleNamespace
+
+    calls: list[dict] = []
+
+    class _Speaking:
+        def complete(self, **kw):
+            calls.append(kw)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content=" ready "))]
+            )
+
+        def capabilities(self, model):
+            from coworker.providers import ModelCapabilities
+
+            return ModelCapabilities()
+
+    manager = SessionManager(workspace=tmp_path, provider=_Speaking())
+    client = TestClient(create_app(manager))
+    out = client.post("/v1/models/test", json={"model": "qualitati:mimi-puppy"}).json()
+    assert out == {"ok": True, "model": "qualitati:mimi-puppy", "reply": "ready"}
+    assert calls[0]["model"] == "qualitati:mimi-puppy" and calls[0]["max_tokens"] == 16
+
+
+def test_a_tier_that_refuses_is_reported_in_words_the_user_can_act_on(tmp_path):
+    class _Refusing:
+        def complete(self, **kw):
+            raise RuntimeError(
+                "Error code: 404 - {'error': {'message': 'The model `mimi-wolf` does not "
+                "exist or you do not have access to it.'}}"
+            )
+
+        def capabilities(self, model):
+            from coworker.providers import ModelCapabilities
+
+            return ModelCapabilities()
+
+    client = TestClient(create_app(SessionManager(workspace=tmp_path, provider=_Refusing())))
+    out = client.post("/v1/models/test", json={"model": "qualitati:mimi-wolf"}).json()
+    assert not out["ok"]
+    assert "access" in out["error"].lower() or "mimi-wolf" in out["error"]

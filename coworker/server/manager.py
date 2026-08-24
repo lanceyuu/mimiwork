@@ -2394,6 +2394,41 @@ class SessionManager:
             name, api_key=api_key, base_url=merged.get("base_url", ""), fields=merged
         )
 
+    def test_model(self, model: str) -> dict[str, Any]:
+        """Ask one model to answer once — the honest version of "does this work?".
+
+        Listing a provider's catalog (what `verify_provider` does) proves the key is valid,
+        not that a particular model will answer: the QualiTaTi tiers are gateway aliases, so
+        a tier can be missing or out of credit while the key is perfectly good. This sends
+        the smallest possible completion and reports what came back.
+        """
+        model = (model or "").strip()
+        if not model:
+            return {"ok": False, "error": "no model given"}
+        try:
+            reply = self.provider.complete(
+                model=model,
+                messages=[{"role": "user", "content": "Reply with the single word: ready"}],
+                max_tokens=16,
+                temperature=0,
+            )
+        except Exception as exc:  # every provider failure mode lands here
+            from ..providers.errors import friendly_model_error
+
+            return {
+                "ok": False,
+                "model": model,
+                "error": friendly_model_error(model, exc) or str(exc)[:300],
+            }
+        text = ""
+        try:  # the shape differs per provider; a missing text is not a failure
+            choice = getattr(reply, "choices", [None])[0]
+            message = getattr(choice, "message", None)
+            text = str(getattr(message, "content", "") or "").strip()
+        except Exception:
+            text = ""
+        return {"ok": True, "model": model, "reply": text[:120]}
+
     def _model_provider(self, model: str) -> str:
         """The provider a model string routes to (known `prefix:` or the OpenAI default)."""
         if ":" in (model or ""):

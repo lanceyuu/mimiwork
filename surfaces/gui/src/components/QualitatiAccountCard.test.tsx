@@ -227,4 +227,68 @@ describe("QualitatiAccountCard — create account", () => {
     await screen.findByTestId("qualitati-profile");
     expect(screen.queryByTestId("qualitati-models-missing")).toBeNull();
   });
+
+  it("shows the three Mimi tiers as soon as you are signed in", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/settings", json: { models: ["qualitati:mimi-puppy"] } },
+    ]);
+    render(<QualitatiAccountCard />);
+    const strip = await screen.findByTestId("qualitati-models");
+    expect(strip.textContent).toContain("Mimi Puppy");
+    expect(strip.textContent).toContain("Mimi Hound");
+    expect(strip.textContent).toContain("Mimi Wolf");
+    // The one already curated says so; the others offer to join the picker.
+    await waitFor(() =>
+      expect(screen.getByTestId("qualitati-model-qualitati:mimi-puppy").textContent).toContain(
+        "In the composer's picker",
+      ),
+    );
+    expect(screen.getByTestId("qualitati-model-add-qualitati:mimi-wolf")).toBeTruthy();
+    expect(screen.queryByTestId("qualitati-model-add-qualitati:mimi-puppy")).toBeNull();
+  });
+
+  it("Test asks the model to answer and reports what came back", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/settings", json: { models: [] } },
+      { match: "/v1/models/test", method: "POST", json: { ok: true, reply: "ready" } },
+    ]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-model-test-qualitati:mimi-hound"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("qualitati-model-result-qualitati:mimi-hound").textContent,
+      ).toContain("Works"),
+    );
+    expect(calls.find((c) => c.url.includes("/v1/models/test"))!.body).toEqual({
+      model: "qualitati:mimi-hound",
+    });
+  });
+
+  it("a tier that refuses says why, in the row itself", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/settings", json: { models: [] } },
+      {
+        match: "/v1/models/test",
+        method: "POST",
+        json: { ok: false, error: "your account doesn't have access to mimi-wolf" },
+      },
+    ]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-model-test-qualitati:mimi-wolf"));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("qualitati-model-result-qualitati:mimi-wolf").textContent,
+      ).toContain("doesn't have access"),
+    );
+  });
+
+  it("says nothing about models while signed out", async () => {
+    stubFetch([{ match: "/v1/qualitati/status", json: SIGNED_OUT }]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-username");
+    expect(screen.queryByTestId("qualitati-models")).toBeNull();
+  });
 });

@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 import {
   QualitatiStatus,
+  addModel,
+  getSettings,
   qualitatiFootprint,
   qualitatiLogin,
   qualitatiLogout,
@@ -19,6 +21,8 @@ import {
   qualitatiRegister,
   qualitatiStatus,
   qualitatiVerifyMfa,
+  testModel,
+  type ModelSettings,
   type QualitatiFootprint,
   type QualitatiRegisterResult,
 } from "../api";
@@ -35,6 +39,13 @@ export function passwordPolicyProblem(pw: string): string | null {
   if (!/[^A-Za-z0-9]/.test(pw)) return "a special character";
   return null;
 }
+
+// The gateway's three tiers, in the order a user meets them: free first, then by price.
+const MIMI_TIERS = [
+  { id: "qualitati:mimi-puppy", label: "Mimi Puppy", blurb: "free every day" },
+  { id: "qualitati:mimi-hound", label: "Mimi Hound", blurb: "fast · spends credits" },
+  { id: "qualitati:mimi-wolf", label: "Mimi Wolf", blurb: "powerful · spends credits" },
+] as const;
 
 export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<QualitatiStatus | null>(null);
@@ -54,11 +65,24 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
   const [invite, setInvite] = useState("");
   const [terms, setTerms] = useState(false);
   const [registered, setRegistered] = useState<string | null>(null);
+  // The three tiers, shown right here once signed in. A user who has just signed in should
+  // SEE the models they can now use — hunting for them in the composer's picker (and not
+  // finding them, when the curated list didn't pick them up) is how this went wrong twice.
+  const [settings, setSettings] = useState<ModelSettings | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [tested, setTested] = useState<Record<string, { ok: boolean; text: string }>>({});
+  const refreshSettings = () => getSettings().then(setSettings).catch(() => setSettings(null));
 
   const refresh = () => qualitatiStatus().then(setState).catch(() => setState(null));
   useEffect(() => {
     refresh();
   }, []);
+  // Which tiers are already in the picker — read once signed in, and again after a
+  // sign-in/reconnect flips that.
+  useEffect(() => {
+    if (state?.signed_in) void refreshSettings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state?.signed_in]);
   // The footprint line loads once per Settings visit, only when signed in —
   // measured Scaleway data for the whole Mimi service (server caches 1h).
   useEffect(() => {
@@ -231,6 +255,90 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
             pull them in to analyse — <span className="text-ink">each retrieval asks your
             approval first</span>, and nothing is fetched on its own.
           </span>
+        </div>
+      ) : null}
+      {/* The three tiers, with a Test that really asks the model to answer. */}
+      {state.signed_in ? (
+        <div className="mt-2.5" data-testid="qualitati-models">
+          <div className="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-1.5">
+            Your Mimi models
+          </div>
+          <div className="rounded-lg border border-line overflow-hidden">
+            {MIMI_TIERS.map((tier, i) => {
+              const inPicker = (settings?.models ?? []).includes(tier.id);
+              const result = tested[tier.id];
+              return (
+                <div
+                  key={tier.id}
+                  className={
+                    "flex items-center gap-3 px-3 py-2 bg-paper" +
+                    (i > 0 ? " border-t border-line" : "")
+                  }
+                  data-testid={`qualitati-model-${tier.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-ink font-medium">
+                      {tier.label}{" "}
+                      <span className="text-[11.5px] font-normal text-muted">{tier.blurb}</span>
+                    </div>
+                    {result ? (
+                      <div
+                        className={
+                          "text-[11.5px] mt-0.5 " + (result.ok ? "text-accent" : "text-danger")
+                        }
+                        data-testid={`qualitati-model-result-${tier.id}`}
+                      >
+                        {result.text}
+                      </div>
+                    ) : (
+                      <div className="text-[11.5px] text-faint mt-0.5">
+                        {inPicker ? "In the composer's picker" : "Not in the picker yet"}
+                      </div>
+                    )}
+                  </div>
+                  {!inPicker && (
+                    <button
+                      className="text-[12px] px-2.5 py-1 rounded-lg border border-line hover:border-lineStrong shrink-0"
+                      data-testid={`qualitati-model-add-${tier.id}`}
+                      onClick={async () => {
+                        await addModel(tier.id).catch(() => undefined);
+                        await refreshSettings();
+                        onChanged?.();
+                      }}
+                    >
+                      Add
+                    </button>
+                  )}
+                  <button
+                    className="text-[12px] px-2.5 py-1 rounded-lg border border-line hover:border-lineStrong shrink-0 disabled:opacity-40"
+                    data-testid={`qualitati-model-test-${tier.id}`}
+                    disabled={testing === tier.id}
+                    onClick={async () => {
+                      setTesting(tier.id);
+                      const out = await testModel(tier.id).catch(
+                        (): Awaited<ReturnType<typeof testModel>> => ({
+                          ok: false,
+                          error: "could not reach the server",
+                        }),
+                      );
+                      setTesting(null);
+                      setTested((cur) => ({
+                        ...cur,
+                        [tier.id]: {
+                          ok: !!out.ok,
+                          text: out.ok
+                            ? `Works — it answered “${out.reply || "…"}”`
+                            : out.error || "no answer",
+                        },
+                      }));
+                    }}
+                  >
+                    {testing === tier.id ? "Testing…" : "Test"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ) : null}
       {state.signed_in && footprint?.ok && footprint.carbon_g !== undefined ? (

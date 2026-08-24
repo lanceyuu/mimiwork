@@ -1276,6 +1276,19 @@ export async function setUnattended(
   return res.json();
 }
 
+/** One tiny completion through a specific model — proves the model answers, which
+ *  listing a provider's catalog does not. */
+export async function testModel(
+  model: string,
+): Promise<{ ok: boolean; model?: string; reply?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/models/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+  return res.json();
+}
+
 export async function getSettings(): Promise<ModelSettings> {
   const res = await fetch(`${httpBase()}/v1/settings`);
   return res.json();
