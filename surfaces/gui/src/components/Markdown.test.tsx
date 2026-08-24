@@ -35,4 +35,29 @@ describe("Markdown artifact links", () => {
     render(<Markdown text="[](artifact:out/report.pdf)" />);
     expect(screen.getByTestId("artifact-chip").textContent).toContain("report.pdf");
   });
+
+  it("carries an absolute path through, spaces and all", () => {
+    // The real link from a deliverable written into a granted folder (owner report
+    // 2026-08-24): an absolute path with spaces in it must survive the markdown pipeline.
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail.path);
+    window.addEventListener(OPEN_ARTIFACT_EVENT, listener);
+    const path = "/Users/yu/HEC/Online marketing course/Debrief Module 2.docx";
+    render(<Markdown text={`[Open the debrief](<artifact:${path}>)`} />);
+    fireEvent.click(screen.getByTestId("artifact-chip"));
+    expect(seen).toEqual([path]);
+    window.removeEventListener(OPEN_ARTIFACT_EVENT, listener);
+  });
+
+  it("leaves a filename's own percent sign alone", () => {
+    // decodeURI would throw on "50%" — the chip must still open "Q3 50% growth.md".
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail.path);
+    window.addEventListener(OPEN_ARTIFACT_EVENT, listener);
+    render(<Markdown text="[stats](<artifact:reports/Q3 50% growth.md>)" />);
+    fireEvent.click(screen.getByTestId("artifact-chip"));
+    expect(seen[0].endsWith("growth.md")).toBe(true);
+    expect(seen[0]).toContain("50%");
+    window.removeEventListener(OPEN_ARTIFACT_EVENT, listener);
+  });
 });

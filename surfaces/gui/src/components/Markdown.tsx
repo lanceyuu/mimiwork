@@ -9,7 +9,22 @@ import { Icon } from "./Icon";
 // the session's artifact list, App un-hides the rail.
 export const OPEN_ARTIFACT_EVENT = "ocw-open-artifact";
 
-function ArtifactChip({ path, title }: { path: string; title: string }) {
+// Markdown URLs are percent-encoded on the way through the parser, so a real path — and
+// a knowledge worker's paths are full of spaces — arrives as
+// "Online%20marketing%20course/Debrief%20Module%202.docx" and the file lookup fails on a
+// name nothing on disk has (owner report 2026-08-24). decodeURI, not decodeURIComponent:
+// it leaves a lone "%" in a filename alone instead of throwing, and the catch covers the
+// malformed rest.
+function decodePath(raw: string): string {
+  try {
+    return decodeURI(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
+  const path = decodePath(raw);
   const file = path.split("/").pop() || path;
   return (
     <button

@@ -199,4 +199,32 @@ describe("QualitatiAccountCard — create account", () => {
     await screen.findByTestId("qualitati-username");
     expect(screen.queryByTestId("qualitati-data-note")).toBeNull();
   });
+
+  it("says why the Mimi models are missing and offers to connect them", async () => {
+    // Signed in, credits visible, no gateway key — the reported dead end (2026-08-24).
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: { ...SIGNED_IN, provider_configured: false } },
+      { match: "/v1/qualitati/reconnect", method: "POST", json: { ok: true, provider_configured: true } },
+    ]);
+    const onChanged = vi.fn();
+    render(<QualitatiAccountCard onChanged={onChanged} />);
+    const note = await screen.findByTestId("qualitati-models-missing");
+    expect(note.textContent).toContain("aren't connected yet");
+
+    fireEvent.click(screen.getByTestId("qualitati-reconnect"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/v1/qualitati/reconnect"))).toBe(true),
+    );
+    // The picker has to re-read: that is where the three models appear.
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+  });
+
+  it("says nothing about connecting when the models are already there", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: { ...SIGNED_IN, provider_configured: true } },
+    ]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-profile");
+    expect(screen.queryByTestId("qualitati-models-missing")).toBeNull();
+  });
 });

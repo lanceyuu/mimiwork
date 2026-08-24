@@ -125,39 +125,97 @@ class QualitatiClient:
             or "Account created — check your email to verify it, then sign in.",
         }
 
+    def _mint_key(self, headers: dict[str, str]) -> tuple[Optional[str], Optional[int]]:
+        """Create the gateway API key the Mimi models are billed through.
+
+        Retried under a machine-specific name: an account that already carries a key called
+        "MimiWork desktop" (a second computer, an earlier install) can have the plain create
+        refused, and the raw secret of the existing key is not retrievable — which left the
+        user signed in with no key, and therefore no Mimi models in the picker, with nothing
+        on screen saying why (user report 2026-08-24). A fresh name sidesteps the clash
+        without revoking a key another machine may still be using.
+        """
+        import datetime
+        import platform
+
+        host = "".join(c for c in platform.node().split(".")[0] if c.isalnum() or c in "-_")[:24]
+        names = [KEY_NAME]
+        if host:
+            names.append(f"{KEY_NAME} ({host})")
+        names.append(f"{KEY_NAME} {datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}")
+        for name in names:
+            try:
+                r = httpx.post(
+                    f"{self.base}/api/keys",
+                    json={"name": name},
+                    headers=headers,
+                    timeout=_TIMEOUT,
+                )
+            except httpx.HTTPError as e:
+                logger.warning("qualitati: API key mint failed: %s", e)
+                return None, None
+            if r.status_code == 200:
+                body = _json_object(r) or {}
+                # The raw key is shown exactly once, under `key`.
+                return body.get("key") or body.get("api_key"), body.get("id")
+            if r.status_code not in (400, 409, 422):
+                logger.warning("qualitati: API key mint refused (%s)", r.status_code)
+                return None, None  # not a name clash — a retry would only repeat it
+        logger.warning("qualitati: API key mint refused for every candidate name")
+        return None, None
+
+    def _store_provider_key(self, api_key: str, key_id: Optional[int]) -> None:
+        import datetime
+
+        self.secrets.put(
+            PROVIDER_PROFILE,
+            {
+                "api_key": api_key,
+                "base_url": f"{self.base}/api/llm/v1",
+                "key_set_at": datetime.date.today().isoformat(),
+                "qualitati_key_id": key_id,
+            },
+        )
+
+    def ensure_provider_key(self) -> dict[str, Any]:
+        """Mint the gateway key for an account that is signed in without one.
+
+        This is the repair for "I signed in and the Mimi models still aren't there": the
+        sign-in itself succeeded, only the key did not, so there is no reason to make the
+        user type their password again.
+        """
+        auth = self.secrets.get(AUTH_PROFILE) or {}
+        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        if provider.get("api_key"):
+            return {"ok": True, "provider_configured": True}
+        token = auth.get("access_token")
+        if not token:
+            return {"ok": False, "error": "not signed in", "provider_configured": False}
+        api_key, key_id = self._mint_key({"Authorization": f"Bearer {token}"})
+        if not api_key:
+            return {
+                "ok": False,
+                "provider_configured": False,
+                "error": (
+                    "QualiTaTi would not issue a key for this app. Check qualitati.com → "
+                    "API keys, then try again."
+                ),
+            }
+        self._store_provider_key(api_key, key_id)
+        return {"ok": True, "provider_configured": True}
+
     def _finish_login(self, username: str, token: str) -> dict[str, Any]:
         """Store the JWT, mint the durable API key, configure the provider."""
         self.secrets.put(
             AUTH_PROFILE, {"username": username, "access_token": token, "base_url": self.base}
         )
         headers = {"Authorization": f"Bearer {token}"}
-        api_key: Optional[str] = None
-        key_id: Optional[int] = None
-        try:
-            r = httpx.post(
-                f"{self.base}/api/keys", json={"name": KEY_NAME}, headers=headers, timeout=_TIMEOUT
-            )
-            if r.status_code == 200:
-                body = _json_object(r) or {}
-                # The raw key is shown exactly once, under `key`.
-                api_key = body.get("key") or body.get("api_key")
-                key_id = body.get("id")
-        except httpx.HTTPError as e:
-            logger.warning("qualitati: API key mint failed: %s", e)
-
+        api_key, key_id = self._mint_key(headers)
         if api_key:
-            self.secrets.put(
-                PROVIDER_PROFILE,
-                {
-                    "api_key": api_key,
-                    "base_url": f"{self.base}/api/llm/v1",
-                    "key_set_at": __import__("datetime").date.today().isoformat(),
-                    "qualitati_key_id": key_id,
-                },
-            )
+            self._store_provider_key(api_key, key_id)
         else:
-            # Signed in but keyless (endpoint down?): the account card still works;
-            # the provider will be configured on the next successful sign-in.
+            # Signed in but keyless: the account card says so and offers Reconnect, which
+            # retries this without a fresh password.
             logger.warning("qualitati: signed in without a provider key")
 
         profile = self._profile(headers)

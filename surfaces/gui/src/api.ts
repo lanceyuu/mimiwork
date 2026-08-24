@@ -2328,6 +2328,17 @@ export async function qualitatiVerifyMfa(code: string): Promise<QualitatiStatus>
   return res.json();
 }
 
+/** Signed in but the Mimi models aren't offered — mint the gateway key again. */
+export async function qualitatiReconnect(): Promise<{
+  ok: boolean;
+  provider_configured?: boolean;
+  error?: string;
+  status?: QualitatiStatus;
+}> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/reconnect`, { method: "POST" });
+  return res.json();
+}
+
 export async function qualitatiLogout(): Promise<QualitatiStatus> {
   const res = await fetch(`${httpBase()}/v1/qualitati/logout`, { method: "POST" });
   return res.json();

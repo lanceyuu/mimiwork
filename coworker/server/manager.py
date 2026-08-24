@@ -1952,25 +1952,52 @@ class SessionManager:
     def _artifact_target(
         self, session_id: str, path: str, *, allow_dir: bool = False
     ) -> tuple[Optional[Path], Optional[str]]:
-        """Resolve an artifact path under the session's workspace, or (None, error)."""
+        """Resolve an artifact path inside ANY folder this session was granted.
+
+        Not just the workspace: a deliverable written into a folder the user added — and
+        linked back as `[Open it](artifact:/absolute/path.docx)` — has to open from that
+        link too, which it could not while resolution was workspace-only (owner report
+        2026-08-24). Anything outside the granted folders is still refused.
+        """
         record = self.session_store.load(session_id)
         workspace = record.workspace if record else self.default_workspace
         if not workspace:
             return None, "no workspace"
-        root = Path(workspace).expanduser().resolve()
-        target = (root / path).expanduser().resolve()
-        try:
-            target.relative_to(root)
-        except ValueError:
-            return None, "path escapes workspace"
-        if allow_dir and target.is_dir():
-            return target, None
-        if not target.is_file():
-            return None, (
-                "This isn't in the conversation's folder anymore — it may have been "
-                "moved or deleted."
-            )
-        return target, None
+        roots = [Path(workspace).expanduser().resolve()]
+        for extra in (record.extra_roots if record else None) or []:
+            raw = extra.get("path") if isinstance(extra, dict) else None
+            if not raw:
+                continue
+            try:
+                candidate = Path(str(raw)).expanduser().resolve()
+            except OSError:
+                continue
+            if candidate.is_dir() and candidate not in roots:
+                roots.append(candidate)
+
+        raw_path = Path(path).expanduser()
+        candidates = (
+            [raw_path] if raw_path.is_absolute() else [(root / raw_path) for root in roots]
+        )
+        outside = False
+        for candidate in candidates:
+            try:
+                target = candidate.resolve()
+            except OSError:
+                continue
+            if not any(target == root or root in target.parents for root in roots):
+                outside = True
+                continue
+            if allow_dir and target.is_dir():
+                return target, None
+            if target.is_file():
+                return target, None
+        if outside:
+            return None, "path escapes the folders this conversation can reach"
+        return None, (
+            "This isn't in the conversation's folders anymore — it may have been "
+            "moved or deleted."
+        )
 
     def reveal_root(self, session_id: str, path: str) -> dict[str, Any]:
         """Open one of this session's granted folders in the OS file manager — the Access
@@ -2114,7 +2141,21 @@ class SessionManager:
         return self._qualitati().verify_mfa(code)
 
     def qualitati_status(self) -> dict[str, Any]:
-        return self._qualitati().status()
+        """Signed-in state for the account card. A session that is signed in but has no
+        gateway key gets one here, silently: the user did everything right, and the only
+        thing standing between them and the Mimi models is a key mint that failed once."""
+        client = self._qualitati()
+        state = client.status()
+        if state.get("signed_in") and not state.get("provider_configured"):
+            if client.ensure_provider_key().get("ok"):
+                state = client.status()
+        return state
+
+    def qualitati_reconnect(self) -> dict[str, Any]:
+        """The account card's "Reconnect" — mint the gateway key without a fresh password."""
+        client = self._qualitati()
+        out = client.ensure_provider_key()
+        return {**out, **({"status": client.status()} if out.get("ok") else {})}
 
     def qualitati_logout(self) -> dict[str, Any]:
         return self._qualitati().logout()

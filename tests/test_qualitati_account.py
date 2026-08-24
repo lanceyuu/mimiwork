@@ -343,3 +343,77 @@ def test_non_json_profile_does_not_undo_a_successful_login(monkeypatch, secrets)
     assert result == {"ok": True, "signed_in": True, "provider_configured": True}
     assert secrets.store[AUTH_PROFILE]["access_token"] == "jwt"
     assert secrets.store[PROVIDER_PROFILE]["api_key"] == "qt_key"
+
+
+def test_a_name_clash_on_the_key_does_not_leave_the_user_without_models(monkeypatch, secrets):
+    """The reported failure (2026-08-24): signed in, credits visible, and no Mimi models —
+    because the account already had a key called "MimiWork desktop" (another computer, an
+    earlier install) and the plain create was refused. The raw secret of that key can't be
+    read back, so the mint retries under a name of its own instead of giving up."""
+    attempts: list[str] = []
+
+    def keys(kwargs):
+        name = kwargs["json"]["name"]
+        attempts.append(name)
+        if name == "MimiWork desktop":
+            return 400, {"detail": "An API key with this name already exists"}
+        return 200, {"id": 11, "key": "qt_second"}
+
+    wire(monkeypatch, {
+        ("POST", "/api/login"): (200, {"access_token": "jwt-abc"}),
+        ("POST", "/api/keys"): keys,
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+    })
+    result = QualitatiClient(secrets).login("shubin", "pw")
+
+    assert result["provider_configured"] is True
+    assert secrets.store[PROVIDER_PROFILE]["api_key"] == "qt_second"
+    assert len(attempts) >= 2 and attempts[0] == "MimiWork desktop"
+    assert attempts[1] != attempts[0]  # a name of its own, not the same one again
+
+
+def test_a_refusal_that_is_not_a_name_clash_is_not_retried(monkeypatch, secrets):
+    """A 403 means the account may not mint keys at all; hammering it helps nobody."""
+    attempts: list[str] = []
+
+    def keys(kwargs):
+        attempts.append(kwargs["json"]["name"])
+        return 403, {"detail": "not allowed"}
+
+    wire(monkeypatch, {
+        ("POST", "/api/login"): (200, {"access_token": "jwt-abc"}),
+        ("POST", "/api/keys"): keys,
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+    })
+    result = QualitatiClient(secrets).login("shubin", "pw")
+    assert result["provider_configured"] is False and len(attempts) == 1
+    assert PROVIDER_PROFILE not in secrets.store
+
+
+def test_reconnect_mints_the_key_without_asking_for_the_password_again(monkeypatch, secrets):
+    """Signed in but keyless is repairable: the sign-in worked, only the key didn't."""
+    secrets.put(AUTH_PROFILE, {"username": "shubin", "access_token": "jwt-abc"})
+    wire(monkeypatch, {
+        ("POST", "/api/keys"): (200, {"id": 12, "key": "qt_repaired"}),
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+    })
+    client = QualitatiClient(secrets)
+    assert client.status()["provider_configured"] is False
+
+    assert client.ensure_provider_key() == {"ok": True, "provider_configured": True}
+    assert secrets.store[PROVIDER_PROFILE]["api_key"] == "qt_repaired"
+    assert client.status()["provider_configured"] is True
+    # Already keyed: a second call is a no-op, not another key on the account.
+    assert client.ensure_provider_key()["ok"] is True
+
+
+def test_reconnect_without_a_sign_in_says_so(secrets):
+    out = QualitatiClient(secrets).ensure_provider_key()
+    assert not out["ok"] and out["error"] == "not signed in"
+
+
+def test_reconnect_that_still_fails_explains_where_to_look(monkeypatch, secrets):
+    secrets.put(AUTH_PROFILE, {"username": "shubin", "access_token": "jwt-abc"})
+    wire(monkeypatch, {("POST", "/api/keys"): (403, {"detail": "nope"})})
+    out = QualitatiClient(secrets).ensure_provider_key()
+    assert not out["ok"] and "qualitati.com" in out["error"]

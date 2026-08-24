@@ -174,3 +174,53 @@ def test_the_per_conversation_scratch_folder_is_all_its_own_work(tmp_path):
     finally:
         (scratch / "draft.md").unlink(missing_ok=True)
         scratch.rmdir()
+
+
+def test_an_artifact_link_opens_a_file_in_a_granted_folder_by_absolute_path(tmp_path, monkeypatch):
+    """The agent ends a turn with [Open it](artifact:/abs/path.docx). When the deliverable
+    was written into a folder the user ADDED, resolution used to look only in the workspace
+    and the link went nowhere (owner report 2026-08-24)."""
+    opened: list = []
+    monkeypatch.setattr(
+        "coworker.server.manager._os_reveal",
+        lambda target, mode="reveal": opened.append((str(target), mode)) or {"ok": True},
+    )
+    workspace = tmp_path / "scratch"
+    course = tmp_path / "Online marketing course"
+    workspace.mkdir()
+    course.mkdir()
+    deliverable = course / "Debrief Module 2.docx"
+    deliverable.write_bytes(b"docx")
+
+    client, manager = _fixture(tmp_path)
+    _session(
+        manager,
+        "s-link",
+        workspace,
+        _turn(
+            "write_document",
+            {"path": str(deliverable)},
+            {"path": str(deliverable)},
+        ),
+        extra=[{"path": str(course), "writable": True, "label": "Online marketing course"}],
+    )
+
+    # It is listed as this conversation's artifact…
+    rows = client.get("/v1/sessions/s-link/artifacts").json()["artifacts"]
+    assert [r["name"] for r in rows] == ["Debrief Module 2.docx"]
+
+    # …and the link's absolute path opens it.
+    out = client.post(
+        "/v1/sessions/s-link/artifacts/reveal",
+        json={"path": str(deliverable), "mode": "open"},
+    ).json()
+    assert out["ok"] and opened == [(str(deliverable.resolve()), "open")]
+
+    # A path outside every granted folder still goes nowhere.
+    stranger = tmp_path / "elsewhere.docx"
+    stranger.write_bytes(b"x")
+    refused = client.post(
+        "/v1/sessions/s-link/artifacts/reveal",
+        json={"path": str(stranger), "mode": "open"},
+    ).json()
+    assert not refused["ok"] and len(opened) == 1

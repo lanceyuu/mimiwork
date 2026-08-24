@@ -15,6 +15,7 @@ import {
   qualitatiFootprint,
   qualitatiLogin,
   qualitatiLogout,
+  qualitatiReconnect,
   qualitatiRegister,
   qualitatiStatus,
   qualitatiVerifyMfa,
@@ -45,6 +46,8 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
   const [error, setError] = useState<string | null>(null);
   // Signed-out card has two faces: sign in (default) and create account — the same
   // registration qualitati.com/register offers, minus leaving the app. §(owner ask 2026-08-21)
+  const [reconnecting, setReconnecting] = useState(false);
+  const [reconnectError, setReconnectError] = useState<string | null>(null);
   const [mode, setMode] = useState<"signin" | "register">("signin");
   const [email, setEmail] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -171,9 +174,48 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           ) : (
             <span className="text-faint">{state.error ?? "balance unavailable"}</span>
           )}
-          {state.signed_in && state.provider_configured === false && (
-            <span className="text-danger/80">provider not configured — sign in again</span>
-          )}
+        </div>
+      ) : null}
+      {/* Signed in, but no gateway key — so the three Mimi models are missing from the
+        * picker and nothing on screen said why (user report 2026-08-24). Say it, and offer
+        * the repair: the sign-in worked, only the key didn't, so no password is needed. */}
+      {state.signed_in && state.provider_configured === false ? (
+        <div
+          className="mt-2.5 rounded-lg border border-warnInk/20 bg-warnSoft/60 px-3 py-2 text-[12px] leading-relaxed"
+          data-testid="qualitati-models-missing"
+          role="status"
+        >
+          <span className="text-ink font-medium">
+            The Mimi models aren't connected yet.
+          </span>{" "}
+          <span className="text-muted">
+            You're signed in, but this computer has no key for the model gateway — that's why
+            “Mimi Puppy”, “Hound” and “Wolf” aren't in the picker.
+          </span>
+          <div className="mt-1.5 flex items-center gap-3">
+            <button
+              className="text-[12px] px-2.5 py-1 rounded-lg bg-accent text-white disabled:opacity-40"
+              data-testid="qualitati-reconnect"
+              disabled={reconnecting}
+              onClick={async () => {
+                setReconnecting(true);
+                const out = await qualitatiReconnect().catch(() => ({
+                  ok: false,
+                  error: "could not reach the server",
+                }));
+                setReconnecting(false);
+                if (out.ok) {
+                  await refresh();
+                  onChanged?.();
+                } else {
+                  setReconnectError(out.error || "could not connect the models");
+                }
+              }}
+            >
+              {reconnecting ? "Connecting…" : "Connect the models"}
+            </button>
+            {reconnectError && <span className="text-danger/90">{reconnectError}</span>}
+          </div>
         </div>
       ) : null}
       {/* Signing in buys credits AND opens the account's research data. Say so once, here,

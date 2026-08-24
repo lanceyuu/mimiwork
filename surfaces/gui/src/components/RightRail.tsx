@@ -24,6 +24,10 @@ function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
   return "file"; // markdown, text, pdf, everything else
 }
 
+// Word/Excel/PowerPoint have no in-app renderer, so an artifact: link to one goes straight
+// to the app that owns it — "open the file" should open the file (owner ask 2026-08-24).
+const OPENS_ELSEWHERE = new Set(["docx", "doc", "docm", "xlsx", "xls", "xlsm", "pptx", "ppt", "pptm"]);
+
 // Fallback kind for an artifact: link whose path isn't in the list (yet) — mirrors the
 // server's extension mapping closely enough for the viewer to pick a renderer.
 function kindFromPath(path: string): string {
@@ -133,6 +137,12 @@ export function RightRail({
     const onOpen = (e: Event) => {
       const path = String((e as CustomEvent).detail?.path || "");
       if (!path) return;
+      const ext = (path.split(".").pop() || "").toLowerCase();
+      if (OPENS_ELSEWHERE.has(ext)) {
+        // No preview to show and nothing to decide: hand it to Word/Excel/PowerPoint now.
+        void revealArtifact(sessionId, path, "open");
+        return;
+      }
       const found = match(artifacts, path);
       if (found) {
         setSelected(found);

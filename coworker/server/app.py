@@ -1209,6 +1209,11 @@ def create_app(manager: SessionManager) -> FastAPI:
             manager.qualitati_verify_mfa, (body or {}).get("code", "")
         )
 
+    @app.post("/v1/qualitati/reconnect")
+    def qualitati_reconnect() -> dict[str, Any]:
+        """Signed in but the Mimi models aren't offered: mint the gateway key again."""
+        return manager.qualitati_reconnect()
+
     @app.post("/v1/qualitati/logout")
     async def qualitati_logout() -> dict[str, Any]:
         return await asyncio.to_thread(manager.qualitati_logout)
