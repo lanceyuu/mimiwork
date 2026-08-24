@@ -1721,6 +1721,128 @@ class SessionManager:
     def browser_close(self) -> dict[str, Any]:
         return browser_close_session()
 
+    # Tools whose success means a file on disk changed. Reading a folder is not producing
+    # one: a conversation that opened your course folder did not make its contents.
+    _ARTIFACT_TOOLS = frozenset(
+        {
+            "write_file",
+            "replace_in_file",
+            "apply_patch",
+            "apply_unified_diff",
+            "write_document",
+            "edit_document",
+            "revise_document",
+            "write_presentation",
+            "write_workbook",
+            "edit_workbook",
+            "annotate_image",
+            "combine_images",
+            "edit_image",
+            "run_python",  # charts land in figures/
+            "run_r",
+            "qualitati_export_survey",
+            "save_skill",
+        }
+    )
+    _ARTIFACT_PATH_KEYS = ("path", "output_path", "target", "saved_to", "file")
+    _ARTIFACT_PATH_LISTS = ("paths", "figures", "files", "outputs")
+
+    def _touched_paths(self, record: Any, roots: list[Path]) -> list[Path]:
+        """Files THIS conversation wrote, in the order it wrote them.
+
+        Read from the transcript rather than a side table, so it is right for conversations
+        that happened before this existed. Tool results carry the path they wrote; the tool
+        NAME lives on the assistant message that requested the call, so the two are joined
+        by tool_call_id.
+        """
+        names: dict[str, str] = {}
+        found: list[Path] = []
+        seen: set[Path] = set()
+
+        def _keep(raw: Any) -> None:
+            if not isinstance(raw, str) or not raw.strip():
+                return
+            candidate = Path(raw).expanduser()
+            candidates = [candidate] if candidate.is_absolute() else [
+                (r / candidate) for r in roots
+            ]
+            for cand in candidates:
+                try:
+                    resolved = cand.resolve()
+                except OSError:
+                    continue
+                if resolved in seen or not resolved.is_file():
+                    continue
+                if not any(
+                    resolved == r or r in resolved.parents for r in roots
+                ):
+                    continue  # never leave the folders this session was granted
+                seen.add(resolved)
+                found.append(resolved)
+                return
+
+        def _harvest(payload: Any) -> None:
+            if not isinstance(payload, dict):
+                return
+            for key in self._ARTIFACT_PATH_KEYS:
+                _keep(payload.get(key))
+            for key in self._ARTIFACT_PATH_LISTS:
+                value = payload.get(key)
+                if isinstance(value, list):
+                    for item in value:
+                        _keep(item if isinstance(item, str) else (item or {}).get("path")
+                              if isinstance(item, dict) else None)
+
+        for message in record.messages or []:
+            if not isinstance(message, dict):
+                continue
+            for call in message.get("tool_calls") or []:
+                fn = (call or {}).get("function") or {}
+                name = str(fn.get("name") or "")
+                call_id = str((call or {}).get("id") or "")
+                if call_id:
+                    names[call_id] = name
+                if name not in self._ARTIFACT_TOOLS:
+                    continue
+                # The arguments name the target even when the result doesn't echo it.
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except (TypeError, ValueError):
+                    args = {}
+                _harvest(args)
+            if message.get("role") != "tool":
+                continue
+            if names.get(str(message.get("tool_call_id") or "")) not in self._ARTIFACT_TOOLS:
+                continue
+            content = message.get("content")
+            if isinstance(content, str):
+                try:
+                    content = json.loads(content)
+                except ValueError:
+                    continue
+            _harvest(content)
+        return found
+
+    def _artifact_row(self, path: Path, root: Path) -> Optional[dict[str, Any]]:
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        try:
+            rel = str(path.relative_to(root))
+        except ValueError:
+            rel = str(path)  # a granted folder outside the workspace: show it whole
+        return {
+            "path": rel,
+            # Absolute path for "Copy path" — the relative one is useless outside the app
+            # (tester catch 2026-07-12: it copied just the filename).
+            "abs_path": str(path),
+            "name": path.name,
+            "kind": _artifact_kind(path),
+            "size": st.st_size,
+            "modified_at": st.st_mtime,
+        }
+
     def list_artifacts(self, session_id: str) -> list[dict[str, Any]]:
         record = self.session_store.load(session_id)
         workspace = record.workspace if record else self.default_workspace
@@ -1729,6 +1851,30 @@ class SessionManager:
         root = Path(workspace).expanduser().resolve()
         if not root.is_dir():
             return []
+        # What the conversation produced — not what happens to sit in the folder it was
+        # given (owner report 2026-08-24). A granted project folder can hold hundreds of
+        # files nobody here wrote; listing them as "artifacts" buries the two that matter.
+        if record is not None:
+            roots = [root] + [
+                p
+                for p in (
+                    Path(str(extra.get("path"))).expanduser().resolve()
+                    for extra in (record.extra_roots or [])
+                    if isinstance(extra, dict) and extra.get("path")
+                )
+                if p.is_dir()
+            ]
+            touched = self._touched_paths(record, roots)
+            if touched:
+                rows = [
+                    row for row in (self._artifact_row(p, root) for p in touched) if row
+                ]
+                rows.sort(key=lambda a: a["modified_at"], reverse=True)
+                return rows[:80]
+            # Nothing recorded: only a per-conversation scratch folder is safe to walk —
+            # everything in it belongs to this conversation by construction.
+            if not self._is_scratch_path(str(root)):
+                return []
         out: list[dict[str, Any]] = []
         suffixes = {
             ".md",

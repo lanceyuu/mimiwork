@@ -197,7 +197,9 @@ export function RightRail({
             }
           >
             {artifacts.length === 0 ? (
-              <div className="rail-muted">No previewable files yet.</div>
+              // The list is what THIS conversation wrote, so "yet" is the honest word:
+              // an empty panel means nothing has been produced, not nothing exists.
+              <div className="rail-muted">Nothing produced yet — files Mimi writes appear here.</div>
             ) : (
               <div className="artifact-list">
                 {artifacts.slice(0, 16).map((a) => (
