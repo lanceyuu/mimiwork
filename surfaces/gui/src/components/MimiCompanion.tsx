@@ -247,6 +247,9 @@ export function MimiCompanion() {
     dragStartRef.current = { cx: e.clientX, cy: e.clientY, sx: e.screenX, sy: e.screenY };
     pressedRef.current = true;
     movedRef.current = false;
+    // Tell the shell the user is taking over: from here the window's own move events are
+    // her chosen home and must be remembered, not treated as our own placement.
+    (globalThis as any).__TAURI__?.core?.invoke?.("companion_drag_begin");
     (globalThis as any).__TAURI__?.window?.getCurrentWindow?.()?.startDragging?.();
   };
   const maybeRestore = (e: React.MouseEvent) => {

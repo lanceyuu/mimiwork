@@ -130,6 +130,20 @@ describe("MimiCompanion", () => {
     expect(invoke).not.toHaveBeenCalledWith("companion_restore");
   });
 
+  it("tells the shell a drag has begun, so where she lands is remembered", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const invoke = vi.fn();
+    const startDragging = vi.fn();
+    (globalThis as any).__TAURI__ = {
+      core: { invoke },
+      window: { getCurrentWindow: () => ({ startDragging }) },
+    };
+    render(<MimiCompanion />);
+    pointerDownAt(screen.getByTestId("mimi-companion"), 10, 10);
+    expect(invoke).toHaveBeenCalledWith("companion_drag_begin");
+    expect(startDragging).toHaveBeenCalledOnce();
+  });
+
   it("a window-moved event from the shell also marks the gesture a drag", async () => {
     getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
     const invoke = vi.fn();

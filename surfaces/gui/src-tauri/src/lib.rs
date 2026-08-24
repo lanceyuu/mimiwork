@@ -521,9 +521,92 @@ fn show_companion(app: &tauri::AppHandle) {
         return; // dismissed from the pet itself, for this run
     }
     if let Some(w) = app.get_webview_window("companion") {
-        position_companion(&w);
+        // Only place her if the startup placement never happened (no monitor info that
+        // early on some machines) or she'd come back invisible (display unplugged,
+        // resolution change). Re-placing her on every show was a standing chance to lose
+        // the spot the user chose — showing a window should not move it (owner report
+        // 2026-08-24).
+        if !COMPANION_PLACED.load(std::sync::atomic::Ordering::Acquire)
+            || !companion_is_visible(&w)
+        {
+            position_companion(&w);
+        }
         let _ = w.show();
     }
+}
+
+/// True when a decent slice of the pet overlaps some connected monitor — i.e. the user
+/// can see and grab her. Deliberately not "fully inside": parking her against an edge is
+/// a normal thing to do, and the transparent margin around the sprite makes it common.
+fn companion_is_visible(w: &tauri::WebviewWindow) -> bool {
+    let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
+    let pos = match w.outer_position() {
+        Ok(p) => p,
+        Err(_) => return true, // can't tell → don't move her
+    };
+    monitor_overlap(w, pos.x, pos.y, &ws).is_some()
+}
+
+/// How much of a window rect lands on a monitor rect, per axis (physical px; (0, 0) when
+/// they miss entirely).
+fn rect_overlap(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (x, y, w, h) = win;
+    let (mx, my, mw, mh) = mon;
+    let ox = (x + w).min(mx + mw) - x.max(mx);
+    let oy = (y + h).min(my + mh) - y.max(my);
+    if ox <= 0 || oy <= 0 {
+        (0, 0)
+    } else {
+        (ox, oy)
+    }
+}
+
+/// Enough of her on screen to see and grab: a real corner, so BOTH axes must show at
+/// least this many physical px. An area test alone passes a 10px-wide ribbon down the
+/// side of the screen, which is not something a user can grab (caught by the tests below).
+const COMPANION_MIN_VISIBLE: i32 = 60;
+
+fn rect_visible(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> bool {
+    let (ox, oy) = rect_overlap(win, mon);
+    ox >= COMPANION_MIN_VISIBLE && oy >= COMPANION_MIN_VISIBLE
+}
+
+/// Nudge a window rect back inside a monitor rect, preferring the monitor's origin when
+/// the window is somehow larger than the screen.
+fn clamp_rect(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> (i32, i32) {
+    let (x, y, w, h) = win;
+    let (mx, my, mw, mh) = mon;
+    let max_x = (mx + mw - w).max(mx);
+    let max_y = (my + mh - h).max(my);
+    (x.clamp(mx, max_x), y.clamp(my, max_y))
+}
+
+/// The monitor showing the most of a window placed at (x, y), when that overlap is worth
+/// at least a corner of her (60x60 physical px).
+fn monitor_overlap(
+    w: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    ws: &tauri::PhysicalSize<u32>,
+) -> Option<tauri::Monitor> {
+    let monitors = w.available_monitors().ok()?;
+    let (mut best, mut best_area) = (None, 0i64);
+    let win = (x, y, ws.width as i32, ws.height as i32);
+    for mon in monitors {
+        let mp = mon.position();
+        let ms = mon.size();
+        let rect = (mp.x, mp.y, ms.width as i32, ms.height as i32);
+        if !rect_visible(win, rect) {
+            continue;
+        }
+        let (ox, oy) = rect_overlap(win, rect);
+        let area = ox as i64 * oy as i64;
+        if area > best_area {
+            best_area = area;
+            best = Some(mon);
+        }
+    }
+    best
 }
 
 #[tauri::command]
@@ -555,14 +638,12 @@ fn hide_companion(app: &tauri::AppHandle) {
     }
 }
 
-/// Bottom-right of the monitor the main window lives on, above the Dock/taskbar.
+/// Put the pet where the user left her; failing that, the bottom-right of the monitor the
+/// main window lives on, above the Dock/taskbar.
 fn position_companion(w: &tauri::WebviewWindow) {
     let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
-    // A position the user dragged her to previously — but only if it still lands
-    // fully on a connected monitor (a saved spot on an unplugged display would
-    // otherwise make the pet unfindable).
     if let Some((x, y)) = companion_saved_position(w, &ws) {
-        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        move_companion(w, x, y);
         return;
     }
     let monitor = w.current_monitor().ok().flatten().or_else(|| {
@@ -575,12 +656,32 @@ fn position_companion(w: &tauri::WebviewWindow) {
         let margin = (24.0 * sf) as i32;
         let x = mp.x + ms.width as i32 - ws.width as i32 - margin;
         let y = mp.y + ms.height as i32 - ws.height as i32 - (80.0 * sf) as i32;
-        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+        move_companion(w, x, y);
     }
 }
 
-/// The last user-dragged companion position (physical px), if it fits entirely
-/// within one of the currently connected monitors.
+/// Move her ourselves. The Moved events this produces must NOT be persisted: only a drag
+/// by the user is a decision about where she lives. Without this, one placement at the
+/// default corner (monitors not ready yet, a display unplugged) overwrote the user's spot
+/// for good — the pet "kept going back to the original place" (owner report 2026-08-24).
+fn move_companion(w: &tauri::WebviewWindow, x: i32, y: i32) {
+    COMPANION_MOVING.store(true, std::sync::atomic::Ordering::Release);
+    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    COMPANION_PLACED.store(true, std::sync::atomic::Ordering::Release);
+    // The Moved event lands on the event loop after set_position returns; hold the flag
+    // briefly so it is still set when the handler reads it.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        COMPANION_MOVING.store(false, std::sync::atomic::Ordering::Release);
+    });
+}
+
+/// The last user-dragged position (physical px), clamped so she is always reachable.
+///
+/// The old rule — keep it only if the window lands ENTIRELY inside one monitor — quietly
+/// forgot every spot along a screen edge, which is exactly where people park a pet. Now a
+/// saved spot survives as long as some of her is on a screen; if the arrangement changed
+/// under it, it is nudged back into view rather than thrown away.
 fn companion_saved_position(
     w: &tauri::WebviewWindow,
     ws: &tauri::PhysicalSize<u32>,
@@ -590,28 +691,43 @@ fn companion_saved_position(
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())?;
     let x = prefs.get("companion_pos_x")?.as_i64()? as i32;
     let y = prefs.get("companion_pos_y")?.as_i64()? as i32;
-    let monitors = w.available_monitors().ok()?;
-    monitors.into_iter().find(|mon| {
-        let mp = mon.position();
-        let ms = mon.size();
-        x >= mp.x
-            && y >= mp.y
-            && x + ws.width as i32 <= mp.x + ms.width as i32
-            && y + ws.height as i32 <= mp.y + ms.height as i32
-    })?;
-    Some((x, y))
+    if monitor_overlap(w, x, y, ws).is_some() {
+        return Some((x, y)); // still on a screen — leave it exactly as dropped
+    }
+    // Off-screen now (display unplugged, resolution change): clamp into the primary.
+    let mon = w
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| w.current_monitor().ok().flatten())?;
+    let mp = mon.position();
+    let ms = mon.size();
+    Some(clamp_rect(
+        (x, y, ws.width as i32, ws.height as i32),
+        (mp.x, mp.y, ms.width as i32, ms.height as i32),
+    ))
 }
 
 // Drag persistence: WindowEvent::Moved fires continuously while the OS drags the
 // window (~60Hz), so saves are debounced — the event handler only parks the latest
 // coordinates and arms one writer thread; the thread drains whatever is parked
 // after 500ms of quiet and exits when there's nothing left.
+/// Whether she has been placed at all this run — a cold start with no monitor information
+/// yet leaves her unplaced, and the first show has to finish the job.
+static COMPANION_PLACED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// Set while WE are moving the window, so its Moved events aren't mistaken for a drag.
+static COMPANION_MOVING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 static COMPANION_POS_PENDING: std::sync::Mutex<Option<(i32, i32)>> =
     std::sync::Mutex::new(None);
 static COMPANION_POS_SAVE_ARMED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 fn queue_companion_pos_save(x: i32, y: i32) {
+    if COMPANION_MOVING.load(std::sync::atomic::Ordering::Acquire) {
+        return; // our own placement, not the user's choice
+    }
     if let Ok(mut pending) = COMPANION_POS_PENDING.lock() {
         *pending = Some((x, y));
     }
@@ -637,6 +753,13 @@ fn queue_companion_pos_save(x: i32, y: i32) {
             }
         }
     });
+}
+
+/// The pet says a drag is starting, so the Moved events that follow are the user's word on
+/// where she lives — even if we happened to place her a moment ago.
+#[tauri::command]
+fn companion_drag_begin() {
+    COMPANION_MOVING.store(false, std::sync::atomic::Ordering::Release);
 }
 
 /// Companion click-through to the app: restore the main window, hide the pet.
@@ -788,6 +911,7 @@ pub fn run() {
             install_update,
             companion_restore,
             companion_dismiss,
+            companion_drag_begin,
             get_companion_enabled,
             set_companion_enabled
         ])
@@ -1012,4 +1136,55 @@ pub fn run() {
                 }
             }
         });
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_rect, rect_visible};
+
+    // A 2x 1512x982 display, in physical pixels — the machine the bug was reported on.
+    const SCREEN: (i32, i32, i32, i32) = (0, 0, 3024, 1964);
+    const PET: (i32, i32) = (480, 500); // 240x250 logical
+
+    fn pet_at(x: i32, y: i32) -> (i32, i32, i32, i32) {
+        (x, y, PET.0, PET.1)
+    }
+
+    fn visible(x: i32, y: i32) -> bool {
+        rect_visible(pet_at(x, y), SCREEN)
+    }
+
+    #[test]
+    fn a_pet_parked_against_an_edge_still_counts_as_placed() {
+        // The old rule wanted the window ENTIRELY on screen, so every one of these — all
+        // normal places to park a pet — was thrown away and she jumped back to the corner.
+        assert!(visible(0, 1360)); // flush left, low (the reported position)
+        assert!(visible(-200, 1500)); // dragged past the left edge
+        assert!(visible(2900, 900)); // hanging off the right
+        assert!(visible(600, 1800)); // most of her below the screen bottom
+    }
+
+    #[test]
+    fn a_pet_with_only_a_sliver_showing_does_not_count() {
+        assert!(!visible(-470, 800)); // a 10px-wide ribbon down the left edge
+        assert!(!visible(700, -480)); // a 20px strip peeking under the menu bar
+        assert!(!visible(9000, 9000)); // on a display that is no longer there
+    }
+
+    #[test]
+    fn a_lost_position_is_nudged_back_rather_than_forgotten() {
+        // Clamping keeps the user's side of the screen instead of resetting to default.
+        assert_eq!(clamp_rect(pet_at(-800, 1400), SCREEN), (0, 1400));
+        assert_eq!(clamp_rect(pet_at(5000, 900), SCREEN), (2544, 900));
+        assert_eq!(clamp_rect(pet_at(100, 9000), SCREEN), (100, 1464));
+        // Already inside → untouched.
+        assert_eq!(clamp_rect(pet_at(300, 400), SCREEN), (300, 400));
+    }
+
+    #[test]
+    fn a_screen_smaller_than_the_pet_still_yields_a_position_on_it() {
+        let tiny = (0, 0, 320, 240);
+        assert_eq!(clamp_rect(pet_at(-50, -50), tiny), (0, 0));
+    }
 }
