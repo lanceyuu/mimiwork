@@ -44,6 +44,15 @@ npm install        # first time
 npm run tauri dev  # builds the shell, launches the window, starts the server
 ```
 
+## Files surface
+
+Account menu → **Files** browses the session's granted folders (the same roots the
+@-picker and file tools see): one-level tree with breadcrumbs, multi-root switcher,
+filter box, and a line-numbered viewer for text files. Read-only by design — edits go
+through the agent's approval-gated tools; this pane is for the human to see what's
+there. Backed by `GET /v1/workspace/tree` and `GET /v1/workspace/read` (containment =
+`_mention_roots`, so nothing outside a granted root is ever listed or read).
+
 ## Tests
 
 ```bash

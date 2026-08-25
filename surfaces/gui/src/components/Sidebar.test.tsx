@@ -63,10 +63,12 @@ const baseProps = {
   onOpenIntegrations: vi.fn(),
   onOpenAudit: vi.fn(),
   onOpenInbox: vi.fn(),
+  onOpenFiles: vi.fn(),
   scheduledActive: false,
   integrationsActive: false,
   auditActive: false,
   inboxActive: false,
+  filesActive: false,
 };
 
 afterEach(() => {

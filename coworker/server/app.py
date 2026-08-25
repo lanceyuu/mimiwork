@@ -306,6 +306,26 @@ def create_app(manager: SessionManager) -> FastAPI:
             )
         }
 
+    @app.get("/v1/workspace/tree")
+    def workspace_tree(
+        workspace: str = "", session_id: str = "", path: str = "."
+    ) -> dict[str, Any]:
+        """File browser: one level of `path` under the granted roots."""
+        return manager.workspace_tree(workspace or None, session_id or None, path)
+
+    @app.get("/v1/workspace/read")
+    def workspace_read(
+        path: str,
+        workspace: str = "",
+        session_id: str = "",
+        start_line: int = 1,
+        max_lines: int = 500,
+    ) -> dict[str, Any]:
+        """Read a text file (line-numbered, windowed) for the browser pane."""
+        return manager.workspace_read(
+            path, workspace or None, session_id or None, start_line, max_lines
+        )
+
     @app.get("/v1/skills/importable")
     def importable_skills(workspace: str = "") -> dict[str, Any]:
         """Skills this machine already has for Claude Code / Cowork plugins."""

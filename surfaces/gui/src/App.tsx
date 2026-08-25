@@ -71,6 +71,7 @@ import { SettingsView } from "./components/SettingsView";
 import { PersonaView } from "./components/PersonaView";
 import { ProjectView } from "./components/ProjectView";
 import { AuditView } from "./components/AuditView";
+import { WorkspaceView } from "./components/WorkspaceView";
 import { InboxView } from "./components/InboxView";
 import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
@@ -171,7 +172,8 @@ type Surface =
   | "inbox"
   | "persona"
   | "settings"
-  | "project";
+  | "project"
+  | "files";
 
 type SettingsTab =
   | "appearance"
@@ -1528,10 +1530,12 @@ export function App() {
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
+        onOpenFiles={() => setSurface("files")}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
+        filesActive={surface === "files"}
         collapsed={navCollapsed}
         onCollapse={toggleNav}
         onPeekLeave={() => setNavPeek(false)}
@@ -1546,6 +1550,7 @@ export function App() {
         persona: "Persona",
         settings: "Settings",
         project: projects.find((p) => p.path === projectPath)?.name || baseName(projectPath || ""),
+        files: "Files",
       };
       const view = surface === "scheduled" ? (
         <ScheduledView
@@ -1574,6 +1579,8 @@ export function App() {
         />
       ) : surface === "audit" ? (
         <AuditView />
+      ) : surface === "files" ? (
+        <WorkspaceView workspace={workspace} sessionId={sessionId} />
       ) : surface === "inbox" ? (
         <InboxView onOpenSession={openSessionFromInbox} />
       ) : surface === "persona" ? (

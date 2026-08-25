@@ -667,6 +667,157 @@ class SessionManager:
                 roots.append(path)
         return roots
 
+    def workspace_tree(
+        self,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+        path: str = ".",
+    ) -> dict[str, Any]:
+        """One level of the file browser: entries under `path` (relative to a root).
+
+        Containment is the same rule as @-mentions: only folders inside a granted
+        root (the session's workspace + added roots) are ever listed. `path`
+        selects the directory to open; it may be "root:<n>/sub/dir" to pick a
+        specific root when several are granted, or a plain relative path which
+        resolves against the first root that contains it.
+        """
+        from ..workspace_map import _PRUNE_DIRS
+
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+
+        rel = (path or ".").strip() or "."
+        base: Optional[Path] = None
+        root_index = 0
+        if rel.startswith("root:"):
+            # "root:2/sub/dir" → open root #2, then the sub-path
+            head, _, rest = rel.partition("/")
+            try:
+                root_index = int(head.split(":", 1)[1])
+            except ValueError:
+                root_index = 0
+            if 0 <= root_index < len(roots):
+                base = roots[root_index]
+                rel = rest or "."
+        if base is None:
+            for r in roots:
+                candidate = (r / rel).resolve() if rel != "." else r
+                try:
+                    candidate.relative_to(r)
+                except ValueError:
+                    continue
+                base = candidate
+                root_index = roots.index(r)
+                break
+        if base is None or not base.is_dir():
+            return {"error": f"not a folder in this workspace: {path}"}
+
+        entries: list[dict[str, Any]] = []
+        try:
+            for entry in sorted(base.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+                name = entry.name
+                if name.startswith(".") or name in _PRUNE_DIRS:
+                    continue
+                try:
+                    st = entry.stat()
+                    size, mtime = st.st_size, st.st_mtime
+                except OSError:
+                    size, mtime = 0, 0.0
+                entries.append(
+                    {
+                        "name": name,
+                        "type": "dir" if entry.is_dir() else "file",
+                        "size": size,
+                        "modified_at": mtime,
+                        # The path the next tree/read call should use.
+                        "path": (f"root:{root_index}/" if len(roots) > 1 else "")
+                        + (f"{rel}/{name}" if rel != "." else name),
+                    }
+                )
+                if len(entries) >= 500:
+                    entries[-1]["truncated"] = True
+                    break
+        except OSError as exc:
+            return {"error": f"list failed: {exc}"}
+
+        return {
+            "root": str(roots[root_index]),
+            "root_label": roots[root_index].name,
+            "roots": [
+                {"index": i, "path": str(r), "label": r.name} for i, r in enumerate(roots)
+            ],
+            "path": rel,
+            "entries": entries,
+        }
+
+    def workspace_read(
+        self,
+        path: str,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+        start_line: int = 1,
+        max_lines: int = 500,
+    ) -> dict[str, Any]:
+        """Read a text file for the browser pane. Same containment as tree()."""
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+
+        target: Optional[Path] = None
+        rel = (path or "").strip()
+        if rel.startswith("root:"):
+            head, _, rest = rel.partition("/")
+            try:
+                idx = int(head.split(":", 1)[1])
+            except ValueError:
+                idx = 0
+            if 0 <= idx < len(roots):
+                target = (roots[idx] / rest).resolve()
+                rel = rest
+        if target is None:
+            for r in roots:
+                candidate = (r / rel).resolve()
+                try:
+                    candidate.relative_to(r)
+                except ValueError:
+                    continue
+                target = candidate
+                break
+        if target is None or not target.is_file():
+            return {"error": f"not a file in this workspace: {path}"}
+
+        start = start_line if isinstance(start_line, int) and start_line > 0 else 1
+        n = max_lines if isinstance(max_lines, int) and max_lines > 0 else 500
+        n = min(n, 2000)
+        lines: list[str] = []
+        total = 0
+        try:
+            with open(target, "r", encoding="utf-8", errors="replace") as fh:
+                for i, line in enumerate(fh, 1):
+                    total = i
+                    if i < start or len(lines) >= n:
+                        continue
+                    text = line.rstrip("\n")
+                    if len(text) > 1000:
+                        text = text[:1000] + "…"
+                    lines.append(f"{i}\t{text}")
+        except OSError as exc:
+            return {"error": f"read failed: {exc}"}
+
+        end = start + len(lines) - 1 if lines else start - 1
+        out: dict[str, Any] = {
+            "path": rel,
+            "full_path": str(target),
+            "start_line": start,
+            "end_line": end,
+            "total_lines": total,
+            "content": "\n".join(lines),
+        }
+        if end < total:
+            out["note"] = f"showing {start}-{end} of {total}; call with start_line={end + 1}"
+        return out
+
     def search_files(
         self,
         query: str,
