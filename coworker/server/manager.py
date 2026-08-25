@@ -921,6 +921,17 @@ class SessionManager:
         else:
             ws = self.resolve_workspace(workspace) if ag.needs_workspace else None
             model, mode, messages = self.model, self.mode, None
+            # "Run now" opens a fresh session for an automation's run: it must obey
+            # the automation's own model and permission level, not the app defaults,
+            # or the same task would behave differently by hand than on schedule.
+            # (Only on first build — once a record exists it may carry the user's
+            # own mid-run changes, which win.)
+            owner = getattr(self, "task_store", None) and self.task_store.task_for_run_session(
+                session_id
+            )
+            if owner is not None:
+                model = owner.model or model
+                mode = Mode(owner.mode)
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
             # Knowledge surfaces (Cowork, Ops, …) start "orphan": no folder picked →
@@ -2160,9 +2171,12 @@ class SessionManager:
     def qualitati_logout(self) -> dict[str, Any]:
         return self._qualitati().logout()
 
-    def qualitati_footprint(self) -> dict[str, Any]:
-        """Measured environmental impact of the Mimi service (Scaleway data,
-        proxied through the QualiTaTi gateway with the stored credential)."""
+    def _qualitati_get(self, path: str, *, label: str) -> dict[str, Any]:
+        """GET a QualiTaTi API path with the stored credential.
+
+        The personal API key comes first and the JWT second: keys don't expire,
+        so a signed-in app keeps working after the token would have lapsed.
+        """
         import json as _json
         from urllib import error, request
 
@@ -2178,14 +2192,81 @@ class SessionManager:
         headers = (
             {"X-API-Key": api_key} if api_key else {"Authorization": f"Bearer {jwt}"}
         )
-        req = request.Request(base + "/api/llm/v1/footprint", headers=headers)
+        req = request.Request(base + path, headers=headers)
         try:
             with request.urlopen(req, timeout=30) as r:
                 return {"ok": True, **_json.load(r)}
         except error.HTTPError as e:
-            return {"ok": False, "error": f"footprint unavailable ({e.code})"}
+            return {"ok": False, "error": f"{label} unavailable ({e.code})"}
         except Exception as e:
-            return {"ok": False, "error": f"footprint unavailable: {e}"}
+            return {"ok": False, "error": f"{label} unavailable: {e}"}
+
+    def qualitati_footprint(self) -> dict[str, Any]:
+        """Measured environmental impact of the Mimi service (Scaleway data,
+        proxied through the QualiTaTi gateway with the stored credential)."""
+        return self._qualitati_get("/api/llm/v1/footprint", label="footprint")
+
+    def qualitati_credits(self, limit: int = 50) -> dict[str, Any]:
+        """What this app has spent from the QualiTaTi account, most recent first.
+
+        Reads the account's own credit ledger, narrowed to the rows MimiWork
+        wrote (`source=mimiwork*`), and shapes it for the Activity page: one row
+        per model call with the credits it cost and which pool paid, plus the
+        totals and the balance that is left. Spend is the server's ledger, never
+        a local estimate — the numbers in the app are the numbers on the bill.
+        """
+        limit = max(1, min(int(limit or 50), 200))
+        body = self._qualitati_get(
+            f"/api/user/credit-ledger?limit={limit}&source=mimiwork*", label="credit history"
+        )
+        if not body.get("ok"):
+            return body
+
+        rows: list[dict[str, Any]] = []
+        spent = 0
+        free_calls = 0
+        for entry in body.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            meta = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+            cost = meta.get("credits_cost")
+            if cost is None:
+                cost = -int(entry.get("delta_credits") or 0)
+            cost = max(0, int(cost or 0))
+            free = str(entry.get("source") or "").endswith("_free")
+            spent += cost
+            free_calls += 1 if free else 0
+            rows.append(
+                {
+                    "id": entry.get("id"),
+                    "at": entry.get("created_at"),
+                    "credits": cost,
+                    "free": free,
+                    "model": meta.get("model") or "",
+                    "route": meta.get("route") or "",
+                    "tokens_in": int(meta.get("tokens_in") or 0),
+                    "tokens_out": int(meta.get("tokens_out") or 0),
+                    # Which pool paid — team pool, this month's points, or the
+                    # purchased credits that never expire.
+                    "team_points": int(meta.get("team_points_used") or 0),
+                    "monthly_points": int(meta.get("monthly_points_used") or 0),
+                    "lifelong_credits": int(meta.get("lifelong_credits_used") or 0),
+                    "estimated": bool(meta.get("usage_estimated")),
+                }
+            )
+        return {
+            "ok": True,
+            "entries": rows,
+            "spent": spent,
+            "calls": len(rows),
+            "free_calls": free_calls,
+            "balance": {
+                "available": int(body.get("available_balance") or 0),
+                "team_points": int(body.get("team_points") or 0),
+                "monthly_points": int(body.get("monthly_points") or 0),
+                "lifelong_credits": int(body.get("current_credits") or 0),
+            },
+        }
 
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     def get_providers(self) -> list[dict[str, Any]]:
@@ -3325,7 +3406,10 @@ class SessionManager:
             agent=ag,
             workspace=task.workspace,
             model=task.model or self.model,
-            mode=Mode.INTERACTIVE,
+            # The task's own permission level (default: ask). In "auto" the engine
+            # never consults the approver; in "plan" consequential tools are refused
+            # outright and the run produces a proposal instead of acting.
+            mode=Mode(task.mode),
             approver=self._scheduled_approver(task, session_id),
             provider=self.provider,
             memory_store=self.memory_store,
@@ -4042,7 +4126,7 @@ class SessionManager:
             fire_at=fire_at,
             timezone=timezone,
         )
-        from ..automation.models import grant_entries
+        from ..automation.models import grant_entries, normalize_mode
 
         # Optional user-chosen folder: the automation runs THERE (reads the user's
         # real files, writes deliverables next to them) instead of a scratch dir.
@@ -4064,6 +4148,11 @@ class SessionManager:
             # rendered the grants, the submit IS the consent. Same validation as the
             # agent tool — only target-bound write grants survive.
             always_allowed_tools=grant_entries(payload.get("permissions")),
+            # Which model answers, and how much it may do without asking. Both are
+            # the user's call at creation time; empty model = the app default at
+            # run time, so the automation follows the default when it changes.
+            model=(payload.get("model") or "").strip() or None,
+            mode=normalize_mode(payload.get("mode")),
         )
         task.workspace = workspace or self._provision_scratch(task.task_session_id)
 
@@ -4124,6 +4213,13 @@ class SessionManager:
             if not croniter.is_valid(changes["cron"]):
                 return {"ok": False, "error": "invalid cron"}
             task.schedule.cron, task.schedule.kind = changes["cron"], "cron"
+        if "model" in changes:
+            # "" clears the pin and returns the automation to the app default.
+            task.model = (str(changes["model"] or "")).strip() or None
+        if changes.get("mode") is not None:
+            from ..automation.models import normalize_mode
+
+            task.mode = normalize_mode(changes["mode"], fallback=task.mode)
         if changes.get("revoke"):
             # Revocation from the task detail page ("Allowed without asking … · Revoke").
             # Human-only, like minting; the agent-facing update tool has no such field.

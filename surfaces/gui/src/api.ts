@@ -1613,6 +1613,10 @@ export interface Automation {
   schedule_raw?: { kind: string; cron?: string | null; fire_at?: string | null; timezone?: string };
   workspace: string;
   agent: string;
+  // Which model answers each run (null = follow the app default) and how much the
+  // run may do without asking: "interactive" | "auto" | "plan".
+  model?: string | null;
+  mode?: string;
   enabled: boolean;
   next_run: number | null;
   last_run: number | null;
@@ -1739,6 +1743,41 @@ export interface QualitatiFootprint {
   scope?: string;
   measured_by?: string;
 }
+/** What MimiWork has spent from the signed-in QualiTaTi account — the server's
+ * own ledger, not a local estimate. Shown on the Activity page. */
+export interface QualitatiCreditRow {
+  id?: number;
+  at?: string;
+  credits: number;
+  free: boolean;
+  model?: string;
+  route?: string;
+  tokens_in: number;
+  tokens_out: number;
+  team_points: number;
+  monthly_points: number;
+  lifelong_credits: number;
+  estimated?: boolean;
+}
+export interface QualitatiCredits {
+  ok: boolean;
+  error?: string;
+  entries?: QualitatiCreditRow[];
+  spent?: number;
+  calls?: number;
+  free_calls?: number;
+  balance?: {
+    available: number;
+    team_points: number;
+    monthly_points: number;
+    lifelong_credits: number;
+  };
+}
+export async function qualitatiCredits(limit = 50): Promise<QualitatiCredits> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/credits?limit=${limit}`);
+  return res.json();
+}
+
 export async function qualitatiFootprint(): Promise<QualitatiFootprint> {
   const res = await fetch(`${httpBase()}/v1/qualitati/footprint`);
   return res.json();
@@ -1871,6 +1910,9 @@ export async function createAutomation(payload: {
   permissions?: { tool: string; target: string; access: "read" | "write" }[];
   // Bind the automation to a real folder instead of a fresh scratch dir.
   workspace?: string;
+  // Pin a model ("" = the app default), and the permission level every run gets.
+  model?: string;
+  mode?: string;
   // Reference files, written into <workspace>/attachments before the first run.
   files?: { name: string; data_b64: string }[];
 }): Promise<{ ok: boolean; error?: string; task?: Automation }> {

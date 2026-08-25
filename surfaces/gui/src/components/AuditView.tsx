@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { getAudit, type AuditEvent } from "../api";
+import {
+  getAudit,
+  qualitatiCredits,
+  type AuditEvent,
+  type QualitatiCreditRow,
+  type QualitatiCredits,
+} from "../api";
 import { PanelHead } from "./IntegrationsView";
 
 // Activity — connector/browser tool history, restructured onto the IntegrationsView page shell
@@ -14,6 +20,7 @@ export function AuditView() {
   const [sessionFilter, setSessionFilter] = useState("");
   const [connectorFilter, setConnectorFilter] = useState("");
   const [toolFilter, setToolFilter] = useState("");
+  const [credits, setCredits] = useState<QualitatiCredits | null>(null);
 
   const refresh = () =>
     getAudit({
@@ -27,6 +34,10 @@ export function AuditView() {
 
   useEffect(() => {
     refresh();
+    // Credits load alongside the tool log; signed out, the panel simply isn't there.
+    qualitatiCredits(50)
+      .then(setCredits)
+      .catch(() => setCredits(null));
   }, []);
 
   return (
@@ -35,8 +46,10 @@ export function AuditView() {
         <div className="max-w-4xl mx-auto px-7 py-6">
           <PanelHead
             title="Activity"
-            sub="Recent connector and browser tool activity. Arguments are sanitized before storage."
+            sub="What ran, and what it cost. Tool arguments are sanitized before storage."
           />
+
+          {credits?.ok && <CreditsPanel credits={credits} />}
 
           <div className="flex items-center gap-2 flex-wrap mb-4">
             <input className={INPUT} placeholder="session id" value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} />
@@ -59,6 +72,82 @@ export function AuditView() {
         </div>
       </div>
     </main>
+  );
+}
+
+// Credit spend, straight from the QualiTaTi ledger — the account's own record of
+// what MimiWork billed, so the number here is the number on the bill. Which pool
+// paid matters: a team pool and this month's points both expire, purchased
+// credits don't, and the gateway spends them in that order.
+function CreditsPanel({ credits }: { credits: QualitatiCredits }) {
+  const [open, setOpen] = useState(false);
+  const rows = credits.entries ?? [];
+  const balance = credits.balance;
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="activity-credits">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-[13px] font-medium text-ink">Credits</span>
+        <span className="text-[12.5px] text-muted">
+          <b className="text-ink">{credits.spent ?? 0}</b> spent over{" "}
+          {credits.calls ?? 0} {credits.calls === 1 ? "call" : "calls"}
+          {credits.free_calls ? ` · ${credits.free_calls} free` : ""}
+        </span>
+        {balance && (
+          <span className="text-[12.5px] text-muted ml-auto" data-testid="activity-credits-balance">
+            <b className="text-ink">{balance.available}</b> left
+            {balance.team_points ? ` · team ${balance.team_points}` : ""}
+            {balance.monthly_points ? ` · monthly ${balance.monthly_points}` : ""}
+            {balance.lifelong_credits ? ` · lifelong ${balance.lifelong_credits}` : ""}
+          </span>
+        )}
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-[11.5px] text-faint mt-1.5">
+          Nothing billed yet — Mimi Puppy answers free every day.
+        </div>
+      ) : (
+        <>
+          <button
+            className="text-[11.5px] text-muted hover:text-ink mt-1.5"
+            onClick={() => setOpen((v) => !v)}
+            data-testid="activity-credits-toggle"
+          >
+            {open ? "Hide" : "Show"} the last {rows.length}
+          </button>
+          {open && (
+            <div className="mt-2 space-y-1">
+              {rows.map((row, i) => (
+                <CreditRow row={row} key={row.id ?? i} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CreditRow({ row }: { row: QualitatiCreditRow }) {
+  const paid = [
+    row.team_points ? `${row.team_points} team` : "",
+    row.monthly_points ? `${row.monthly_points} monthly` : "",
+    row.lifelong_credits ? `${row.lifelong_credits} lifelong` : "",
+  ]
+    .filter(Boolean)
+    .join(" + ");
+  return (
+    <div className="flex items-baseline gap-2 text-[11.5px] flex-wrap">
+      <span className="font-mono text-ink w-14 shrink-0">
+        {row.free ? "free" : `${row.credits}`}
+      </span>
+      <span className="text-muted">{row.model || row.route || "model call"}</span>
+      <span className="text-faint">
+        {row.tokens_in.toLocaleString()} in · {row.tokens_out.toLocaleString()} out
+        {row.estimated ? " · estimated" : ""}
+      </span>
+      {paid && <span className="text-faint">{paid}</span>}
+      <span className="text-faint ml-auto">{row.at ?? ""}</span>
+    </div>
   );
 }
 

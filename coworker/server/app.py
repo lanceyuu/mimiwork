@@ -1184,6 +1184,11 @@ def create_app(manager: SessionManager) -> FastAPI:
         """Measured carbon/water footprint of the Mimi service (Scaleway data)."""
         return await asyncio.to_thread(manager.qualitati_footprint)
 
+    @app.get("/v1/qualitati/credits")
+    async def qualitati_credits(limit: int = 50) -> dict[str, Any]:
+        """What MimiWork has spent from the signed-in QualiTaTi account."""
+        return await asyncio.to_thread(manager.qualitati_credits, limit)
+
     @app.post("/v1/qualitati/login")
     async def qualitati_login(body: dict) -> dict[str, Any]:
         return await asyncio.to_thread(
