@@ -35,7 +35,7 @@ That's the whole idea. Ask for an outcome, get the artifact.
 |---|---|
 | 📊 **Data Analyst** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
 | 📝 **Document Writer** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
-| 🎯 **Deck Builder** | Turns findings into a PowerPoint that argues a case: charts built from your actual numbers, speaker notes for whoever has to present it. |
+| 🎯 **Deck Builder** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Point it at your house template and it uses your brand instead. |
 
 **It reads what work actually arrives in.** PDF (with table extraction — and an honest
 warning when a document is *scanned* rather than silently returning nothing), Word, Excel,

@@ -1,8 +1,15 @@
 """PowerPoint decks — read and write .pptx deliverables.
 
-Slides are written from a small IR (``title`` / ``bullets`` / ``section`` / ``image`` /
-``blank``) for the same reason Word is: the model produces structured JSON reliably and
-OOXML not at all.
+Slides are written from a small IR for the same reason Word is: the model produces
+structured JSON reliably and OOXML not at all. The IR deliberately offers more than
+bullets — ``statement``, ``stat``, ``quote``, ``two_column``, ``comparison`` — because a
+deck made only of bullet lists is a deck nobody wants to sit through, and a tool that can
+only emit bullet lists guarantees one.
+
+The look lives in ``deck_theme`` / ``deck_render``: 16:9, a real type scale, and fonts that
+are installed on the recipient's machine. Until 2026-08-25 this wrote python-pptx's stock
+4:3 template in Calibri and the Office 2007 palette — the reason decks came out looking a
+decade old whatever the content said. A user-supplied ``template`` still wins outright.
 
 Speaker notes are a first-class field, not an afterthought. A deck handed over without notes
 is not a finished deliverable — the person presenting it has to reconstruct the argument from
@@ -17,37 +24,77 @@ from __future__ import annotations
 from typing import Any
 
 from ... import deliverable_check
+from . import deck_render, deck_theme
 from ._common import clip, decorate, guard, require
 from .paths import context_roots, display_path, resolve_read, resolve_write
-
-# python-pptx's default template layout indexes.
-_LAYOUT_TITLE = 0
-_LAYOUT_TITLE_CONTENT = 1
-_LAYOUT_SECTION = 2
-_LAYOUT_TITLE_ONLY = 5
-_LAYOUT_BLANK = 6
 
 _SLIDE_SHAPE = {
     "type": "object",
     "properties": {
         "layout": {
             "type": "string",
-            "enum": ["title", "bullets", "section", "image", "blank"],
+            "enum": list(deck_render.LAYOUTS),
             "description": (
-                "Slide kind: 'title' (deck opener), 'bullets' (title + bullet body), "
-                "'section' (divider), 'image' (title + picture), 'blank'."
+                "Slide kind. 'title' (deck opener) · 'section' (divider) · 'bullets' "
+                "(title + up to ~6 bullets) · 'statement' (ONE claim, large, no bullets — "
+                "use for the argument's turning points) · 'stat' (1-3 big numbers with "
+                "labels) · 'two_column' (two side-by-side lists) · 'comparison' (two "
+                "tinted cards, e.g. before/after) · 'quote' (someone's own words) · "
+                "'image' (a chart or picture, full width) · 'blank'. Vary them: a deck of "
+                "nothing but 'bullets' is the one thing every audience dreads."
             ),
         },
-        "title": {"type": "string", "description": "Slide title."},
-        "subtitle": {"type": "string", "description": "Subtitle (title/section layouts)."},
+        "title": {
+            "type": "string",
+            "description": (
+                "Slide title. Make it the TAKEAWAY, not the topic: 'Churn is concentrated "
+                "in month two', not 'Churn analysis'."
+            ),
+        },
+        "subtitle": {"type": "string", "description": "Supporting line (title/section/statement)."},
         "bullets": {
             "type": "array",
             "description": "Body bullets. Use {'text': ..., 'level': 1} for sub-bullets.",
             "items": {},
         },
+        "statement": {
+            "type": "string",
+            "description": "The single claim on a 'statement' slide (falls back to title).",
+        },
+        "stats": {
+            "type": "array",
+            "description": "For 'stat': [{'value': '68%', 'label': 'finished the survey'}], 1-3 of them.",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "value": {"type": "string", "description": "The number, short: '68%', '3.4x', '412'."},
+                    "label": {"type": "string", "description": "What it measures, in plain words."},
+                },
+            },
+        },
+        "columns": {
+            "type": "array",
+            "description": (
+                "For 'two_column'/'comparison': exactly two "
+                "[{'heading': ..., 'bullets': [...]}, {...}]."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "heading": {"type": "string"},
+                    "bullets": {"type": "array", "items": {}},
+                },
+            },
+        },
+        "quote": {"type": "string", "description": "For 'quote': the quoted words themselves."},
+        "attribution": {"type": "string", "description": "For 'quote': who said it."},
         "image": {
             "type": "string",
             "description": "Path to a PNG/JPG to place on the slide (image layout).",
+        },
+        "caption": {
+            "type": "string",
+            "description": "For 'image': one line under the picture saying what it shows.",
         },
         "notes": {
             "type": "string",
@@ -61,10 +108,13 @@ _WRITE_SCHEMA = {
     "function": {
         "name": "write_presentation",
         "description": (
-            "Create or overwrite a PowerPoint (.pptx) deck from structured slides. Always "
-            "include speaker notes — a deck without notes is not a finished deliverable. Use "
-            "this for any slide deliverable; do NOT write a script to do it. Pass append=true "
-            "to add slides to an existing deck."
+            "Create or overwrite a PowerPoint (.pptx) deck from structured slides. Produces a "
+            "designed 16:9 deck — vary the slide layouts (statement / stat / quote / "
+            "two_column / comparison / image), do not make every slide a bullet list, and "
+            "write titles that state the takeaway rather than name the topic. Always include "
+            "speaker notes — a deck without notes is not a finished deliverable. Use this for "
+            "any slide deliverable; do NOT write a script to do it. Pass append=true to add "
+            "slides to an existing deck."
         ),
         "parameters": {
             "type": "object",
@@ -132,7 +182,6 @@ def pptx_tools(context: Any) -> list:
         path: str, slides: list, append: bool = False, template: str = ""
     ) -> dict[str, Any]:
         pptx = require("pptx", "python-pptx")
-        from pptx.util import Inches
 
         target = resolve_write(path, roots)
         if not isinstance(slides, list):
@@ -145,70 +194,32 @@ def pptx_tools(context: Any) -> list:
         else:
             deck = pptx.Presentation()
 
-        for entry in slides:
+        # A house template carries the brand; ours only applies when there isn't one.
+        # Appending never restyles what is already there — someone else's deck is not
+        # ours to reflow.
+        theme = deck_theme.read_theme(deck) if template else deck_theme.NEUTRAL_MODERN
+        widened = deck_theme.apply_slide_size(deck)
+        if not template and not append:
+            deck_theme.apply_theme_fonts(deck, theme)
+
+        existing = len(deck.slides)
+        for offset, entry in enumerate(slides):
             if not isinstance(entry, dict):
                 raise ValueError(f"each slide must be an object, got {type(entry).__name__}")
-            kind = str(entry.get("layout") or "bullets").lower()
-            title = str(entry.get("title") or "")
-            subtitle = str(entry.get("subtitle") or "")
-            bullets = entry.get("bullets") or []
 
-            if kind == "title":
-                layout = _LAYOUT_TITLE
-            elif kind == "section":
-                layout = _LAYOUT_SECTION
-            elif kind == "blank":
-                layout = _LAYOUT_BLANK
-            elif kind == "image":
-                layout = _LAYOUT_TITLE_ONLY
-            elif kind == "bullets":
-                layout = _LAYOUT_TITLE_CONTENT
-            else:
-                raise ValueError(
-                    f"unknown slide layout {kind!r}; expected one of: title, bullets, "
-                    "section, image, blank"
-                )
-            # A user-supplied template may not carry all of python-pptx's default layouts.
-            if layout >= len(deck.slide_layouts):
-                layout = min(_LAYOUT_TITLE_CONTENT, len(deck.slide_layouts) - 1)
+            def _picture(rel: str) -> str:
+                found = resolve_read(rel, roots)
+                if not found.is_file():
+                    raise FileNotFoundError(display_path(found, roots))
+                return str(found)
 
-            slide = deck.slides.add_slide(deck.slide_layouts[layout])
-
-            if title and slide.shapes.title is not None:
-                slide.shapes.title.text = title
-
-            if subtitle:
-                for placeholder in slide.placeholders:
-                    if placeholder.placeholder_format.idx == 1:
-                        placeholder.text = subtitle
-                        break
-
-            if bullets and kind == "bullets":
-                body = None
-                for placeholder in slide.placeholders:
-                    if placeholder.placeholder_format.idx != 0:
-                        body = placeholder
-                        break
-                if body is not None:
-                    frame = body.text_frame
-                    frame.clear()
-                    for i, item in enumerate(bullets):
-                        text, level = _bullet_entry(item)
-                        para = frame.paragraphs[0] if i == 0 else frame.add_paragraph()
-                        para.text = text
-                        para.level = min(level, 4)
-
-            image = entry.get("image")
-            if image and kind == "image":
-                picture = resolve_read(str(image), roots)
-                if not picture.is_file():
-                    raise FileNotFoundError(display_path(picture, roots))
-                # Centred under the title, sized to the slide with a margin; python-pptx keeps
-                # the aspect ratio when only a width is given.
-                slide.shapes.add_picture(
-                    str(picture), Inches(1.0), Inches(1.8), width=deck.slide_width - Inches(2.0)
-                )
-
+            slide = deck_render.paint(
+                deck,
+                entry,
+                theme,
+                number=existing + offset + 1,
+                resolve_image=_picture,
+            )
             _set_notes(slide, str(entry.get("notes") or ""))
 
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -219,6 +230,7 @@ def pptx_tools(context: Any) -> list:
                 "slides_written": len(slides),
                 "total_slides": len(list(deck.slides)),
                 "appended": bool(append),
+                "widescreen": widened or deck.slide_width == deck_theme.SLIDE_WIDTH_EMU,
                 "bytes": target.stat().st_size,
             },
             target,
@@ -242,6 +254,8 @@ def pptx_tools(context: Any) -> list:
             for shape in slide.shapes:
                 if not shape.has_text_frame or shape == slide.shapes.title:
                     continue
+                if shape.name == deck_render.FOOTER_SHAPE_NAME:
+                    continue  # the printed slide number is chrome, not content
                 for para in shape.text_frame.paragraphs:
                     text = "".join(run.text for run in para.runs).strip()
                     if text:
