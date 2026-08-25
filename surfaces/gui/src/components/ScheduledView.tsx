@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AutomationFlow } from "./AutomationFlow";
 import {
   createAutomation,
+  getSettings,
   deleteAutomation,
   exportBlueprint,
   listBuiltinBlueprints,
@@ -45,6 +46,76 @@ function toCron(time: string, freq: string): string {
 }
 
 // The §28 page shell: full-bleed main, centered ≤4xl column — same as Connectors/Activity/Inbox.
+// The three permission levels, in the composer's own words — what you learned in
+// a session is what an automation means. The difference: nobody is watching at
+// 7am, so "ask" parks its question in the Inbox and the run waits there.
+const MODES: { value: string; label: string; hint: string }[] = [
+  { value: "interactive", label: "Ask for approval", hint: "Parks the question in your Inbox and waits." },
+  { value: "auto", label: "Full access", hint: "Runs everything without asking." },
+  { value: "plan", label: "Plan only", hint: "Proposes what it would do; never acts." },
+];
+
+export function modeLabel(mode?: string): string {
+  return MODES.find((m) => m.value === (mode || "interactive"))?.label ?? "Ask for approval";
+}
+
+/** The model + permission pair, as two selects. Shared by the create form and the
+ * detail's edit mode so an automation reads the same way in both. */
+function RunSettings({
+  model,
+  mode,
+  models,
+  defaultModel,
+  onModel,
+  onMode,
+}: {
+  model: string;
+  mode: string;
+  models: string[];
+  defaultModel?: string;
+  onModel: (v: string) => void;
+  onMode: (v: string) => void;
+}) {
+  return (
+    <div className="tmpl-sched">
+      <label className="tmpl-field">
+        <span>Model</span>
+        <select
+          className="tmpl-input tmpl-select"
+          value={model}
+          onChange={(e) => onModel(e.target.value)}
+          data-testid="auto-model"
+        >
+          <option value="">Default{defaultModel ? ` (${defaultModel})` : ""}</option>
+          {models.map((m) => (
+            <option value={m} key={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="tmpl-field">
+        <span>Permission</span>
+        <select
+          className="tmpl-input tmpl-select"
+          value={mode}
+          onChange={(e) => onMode(e.target.value)}
+          data-testid="auto-mode"
+        >
+          {MODES.map((m) => (
+            <option value={m.value} key={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="text-[11.5px] text-faint self-center">
+        {MODES.find((m) => m.value === mode)?.hint}
+      </span>
+    </div>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
@@ -77,6 +148,9 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [prefill, setPrefill] = useState<Blueprint | null>(null);
   // Starter blueprints bundled with the app — one click prefills the review form.
   const [starters, setStarters] = useState<{ name: string; blueprint: Blueprint }[]>([]);
+  // The model menu an automation can pin, from the same settings the composer reads.
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState<string>("");
   useEffect(() => {
     listBuiltinBlueprints().then((l) => setStarters(Array.isArray(l) ? l : [])).catch(() => {});
   }, []);
@@ -94,6 +168,15 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     return () => clearInterval(h);
   }, []);
 
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        setModels(s.models || []);
+        setDefaultModel(s.model || "");
+      })
+      .catch(() => setModels([]));
+  }, []);
+
   // Create from a payload, refresh the list, and open the new task's detail. `permissions`
   // rides through for quickstart recipes (§25 write grants).
   const create = async (payload: {
@@ -103,6 +186,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
     permissions?: { tool: string; target: string; access: "read" | "write" }[];
     workspace?: string;
     files?: { name: string; data_b64: string }[];
+    model?: string;
+    mode?: string;
   }) => {
     setBusy(payload.title);
     try {
@@ -127,6 +212,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
         onBack={() => { setOpenId(null); refresh(); }}
         onOpenRun={onOpenRun}
         onRunNow={onRunNow}
+        models={models}
+        defaultModel={defaultModel}
       />
     );
   }
@@ -210,6 +297,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
           key={prefill ? `bp-${prefill.title}` : "blank"}
           busy={busy !== null}
           initial={prefill}
+          models={models}
+          defaultModel={defaultModel}
           onCancel={() => {
             setShowForm(false);
             setPrefill(null);
@@ -291,8 +380,12 @@ function NewAutomationForm({
   onCancel,
   onCreate,
   initial,
+  models,
+  defaultModel,
 }: {
   busy: boolean;
+  models: string[];
+  defaultModel?: string;
   onCancel: () => void;
   onCreate: (p: {
     title: string;
@@ -301,6 +394,8 @@ function NewAutomationForm({
     workspace?: string;
     files?: { name: string; data_b64: string }[];
     permissions?: { tool: string; target: string; access: "read" | "write" }[];
+    model?: string;
+    mode?: string;
   }) => void;
   // A blueprint being imported: prefills every field; the user reviews (grants
   // shown below) and the Create click IS the consent (§25).
@@ -314,6 +409,10 @@ function NewAutomationForm({
   const grants = initial?.permissions ?? [];
   const [folder, setFolder] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
+  const [model, setModel] = useState<string>("");
+  // Default to asking: an unattended task that can do anything is a decision, not
+  // a default.
+  const [mode, setMode] = useState<string>("interactive");
   // Revision notes attached to flow nodes — folded into the instructions on create,
   // so "check the flowchart, annotate what to change" is part of the request itself.
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -346,6 +445,8 @@ function NewAutomationForm({
         instructions.trim() +
         (noteLines.length ? `\n\nRevision notes from the flow review:\n${noteLines.join("\n")}` : ""),
       cron: toCron(time, freq),
+      ...(model ? { model } : {}),
+      mode,
       ...(grants.length ? { permissions: grants } : {}),
       ...(folder ? { workspace: folder } : {}),
       ...(files.length
@@ -414,6 +515,15 @@ function NewAutomationForm({
           </select>
         </label>
       </div>
+
+      <RunSettings
+        model={model}
+        mode={mode}
+        models={models}
+        defaultModel={defaultModel}
+        onModel={setModel}
+        onMode={setMode}
+      />
 
       {/* Folder + files: run against real material, not an empty scratch dir. */}
       <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[12.5px]">
@@ -508,8 +618,12 @@ function TaskDetail({
   onBack,
   onOpenRun,
   onRunNow,
+  models,
+  defaultModel,
 }: {
   id: string;
+  models: string[];
+  defaultModel?: string;
   onBack: () => void;
   onOpenRun: (
     sessionId: string,
@@ -526,6 +640,8 @@ function TaskDetail({
   const [instructions, setInstructions] = useState("");
   const [time, setTime] = useState("09:00");
   const [freq, setFreq] = useState("daily");
+  const [model, setModel] = useState("");
+  const [mode, setMode] = useState("interactive");
   const [saving, setSaving] = useState(false);
 
   // The seen mark AS OF opening — the "new" pills compare against this frozen value
@@ -569,6 +685,8 @@ function TaskDetail({
     const { time: t, freq: f } = fromCron(task.schedule_raw?.cron);
     setTime(t);
     setFreq(f);
+    setModel(task.model ?? "");
+    setMode(task.mode ?? "interactive");
     setEditing(true);
   };
   const saveEdit = async () => {
@@ -578,6 +696,9 @@ function TaskDetail({
         title: title.trim(),
         instructions: instructions.trim(),
         cron: toCron(time, freq),
+        // "" clears the pin and puts the automation back on the app default.
+        model,
+        mode,
       });
       await refresh();
       setEditing(false);
@@ -663,6 +784,14 @@ function TaskDetail({
                 <option value="weekends">Weekends</option>
               </select>
             </label>
+            <RunSettings
+              model={model}
+              mode={mode}
+              models={models}
+              defaultModel={defaultModel}
+              onModel={setModel}
+              onMode={setMode}
+            />
           </div>
         ) : (
           <div className="conn-meta">
@@ -671,6 +800,10 @@ function TaskDetail({
               <span className="slider" />
             </label>{" "}
             {task.enabled ? `Active · next ${fmt(task.next_run)}` : "Paused"} · {task.schedule}
+            <span data-testid="task-run-settings">
+              {" · "}
+              {task.model || "default model"} · {modeLabel(task.mode)}
+            </span>
           </div>
         )}
 

@@ -294,6 +294,9 @@ const AUTOMATION = {
   last_status: "running",
   run_count: 1,
   notify_on_completion: false,
+  // Per-automation model + permission level (null model = the app default).
+  model: null,
+  mode: "interactive",
   // One standing scoped approval (§25) so the detail page's revoke list has content.
   always_allowed: [
     { entry: "send_message slack:T1/C1", tool: "send_message", target: "slack:T1/C1" },
@@ -1575,6 +1578,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
         schedule: body.cron || body.fire_at,
         always_allowed: grants,
         run_count: 0,
+        model: body.model || null,
+        mode: body.mode || "interactive",
       };
       automations.push(task);
       return json({ ok: true, task });

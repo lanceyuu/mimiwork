@@ -58,6 +58,31 @@ def grant_entries(permissions: Any) -> list[str]:
     return entries
 
 
+# -- permission level ------------------------------------------------------------
+# The same three levels the composer offers, so what you learned in a session
+# carries into an automation. They mean the same thing here, with one difference
+# worth stating: nobody is watching at 7am, so "ask" parks the question in the
+# Inbox and the run waits there instead of failing.
+TASK_MODES = ("plan", "interactive", "auto")
+DEFAULT_TASK_MODE = "interactive"
+
+
+def normalize_mode(value: Any, fallback: str = DEFAULT_TASK_MODE) -> str:
+    """Coerce a requested permission level to one this runner will honor.
+
+    Unknown values fall back rather than raise: a mode is a preference, and a
+    typo in an import blueprint must not cost the user their automation. The
+    fallback is the asking level — never the permissive one.
+    """
+    mode = str(value or "").strip().lower()
+    if mode in TASK_MODES:
+        return mode
+    # The composer's own vocabulary, accepted as aliases.
+    return {"ask": "interactive", "approval": "interactive", "full": "auto"}.get(
+        mode, fallback if fallback in TASK_MODES else DEFAULT_TASK_MODE
+    )
+
+
 def _human_time(hour: int, minute: int) -> str:
     ampm = "AM" if hour < 12 else "PM"
     h12 = hour % 12 or 12
@@ -123,6 +148,9 @@ class ScheduledTask:
     id: str = field(default_factory=lambda: "task-" + uuid.uuid4().hex[:10])
     task_session_id: str = ""  # the task's OWN thread (set to f"__task__{id}")
     model: Optional[str] = None
+    # Permission level for every run: "interactive" (ask — questions park in the
+    # Inbox), "auto" (full access), or "plan" (propose only, never act).
+    mode: str = DEFAULT_TASK_MODE
     notify_on_completion: bool = True
     notify_target: Optional[str] = None  # extra messaging target ("telegram:123")
     always_allowed_tools: list[str] = field(default_factory=list)
@@ -142,6 +170,8 @@ class ScheduledTask:
     def __post_init__(self) -> None:
         if not self.task_session_id:
             self.task_session_id = f"__task__{self.id}"
+        # Records written before permission levels existed carry no mode at all.
+        self.mode = normalize_mode(self.mode)
 
     def to_dict(self) -> dict:
         d = self.__dict__.copy()
@@ -196,6 +226,10 @@ class ScheduledTask:
             "schedule_raw": self.schedule.to_dict(),
             "workspace": self.workspace,
             "agent": self.agent,
+            # Empty model = "whatever the app's default is at run time", which is
+            # why it's reported as null rather than resolved here.
+            "model": self.model or None,
+            "mode": self.mode,
             "enabled": self.enabled,
             "next_run": self.next_run,
             "last_run": self.last_run,
