@@ -70,9 +70,12 @@ def build_user_content(
 
     Each attachment is `{"kind": "image"|"pdf"|"text"|"file", "name"?, "data_url"?
     (image/pdf/file), "text"? (text)}`. kind="file" (Office documents and other
-    binaries the model can't ingest as a content part) is saved into `save_dir` and
-    announced to the model as a path to open with the reading tools; without a
-    `save_dir` (workspace-less sessions) it is skipped like any invalid attachment.
+    binaries the model can't ingest as a content part) is saved into `save_dir` — the
+    session's own folder, so the file is visible next to the user's documents rather
+    than inside a hidden temp dir — and announced to the model as a path to open with
+    the reading tools; without a `save_dir` (workspace-less sessions) it is skipped
+    like any invalid attachment. An existing file is never overwritten: name
+    collisions get a numeric suffix.
     Invalid/oversized attachments are skipped rather than failing the turn.
     """
     text = (text or "").strip()

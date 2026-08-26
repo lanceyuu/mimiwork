@@ -421,6 +421,12 @@ def test_ws_accepts_an_office_file_attachment(tmp_path):
         assert "input_rejected" not in types  # the whole bug, in one line
         assert "turn_done" in types
 
+    # The file lands IN the session's folder, visible next to the user's documents —
+    # not in a hidden .coworker/attachments temp dir (owner ask 2026-08-26: the
+    # reworked copy is worth keeping, so it belongs where their files live).
+    assert (tmp_path / "survey.xlsx").read_bytes() == b"PK\x03\x04fake-xlsx"
+    assert not (tmp_path / ".coworker" / "attachments").exists()
+
     # A malformed kind="file" is still refused — the gate opened, it didn't vanish.
     with client.websocket_connect("/ws/session/xlsx2") as ws:
         assert ws.receive_json()["type"] == "ready"

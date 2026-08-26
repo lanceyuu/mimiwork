@@ -1973,17 +1973,24 @@ def create_app(manager: SessionManager) -> FastAPI:
                         )
                     await _apply_model(model)
                     if text or attachments:
-                        # Office/binary attachments (kind="file") land on disk under the
-                        # workspace's hidden .coworker/attachments so the agent can open
-                        # them with the office tools — models can't ingest raw .docx parts.
+                        # Office/binary attachments (kind="file") are saved into the
+                        # session's folder itself — visible in Finder next to the user's
+                        # other files, where the reworked copy is worth keeping (owner ask
+                        # 2026-08-26: a hidden .coworker/attachments dir read as a temp
+                        # folder that swallowed the file). An existing file with the same
+                        # name is never overwritten — the saver suffixes instead.
+                        # The engine's cwd, not the raw query param: a session that
+                        # fell back to the manager's default folder has workspace=None
+                        # here, and its dropped files would be silently skipped.
+                        session_dir = (
+                            str(engine.executor.cwd)
+                            if getattr(engine, "executor", None)
+                            else workspace
+                        )
                         content = build_user_content(
                             text,
                             attachments,
-                            save_dir=(
-                                Path(workspace) / ".coworker" / "attachments"
-                                if workspace
-                                else None
-                            ),
+                            save_dir=Path(session_dir) if session_dir else None,
                         )
                         await claim_turn(content=content, display=display)
                 else:
