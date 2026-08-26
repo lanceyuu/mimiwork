@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from .deck_theme import Theme, bullet_size
+from .deck_theme import Theme
 
 LAYOUTS = (
     "title",
@@ -29,6 +29,55 @@ LAYOUTS = (
     "image",
     "blank",
 )
+
+
+import math
+
+# Average glyph width as a fraction of the point size, for the faces this module sets
+# (Georgia/Arial-class). Deliberately a little wide: overestimating wraps a line early,
+# underestimating lets text walk out of its frame — only one of those is visible.
+_CHAR_FACTOR = 0.52
+_CHAR_FACTOR_BOLD = 0.56
+
+
+def text_lines(text: str, width_in: float, size: int, *, bold: bool = False) -> int:
+    """Estimated wrapped-line count for `text` set at `size` in a `width_in` box."""
+    factor = _CHAR_FACTOR_BOLD if bold else _CHAR_FACTOR
+    per_line = max(1, int((width_in * 72.0) / (factor * size)))
+    # Words wrap whole, so real text needs a bit more room than the char count says.
+    return max(1, math.ceil(len(text) * 1.08 / per_line))
+
+
+def block_height(
+    text: str, width_in: float, size: int, *, bold: bool = False, line_spacing: float = 1.15
+) -> float:
+    """Estimated height (inches) of `text` wrapped in a `width_in` box at `size`."""
+    return text_lines(text, width_in, size, bold=bold) * size * line_spacing / 72.0
+
+
+def fitted_size(
+    text: str,
+    width_in: float,
+    height_in: float,
+    size: int,
+    *,
+    min_size: int,
+    bold: bool = False,
+    line_spacing: float = 1.15,
+) -> int:
+    """The largest size ≤ `size` (but ≥ `min_size`) whose text fits the box.
+
+    This is the module's answer to "the font sometimes exceeds the frame": every box is
+    fixed, so the type must yield. It cannot look at pixels — users' machines have no
+    renderer to screenshot with — so it estimates conservatively and shrinks. Content
+    that still overflows AT `min_size` is a writing problem, not a typesetting one;
+    callers surface that as a layout warning so the model splits the slide.
+    """
+    while size > min_size and block_height(
+        text, width_in, size, bold=bold, line_spacing=line_spacing
+    ) > height_in:
+        size -= 1
+    return size
 
 
 def _rgb(value: int):
@@ -191,6 +240,7 @@ def _place_title(
     w: float,
     h: float,
     size: int,
+    min_size: int = 18,
     line_spacing: Optional[float] = None,
 ) -> None:
     """Write the slide's title into the REAL title placeholder, moved and restyled.
@@ -210,6 +260,9 @@ def _place_title(
         frame = holder.text_frame
         frame.word_wrap = True
         frame.clear()
+    size = fitted_size(
+        text, w, h, size, min_size=min_size, bold=True, line_spacing=line_spacing or 1.12
+    )
     _write(
         frame,
         text,
@@ -263,12 +316,13 @@ def _paint_title(slide: Any, entry: dict, theme: Theme) -> None:
         w=theme.content_width - 1.2,
         h=1.6,
         size=theme.size_deck_title,
+        min_size=26,
         line_spacing=1.05,
     )
     subtitle = str(entry.get("subtitle") or "")
     if subtitle:
         sub = _box(slide, theme.margin_x, 4.45, theme.content_width - 1.2, 0.9)
-        _write(sub, subtitle, font=theme.body, size=theme.size_body, color=theme.muted, first=True)
+        _write(sub, subtitle, font=theme.body, size=fitted_size(subtitle, theme.content_width - 1.2, 0.9, theme.size_body, min_size=13), color=theme.muted, first=True)
 
 
 def _paint_section(slide: Any, entry: dict, theme: Theme, number: int) -> None:
@@ -282,23 +336,47 @@ def _paint_section(slide: Any, entry: dict, theme: Theme, number: int) -> None:
         w=theme.content_width,
         h=1.1,
         size=theme.size_section,
+        min_size=22,
     )
     subtitle = str(entry.get("subtitle") or "")
     if subtitle:
         sub = _box(slide, theme.margin_x, 3.75, theme.content_width, 0.7)
-        _write(sub, subtitle, font=theme.body, size=theme.size_body, color=theme.muted, first=True)
+        _write(sub, subtitle, font=theme.body, size=fitted_size(subtitle, theme.content_width, 0.7, theme.size_body, min_size=13), color=theme.muted, first=True)
 
 
-def _paint_bullets(slide: Any, entry: dict, theme: Theme, bullets: list) -> None:
-    frame = _box(
-        slide, theme.margin_x, theme.content_top, theme.content_width, theme.content_bottom - theme.content_top
-    )
+def _bullets_height(bullets: list, width_in: float, base: int) -> float:
+    """Estimated stack height (inches) of a bullet list whose top-level size is `base`."""
+    total = 0.0
+    for text, level in bullets:
+        size = max(base - 3 * max(level, 0), 12)
+        total += block_height(text, width_in, size, line_spacing=1.25)
+        total += (14 if level == 0 else 8) / 72.0
+    return total
+
+
+def _fit_bullets(bullets: list, width_in: float, height_in: float, base: int) -> tuple[int, bool]:
+    """(top-level size, fits) — shrink to 13pt before admitting defeat."""
+    for candidate in range(base, 12, -1):
+        if _bullets_height(bullets, width_in, candidate) <= height_in:
+            return candidate, True
+    return 13, False
+
+
+def _paint_bullets(slide: Any, entry: dict, theme: Theme, bullets: list, warnings: list) -> None:
+    height = theme.content_bottom - theme.content_top
+    base, fits = _fit_bullets(bullets, theme.content_width, height, theme.size_body)
+    if not fits:
+        warnings.append(
+            f"{len(bullets)} bullets don't fit even at minimum size — split this slide "
+            "into two, or cut bullets."
+        )
+    frame = _box(slide, theme.margin_x, theme.content_top, theme.content_width, height)
     for i, (text, level) in enumerate(bullets):
         para = _write(
             frame,
             text,
             font=theme.body,
-            size=bullet_size(theme, level),
+            size=max(base - 3 * max(level, 0), 12),
             color=theme.body_ink if level == 0 else theme.muted,
             first=(i == 0),
             space_after=14 if level == 0 else 8,
@@ -325,12 +403,20 @@ def _paint_statement(slide: Any, entry: dict, theme: Theme) -> None:
         w=theme.content_width - 0.9,
         h=2.6,
         size=theme.size_statement,
+        min_size=20,
         line_spacing=1.18,
     )
     support = str(entry.get("subtitle") or "")
     if support:
         sub = _box(slide, theme.margin_x, 5.2, theme.content_width - 0.9, 0.8)
-        _write(sub, support, font=theme.body, size=theme.size_body, color=theme.muted, first=True)
+        _write(
+            sub,
+            support,
+            font=theme.body,
+            size=fitted_size(support, theme.content_width - 0.9, 0.8, theme.size_body, min_size=13),
+            color=theme.muted,
+            first=True,
+        )
 
 
 def _paint_stat(slide: Any, entry: dict, theme: Theme, stats: list) -> None:
@@ -346,14 +432,19 @@ def _paint_stat(slide: Any, entry: dict, theme: Theme, stats: list) -> None:
         x = theme.margin_x + i * (width + gap)
         value = _box(slide, x, top, width, 1.3)
         value.vertical_anchor = MSO_ANCHOR.BOTTOM
+        value_text = str(item.get("value") or "")
+        # One line, always: a wrapped "-23pts" is worse than a smaller one.
+        value_size = theme.size_stat
+        while value_size > 32 and len(value_text) * _CHAR_FACTOR_BOLD * value_size / 72.0 > width:
+            value_size -= 2
         _write(
             value,
-            str(item.get("value") or ""),
+            value_text,
             # Deliberately the BODY face, not the heading one: Georgia sets old-style
             # figures, so at 66pt "0pts" reads as the word "opts" and "-23pts" wobbles.
             # A stat slide exists to make one number unmistakable.
             font=theme.body,
-            size=theme.size_stat,
+            size=value_size,
             color=theme.accent,
             bold=True,
             first=True,
@@ -371,19 +462,37 @@ def _paint_stat(slide: Any, entry: dict, theme: Theme, stats: list) -> None:
         )
 
 
-def _paint_columns(slide: Any, entry: dict, theme: Theme, columns: list, *, carded: bool) -> None:
+def _paint_columns(
+    slide: Any, entry: dict, theme: Theme, columns: list, warnings: list, *, carded: bool
+) -> None:
     gap = 0.5
     count = max(1, min(len(columns), 2))
     width = (theme.content_width - gap * (count - 1)) / count
     top = theme.content_top
     available = theme.content_bottom - top
+    pad_est = 0.32 if carded else 0.0
+    heads = any(str(c.get("heading") or "") for c in columns[:count])
+    text_room = available - 2 * pad_est - (0.62 if heads else 0)
+    base = theme.size_body + (1 if carded else 0)
+    fit = base
+    for column in columns[:count]:
+        pairs = _bullet_pairs(column.get("bullets") or [])
+        size, fits = _fit_bullets(pairs, width - 2 * pad_est, text_room, base)
+        fit = min(fit, size)
+        if not fits:
+            warnings.append(
+                f"column '{column.get('heading') or '?'}' overflows even at minimum "
+                "size — fewer or shorter bullets, or split the slide."
+            )
     height = available
     if carded:
         # Size the cards to what's in them. A card that always runs to the bottom of the
         # slide leaves a pool of empty tint under three bullets and reads as unfinished.
-        rows = max(len(_bullet_pairs(c.get("bullets") or [])) for c in columns[:count])
-        heads = any(str(c.get("heading") or "") for c in columns[:count])
-        height = min(available, 0.64 + (0.62 if heads else 0) + rows * 0.46)
+        tallest = max(
+            _bullets_height(_bullet_pairs(c.get("bullets") or []), width - 2 * pad_est, fit)
+            for c in columns[:count]
+        )
+        height = min(available, 2 * pad_est + (0.62 if heads else 0) + tallest + 0.1)
         top += max(0.0, (available - height) / 2)
     for i, column in enumerate(columns[:count]):
         x = theme.margin_x + i * (width + gap)
@@ -410,7 +519,7 @@ def _paint_columns(slide: Any, entry: dict, theme: Theme, columns: list, *, card
                 frame,
                 text,
                 font=theme.body,
-                size=bullet_size(theme, level + (1 if carded else 0)),
+                size=max(fit - 3 * max(level, 0), 12),
                 color=theme.body_ink,
                 first=(j == 0),
                 space_after=10,
@@ -422,18 +531,18 @@ def _paint_columns(slide: Any, entry: dict, theme: Theme, columns: list, *, card
 
 def _paint_quote(slide: Any, entry: dict, theme: Theme) -> None:
     words = str(entry.get("quote") or entry.get("title") or "")
+    width = theme.content_width - 1.2
+    size = fitted_size(words, width, 3.4, theme.size_quote, min_size=18, line_spacing=1.3)
     # The accent bar marks the quote, so it should be as tall as the quote is — a fixed
-    # bar looms over a one-line quote and gets swamped by a four-line one. ~52 characters
-    # fit a line at this size and width.
-    lines = max(1, -(-len(words) // 52))
-    height = min(3.6, 0.55 + lines * 0.52)
+    # bar looms over a one-line quote and gets swamped by a four-line one.
+    height = min(3.6, 0.15 + block_height(words, width, size, line_spacing=1.3))
     _panel(slide, theme.margin_x, 2.15, 0.09, height, theme.accent)
     frame = _box(slide, theme.margin_x + 0.45, 2.15, theme.content_width - 1.2, height + 0.1)
     _write(
         frame,
         "“" + words + "”",
         font=theme.heading,
-        size=theme.size_quote,
+        size=size,
         color=theme.ink,
         italic=True,
         first=True,
@@ -484,8 +593,12 @@ def paint(
     *,
     number: int,
     resolve_image: Callable[[str], str],
-) -> Any:
-    """Draw one slide and return it. `number` is the printed slide number."""
+) -> tuple[Any, list[str]]:
+    """Draw one slide; returns (slide, layout warnings). A warning means the content
+    doesn't fit its frame even at minimum size — a writing problem the caller (the
+    model) must fix by splitting or cutting, because no renderer is available at
+    runtime to screenshot-and-check."""
+    warnings: list[str] = []
     kind = str(entry.get("layout") or "bullets").lower()
     if kind not in LAYOUTS:
         raise ValueError(
@@ -511,7 +624,7 @@ def paint(
     elif kind == "section":
         _paint_section(slide, entry, theme, number)
     elif kind == "bullets":
-        _paint_bullets(slide, entry, theme, _bullet_pairs(entry.get("bullets")))
+        _paint_bullets(slide, entry, theme, _bullet_pairs(entry.get("bullets")), warnings)
     elif kind == "statement":
         _paint_statement(slide, entry, theme)
     elif kind == "stat":
@@ -525,7 +638,7 @@ def paint(
             raise ValueError(
                 f"a '{kind}' slide needs columns: [{{heading, bullets}}, {{heading, bullets}}]"
             )
-        _paint_columns(slide, entry, theme, columns, carded=(kind == "comparison"))
+        _paint_columns(slide, entry, theme, columns, warnings, carded=(kind == "comparison"))
     elif kind == "quote":
         _paint_quote(slide, entry, theme)
     elif kind == "image":
@@ -537,4 +650,4 @@ def paint(
     if chrome:
         _footer(slide, theme, number)
     _drop_empty_placeholders(slide)
-    return slide
+    return slide, warnings

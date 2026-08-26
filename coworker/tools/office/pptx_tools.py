@@ -108,7 +108,9 @@ _WRITE_SCHEMA = {
     "function": {
         "name": "write_presentation",
         "description": (
-            "Create or overwrite a PowerPoint (.pptx) deck from structured slides. Produces a "
+            "Create or overwrite a PowerPoint (.pptx) deck from structured slides. Text is "
+            "auto-fitted to its frame; if the result carries layout_warnings, those slides "
+            "hold more than fits — rewrite or split them and call again. Produces a "
             "designed 16:9 deck — vary the slide layouts (statement / stat / quote / "
             "two_column / comparison / image), do not make every slide a bullet list, and "
             "write titles that state the takeaway rather than name the topic. Always include "
@@ -203,6 +205,7 @@ def pptx_tools(context: Any) -> list:
             deck_theme.apply_theme_fonts(deck, theme)
 
         existing = len(deck.slides)
+        layout_warnings: list[str] = []
         for offset, entry in enumerate(slides):
             if not isinstance(entry, dict):
                 raise ValueError(f"each slide must be an object, got {type(entry).__name__}")
@@ -213,7 +216,7 @@ def pptx_tools(context: Any) -> list:
                     raise FileNotFoundError(display_path(found, roots))
                 return str(found)
 
-            slide = deck_render.paint(
+            slide, slide_warnings = deck_render.paint(
                 deck,
                 entry,
                 theme,
@@ -221,20 +224,29 @@ def pptx_tools(context: Any) -> list:
                 resolve_image=_picture,
             )
             _set_notes(slide, str(entry.get("notes") or ""))
+            for w in slide_warnings:
+                layout_warnings.append(f"slide {existing + offset + 1}: {w}")
 
         target.parent.mkdir(parents=True, exist_ok=True)
         deck.save(str(target))
-        return deliverable_check.attach(
-            {
-                "path": display_path(target, roots),
-                "slides_written": len(slides),
-                "total_slides": len(list(deck.slides)),
-                "appended": bool(append),
-                "widescreen": widened or deck.slide_width == deck_theme.SLIDE_WIDTH_EMU,
-                "bytes": target.stat().st_size,
-            },
-            target,
-        )
+        result: dict[str, Any] = {
+            "path": display_path(target, roots),
+            "slides_written": len(slides),
+            "total_slides": len(list(deck.slides)),
+            "appended": bool(append),
+            "widescreen": widened or deck.slide_width == deck_theme.SLIDE_WIDTH_EMU,
+            "bytes": target.stat().st_size,
+        }
+        if layout_warnings:
+            # The deck IS saved — text was shrunk to its floor — but these slides hold
+            # more than fits. There is no renderer here to screenshot-and-verify with,
+            # so this estimate is the layout check; the model must act on it.
+            result["layout_warnings"] = layout_warnings
+            result["action_required"] = (
+                "Rewrite the flagged slides with fewer/shorter bullets or split each "
+                "into two slides, then call write_presentation again."
+            )
+        return deliverable_check.attach(result, target)
 
     @guard
     def read_presentation(path: str) -> dict[str, Any]:
