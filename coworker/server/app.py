@@ -154,6 +154,7 @@ from ..attachments import (
     MAX_ATTACHMENTS as _MAX_ATTACHMENTS,
 )
 from ..attachments import (
+    MAX_FILE_CHARS,
     MAX_IMAGE_CHARS,
     MAX_PDF_CHARS,
     MAX_TEXT_CHARS,
@@ -1885,7 +1886,11 @@ def create_app(manager: SessionManager) -> FastAPI:
                             attachment_kind = attachment.get("kind")
                             name = attachment.get("name")
                             mime = attachment.get("mime")
-                            if attachment_kind not in {"image", "pdf", "text"}:
+                            # "file" is Office & friends (owner ask 2026-08-20): saved
+                            # into the workspace and opened with the reading tools. The
+                            # GUI has sent it since then — this gate rejecting it is what
+                            # made every dropped .xlsx say "Invalid attachment kind."
+                            if attachment_kind not in {"image", "pdf", "text", "file"}:
                                 reject = "Invalid attachment kind."
                             elif name is not None and (
                                 not isinstance(name, str) or len(name) > 1024
@@ -1904,6 +1909,15 @@ def create_app(manager: SessionManager) -> FastAPI:
                                     or len(data) > MAX_IMAGE_CHARS
                                 ):
                                     reject = "Invalid or oversized image attachment."
+                            elif attachment_kind == "file":
+                                data = attachment.get("data_url")
+                                if (
+                                    not isinstance(data, str)
+                                    or not data.startswith("data:")
+                                    or ";base64," not in data
+                                    or len(data) > MAX_FILE_CHARS
+                                ):
+                                    reject = "Invalid or oversized file attachment."
                             elif attachment_kind == "pdf":
                                 data = attachment.get("data_url")
                                 if (

@@ -392,6 +392,48 @@ def test_ws_rejects_oversized_message(tmp_path):
         assert "turn_done" in _drain(ws)
 
 
+def test_ws_accepts_an_office_file_attachment(tmp_path):
+    """Dropping an .xlsx sends kind="file" (the GUI has since 2026-08-20). The ingress
+    gate rejected it as "Invalid attachment kind." while everything downstream — saving
+    it into the workspace, pointing the agent's Office tools at it — was ready and
+    waiting. The owner hit it twice (a .docx, then an .xlsx on 2026-08-25)."""
+    import base64
+
+    client = _client(tmp_path, [_text("read it")])
+    payload = base64.b64encode(b"PK\x03\x04fake-xlsx").decode()
+    with client.websocket_connect("/ws/session/xlsx") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json(
+            {
+                "type": "user_message",
+                "text": "analyse this",
+                "attachments": [
+                    {
+                        "kind": "file",
+                        "name": "survey.xlsx",
+                        "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "data_url": f"data:application/vnd.ms-excel;base64,{payload}",
+                    }
+                ],
+            }
+        )
+        types = _drain(ws)
+        assert "input_rejected" not in types  # the whole bug, in one line
+        assert "turn_done" in types
+
+    # A malformed kind="file" is still refused — the gate opened, it didn't vanish.
+    with client.websocket_connect("/ws/session/xlsx2") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json(
+            {
+                "type": "user_message",
+                "text": "x",
+                "attachments": [{"kind": "file", "name": "a.xlsx", "data_url": "https://x/"}],
+            }
+        )
+        assert ws.receive_json()["type"] == "input_rejected"
+
+
 def test_ws_rejects_malformed_payloads_without_killing_socket(tmp_path):
     client = _client(tmp_path, [_text("normal")])
     with client.websocket_connect("/ws/session/malformed") as ws:
