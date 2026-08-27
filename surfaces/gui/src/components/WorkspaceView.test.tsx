@@ -98,4 +98,136 @@ describe("WorkspaceView", () => {
       expect(el.textContent).toContain("no workspace folder");
     });
   });
+
+  // ── editor (manuscript workbench lite) ──
+
+  it("Edit switches to the editor with the file's raw text", async () => {
+    mockFetch({ "/v1/workspace/tree": treeFixture, "/v1/workspace/read": readFixture });
+    render(<WorkspaceView workspace={null} sessionId={null} />);
+    await waitFor(() => screen.getByTestId("workspace-entry-notes.md"));
+    screen.getByTestId("workspace-entry-notes.md").click();
+    await waitFor(() => screen.getByTestId("workspace-file-title"));
+    screen.getByTestId("workspace-edit-btn").click();
+    const editor = await waitFor(() => screen.getByTestId("workspace-editor") as HTMLTextAreaElement);
+    // numbered lines are stripped back to raw text
+    expect(editor.value).toContain("first");
+    expect(editor.value).not.toMatch(/^\d+\t/);
+  });
+
+  it("Save posts to /v1/manuscript/save and marks saved state", async () => {
+    const calls: Array<{ url: string; body?: unknown }> = [];
+    const fn = vi.fn((input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      if (url.includes("/v1/workspace/tree")) {
+        return Promise.resolve(new Response(JSON.stringify(treeFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/workspace/read")) {
+        return Promise.resolve(new Response(JSON.stringify(readFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/manuscript/save")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, saved: true, versions: 1 }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fn);
+    render(<WorkspaceView workspace={null} sessionId={null} />);
+    await waitFor(() => screen.getByTestId("workspace-entry-notes.md"));
+    screen.getByTestId("workspace-entry-notes.md").click();
+    await waitFor(() => screen.getByTestId("workspace-file-title"));
+    screen.getByTestId("workspace-edit-btn").click();
+    await waitFor(() => screen.getByTestId("workspace-editor"));
+    const save = screen.getByTestId("workspace-save-btn") as HTMLButtonElement;
+    // unchanged draft → disabled
+    expect(save.disabled).toBe(true);
+    // type something → enabled
+    const editor = screen.getByTestId("workspace-editor") as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+    setter.call(editor, "first\nsecond\nedited");
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    await waitFor(() => expect((screen.getByTestId("workspace-save-btn") as HTMLButtonElement).disabled).toBe(false));
+    screen.getByTestId("workspace-save-btn").click();
+    await waitFor(() => {
+      const call = calls.find((c) => c.url.includes("/v1/manuscript/save"));
+      expect(call).toBeTruthy();
+      expect((call!.body as { content: string }).content).toContain("edited");
+    });
+  });
+
+  it("Proofread renders notes and can load the revision", async () => {
+    const fn = vi.fn((input: RequestInfo) => {
+      const url = String(input);
+      if (url.includes("/v1/workspace/tree")) {
+        return Promise.resolve(new Response(JSON.stringify(treeFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/workspace/read")) {
+        return Promise.resolve(new Response(JSON.stringify(readFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/manuscript/proofread")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              revised: "First revised\nSecond revised",
+              notes: [{ kind: "grammar", issue: "capitalization", suggestion: "capitalize" }],
+              model: "test-model",
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fn);
+    render(<WorkspaceView workspace={null} sessionId={null} />);
+    await waitFor(() => screen.getByTestId("workspace-entry-notes.md"));
+    screen.getByTestId("workspace-entry-notes.md").click();
+    await waitFor(() => screen.getByTestId("workspace-file-title"));
+    screen.getByTestId("workspace-edit-btn").click();
+    await waitFor(() => screen.getByTestId("workspace-editor"));
+    screen.getByTestId("workspace-proofread-btn").click();
+    const card = await waitFor(() => screen.getByTestId("workspace-proofread"));
+    expect(card.textContent).toContain("grammar");
+    expect(card.textContent).toContain("test-model");
+    screen.getByTestId("workspace-apply-btn").click();
+    await waitFor(() => {
+      const editor = screen.getByTestId("workspace-editor") as HTMLTextAreaElement;
+      expect(editor.value).toContain("First revised");
+    });
+  });
+
+  it("Versions drawer lists and loads snapshots", async () => {
+    const fn = vi.fn((input: RequestInfo, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/v1/workspace/tree")) {
+        return Promise.resolve(new Response(JSON.stringify(treeFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/workspace/read")) {
+        return Promise.resolve(new Response(JSON.stringify(readFixture), { status: 200 }));
+      }
+      if (url.includes("/v1/manuscript/versions")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ versions: [{ ts: "2026-08-25T10:00:00Z", label: "manual" }] }), { status: 200 }),
+        );
+      }
+      if (url.includes("/v1/manuscript/restore")) {
+        return Promise.resolve(new Response(JSON.stringify({ content: "old content" }), { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({}), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fn);
+    render(<WorkspaceView workspace={null} sessionId={null} />);
+    await waitFor(() => screen.getByTestId("workspace-entry-notes.md"));
+    screen.getByTestId("workspace-entry-notes.md").click();
+    await waitFor(() => screen.getByTestId("workspace-file-title"));
+    screen.getByTestId("workspace-edit-btn").click();
+    await waitFor(() => screen.getByTestId("workspace-editor"));
+    screen.getByTestId("workspace-versions-btn").click();
+    const drawer = await waitFor(() => screen.getByTestId("workspace-versions"));
+    expect(drawer.textContent).toContain("manual");
+    screen.getByTestId("workspace-restore").click();
+    await waitFor(() => {
+      const editor = screen.getByTestId("workspace-editor") as HTMLTextAreaElement;
+      expect(editor.value).toContain("old content");
+    });
+  });
 });

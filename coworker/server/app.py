@@ -326,6 +326,47 @@ def create_app(manager: SessionManager) -> FastAPI:
             path, workspace or None, session_id or None, start_line, max_lines
         )
 
+    # -- manuscript workbench (Files pane editor) ---------------------------------
+
+    @app.post("/v1/manuscript/proofread")
+    def manuscript_proofread(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_proofread(
+            str(body.get("path", "")),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+            str(body.get("model", "")) or None,
+        )
+
+    @app.get("/v1/manuscript/versions")
+    def manuscript_versions(
+        path: str, workspace: str = "", session_id: str = ""
+    ) -> dict[str, Any]:
+        return manager.manuscript_versions(
+            path, workspace or None, session_id or None
+        )
+
+    @app.post("/v1/manuscript/save")
+    def manuscript_save(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_save(
+            str(body.get("path", "")),
+            str(body.get("content", "")),
+            str(body.get("label", "") or "manual"),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+        )
+
+    @app.post("/v1/manuscript/restore")
+    def manuscript_restore(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_restore(
+            str(body.get("path", "")),
+            str(body.get("ts", "")),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+        )
+
     @app.get("/v1/skills/importable")
     def importable_skills(workspace: str = "") -> dict[str, Any]:
         """Skills this machine already has for Claude Code / Cowork plugins."""

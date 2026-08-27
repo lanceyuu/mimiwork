@@ -4836,6 +4836,215 @@ class SessionManager:
     def provider_complete(self, model, messages, tools=None):
         return self.provider.complete(model=model, messages=messages, tools=tools)
 
+    # -- manuscript workbench ----------------------------------------------------
+    # Proofread + version history for the Files pane's editor. Containment is the
+    # same granted-roots rule as workspace_tree/read; the AI call goes through
+    # the configured provider (any key the user set, or QualiTaTi credits).
+
+    _PROOFREAD_PROMPT = (
+        "You are an expert academic manuscript proofreader. Correct the following "
+        "academic text for grammar, clarity, concision, and academic style. Preserve "
+        "the author's meaning and citations. Output ONLY JSON:\n"
+        '{"revised":"<the fully corrected text>","notes":[{"kind":"grammar|clarity|'
+        'style|structure|suggestion","issue":"<problem in the original>","suggestion":'
+        '"<how to fix it>"}]}\n'
+        "Include up to 12 notes. Do not add markdown fences or commentary."
+    )
+    _MAX_PROOFREAD_CHARS = 40000
+
+    def manuscript_proofread(
+        self,
+        path: str,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Proofread a workspace text file through the configured provider."""
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+        target = self._resolve_in_roots(path, roots)
+        if target is None or not target.is_file():
+            return {"error": f"not a file in this workspace: {path}"}
+        try:
+            text = target.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return {"error": f"read failed: {exc}"}
+        truncated = len(text) > self._MAX_PROOFREAD_CHARS
+        body = text[: self._MAX_PROOFREAD_CHARS]
+        try:
+            turn = self.provider.complete(
+                model=model or self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": self._PROOFREAD_PROMPT,
+                    },
+                    {"role": "user", "content": body},
+                ],
+            )
+        except Exception as exc:  # provider not configured / quota / network
+            return {"error": f"model call failed: {exc}"}
+        content = getattr(getattr(turn, "message", None), "content", "") or ""
+        # Tolerate fences/prose around the JSON object.
+        start, end = content.find("{"), content.rfind("}")
+        parsed: dict[str, Any] = {}
+        if start >= 0 and end > start:
+            import json as _json
+
+            try:
+                parsed = _json.loads(content[start : end + 1])
+            except ValueError:
+                parsed = {}
+        return {
+            "path": path,
+            "truncated": truncated,
+            "revised": str(parsed.get("revised") or "") or None,
+            "notes": parsed.get("notes") or [],
+            "model": model or self.model,
+        }
+
+    def _resolve_in_roots(self, path: str, roots: list[Path]) -> Optional[Path]:
+        """Resolve a display path against the granted roots (containment)."""
+        rel = (path or "").strip()
+        if rel.startswith("root:"):
+            head, _, rest = rel.partition("/")
+            try:
+                idx = int(head.split(":", 1)[1])
+            except ValueError:
+                idx = 0
+            if 0 <= idx < len(roots):
+                return (roots[idx] / rest).resolve()
+        for r in roots:
+            candidate = (r / rel).resolve()
+            try:
+                candidate.relative_to(r)
+            except ValueError:
+                continue
+            return candidate
+        return None
+
+    @staticmethod
+    def _versions_paths(target: Path) -> tuple[Path, Path]:
+        """(chain file, snapshot dir) — versions live beside the file under
+        .versions/, so history travels with the folder it describes."""
+        stem = target.name.rsplit(".", 1)[0] if "." in target.name else target.name
+        vdir = target.parent / ".versions"
+        return vdir / f"{stem}.json", vdir
+
+    def manuscript_versions(
+        self,
+        path: str,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """List saved version snapshots for a file (newest first)."""
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+        target = self._resolve_in_roots(path, roots)
+        if target is None:
+            return {"error": f"not a file in this workspace: {path}"}
+        chain_file, vdir = self._versions_paths(target)
+        versions: list[dict[str, Any]] = []
+        if chain_file.is_file():
+            try:
+                import json as _json
+
+                chain = _json.loads(chain_file.read_text(encoding="utf-8"))
+                versions = chain.get("versions") or []
+            except (OSError, ValueError):
+                versions = []
+        return {"path": path, "versions": list(reversed(versions))}
+
+    def manuscript_save(
+        self,
+        path: str,
+        content: str,
+        label: str = "manual",
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Write new content AND snapshot the previous version (editor save).
+        Snapshots skip no-op saves (byte-identical to the last snapshot)."""
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+        target = self._resolve_in_roots(path, roots)
+        if target is None:
+            return {"error": f"not a file in this workspace: {path}"}
+        chain_file, vdir = self._versions_paths(target)
+        import json as _json
+        from datetime import datetime, timezone
+
+        try:
+            chain = (
+                _json.loads(chain_file.read_text(encoding="utf-8"))
+                if chain_file.is_file()
+                else {"file": path, "versions": []}
+            )
+        except (OSError, ValueError):
+            chain = {"file": path, "versions": []}
+
+        previous = ""
+        try:
+            previous = target.read_text(encoding="utf-8")
+        except OSError:
+            previous = ""
+
+        # Skip an identical-content save entirely.
+        if previous == content:
+            return {"ok": True, "saved": False, "note": "unchanged", "versions": len(chain.get("versions", []))}
+
+        # Snapshot the PREVIOUS content (what is being replaced).
+        ts = datetime.now(timezone.utc).isoformat()
+        stem = target.name.rsplit(".", 1)[0] if "." in target.name else target.name
+        if previous:
+            snap = vdir / f"{stem}.{ts.replace(':', '-')}.md"
+            vdir.mkdir(parents=True, exist_ok=True)
+            snap.write_text(previous, encoding="utf-8")
+            chain.setdefault("versions", []).append({"ts": ts, "label": label or "manual"})
+            # Keep the newest 20.
+            versions = chain["versions"]
+            dropped = len(versions) - 20
+            if dropped > 0:
+                for v in versions[:dropped]:
+                    old = vdir / f"{stem}.{v['ts'].replace(':', '-')}.md"
+                    try:
+                        old.unlink()
+                    except OSError:
+                        pass
+                chain["versions"] = versions[-20:]
+            chain_file.parent.mkdir(parents=True, exist_ok=True)
+            chain_file.write_text(_json.dumps(chain, indent=2), encoding="utf-8")
+
+        target.write_text(content, encoding="utf-8")
+        return {"ok": True, "saved": True, "versions": len(chain.get("versions", []))}
+
+    def manuscript_restore(
+        self,
+        path: str,
+        ts: str,
+        workspace: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Restore a snapshot's content (returns it; the caller saves)."""
+        roots = self._mention_roots(workspace, session_id)
+        if not roots:
+            return {"error": "no workspace folder is open"}
+        target = self._resolve_in_roots(path, roots)
+        if target is None:
+            return {"error": f"not a file in this workspace: {path}"}
+        chain_file, vdir = self._versions_paths(target)
+        stem = target.name.rsplit(".", 1)[0] if "." in target.name else target.name
+        snap = vdir / f"{stem}.{ts.replace(':', '-')}.md"
+        if not snap.is_file():
+            return {"error": f"no snapshot for {ts}"}
+        try:
+            return {"path": path, "ts": ts, "content": snap.read_text(encoding="utf-8")}
+        except OSError as exc:
+            return {"error": f"read failed: {exc}"}
+
     def _refresh_provider(self, name: Optional[str] = None) -> None:
         """Drop the router's cached client(s) so the next turn rebuilds with fresh config.
         No-op for an injected non-router provider (tests)."""
