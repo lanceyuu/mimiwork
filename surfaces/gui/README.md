@@ -44,6 +44,32 @@ npm install        # first time
 npm run tauri dev  # builds the shell, launches the window, starts the server
 ```
 
+## Files surface
+
+Account menu → **Files** browses the session's granted folders (the same roots the
+@-picker and file tools see): one-level tree with breadcrumbs, multi-root switcher,
+filter box, and a line-numbered viewer for text files. Read-only by design — edits go
+through the agent's approval-gated tools; this pane is for the human to see what's
+there. Backed by `GET /v1/workspace/tree` and `GET /v1/workspace/read` (containment =
+`_mention_roots`, so nothing outside a granted root is ever listed or read).
+
+### Manuscript workbench (in the Files pane)
+
+Text files open into an editable mode with the workbench essentials, ported from
+QualiTaTi Local's ManuscriptWorkbench:
+
+- **Edit + Save** — `POST /v1/manuscript/save` writes the file and snapshots the
+  previous content into `<dir>/.versions/` (max 20, no-op saves skipped).
+- **Proofread** — `POST /v1/manuscript/proofread` sends the text through the
+  configured provider (any key, or QualiTaTi credits) with the academic
+  grammar/clarity/style prompt; notes render as a card and the revised text
+  loads into the editor in one click.
+- **Versions** — `GET /v1/manuscript/versions` + `POST /v1/manuscript/restore`;
+  any snapshot loads back into the editor.
+
+Same containment as the tree: `.versions/` lives beside the file, inside the
+granted roots.
+
 ## Tests
 
 ```bash

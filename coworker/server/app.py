@@ -306,6 +306,67 @@ def create_app(manager: SessionManager) -> FastAPI:
             )
         }
 
+    @app.get("/v1/workspace/tree")
+    def workspace_tree(
+        workspace: str = "", session_id: str = "", path: str = "."
+    ) -> dict[str, Any]:
+        """File browser: one level of `path` under the granted roots."""
+        return manager.workspace_tree(workspace or None, session_id or None, path)
+
+    @app.get("/v1/workspace/read")
+    def workspace_read(
+        path: str,
+        workspace: str = "",
+        session_id: str = "",
+        start_line: int = 1,
+        max_lines: int = 500,
+    ) -> dict[str, Any]:
+        """Read a text file (line-numbered, windowed) for the browser pane."""
+        return manager.workspace_read(
+            path, workspace or None, session_id or None, start_line, max_lines
+        )
+
+    # -- manuscript workbench (Files pane editor) ---------------------------------
+
+    @app.post("/v1/manuscript/proofread")
+    def manuscript_proofread(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_proofread(
+            str(body.get("path", "")),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+            str(body.get("model", "")) or None,
+        )
+
+    @app.get("/v1/manuscript/versions")
+    def manuscript_versions(
+        path: str, workspace: str = "", session_id: str = ""
+    ) -> dict[str, Any]:
+        return manager.manuscript_versions(
+            path, workspace or None, session_id or None
+        )
+
+    @app.post("/v1/manuscript/save")
+    def manuscript_save(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_save(
+            str(body.get("path", "")),
+            str(body.get("content", "")),
+            str(body.get("label", "") or "manual"),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+        )
+
+    @app.post("/v1/manuscript/restore")
+    def manuscript_restore(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.manuscript_restore(
+            str(body.get("path", "")),
+            str(body.get("ts", "")),
+            str(body.get("workspace", "")) or None,
+            str(body.get("session_id", "")) or None,
+        )
+
     @app.get("/v1/skills/importable")
     def importable_skills(workspace: str = "") -> dict[str, Any]:
         """Skills this machine already has for Claude Code / Cowork plugins."""

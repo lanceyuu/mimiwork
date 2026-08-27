@@ -123,10 +123,12 @@ interface Props {
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
+  onOpenFiles: () => void;
   scheduledActive: boolean;
   integrationsActive: boolean;
   auditActive: boolean;
   inboxActive: boolean;
+  filesActive: boolean;
   // Collapse controls (⌘B / hover-peek). `onCollapse` docks/undocks; `onPeekLeave` hides the
   // floating peek when the pointer leaves the panel.
   collapsed?: boolean;
@@ -1303,6 +1305,7 @@ export function Sidebar(props: Props) {
                 )}
                 {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
                 {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
+                {appMenuItem("folder", "Files", props.onOpenFiles, props.filesActive)}
                 {qtSignedIn && (
                   <>
                     <div className="h-px bg-line my-1 mx-2" />
