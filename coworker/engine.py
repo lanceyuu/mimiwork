@@ -21,10 +21,12 @@ from enum import Enum
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from . import compaction as _compaction
+from . import repetition as _repetition
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import friendly_model_error, is_transient, retry_after_seconds
+from .repetition import RepetitionGuard as _RepetitionGuard
 from .tools import RecoveryPolicy, ToolRegistry
 
 
@@ -369,6 +371,13 @@ class TurnEngine:
     async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
         retries_used = 0
+        # Fresh per turn: a stuck model re-sends near-identical iterations, and each
+        # lap costs the user credits (see coworker/repetition.py, adapted from
+        # FrontierAgent). Hint first, stop if it persists.
+        # min_chars is low because the signature is structured (text + tool name +
+        # args): "read_file {'path': 'a.txt'}" repeated six times is a loop even
+        # though it's short. The class default (40) targets plain prose.
+        rep_guard = _RepetitionGuard(min_chars=16)
         while True:
             if iterations >= self.max_iterations:
                 yield Event(
@@ -545,6 +554,43 @@ class TurnEngine:
                     {"status": "completed", "iterations": iterations},
                 )
                 return
+
+            # Repetition check BEFORE the tools run: when the verdict is "stop", the
+            # identical lap is skipped, not executed one more time.
+            signature = " ".join(
+                [turn.text or ""]
+                + [f"{tc.name} {json.dumps(tc.arguments, sort_keys=True)}" for tc in turn.tool_calls]
+            )
+            verdict = rep_guard.observe(signature)
+            if verdict == "stop":
+                self._append_notice(
+                    "error", "Stopped: the model kept repeating the same step without progress."
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {
+                        "kind": "repetition",
+                        "text": "Mimi kept repeating the same step — stopping this turn.",
+                    },
+                )
+                yield Event(
+                    EventType.TURN_END,
+                    {"status": "repetition_stop", "iterations": iterations},
+                )
+                return
+            if verdict == "hint":
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": _repetition.HINT,
+                        "ts": time.time(),
+                        "steering": "repetition",
+                    }
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {"kind": "repetition", "text": "Mimi seems to be looping — nudging it to change course."},
+                )
 
             async for event in self._handle_tool_calls(turn.tool_calls):
                 yield event
@@ -1453,6 +1499,16 @@ class TurnEngine:
                 "result_preview": _preview(result),
             },
         )
+
+    def drain_pending_steering(self) -> list[str]:
+        """Take (and clear) queued steering that no live loop consumed — the race where
+        the user's mid-run instruction arrived just as the turn finished. Only unsourced
+        (locally typed) entries are taken; connector-sourced steers stay with their own
+        delivery plumbing."""
+        taken = [text for text, source in self._steering if source is None]
+        if taken:
+            self._steering = [(t, s) for t, s in self._steering if s is not None]
+        return taken
 
     def _inject_steering(self) -> None:
         for text, source in self._steering:

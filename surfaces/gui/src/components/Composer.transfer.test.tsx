@@ -239,3 +239,38 @@ describe("permission modes", () => {
     await waitFor(() => expect((box() as HTMLTextAreaElement).value).toBe(""));
   });
 });
+
+describe("steering a running turn", () => {
+  // Adopted from FrontierAgent's asynchronous intervention (owner ask 2026-08-28):
+  // typing while Mimi works must reach it, not bounce off a locked composer.
+  const runningBox = () => screen.getByPlaceholderText(/steer it mid-run/);
+
+  it("a plain typed message sends while Mimi is running", () => {
+    stubFetch();
+    const p = props({ running: true });
+    render(<Composer {...p} />);
+    fireEvent.change(runningBox(), { target: { value: "focus on chapter two only" } });
+    fireEvent.keyDown(runningBox(), { key: "Enter" });
+    expect(p.onSend).toHaveBeenCalledWith("focus on chapter two only", [], undefined);
+    expect((runningBox() as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("the placeholder says the message will steer, and Stop stays available", () => {
+    stubFetch();
+    render(<Composer {...props({ running: true })} />);
+    expect(runningBox()).toBeTruthy();
+    expect(screen.getByText(/Stop/)).toBeTruthy();
+  });
+
+  it("a picked /skill still waits for the turn to end", async () => {
+    stubFetch();
+    const p = props({ running: true });
+    render(<Composer {...p} />);
+    fireEvent.change(runningBox(), { target: { value: "/we" } });
+    await waitFor(() => expect(screen.getByText("/weekly-report")).toBeTruthy());
+    fireEvent.click(screen.getByText("/weekly-report"));
+    fireEvent.keyDown(runningBox(), { key: "Enter" });
+    // Steering is for plain text only: a skill run needs a fresh turn's framing.
+    expect(p.onSend).not.toHaveBeenCalled();
+  });
+});

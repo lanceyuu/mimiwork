@@ -1764,6 +1764,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                 await manager.broadcast_session(
                     session_id, {"type": "turn_done", "data": {}}
                 )
+                # A steer that arrived in the closing instants of this turn was queued
+                # but never injected — without this it would silently ride into some
+                # future turn (or nowhere). Run it now as its own follow-up turn.
+                leftover = engine.drain_pending_steering()
+                if leftover:
+                    await claim_turn(content="\n\n".join(leftover))
 
         # This socket is now a live view of the session; background turns (channel delivery,
         # self-wake, durable resume) broadcast here too, not just locally driven run_turns.
@@ -1775,8 +1781,21 @@ def create_app(manager: SessionManager) -> FastAPI:
             # or flush an in-progress assistant stream in the GUI.
             await ws.send_json({"type": "input_rejected", "data": {"error": reason}})
 
-        async def claim_turn(*, retry: bool = False, content=None, display=None) -> None:
+        async def claim_turn(
+            *, retry: bool = False, content=None, display=None, steer_text: str = ""
+        ) -> None:
             if not manager.try_mark_running(session_id):
+                # Busy is not a dead end any more: a plain typed message steers the
+                # RUNNING turn — queued here, injected by the loop at its next safe
+                # boundary (between tool iterations). The pattern is FrontierAgent's
+                # "asynchronous intervention"; the queue already existed for Slack
+                # follow-ups, the desktop socket just never used it.
+                if steer_text:
+                    engine.queue_steering(steer_text)
+                    await ws.send_json(
+                        {"type": "steer_queued", "data": {"text": steer_text}}
+                    )
+                    return
                 await reject_input(
                     "This session is already running a turn. Wait for it to finish or stop it."
                 )
@@ -1992,7 +2011,15 @@ def create_app(manager: SessionManager) -> FastAPI:
                             attachments,
                             save_dir=Path(session_dir) if session_dir else None,
                         )
-                        await claim_turn(content=content, display=display)
+                        await claim_turn(
+                            content=content,
+                            display=display,
+                            # Only a plain typed message may steer a running turn:
+                            # attachments and /skill runs need a fresh turn's framing.
+                            steer_text=(
+                                text if (text and not attachments and not skill) else ""
+                            ),
+                        )
                 else:
                     await reject_input(f"Unknown WebSocket message type: {kind}.")
         except WebSocketDisconnect:

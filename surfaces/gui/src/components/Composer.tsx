@@ -559,9 +559,13 @@ export function Composer(props: Props) {
     // the skill rides as its own field.
     const skill = prefixIntact ? pendingSkill!.name : undefined;
     const t = (skill ? text.slice(skill.length + 1) : text).trim();
+    // While a turn runs, a PLAIN text message still sends — it steers the running
+    // turn (injected at the next safe boundary, FrontierAgent-style). Attachments
+    // and /skill runs still wait: they need a fresh turn's framing.
+    const steering = props.running && !!t && attachments.length === 0 && !skill;
     if (
       (!t && attachments.length === 0 && !skill) ||
-      props.running ||
+      (props.running && !steering) ||
       dictation?.recording ||
       dictationBusy
     )
@@ -822,7 +826,11 @@ export function Composer(props: Props) {
         <textarea
           ref={textareaRef}
           className="w-full block px-3.5 pt-3.5 pb-1.5 text-[14.5px]"
-          placeholder={props.placeholder || "Ask the coworker…  (drop or paste files)"}
+          placeholder={
+            props.running
+              ? "Mimi is working — type to steer it mid-run…"
+              : props.placeholder || "Ask the coworker…  (drop or paste files)"
+          }
           value={text}
           onChange={(e) => {
             caretRef.current = e.target.selectionStart;

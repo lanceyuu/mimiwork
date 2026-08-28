@@ -16,6 +16,7 @@ export type EventType =
   | "turn_end"
   | "error"
   | "input_rejected"
+  | "steer_queued"
   | "interrupted"
   | "model_changed"
   | "memory_saved"

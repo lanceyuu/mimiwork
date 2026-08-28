@@ -90,8 +90,11 @@ def test_explore_child_cannot_write(tmp_path):
     assert "report" in result
 
 
-def test_explore_flags_partial_report_on_iteration_rail(tmp_path):
-    # A provider that always asks for another grep: the child hits max_iterations.
+def test_explore_flags_partial_report_when_the_child_loops_forever(tmp_path):
+    # A provider that always asks for the same grep. Since 2026-08-28 the repetition
+    # guard (coworker/repetition.py) stops this loop well before max_iterations — the
+    # rail this test originally targeted now only catches VARIED endless work. Either
+    # way the caller must get a clear "no report, and why" instead of silence.
     class LoopingProvider(ScriptedProvider):
         def complete(self, **kwargs):
             return _tool_turn("grep", {"pattern": "x"})
@@ -103,9 +106,8 @@ def test_explore_flags_partial_report_on_iteration_rail(tmp_path):
         )
     )
     result = reg.execute("explore", {"task": "endless"})
-    assert "max_iterations" in result.get(
-        "error", ""
-    ) or "max_iterations" in result.get("note", "")
+    blob = (result.get("error") or "") + (result.get("note") or "")
+    assert "max_iterations" in blob or "repetition_stop" in blob
 
 
 def test_code_engine_registers_explore_chat_does_not(tmp_path):

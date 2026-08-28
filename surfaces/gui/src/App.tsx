@@ -825,6 +825,14 @@ export function App() {
             { kind: "notice", tone: "warn", text: "Error: " + (d.error || "unknown"), retriable: true },
           ]);
           break;
+        case "steer_queued":
+          // The message bubble is already on screen (optimistic add in send()); this
+          // tells the user it reaches Mimi mid-run rather than starting a new turn.
+          setItems((p) => [
+            ...p,
+            { kind: "notice", tone: "info", text: "Mimi will pick this up at its next step." },
+          ]);
+          break;
         case "input_rejected":
           setItems((p) => [
             ...p,

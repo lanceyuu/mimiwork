@@ -180,7 +180,10 @@ with `packaging/build_dmg.sh`.
 ## Acknowledgements
 
 MimiWork is a fork of [OpenWorker](https://github.com/andrewyng/openworker) by Andrew Ng and
-contributors, built on [aisuite](https://github.com/andrewyng/aisuite). This fork
+contributors, built on [aisuite](https://github.com/andrewyng/aisuite). The repetition-guard
+detection (stopping a looping model before it burns your credits) and the steer-while-running
+interaction are adapted from ideas in
+[FrontierAgent](https://github.com/ApodexAI/FrontierAgent) by Apodex AI (Apache-2.0). This fork
 repositions the tool for knowledge work — Office deliverables, PDF and image handling, and a
 statistics-aware data-analysis toolchain — and carries its own desktop refinements. Internal
 binary and package names (`coworker`, `openworker-server`) keep their upstream names for

@@ -496,17 +496,70 @@ def test_ws_allows_only_one_inflight_turn_per_session(tmp_path):
     with client.websocket_connect("/ws/session/serialized") as ws:
         assert ws.receive_json()["type"] == "ready"
         ws.send_json({"type": "user_message", "text": "first"})
+        # Typed while the first turn runs: not rejected any more — it STEERS the
+        # running turn (queued, injected at the next safe boundary), the pattern
+        # adopted from FrontierAgent's asynchronous intervention.
         ws.send_json({"type": "user_message", "text": "second"})
 
         types = []
         while "turn_done" not in types:
             types.append(ws.receive_json()["type"])
+        engine = manager._engines["serialized"]
 
-    assert "input_rejected" in types
-    assert provider.max_active == 1
-    engine = manager._engines["serialized"]
-    user_messages = [m for m in engine.messages if m.get("role") == "user"]
-    assert [m["content"] for m in user_messages] == ["first"]
+        def _user_texts():
+            return [
+                m["content"]
+                for m in engine.messages
+                if m.get("role") == "user" and not m.get("steering")
+            ]
+
+        # Either the steer was injected mid-turn, or it landed in the closing
+        # instants and runs as its own follow-up turn — both must preserve it.
+        if _user_texts() != ["first", "second"]:
+            more = []
+            while "turn_done" not in more:
+                more.append(ws.receive_json()["type"])
+            types.extend(more)
+
+    assert "steer_queued" in types
+    assert "input_rejected" not in types
+    assert provider.max_active == 1  # still strictly one model call at a time
+    assert _user_texts() == ["first", "second"]
+
+
+def test_ws_attachments_and_skills_still_wait_for_the_turn(tmp_path):
+    """Only a plain typed message may steer a running turn: an attachment needs a fresh
+    turn's framing, so mid-run it is still refused rather than silently queued."""
+    import threading
+    import time
+
+    class SlowProvider(ProviderClient):
+        def __init__(self):
+            self._gate = threading.Event()
+
+        def complete(self, *, model, messages, tools=None, **settings):
+            time.sleep(0.08)
+            return _text("done")
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    manager = SessionManager(workspace=tmp_path, provider=SlowProvider())
+    client = TestClient(create_app(manager))
+    with client.websocket_connect("/ws/session/steer-attach") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_message", "text": "go"})
+        ws.send_json(
+            {
+                "type": "user_message",
+                "text": "and this",
+                "attachments": [{"kind": "text", "name": "n.txt", "text": "body"}],
+            }
+        )
+        types = []
+        while "turn_done" not in types:
+            types.append(ws.receive_json()["type"])
+    assert "input_rejected" in types and "steer_queued" not in types
 
 
 def test_ws_rate_limits_inbound_frames(tmp_path):
