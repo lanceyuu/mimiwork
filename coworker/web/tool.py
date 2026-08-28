@@ -66,12 +66,33 @@ def make_web_search_tool(
 ) -> Callable[..., Any]:
     """Build the `web_search` tool. `provider` overrides resolution (used by tests)."""
 
+    # Session-scoped memory of what was already searched. Two failure modes this
+    # covers (both watched in ApodexAI/AgentHarness's benchmark harness, which fixes
+    # them by rolling back and RE-SAMPLING the model — an extra model call the user
+    # would pay for; answering at the tool layer costs nothing):
+    #   * the model re-issues a query it already ran → same results again, plus a
+    #     note saying so, no network hit, no duplicate context;
+    #   * a query returns nothing and the bare empty list anchors the model on
+    #     variants of the same dead query → the empty result now carries explicit
+    #     "change course" guidance.
+    seen: dict[str, dict[str, Any]] = {}
+
     def web_search(query: str, max_results: int = 5) -> dict[str, Any]:
         try:
             p = provider or resolve_provider(secrets)
         except ValueError as exc:
             return {"error": str(exc)}
         n = max_results if isinstance(max_results, int) else 5
+        key = " ".join((query or "").lower().split())
+        if key in seen:
+            return {
+                **seen[key],
+                "note": (
+                    "This exact query was already searched in this session — these are "
+                    "the SAME results, not new ones. Vary the terms, or open a "
+                    "promising result with web_fetch instead of searching again."
+                ),
+            }
         try:
             results = p.search(query, max_results=max(1, min(n, 10)))
         except Exception as exc:  # network / library / quota
@@ -79,7 +100,20 @@ def make_web_search_tool(
                 "error": f"web search failed: {exc}",
                 "provider": getattr(p, "name", "?"),
             }
-        return {"provider": p.name, "results": [r.to_dict() for r in results]}
+        out: dict[str, Any] = {"provider": p.name, "results": [r.to_dict() for r in results]}
+        if not results:
+            # Never cached: a retry after a transient empty may legitimately succeed.
+            return {
+                **out,
+                "note": (
+                    "No results for this query. Do not re-run it as-is or with minor "
+                    "wording changes — broaden or rethink the terms, or try a "
+                    "different approach entirely."
+                ),
+            }
+        if key:
+            seen[key] = out
+        return out
 
     web_search.__name__ = "web_search"
     web_search.__doc__ = _SCHEMA["function"]["description"]

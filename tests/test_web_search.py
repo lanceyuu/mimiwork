@@ -152,3 +152,45 @@ class _StubProvider:
         from coworker.providers.base import StreamChunk
 
         yield StreamChunk(turn=self.complete())
+
+
+# --- repeated and dead queries (tool-layer adaptation of AgentHarness's rollbacks) ---
+
+
+class _CountingProvider:
+    name = "counting"
+
+    def __init__(self, results=None):
+        self.calls = 0
+        self._results = results if results is not None else []
+
+    def search(self, query, max_results=5):
+        self.calls += 1
+        return self._results
+
+
+def test_a_repeated_query_returns_cached_results_without_a_network_hit():
+    from coworker.web.providers import SearchResult
+    from coworker.web.tool import make_web_search_tool
+
+    provider = _CountingProvider([SearchResult(title="t", url="https://x", snippet="s")])
+    tool = make_web_search_tool(provider=provider)
+    first = tool("survey completion rates")
+    again = tool("  Survey   completion RATES ")  # same query modulo case/whitespace
+    assert provider.calls == 1  # the network was hit once
+    assert again["results"] == first["results"]
+    assert "SAME results" in again["note"]
+
+
+def test_an_empty_result_carries_change_course_guidance_and_is_not_cached():
+    from coworker.web.providers import SearchResult
+    from coworker.web.tool import make_web_search_tool
+
+    provider = _CountingProvider([])
+    tool = make_web_search_tool(provider=provider)
+    got = tool("obscure dead-end query")
+    assert got["results"] == [] and "broaden or rethink" in got["note"]
+    # A transient empty must be retryable: the second call hits the network again.
+    provider._results = [SearchResult(title="t", url="https://x", snippet="s")]
+    retry = tool("obscure dead-end query")
+    assert provider.calls == 2 and len(retry["results"]) == 1 and "note" not in retry
