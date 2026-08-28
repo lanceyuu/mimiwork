@@ -1731,6 +1731,29 @@ export async function installStoreSkill(
   return res.json();
 }
 
+/** The account's Mimi model region — where the models answering this app run.
+ * "us" (default): DigitalOcean, cheaper credits. "eu": strict GDPR, Scaleway
+ * Paris, pricier. Account-level: the gateway reads it per request. */
+export interface QualitatiRegion {
+  ok: boolean;
+  error?: string;
+  region?: "eu" | "us";
+  configured?: boolean;
+  choices?: Record<string, string>;
+}
+export async function qualitatiRegion(): Promise<QualitatiRegion> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/region`);
+  return res.json();
+}
+export async function qualitatiSetRegion(region: "eu" | "us"): Promise<QualitatiRegion> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/region`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ region }),
+  });
+  return res.json();
+}
+
 /** Measured environmental impact of the Mimi service (Scaleway Environmental
  * Footprint, month to date, whole service — not per user). */
 export interface QualitatiFootprint {

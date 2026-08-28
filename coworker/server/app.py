@@ -1251,6 +1251,17 @@ def create_app(manager: SessionManager) -> FastAPI:
         """What MimiWork has spent from the signed-in QualiTaTi account."""
         return await asyncio.to_thread(manager.qualitati_credits, limit)
 
+    @app.get("/v1/qualitati/region")
+    async def qualitati_region() -> dict[str, Any]:
+        """The account's Mimi model region (GDPR Paris vs default US)."""
+        return await asyncio.to_thread(manager.qualitati_region)
+
+    @app.put("/v1/qualitati/region")
+    async def qualitati_set_region(body: dict) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            manager.qualitati_set_region, (body or {}).get("region", "")
+        )
+
     @app.post("/v1/qualitati/login")
     async def qualitati_login(body: dict) -> dict[str, Any]:
         return await asyncio.to_thread(

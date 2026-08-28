@@ -2352,6 +2352,51 @@ class SessionManager:
         except Exception as e:
             return {"ok": False, "error": f"{label} unavailable: {e}"}
 
+    def _qualitati_send(self, path: str, payload: dict, *, label: str) -> dict[str, Any]:
+        """PUT a small JSON body to a QualiTaTi API path with the stored credential —
+        the write twin of _qualitati_get, same key-first auth order."""
+        import json as _json
+        from urllib import error, request
+
+        from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+
+        auth = self.secrets.get(AUTH_PROFILE) or {}
+        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        api_key = provider.get("api_key") if isinstance(provider, dict) else None
+        jwt = auth.get("access_token")
+        if not (api_key or jwt):
+            return {"ok": False, "error": "not signed in"}
+        base = (auth.get("base_url") or DEFAULT_BASE).rstrip("/")
+        headers = {"Content-Type": "application/json"}
+        headers.update(
+            {"X-API-Key": api_key} if api_key else {"Authorization": f"Bearer {jwt}"}
+        )
+        req = request.Request(
+            base + path, data=_json.dumps(payload).encode(), headers=headers, method="PUT"
+        )
+        try:
+            with request.urlopen(req, timeout=30) as r:
+                return {"ok": True, **_json.load(r)}
+        except error.HTTPError as e:
+            return {"ok": False, "error": f"{label} unavailable ({e.code})"}
+        except Exception as e:
+            return {"ok": False, "error": f"{label} unavailable: {e}"}
+
+    def qualitati_region(self) -> dict[str, Any]:
+        """The account's Mimi model region — where the models answering this app run.
+        "us" (default, DigitalOcean, cheaper) or "eu" (strict GDPR, Scaleway Paris,
+        pricier). Lives on the ACCOUNT, read by the gateway per request — so setting
+        it here changes the very next message, on every device."""
+        return self._qualitati_get("/api/user/mimiwork-region", label="model region")
+
+    def qualitati_set_region(self, region: str) -> dict[str, Any]:
+        region = str(region or "").strip().lower()
+        if region not in ("eu", "us"):
+            return {"ok": False, "error": "region must be 'eu' or 'us'"}
+        return self._qualitati_send(
+            "/api/user/mimiwork-region", {"region": region}, label="model region"
+        )
+
     def qualitati_footprint(self) -> dict[str, Any]:
         """Measured environmental impact of the Mimi service (Scaleway data,
         proxied through the QualiTaTi gateway with the stored credential)."""

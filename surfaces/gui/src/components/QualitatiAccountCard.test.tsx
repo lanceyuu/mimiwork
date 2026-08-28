@@ -292,3 +292,58 @@ describe("QualitatiAccountCard — create account", () => {
     expect(screen.queryByTestId("qualitati-models")).toBeNull();
   });
 });
+
+describe("model region (GDPR switch)", () => {
+  // Owner correction 2026-08-28: the option lives HERE, in the app's Settings —
+  // not on the qualitati.com Profile page.
+  const REGION_US = { ok: true, region: "us", configured: false };
+
+  it("signed in: shows both regions with the current one active", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/qualitati/region", json: REGION_US },
+    ]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-region");
+    expect(screen.getByTestId("qualitati-region-us").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("qualitati-region-eu").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByText(/Paris/)).toBeTruthy();
+  });
+
+  it("clicking GDPR saves it via PUT and marks it active", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/qualitati/region", method: "GET", json: REGION_US },
+      { match: "/v1/qualitati/region", method: "PUT", json: { ok: true, region: "eu", configured: true } },
+    ]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-region");
+    fireEvent.click(screen.getByTestId("qualitati-region-eu"));
+    await waitFor(() =>
+      expect(screen.getByTestId("qualitati-region-eu").getAttribute("aria-pressed")).toBe("true"),
+    );
+    const put = calls.find((c) => c.method === "PUT" && c.url.includes("/v1/qualitati/region"));
+    expect(put?.body).toEqual({ region: "eu" });
+  });
+
+  it("a failed save falls back to the truth instead of lying", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/qualitati/region", method: "GET", json: REGION_US },
+      { match: "/v1/qualitati/region", method: "PUT", json: { ok: false, error: "offline" } },
+    ]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-region");
+    fireEvent.click(screen.getByTestId("qualitati-region-eu"));
+    await waitFor(() =>
+      expect(screen.getByTestId("qualitati-region-us").getAttribute("aria-pressed")).toBe("true"),
+    );
+  });
+
+  it("signed out: no region section", async () => {
+    stubFetch([{ match: "/v1/qualitati/status", json: SIGNED_OUT }]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-username");
+    expect(screen.queryByTestId("qualitati-region")).toBeNull();
+  });
+});

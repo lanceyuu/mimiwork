@@ -15,6 +15,8 @@ import {
   addModel,
   getSettings,
   qualitatiFootprint,
+  qualitatiRegion,
+  qualitatiSetRegion,
   qualitatiLogin,
   qualitatiLogout,
   qualitatiReconnect,
@@ -24,6 +26,7 @@ import {
   testModel,
   type ModelSettings,
   type QualitatiFootprint,
+  type QualitatiRegion,
   type QualitatiRegisterResult,
 } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
@@ -50,6 +53,8 @@ const MIMI_TIERS = [
 export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<QualitatiStatus | null>(null);
   const [footprint, setFootprint] = useState<QualitatiFootprint | null>(null);
+  const [region, setRegion] = useState<QualitatiRegion | null>(null);
+  const [regionSaving, setRegionSaving] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -89,7 +94,10 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
     if (state?.signed_in && footprint === null) {
       qualitatiFootprint().then(setFootprint).catch(() => setFootprint({ ok: false }));
     }
-  }, [state?.signed_in, footprint]);
+    if (state?.signed_in && region === null) {
+      qualitatiRegion().then(setRegion).catch(() => setRegion({ ok: false }));
+    }
+  }, [state?.signed_in, footprint, region]);
 
   const finish = (result: QualitatiStatus) => {
     if (!result.ok) {
@@ -338,6 +346,58 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
                 </div>
               );
             })}
+          </div>
+        </div>
+      ) : null}
+      {state.signed_in && region?.ok ? (
+        <div className="mt-3" data-testid="qualitati-region">
+          <div className="text-[12px] font-medium text-ink mb-1">Model region</div>
+          <div className="flex gap-2">
+            {(
+              [
+                {
+                  id: "us" as const,
+                  title: "Default · US",
+                  blurb: "DigitalOcean — cheaper credits",
+                },
+                {
+                  id: "eu" as const,
+                  title: "Strict GDPR · Paris 🇫🇷",
+                  blurb: "Scaleway — data stays in Europe, costs more",
+                },
+              ]
+            ).map((opt) => {
+              const active = region.region === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  className={
+                    "flex-1 rounded-lg border px-2.5 py-2 text-left transition-colors " +
+                    (active
+                      ? "border-accent bg-accent/5"
+                      : "border-line hover:border-accent/50")
+                  }
+                  data-testid={`qualitati-region-${opt.id}`}
+                  aria-pressed={active}
+                  disabled={regionSaving}
+                  onClick={async () => {
+                    if (active || regionSaving) return;
+                    setRegionSaving(true);
+                    const prev = region;
+                    setRegion({ ...region, region: opt.id, configured: true });
+                    const out = await qualitatiSetRegion(opt.id).catch(() => ({ ok: false }));
+                    if (!out.ok) setRegion(prev); // saving failed — show the truth
+                    setRegionSaving(false);
+                  }}
+                >
+                  <div className="text-[12px] font-medium text-ink">{opt.title}</div>
+                  <div className="text-[11px] text-muted">{opt.blurb}</div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-1 text-[11px] text-muted">
+            Applies to this account's next message, on every device.
           </div>
         </div>
       ) : null}
