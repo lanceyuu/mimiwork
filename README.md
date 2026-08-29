@@ -35,7 +35,7 @@ That's the whole idea. Ask for an outcome, get the artifact.
 |---|---|
 | 📊 **Data Analyst** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
 | 📝 **Document Writer** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
-| 🎯 **Deck Builder** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Point it at your house template and it uses your brand instead. |
+| 🎯 **Deck Builder** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Text is measured and fitted so nothing walks out of its frame. Point it at your house template and it uses your brand instead. |
 
 **It reads what work actually arrives in.** PDF (with table extraction — and an honest
 warning when a document is *scanned* rather than silently returning nothing), Word, Excel,
@@ -61,6 +61,10 @@ itself asks you first.
 **It runs while you don't.** A Monday brief, a weekly report, a standing watch on a
 channel: automations run locally with full transcripts, and anything needing a decision
 waits in an Inbox instead of guessing.
+
+**You can steer it mid-run.** Notice it heading the wrong way? Just type — "use the
+December wave, not November" lands at the next safe step without stopping the work, and a
+looping model is caught and stopped **before it burns your credits**.
 
 **It checks in before acting.** Sends, writes, shell commands and external data pulls are
 approval-gated. **Plan mode** proposes first and runs nothing until you say go.
@@ -91,10 +95,13 @@ MiniMax · Mistral · Grok (xAI) · Inkling** — open-weight models via **Toget
 **Fireworks**, AWS **Bedrock**, and fully local via **Ollama**.
 
 Or skip keys entirely: **sign in with your [QualiTaTi](https://qualitati.com) account** and
-the "Mimi" models spend your existing credits — nothing to configure. Signing in also opens
-your QualiTaTi research data: ask for a project, an interview transcript or a survey's
-responses and Mimi can pull them in to analyse — **each retrieval asks your approval
-first**, and nothing is fetched on its own.
+the "Mimi" models spend your existing credits — nothing to configure. The Activity page
+shows **exactly what each call cost and which pool paid** — the numbers come from the
+server's own ledger, not a local estimate. A switch in Settings picks where the models
+run: **US (cheaper credits) or strict-GDPR Paris 🇫🇷 (data stays in Europe)**. Signing in
+also opens your QualiTaTi research data: ask for a project, an interview transcript or a
+survey's responses and Mimi can pull them in to analyse — **each retrieval asks your
+approval first**, and nothing is fetched on its own.
 
 ## Install
 
@@ -126,10 +133,10 @@ OAuth); your data leaves the machine only through the model and integrations you
 
 ## Quality
 
-The test suite is part of the product: **1,393 backend tests** cover the agent engine,
+The test suite is part of the product: **1,507 backend tests** cover the agent engine,
 tools and connectors — including that every Office tool registers a schema a real provider
 accepts, that code execution is approval-gated like the shell, and that a scanned PDF is
-flagged rather than silently summarised from nothing. The desktop app carries **192 GUI unit
+flagged rather than silently summarised from nothing. The desktop app carries **230 GUI unit
 tests** and **150 hermetic Playwright e2e tests** (mocked backend, no network), with a
 separate live suite for the real thing. `ruff` and `eslint` gate CI alongside them.
 
