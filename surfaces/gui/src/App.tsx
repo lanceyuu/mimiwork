@@ -1489,10 +1489,15 @@ export function App() {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
-            // First-run tour (owner ask 2026-08-29): once the session view settles, walk the
-            // interface once. Skipped when setup hands off to another surface.
+            // First-run tour (owner ask 2026-08-29): via the open-tour handler, which
+            // returns to the session view first — the spotlights point at live session
+            // elements, and setup may have been replayed from Settings. Skipped when
+            // setup hands off to another surface.
             if (next !== "gallery" && next !== "automations")
-              window.setTimeout(() => setTour(true), 900);
+              window.setTimeout(
+                () => window.dispatchEvent(new CustomEvent("coworker:open-tour")),
+                600,
+              );
             if (next === "gallery") {
               // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
               openSettings("personas");
