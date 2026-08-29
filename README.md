@@ -29,25 +29,25 @@ That's the whole idea. Ask for an outcome, get the artifact.
 
 ## Why it feels different
 
-🤖 **Actually agentic.** Not a chat window with tools bolted on: Mimi plans the work,
+**Actually agentic.** Not a chat window with tools bolted on: Mimi plans the work,
 reads the files, runs the analysis, checks its own layout, and iterates until the file is
 finished — dozens of steps from one ask. **Plan mode** shows you the whole approach before
 anything runs.
 
-🧠 **It learns as you work.** Memory keeps what it noticed about your projects. Skills
+**It learns as you work.** Memory keeps what it noticed about your projects. Skills
 package your know-how once — brand rules, methods, house style — and apply forever.
 Instructions set standing rules per folder. Week two is visibly better than week one, and
 everything it learned is yours to read, edit, or delete.
 
-🎯 **Steerable while it works.** See it heading the wrong way? Just type. Your correction
+**Steerable while it works.** See it heading the wrong way? Just type. Your correction
 lands at the next safe step without restarting the work — and a looping model is stopped
 before it burns your credits.
 
-⏰ **It runs while you don't.** Say "every Monday at 8…" in plain words and it becomes a
+**It runs while you don't.** Say "every Monday at 8…" in plain words and it becomes a
 local automation with a full transcript; anything needing a decision waits in your Inbox
 instead of guessing.
 
-🔒 **Yours, on your machine.** No vendor cloud, your model keys, every consequential
+**Yours, on your machine.** No vendor cloud, your model keys, every consequential
 action approval-gated, and nothing outside the folders you grant is readable.
 
 ## What it actually does
@@ -57,9 +57,9 @@ into every conversation and reaches for the right craft when the work calls for 
 
 | | What it produces |
 |---|---|
-| 📊 **Data analysis** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
-| 📝 **Documents** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
-| 🎯 **Decks** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Text is measured and fitted so nothing walks out of its frame. Point it at your house template and it uses your brand instead. |
+| **Data analysis** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
+| **Documents** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
+| **Decks** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Text is measured and fitted so nothing walks out of its frame. Point it at your house template and it uses your brand instead. |
 
 **It reads what work actually arrives in.** PDF (with table extraction — and an honest
 warning when a document is *scanned* rather than silently returning nothing), Word, Excel,
@@ -122,7 +122,7 @@ Or skip keys entirely: **sign in with your [QualiTaTi](https://qualitati.com) ac
 the "Mimi" models spend your existing credits — nothing to configure. The Activity page
 shows **exactly what each call cost and which pool paid** — the numbers come from the
 server's own ledger, not a local estimate. A switch in Settings picks where the models
-run: **US (cheaper credits) or strict-GDPR Paris 🇫🇷 (data stays in Europe)**. Signing in
+run: **US (cheaper credits) or strict-GDPR Paris (data stays in Europe)**. Signing in
 also opens your QualiTaTi research data: ask for a project, an interview transcript or a
 survey's responses and Mimi can pull them in to analyse — **each retrieval asks your
 approval first**, and nothing is fetched on its own.
@@ -157,7 +157,7 @@ Open **Settings ▸ Models**. Two ways in:
   card shows the three tiers — **Mimi Puppy** (free every day), **Mimi Hound** (fast),
   **Mimi Wolf** (most capable) — each with a **Test** button that makes a real call.
   While you're here: pick your **model region** (*Default · US*, cheaper — or *Strict
-  GDPR · Paris 🇫🇷*, data stays in Europe), and know that the **Activity** page shows
+  GDPR · Paris*, data stays in Europe), and know that the **Activity** page shows
   exactly what each call cost, from the server's own ledger.
 - **Paste your own key** — OpenAI, Anthropic, Gemini, Kimi, DeepSeek, Mistral and more,
   or fully local via Ollama. Switch anytime from the composer.
@@ -319,7 +319,13 @@ MimiWork is a fork of [OpenWorker](https://github.com/andrewyng/openworker) by A
 contributors, built on [aisuite](https://github.com/andrewyng/aisuite). The repetition-guard
 detection (stopping a looping model before it burns your credits) and the steer-while-running
 interaction are adapted from ideas in
-[FrontierAgent](https://github.com/ApodexAI/FrontierAgent) by Apodex AI (Apache-2.0). This fork
+[FrontierAgent](https://github.com/ApodexAI/FrontierAgent) by Apodex AI (Apache-2.0); the
+search deduplication and dead-end guidance in the web tools adapt the rollback observers of
+[AgentHarness](https://github.com/ApodexAI/AgentHarness) (Apache-2.0) to a desktop where the
+user pays per model call. The markdown `/command` files with `$ARGUMENTS` and the plugin-style
+tool hooks follow [opencode](https://github.com/sst/opencode)'s conventions, and the `/`, `@`
+and Shift+Tab gestures deliberately match Claude Code and Claude Cowork so the muscle memory
+transfers. This fork
 repositions the tool for knowledge work — Office deliverables, PDF and image handling, and a
 statistics-aware data-analysis toolchain — and carries its own desktop refinements. Internal
 binary and package names (`coworker`, `openworker-server`) keep their upstream names for
