@@ -29,13 +29,14 @@ That's the whole idea. Ask for an outcome, get the artifact.
 
 ## What it actually does
 
-**Three specialists ship out of the box** — pick one, or let the generalist call them in.
+**One coworker, three trades.** There is no mode to pick — Mimi carries all of this
+into every conversation and reaches for the right craft when the work calls for it.
 
 | | What it produces |
 |---|---|
-| 📊 **Data Analyst** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
-| 📝 **Document Writer** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
-| 🎯 **Deck Builder** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Text is measured and fitted so nothing walks out of its frame. Point it at your house template and it uses your brand instead. |
+| 📊 **Data analysis** | Profiles the dataset before touching it — SPSS/Stata *variable and value labels* included, so `q4_1` becomes "Satisfaction with onboarding, 1–5" — runs the analysis in a persistent Python kernel or R, and reports sample sizes, effect sizes and assumption checks, not just p-values. |
+| 📝 **Documents** | Drafts and revises Word documents **in place** without wrecking your formatting — headings, tables, comments and all — and can leave **real tracked changes** with a plain-language "what I changed and why". |
+| 🎯 **Decks** | Turns findings into a **16:9 PowerPoint that argues a case** — every slide titled with its takeaway, not its topic, and built from a real layout vocabulary (a single claim, a big number, a participant's own words, a side-by-side, a chart) rather than slide after slide of bullets. Charts come from your actual numbers, and speaker notes come with it. Text is measured and fitted so nothing walks out of its frame. Point it at your house template and it uses your brand instead. |
 
 **It reads what work actually arrives in.** PDF (with table extraction — and an honest
 warning when a document is *scanned* rather than silently returning nothing), Word, Excel,
@@ -115,6 +116,9 @@ The app updates itself from then on.
 
 Builds aren't code-signed yet — that's the one-time prompt on each OS. Every release, with
 checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
+
+Want the full tour? **[The MimiWork tutorial](docs/TUTORIAL.md)** — ten minutes from
+first launch to your own automation.
 
 ### First five minutes
 
