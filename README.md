@@ -27,6 +27,29 @@ anything consequential.
 
 That's the whole idea. Ask for an outcome, get the artifact.
 
+## Why it feels different
+
+🤖 **Actually agentic.** Not a chat window with tools bolted on: Mimi plans the work,
+reads the files, runs the analysis, checks its own layout, and iterates until the file is
+finished — dozens of steps from one ask. **Plan mode** shows you the whole approach before
+anything runs.
+
+🧠 **It learns as you work.** Memory keeps what it noticed about your projects. Skills
+package your know-how once — brand rules, methods, house style — and apply forever.
+Instructions set standing rules per folder. Week two is visibly better than week one, and
+everything it learned is yours to read, edit, or delete.
+
+🎯 **Steerable while it works.** See it heading the wrong way? Just type. Your correction
+lands at the next safe step without restarting the work — and a looping model is stopped
+before it burns your credits.
+
+⏰ **It runs while you don't.** Say "every Monday at 8…" in plain words and it becomes a
+local automation with a full transcript; anything needing a decision waits in your Inbox
+instead of guessing.
+
+🔒 **Yours, on your machine.** No vendor cloud, your model keys, every consequential
+action approval-gated, and nothing outside the folders you grant is readable.
+
 ## What it actually does
 
 **One coworker, three trades.** There is no mode to pick — Mimi carries all of this
@@ -117,16 +140,118 @@ The app updates itself from then on.
 Builds aren't code-signed yet — that's the one-time prompt on each OS. Every release, with
 checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
 
-Want the full tour? **[The MimiWork tutorial](docs/TUTORIAL.md)** — ten minutes from
-first launch to your own automation.
+### The ten-minute tutorial
 
-### First five minutes
+The one habit that matters most: **ask for the outcome, not the steps.** "Read these
+transcripts and write me a themed summary as a Word doc" gets you `summary.docx`. "Can you
+help me analyse interviews?" gets you a conversation.
+([Prefer it as one page? → docs/TUTORIAL.md](docs/TUTORIAL.md))
 
-1. **Pick a model** — paste a key, or sign in with QualiTaTi.
-2. **Give it a folder.** Nothing outside the folders you grant is readable.
-3. **Ask for an outcome**, not a task list: *"Read these interview transcripts and write me
-   a themed summary as a Word doc."*
-4. **Press `/`** to see what else it can do, and `@` to point at a specific file.
+<details>
+<summary><b>1 · Connect a model</b> — QualiTaTi credits or your own key (2 minutes)</summary>
+<br>
+
+Open **Settings ▸ Models**. Two ways in:
+
+- **Sign in with QualiTaTi** — no keys; the Mimi models spend your existing credits. The
+  card shows the three tiers — **Mimi Puppy** (free every day), **Mimi Hound** (fast),
+  **Mimi Wolf** (most capable) — each with a **Test** button that makes a real call.
+  While you're here: pick your **model region** (*Default · US*, cheaper — or *Strict
+  GDPR · Paris 🇫🇷*, data stays in Europe), and know that the **Activity** page shows
+  exactly what each call cost, from the server's own ledger.
+- **Paste your own key** — OpenAI, Anthropic, Gemini, Kimi, DeepSeek, Mistral and more,
+  or fully local via Ollama. Switch anytime from the composer.
+</details>
+
+<details>
+<summary><b>2 · Give it a folder</b> — the one real setup decision</summary>
+<br>
+
+Click the folder starter card, or just ask *"work in my Projects/interviews folder"*.
+**Nothing outside the folders you grant is readable** — so grant the folder where the
+real files live. Click a folder's name under Access to open it in Finder/Explorer.
+</details>
+
+<details>
+<summary><b>3 · The first real task</b> — and what to expect while it runs</summary>
+<br>
+
+> Read the three PDFs in this folder and write a one-page brief as `brief.docx` —
+> keep the numbers in a table.
+
+> Turn `results.xlsx` into a 10-slide deck that argues we should fix mobile first.
+> Speaker notes for my co-presenter.
+
+While it runs: **anything consequential asks first** (approval cards); **you can steer
+without stopping** — type *"use the December wave, not November"* and it lands at the
+next safe step; **drop files straight into the chat** — from a granted folder they become
+`@mentions` worked on in place, from anywhere else they're copied visibly into the
+session's folder. Finished files land in your folder; the **Files** page keeps every
+deliverable in one place.
+</details>
+
+<details>
+<summary><b>4 · Three keys</b> — <code>/</code>, <code>@</code>, <code>⇧⇥</code></summary>
+<br>
+
+| Key | What it does |
+|---|---|
+| **`/`** | App commands (`/plan`, `/compact`, `/init`, `/model`…), your saved commands, your skills |
+| **`@`** | Point at a file in a granted folder — no path typing |
+| **`⇧⇥`** | Cycle **Plan** → **Ask for approval** → **Full access** |
+
+For anything with stakes, hit `⇧⇥` into **Plan** first: Mimi proposes the whole approach,
+you approve or redirect, *then* it runs. Same gestures as Claude Code / Cowork / Codex —
+**Settings ▸ Transfer guide** has the full map.
+</details>
+
+<details>
+<summary><b>5 · Teach it your way — once</b> — instructions, skills, memory</summary>
+<br>
+
+- **Instructions** (Settings ▸ Instructions, or `AGENTS.md`/`CLAUDE.md` in the folder):
+  standing rules. *"Reports in UK English. Stats always with effect sizes."*
+- **Skills** (Settings ▸ Skills): package your brand rules or methods once; every deck
+  and doc comes out in them without being asked. Browse **8,400 community skills**, read
+  a skill's real instructions before installing, import from `~/.claude/skills`.
+- **Memory** (Settings ▸ Memory): what Mimi noticed and kept — review, edit, delete.
+</details>
+
+<details>
+<summary><b>6 · Connect where you work</b> — Slack, Qualtrics, QualiTaTi data, 25+ more</summary>
+<br>
+
+**Settings ▸ Connectors**: Slack (tag Mimi in a channel, work comes back in-thread),
+Gmail/Outlook, Calendar, Drive, GitHub, Jira, Notion, Canva — and **Qualtrics**: read a
+questionnaire so `Q4_1` becomes a real question, pull responses as CSV or labelled SPSS
+`.sav`, with your approval per download. Your QualiTaTi research data works the same way.
+Anything else speaks [MCP](https://modelcontextprotocol.io/).
+</details>
+
+<details>
+<summary><b>7 · Make it run while you don't</b> — automations and the Inbox</summary>
+<br>
+
+> Every Monday at 8, read the new files in `field-notes/`, and put a one-page weekly
+> summary in `reports/`.
+
+That becomes an **Automation** — local, full transcript, and anything needing a decision
+waits in your **Inbox** instead of guessing.
+</details>
+
+<details>
+<summary><b>8 · A good week, in five asks</b></summary>
+<br>
+
+1. *"Work in this folder. Profile every `.sav` in it and give me a data dictionary as a Word doc."*
+2. *"Package our brand guidelines into a skill."*
+3. *"Turn the wave-2 findings into a 12-slide deck for the steering committee."* (in Plan mode)
+4. *"Pull the December survey from Qualtrics as SPSS and test whether satisfaction differs by channel — effect sizes, not just p-values."*
+5. *"Every Friday at 4, summarise this Slack channel's week into a memo in `reports/`."*
+
+By Friday: a data dictionary, an on-brand deck, a real analysis, and a standing
+automation — every file on your disk, made with your keys, under your approval.
+</details>
 
 ## Privacy
 
