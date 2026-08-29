@@ -1349,6 +1349,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_models_remove(body: dict) -> dict[str, Any]:
         return manager.remove_model((body or {}).get("model", ""))
 
+    @app.post("/v1/settings/tour-seen")
+    def settings_set_tour_seen(body: dict) -> dict[str, Any]:
+        return manager.set_tour_seen(bool((body or {}).get("value", True)))
+
     @app.post("/v1/settings/onboarded")
     def settings_set_onboarded(body: dict) -> dict[str, Any]:
         return manager.set_onboarded(bool((body or {}).get("value", True)))

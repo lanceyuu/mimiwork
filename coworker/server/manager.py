@@ -2291,8 +2291,31 @@ class SessionManager:
 
         return QualitatiClient(self.secrets)
 
+    _MIMI_TIER_MODELS = (
+        "qualitati:mimi-puppy",
+        "qualitati:mimi-hound",
+        "qualitati:mimi-wolf",
+    )
+
+    def _adopt_qualitati_models(self, state: dict[str, Any]) -> None:
+        """After a successful sign-in, the three Mimi tiers belong in the picker, and a
+        fresh install's never-configured default (gpt-5.6-sol with no key) gives way to
+        the free tier — the model a new account can actually talk to (owner ask
+        2026-08-29). A default that already works is never stolen."""
+        if not (state.get("signed_in") and state.get("provider_configured")):
+            return
+        for model in self._MIMI_TIER_MODELS:
+            try:
+                self.add_model(model)
+            except Exception:
+                pass
+        if not self._provider_configured(self._model_provider(self.model)):
+            self.set_default_model("qualitati:mimi-puppy")
+
     def qualitati_login(self, username: str, password: str) -> dict[str, Any]:
-        return self._qualitati().login(username, password)
+        out = self._qualitati().login(username, password)
+        self._adopt_qualitati_models(out)
+        return out
 
     def qualitati_register(
         self, username: str, email: str, password: str, referrer_code: str = ""
@@ -2300,7 +2323,9 @@ class SessionManager:
         return self._qualitati().register(username, email, password, referrer_code)
 
     def qualitati_verify_mfa(self, code: str) -> dict[str, Any]:
-        return self._qualitati().verify_mfa(code)
+        out = self._qualitati().verify_mfa(code)
+        self._adopt_qualitati_models(out)
+        return out
 
     def qualitati_status(self) -> dict[str, Any]:
         """Signed-in state for the account card. A session that is signed in but has no
@@ -2311,6 +2336,7 @@ class SessionManager:
         if state.get("signed_in") and not state.get("provider_configured"):
             if client.ensure_provider_key().get("ok"):
                 state = client.status()
+        self._adopt_qualitati_models(state)
         return state
 
     def qualitati_reconnect(self) -> dict[str, Any]:
@@ -2888,6 +2914,7 @@ class SessionManager:
             "model_ready": self._provider_configured(self._model_provider(self.model)),
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
+            "tour_seen": bool(self._prefs.get("tour_seen")),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "nav_layout": self._nav_layout(),
@@ -3084,6 +3111,12 @@ class SessionManager:
         self._prefs["default_model"] = model
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
+
+    def set_tour_seen(self, value: bool = True) -> dict[str, Any]:
+        """Record that the first-run tour was shown (or replayed and dismissed)."""
+        self._prefs["tour_seen"] = bool(value)
+        self._save_prefs()
+        return {"ok": True, "tour_seen": bool(value)}
 
     def set_onboarded(self, value: bool = True) -> dict[str, Any]:
         """Record that first-run setup is complete (so it isn't shown again)."""

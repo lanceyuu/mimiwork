@@ -63,6 +63,7 @@ import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
+import { Tour } from "./components/Tour";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
@@ -429,6 +430,18 @@ export function App() {
     return () => window.removeEventListener("coworker:open-onboarding", open);
   }, []);
 
+  // "Show the tour" (Settings ▸ General, and right after first-run setup): return to the
+  // conversation view first — the spotlights point at live session elements.
+  useEffect(() => {
+    const open = () => {
+      setSurface("session");
+      window.setTimeout(() => setTour(true), 350);
+    };
+    window.addEventListener("coworker:open-tour", open);
+    return () => window.removeEventListener("coworker:open-tour", open);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const sessionRef = useRef<Session | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A prompt to auto-send once the next session connects (used by "Run now").
@@ -447,6 +460,7 @@ export function App() {
   // server may not answer for a second or two. Only fall back to the gate once it's truly up.
   const [booting, setBooting] = useState(true);
   const [onboarding, setOnboarding] = useState(false);
+  const [tour, setTour] = useState(false);
   // True once we've resumed a prior conversation on boot (drives the splash wording).
   const [resumedExisting, setResumedExisting] = useState(false);
   // Latched: keep the boot splash up until the restored session is actually CONNECTED (not just
@@ -1468,12 +1482,17 @@ export function App() {
           <Icon name="sidebar" size={16} />
         </button>
       )}
+      {tour && !onboarding && <Tour onDone={() => setTour(false)} />}
       {onboarding && (
         <Onboarding
           onDone={(next, starter) => {
             setOnboarding(false);
             getHealth().then((h) => setModel(h.model)).catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
+            // First-run tour (owner ask 2026-08-29): once the session view settles, walk the
+            // interface once. Skipped when setup hands off to another surface.
+            if (next !== "gallery" && next !== "automations")
+              window.setTimeout(() => setTour(true), 900);
             if (next === "gallery") {
               // The specialists tip: land on Settings ▸ Personas, where the Gallery link lives.
               openSettings("personas");

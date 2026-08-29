@@ -496,9 +496,16 @@ function AppearanceSection() {
           <button className={BTN_BORDERED} onClick={runSetupAgain}>
             Run setup again
           </button>
+          <button
+            className={BTN_BORDERED}
+            data-testid="show-tour"
+            onClick={() => window.dispatchEvent(new CustomEvent("coworker:open-tour"))}
+          >
+            Show the tour
+          </button>
           {desktop && <UpdateInline />}
         </div>
-        <div className={FIELD_HELP}>Replays the first-run setup: model, first automation, tips.</div>
+        <div className={FIELD_HELP}>Replay the first-run setup, or the five-step tour of the interface.</div>
       </div>
     </section>
   );

@@ -627,6 +627,7 @@ export interface ModelSettings {
   model_ready: boolean; // can the default model's provider actually run (any provider)?
   source: "env" | "store" | null;
   onboarded: boolean;
+  tour_seen?: boolean;
   surfaces: SurfaceVisibility;
   scratch_base: string;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
@@ -1334,6 +1335,14 @@ export async function removeModel(model: string): Promise<ModelSettings & { ok: 
   return res.json();
 }
 
+export async function setTourSeen(value = true): Promise<{ ok: boolean; tour_seen: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/settings/tour-seen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  return res.json();
+}
 export async function setOnboarded(value: boolean): Promise<{ ok: boolean; onboarded: boolean }> {
   const res = await fetch(`${httpBase()}/v1/settings/onboarded`, {
     method: "POST",

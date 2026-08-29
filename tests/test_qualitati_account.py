@@ -467,3 +467,44 @@ def test_a_tier_that_refuses_is_reported_in_words_the_user_can_act_on(tmp_path):
     out = client.post("/v1/models/test", json={"model": "qualitati:mimi-wolf"}).json()
     assert not out["ok"]
     assert "access" in out["error"].lower() or "mimi-wolf" in out["error"]
+
+
+# --- the first-run promise (owner ask 2026-08-29): sign in → the Mimi models are in the
+# --- picker and the FREE tier is the default, not a provider the account has no key for.
+
+
+def _signin_manager(tmp_path, monkeypatch):
+    wire(monkeypatch, {
+        ("POST", "/api/login"): (200, {"access_token": "jwt-abc", "token_type": "bearer"}),
+        ("POST", "/api/keys"): (200, {"id": 7, "key": "qt_secretkey"}),
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+    })
+    return SessionManager(workspace=tmp_path)
+
+
+def test_sign_in_puts_the_mimi_tiers_in_the_picker_and_defaults_to_puppy(tmp_path, monkeypatch):
+    manager = _signin_manager(tmp_path, monkeypatch)
+    assert manager.model == "gpt-5.6-sol"  # fresh install: a default with no key behind it
+    out = manager.qualitati_login("shubin", "pw")
+    assert out["ok"] is True
+    models = manager._curated_models()
+    for tier in ("qualitati:mimi-puppy", "qualitati:mimi-hound", "qualitati:mimi-wolf"):
+        assert tier in models, tier
+    assert manager.model == "qualitati:mimi-puppy"
+
+
+def test_a_default_that_already_works_is_never_stolen(tmp_path, monkeypatch):
+    manager = _signin_manager(tmp_path, monkeypatch)
+    manager.secrets.put("provider:openai", {"api_key": "sk-real"})
+    manager.set_default_model("gpt-5.6-sol")
+    manager.qualitati_login("shubin", "pw")
+    assert manager.model == "gpt-5.6-sol"  # their working choice stands
+    assert "qualitati:mimi-puppy" in manager._curated_models()  # tiers still added
+
+
+def test_the_tour_flag_round_trips_like_onboarded(tmp_path):
+    manager = SessionManager(workspace=tmp_path)
+    client = TestClient(create_app(manager))
+    assert client.get("/v1/settings").json()["tour_seen"] is False
+    assert client.post("/v1/settings/tour-seen", json={"value": True}).json()["ok"] is True
+    assert client.get("/v1/settings").json()["tour_seen"] is True

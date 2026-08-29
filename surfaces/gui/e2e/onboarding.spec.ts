@@ -13,6 +13,11 @@ async function openOnboarding(page) {
   await page.getByTestId("account-menu").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Run setup again" }).click();
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
+  // Step 0 leads with the QualiTaTi account (owner ask 2026-08-29); the provider
+  // gallery these specs exercise lives behind the own-key link.
+  await expect(page.getByTestId("ob-qualitati")).toBeVisible();
+  await page.getByTestId("ob-byok").click();
+  await expect(page.getByTestId("ob-provider-gallery")).toBeVisible();
 }
 
 test("provider gallery: cards wear their state; Next arms off stored credentials", async ({

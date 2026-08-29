@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import {
   getConnectors,
+  qualitatiStatus,
   setOnboarded,
   type Connector,
 } from "../api";
+import { QualitatiAccountCard } from "./QualitatiAccountCard";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { chooseFolder } from "../tauri";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
@@ -77,6 +79,22 @@ export function Onboarding({
   __startStep?: number;
 }) {
   const [step, setStep] = useState(__startStep);
+  // Step 0 (owner ask 2026-08-29): the account comes FIRST — register or sign in with
+  // QualiTaTi right here, models included, nothing to configure. Bring-your-own-key is
+  // the fallback path behind one link, not the opening question.
+  const [byok, setByok] = useState(false);
+  const [qtSignedIn, setQtSignedIn] = useState(false);
+  useEffect(() => {
+    if (step !== 0 || qtSignedIn) return;
+    let stop = false;
+    const poll = () =>
+      qualitatiStatus()
+        .then((s) => !stop && s?.signed_in && setQtSignedIn(true))
+        .catch(() => undefined);
+    poll();
+    const t = window.setInterval(poll, 2500);
+    return () => { stop = true; window.clearInterval(t); };
+  }, [step, qtSignedIn]);
   // -- step 3: first task (folder + starter cards) --------------------------------
   const [folder, setFolder] = useState<string | null>(null);
   const [writable, setWritable] = useState(false);
@@ -90,7 +108,7 @@ export function Onboarding({
   // In the form with typed-but-untested input, Next verifies+saves first (tester
   // catch 2026-07-12: a manual Test-then-Continue two-step reads as a puzzle).
   const nextFromForm = !!ps.sel && ps.dirty && ps.secretFilled;
-  const canNext = anyReady || nextFromForm;
+  const canNext = qtSignedIn || anyReady || nextFromForm;
 
   const advance = async () => {
     if (nextFromForm && !ps.credentialed) {
@@ -145,14 +163,33 @@ export function Onboarding({
             {/* Persistent header — stays put while the region below swaps (§39). */}
             <h1 className="text-[19px] font-semibold">Welcome to MimiWork<span className="beta-tag">BETA</span></h1>
             <p className="text-[13px] text-muted mt-0.5 mb-4">
-              Pick a model provider to get started — MimiWork runs on your own key, and your
-              key and your data stay on this computer.
+              {byok
+                ? "Pick a model provider — MimiWork runs on your own key, and your key and your data stay on this computer."
+                : "Create your QualiTaTi account — or sign in — and the Mimi models are ready to work, free tier included. No API keys."}
             </p>
 
-            {!ps.sel ? (
-              /* ---- the provider GALLERY ---- */
+            {!byok ? (
+              /* ---- QualiTaTi account first (owner ask 2026-08-29) ---- */
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-qualitati">
+                <QualitatiAccountCard />
+                <button
+                  className="mt-3 text-[12.5px] text-faint hover:text-muted underline"
+                  data-testid="ob-byok"
+                  onClick={() => setByok(true)}
+                >
+                  I'll use my own API key instead (OpenAI, Anthropic, Gemini…)
+                </button>
+              </div>
+            ) : !ps.sel ? (
+              /* ---- the provider GALLERY (bring-your-own-key path) ---- */
               <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-provider-gallery">
                 <ProviderCards ps={ps} tp="ob" />
+                <button
+                  className="mt-3 text-[12.5px] text-faint hover:text-muted underline"
+                  onClick={() => setByok(false)}
+                >
+                  ← Back to QualiTaTi sign-in
+                </button>
               </div>
             ) : (
               /* ---- one provider's key form, same box ---- */
