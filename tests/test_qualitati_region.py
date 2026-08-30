@@ -52,3 +52,24 @@ def test_rest_round_trip(tmp_path, monkeypatch):
     assert got.status_code == 200 and got.json()["region"] == "eu"
     put = client.put("/v1/qualitati/region", json={"region": "eu"})
     assert put.status_code == 200 and put.json()["ok"] is True
+
+
+def test_the_werewolf_tier_is_offered_and_adopted_like_its_siblings(tmp_path, monkeypatch):
+    """A tier the gateway serves but the app never adds to the picker is invisible —
+    exactly the bug a user hit with the first three (2026-08-24)."""
+    from coworker.providers.matrix import MATRIX
+    from coworker.server.manager import SessionManager
+
+    entry = MATRIX["qualitati:mimi-werewolf"]
+    assert entry.caps.vision and entry.caps.tools  # frontier legs read images themselves
+    assert "qualitati:mimi-werewolf" in SessionManager._MIMI_TIER_MODELS
+
+
+def test_signing_in_puts_every_tier_in_the_picker(tmp_path, monkeypatch):
+    _urlopen(monkeypatch, {"region": "us"})
+    manager = _manager(tmp_path)
+    added: list[str] = []
+    monkeypatch.setattr(manager, "add_model", lambda m: added.append(m))
+    monkeypatch.setattr(manager, "_provider_configured", lambda _p: True)
+    manager._adopt_qualitati_models({"signed_in": True, "provider_configured": True})
+    assert "qualitati:mimi-werewolf" in added

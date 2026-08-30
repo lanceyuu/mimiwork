@@ -219,6 +219,7 @@ class SessionManager:
             "qualitati:mimi": "qualitati:mimi-hound",
             "qualitati:hound": "qualitati:mimi-hound",
             "qualitati:wolf": "qualitati:mimi-wolf",
+            "qualitati:werewolf": "qualitati:mimi-werewolf",
             "qualitati:deepseek-v4-flash": "qualitati:mimi-puppy",
             "qualitati:puppy": "qualitati:mimi-puppy",
         }
@@ -2331,6 +2332,7 @@ class SessionManager:
         "qualitati:mimi-puppy",
         "qualitati:mimi-hound",
         "qualitati:mimi-wolf",
+        "qualitati:mimi-werewolf",
     )
 
     def _adopt_qualitati_models(self, state: dict[str, Any]) -> None:

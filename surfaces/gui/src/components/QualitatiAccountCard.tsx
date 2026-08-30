@@ -48,6 +48,7 @@ const MIMI_TIERS = [
   { id: "qualitati:mimi-puppy", label: "Mimi Puppy", blurb: "free every day" },
   { id: "qualitati:mimi-hound", label: "Mimi Hound", blurb: "fast · spends credits" },
   { id: "qualitati:mimi-wolf", label: "Mimi Wolf", blurb: "powerful · spends credits" },
+  { id: "qualitati:mimi-werewolf", label: "Mimi Werewolf", blurb: "frontier · the strongest tier" },
 ] as const;
 
 export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) {

@@ -120,6 +120,17 @@ MATRIX: dict[str, ModelEntry] = {
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
     ),
+    # The top tier (owner spec 2026-08-30): a frontier model with no escalation and no
+    # cheap image leg — EU rides Claude Sonnet 5 on Bedrock's eu.* geo profile, US rides
+    # GPT-5.6 Terra. Both carry a 1M window, so the context cap is stated here rather
+    # than left to the shared default the smaller tiers use.
+    "qualitati:mimi-werewolf": ModelEntry(
+        label="Mimi Werewolf · frontier",
+        caps=ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        context_window=1_000_000,
+    ),
     # "Mimi Puppy": free daily allowance for signed-in QualiTaTi accounts. Zero
     # credits; the gateway enforces the per-day cap and 429s past it.
     "qualitati:mimi-puppy": ModelEntry(
