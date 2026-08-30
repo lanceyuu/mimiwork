@@ -76,6 +76,7 @@ from ..providers import (
     provider_descriptors,
     verify_provider_key,
 )
+from ..recovery import RecoverySession
 from ..roots import RootDir
 from ..secrets import SecretStore, state_dir
 from ..selfwake import WakeStore
@@ -1183,7 +1184,28 @@ class SessionManager:
         engine.tool_journal = self.session_store
         engine.session_id = session_id
         engine.checkpoint = lambda eng=engine: self.save(session_id, eng)
+        engine.file_recovery = RecoverySession(
+            self._data_base,
+            session_id,
+            roots=lambda eng=engine: getattr(eng, "roots", None)
+            or str(eng.permissions.workspace_root),
+        )
 
+    def list_recovery_points(self, session_id: str) -> list[dict[str, Any]]:
+        engine = self.get_engine(session_id)
+        if engine is None or engine.file_recovery is None:
+            return []
+        return engine.file_recovery.list()
+
+    def restore_recovery_point(
+        self, session_id: str, transaction_id: str
+    ) -> dict[str, Any]:
+        engine = self.get_engine(session_id)
+        if engine is None or engine.file_recovery is None:
+            return {"ok": False, "error": "session has no file recovery history"}
+        if session_id in self._running_sessions:
+            return {"ok": False, "error": "wait for Mimi to finish before restoring files"}
+        return engine.file_recovery.restore(transaction_id)
 
     def _routing_targets(self, session_id: str, agent: str) -> list[str]:
         """The channel address(es) this session's Inbox routes OUT to — used to warn when a

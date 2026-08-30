@@ -839,6 +839,14 @@ def create_app(manager: SessionManager) -> FastAPI:
             session_id, str(body.get("path", "")), str(body.get("mode", "reveal"))
         )
 
+    @app.get("/v1/sessions/{session_id}/recovery")
+    def session_recovery(session_id: str) -> dict[str, Any]:
+        return {"recovery_points": manager.list_recovery_points(session_id)}
+
+    @app.post("/v1/sessions/{session_id}/recovery/{transaction_id}/restore")
+    def session_recovery_restore(session_id: str, transaction_id: str) -> dict[str, Any]:
+        return manager.restore_recovery_point(session_id, transaction_id)
+
     @app.get("/v1/memory/graph")
     def memory_graph() -> dict[str, Any]:
         """Nodes + edges for the Memory graph view (declared before /{item_id})."""

@@ -252,6 +252,29 @@ export async function revealArtifact(
   return res.json();
 }
 
+export interface RecoveryPoint {
+  id: string;
+  created_at: number;
+  restored_at?: number | null;
+  files: { path: string; name: string; action: "created" | "modified" }[];
+}
+
+export async function getRecoveryPoints(sessionId: string): Promise<RecoveryPoint[]> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/recovery`);
+  return (await res.json()).recovery_points ?? [];
+}
+
+export async function restoreRecoveryPoint(
+  sessionId: string,
+  transactionId: string,
+): Promise<{ ok: boolean; error?: string; restored?: string[]; removed?: string[] }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/recovery/${encodeURIComponent(transactionId)}/restore`,
+    { method: "POST" },
+  );
+  return res.json();
+}
+
 // -- session roots (orphan Cowork: scratch + added folders) -------------------
 export interface RootInfo {
   path: string;

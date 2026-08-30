@@ -173,6 +173,9 @@ class TurnEngine:
         # core engine optional preserves lightweight/direct use, while the desktop and
         # automation paths get one shared crash-recovery boundary.
         self.tool_journal: Optional[Any] = None
+        # Persistent engines attach a RecoverySession. It snapshots managed file targets
+        # before execution, so the Files panel can restore the whole user turn.
+        self.file_recovery: Optional[Any] = None
         self.session_id = ""
         self.checkpoint: Optional[Callable[[], None]] = None
         self._resuming = False
@@ -1204,8 +1207,18 @@ class TurnEngine:
 
         hooks = getattr(self, "hooks", None)
         result: tuple[Any, str] | None = None
+        if self.file_recovery is not None:
+            try:
+                self.file_recovery.capture(tool_call.name, tool_call.arguments)
+            except Exception as exc:
+                result = {
+                    "error": f"file was not changed because its recovery copy could not be made: {exc}",
+                    "error_type": "RecoverySnapshotError",
+                }, "error"
         if hooks is not None:
             for hook in hooks.pre:
+                if result is not None:
+                    break
                 try:
                     override = hook(tool_call.name, tool_call.arguments)
                 except Exception as exc:
@@ -1336,6 +1349,8 @@ class TurnEngine:
     def _begin_turn(self) -> None:
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
+        if self.file_recovery is not None:
+            self.file_recovery.begin_turn()
 
     def _close_turn(self) -> dict[str, Any]:
         """Charge the user's side of this turn and hand back the running totals.

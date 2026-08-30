@@ -3,18 +3,22 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   getArtifacts,
+  getRecoveryPoints,
   readArtifact,
   revealArtifact,
+  restoreRecoveryPoint,
   type ArtifactContent,
   type ArtifactInfo,
+  type RecoveryPoint,
 } from "../api";
 import type { TodoItem } from "../types";
 import { clockTime } from "../time";
+import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
 import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
 
-type Panel = "progress" | "artifacts";
+type Panel = "progress" | "artifacts" | "recovery";
 
 // Quiet file-type icons for the artifact list (the colored kind pills read as noisy).
 function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
@@ -81,11 +85,16 @@ export function RightRail({
   openAccessKey = 0,
   onOpenIntegrations,
 }: Props) {
+  const t = useT();
   const [open, setOpen] = useState<Record<Panel, boolean>>({
     progress: true,
     artifacts: true,
+    recovery: true,
   });
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
+  const [recoveryPoints, setRecoveryPoints] = useState<RecoveryPoint[]>([]);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [restoring, setRestoring] = useState(false);
   const [selected, setSelected] = useState<ArtifactInfo | null>(null);
 
   // Opening an artifact is ONE decision, made here: a Word/Excel/PowerPoint file has no
@@ -107,10 +116,14 @@ export function RightRail({
   const [content, setContent] = useState<ArtifactContent | null>(null);
 
   const refreshArtifacts = () => getArtifacts(sessionId).then(setArtifacts).catch(() => setArtifacts([]));
+  const refreshRecovery = () => getRecoveryPoints(sessionId).then(setRecoveryPoints).catch(() => setRecoveryPoints([]));
 
   useEffect(() => {
     if (!active) return;
-    if (showArtifacts) refreshArtifacts();
+    if (showArtifacts) {
+      refreshArtifacts();
+      refreshRecovery();
+    }
   }, [active, sessionId, refreshKey, showArtifacts]);
 
   // Switching conversations closes any open artifact — it belongs to the previous session's
@@ -118,7 +131,30 @@ export function RightRail({
   useEffect(() => {
     setSelected(null);
     setContent(null);
+    setRecoveryError("");
   }, [sessionId]);
+
+  const latestRecovery = recoveryPoints.find((point) => !point.restored_at);
+
+  const undoLatestTurn = async () => {
+    if (!latestRecovery || restoring || running) return;
+    const names = latestRecovery.files.map((file) => file.name).join(", ");
+    if (!window.confirm(`${t("Undo Mimi's latest file changes?")}\n\n${names}`)) return;
+    setRestoring(true);
+    setRecoveryError("");
+    try {
+      const result = await restoreRecoveryPoint(sessionId, latestRecovery.id);
+      if (!result.ok) {
+        setRecoveryError(result.error || t("Files could not be restored."));
+        return;
+      }
+      await Promise.all([refreshArtifacts(), refreshRecovery()]);
+    } catch {
+      setRecoveryError(t("Files could not be restored."));
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   useEffect(() => {
     setContent(null);
@@ -248,6 +284,39 @@ export function RightRail({
               </div>
             )}
           </RailSection>
+          )}
+
+          {showArtifacts && recoveryPoints.length > 0 && (
+            <RailSection
+              title={t("File recovery")}
+              open={open.recovery}
+              onToggle={() => setOpen({ ...open, recovery: !open.recovery })}
+            >
+              {latestRecovery ? (
+                <div className="recovery-card">
+                  <div className="rail-muted">
+                    {latestRecovery.files.length} {t(latestRecovery.files.length === 1
+                      ? "file changed in Mimi's latest recoverable turn."
+                      : "files changed in Mimi's latest recoverable turn.")}
+                  </div>
+                  <div className="recovery-files" title={latestRecovery.files.map((file) => file.path).join("\n")}>
+                    {latestRecovery.files.slice(0, 3).map((file) => file.name).join(", ")}
+                    {latestRecovery.files.length > 3 ? ` +${latestRecovery.files.length - 3}` : ""}
+                  </div>
+                  <button
+                    className="rail-secondary-btn"
+                    onClick={() => void undoLatestTurn()}
+                    disabled={running || restoring}
+                    title={running ? t("Wait for Mimi to finish before restoring files") : t("Restore modified files and remove files created in that turn")}
+                  >
+                    {restoring ? t("Restoring…") : t("Undo latest file changes")}
+                  </button>
+                  {recoveryError && <div className="recovery-error">{recoveryError}</div>}
+                </div>
+              ) : (
+                <div className="rail-muted">{t("The available file changes have already been restored.")}</div>
+              )}
+            </RailSection>
           )}
 
           {/* §32: Access — the former Session-settings drawer, one section among peers.
