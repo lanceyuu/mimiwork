@@ -2915,6 +2915,7 @@ class SessionManager:
             "source": "env" if env_key else ("store" if stored else None),
             "onboarded": bool(self._prefs.get("onboarded")),
             "tour_seen": bool(self._prefs.get("tour_seen")),
+            "language": str(self._prefs.get("language") or "en"),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "nav_layout": self._nav_layout(),
@@ -3111,6 +3112,16 @@ class SessionManager:
         self._prefs["default_model"] = model
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
+
+    def set_language(self, value: str) -> dict[str, Any]:
+        """The app's display language (en/zh/no/fr) — a UI pref, stored so every
+        window and the next launch agree."""
+        value = str(value or "en").lower()
+        if value not in ("en", "zh", "no", "fr"):
+            return {"ok": False, "error": "language must be one of en, zh, no, fr"}
+        self._prefs["language"] = value
+        self._save_prefs()
+        return {"ok": True, "language": value}
 
     def set_tour_seen(self, value: bool = True) -> dict[str, Any]:
         """Record that the first-run tour was shown (or replayed and dismissed)."""

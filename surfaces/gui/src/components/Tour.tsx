@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { setTourSeen } from "../api";
+import { useT } from "../i18n";
 
 // First-run tour (owner ask 2026-08-29): five spotlights over the REAL interface —
 // no screenshots, no modal deck. Each step finds its live element; a step whose
@@ -69,6 +70,7 @@ const STEPS: Step[] = [
 ];
 
 export function Tour({ onDone }: { onDone: () => void }) {
+  const t = useT();
   const steps = useMemo(() => STEPS.filter((s) => s.find()), []);
   const [i, setI] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
@@ -136,16 +138,16 @@ export function Tour({ onDone }: { onDone: () => void }) {
         <div className="text-[10px] font-semibold tracking-wide text-accent uppercase mb-1">
           {i + 1} / {steps.length}
         </div>
-        <div className="text-[14px] font-semibold mb-1">{step.title}</div>
-        <div className="text-[12.5px] text-muted leading-relaxed">{step.body}</div>
+        <div className="text-[14px] font-semibold mb-1">{t(step.title)}</div>
+        <div className="text-[12.5px] text-muted leading-relaxed">{t(step.body)}</div>
         <div className="flex items-center gap-2 mt-3">
           <button className="text-[12px] text-faint hover:text-muted" onClick={finish} data-testid="tour-skip">
-            Skip tour
+            {t("Skip tour")}
           </button>
           <div className="ml-auto flex gap-2">
             {i > 0 && (
               <button className="px-3 py-1.5 rounded-full border border-line text-[12.5px]" onClick={() => setI(i - 1)}>
-                Back
+                {t("Back")}
               </button>
             )}
             <button
@@ -153,7 +155,7 @@ export function Tour({ onDone }: { onDone: () => void }) {
               onClick={() => (i + 1 < steps.length ? setI(i + 1) : finish())}
               data-testid="tour-next"
             >
-              {i + 1 < steps.length ? "Next" : "Done"}
+              {i + 1 < steps.length ? t("Next") : t("Done")}
             </button>
           </div>
         </div>

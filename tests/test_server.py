@@ -1193,3 +1193,15 @@ def test_set_provider_persists_extra_fields(tmp_path):
     manager.set_provider("ollama", {"base_url": ""})
     providers = {p["name"]: p for p in manager.get_providers()}
     assert "base_url" not in providers["ollama"]["values"]
+
+
+def test_language_setting_round_trips_and_validates(tmp_path):
+    """The app's display language (owner ask 2026-08-30: en/zh/no/fr). A UI pref,
+    but stored server-side so every window and the next launch agree."""
+    client = _client(tmp_path, [])
+    assert client.get("/v1/settings").json().get("language", "en") == "en"
+    assert client.post("/v1/settings/language", json={"value": "zh"}).json()["ok"] is True
+    assert client.get("/v1/settings").json()["language"] == "zh"
+    bad = client.post("/v1/settings/language", json={"value": "klingon"}).json()
+    assert bad["ok"] is False and "en, zh, no, fr" in bad["error"]
+    assert client.get("/v1/settings").json()["language"] == "zh"  # unchanged

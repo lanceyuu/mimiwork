@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import { openExternal } from "../tauri";
@@ -139,6 +140,7 @@ interface Props {
 // Sessions shown per group before "Show more" comes from Settings (sessions_peek, default 5).
 
 export function Sidebar(props: Props) {
+  const t = useT();
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
   // The account row (§26): cloud sign-in status drives the avatar/name/dot; refreshed on
@@ -723,7 +725,7 @@ export function Sidebar(props: Props) {
       <div data-testid="projects-band">
         <div className="flex items-center justify-between px-1.5 mb-1">
           <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
-            Projects
+            {t("Projects")}
           </span>
           <button
             className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper -mr-1"
@@ -975,7 +977,7 @@ export function Sidebar(props: Props) {
                 rows carry a right-aligned compact age and truncate to PROJECT_PEEK + "Show more". */}
             <div className="flex items-center justify-between px-1.5 pt-1">
               <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
-                Projects
+                {t("Projects")}
               </span>
               <button
                 className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-panel"
@@ -1289,27 +1291,27 @@ export function Sidebar(props: Props) {
                 )}
                 {appMenuItem(
                   "inbox",
-                  "Inbox",
+                  t("Inbox"),
                   props.onOpenInbox,
                   props.inboxActive,
                   <CountBadge n={totalAttention} title={`${totalAttention} awaiting your attention`} />,
                 )}
-                {appMenuItem("plug", "Connectors", props.onOpenIntegrations, props.integrationsActive)}
+                {appMenuItem("plug", t("Connectors"), props.onOpenIntegrations, props.integrationsActive)}
                 <div className="h-px bg-line my-1 mx-2" />
                 {appMenuItem(
                   "gear",
-                  "Settings",
+                  t("Settings"),
                   props.onManage,
                   false,
                   <span className="text-[11px] text-faint">⌘ ,</span>,
                 )}
-                {appMenuItem("clock", "Automations", props.onOpenScheduled, props.scheduledActive)}
-                {appMenuItem("audit", "Activity", props.onOpenAudit, props.auditActive)}
-                {appMenuItem("folder", "Files", props.onOpenFiles, props.filesActive)}
+                {appMenuItem("clock", t("Automations"), props.onOpenScheduled, props.scheduledActive)}
+                {appMenuItem("audit", t("Activity"), props.onOpenAudit, props.auditActive)}
+                {appMenuItem("folder", t("Files"), props.onOpenFiles, props.filesActive)}
                 {qtSignedIn && (
                   <>
                     <div className="h-px bg-line my-1 mx-2" />
-                    {appMenuItem("signOut", "Sign out of QualiTaTi", async () => {
+                    {appMenuItem("signOut", t("Sign out of QualiTaTi"), async () => {
                       await qualitatiLogout().catch(() => {});
                       refreshQt();
                     })}

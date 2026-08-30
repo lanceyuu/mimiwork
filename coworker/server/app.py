@@ -1349,6 +1349,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_models_remove(body: dict) -> dict[str, Any]:
         return manager.remove_model((body or {}).get("model", ""))
 
+    @app.post("/v1/settings/language")
+    def settings_set_language(body: dict) -> dict[str, Any]:
+        return manager.set_language(str((body or {}).get("value", "en")))
+
     @app.post("/v1/settings/tour-seen")
     def settings_set_tour_seen(body: dict) -> dict[str, Any]:
         return manager.set_tour_seen(bool((body or {}).get("value", True)))

@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { LANGS, getLang, setLang, useT } from "../i18n";
+import { setLanguage as apiSetLanguage } from "../api";
 import {
   getGlobalInstructions,
   setGlobalInstructions,
@@ -101,6 +103,7 @@ export function SettingsView({
   // prefilled — the worker builds the skill and proposes it via save_skill.
   onCreateSkill?: (description: string) => void;
 }) {
+  const tr = useT();
   // Personas is flag-gated (hidden for launch) — filter the tab AND coerce a stale
   // deep-link to it (openSettings("personas") callers) so the page never opens on a
   // section with no nav entry.
@@ -126,7 +129,7 @@ export function SettingsView({
               }
               onClick={() => setTab(t.key)}
             >
-              <Icon name={t.icon} size={15} /> {t.label}
+              <Icon name={t.icon} size={15} /> {tr(t.label)}
             </button>
           );
         })}
@@ -404,6 +407,8 @@ function PersonasSection({ onOpenPersona }: { onOpenPersona?: (id: string) => vo
 
 // -- Appearance + app behaviour ------------------------------------------------
 function AppearanceSection() {
+  const tr = useT();
+  const [lang, setLangState] = useState(getLang());
   const [theme, setTheme] = useThemePref();
   const [autostart, setAuto] = useState(false);
   const [keepAwake, setKeep] = useState(false);
@@ -490,22 +495,49 @@ function AppearanceSection() {
       {/* One card for the app-lifecycle actions (UX-021): the onboarding replay (§24 —
           every build, the browser dev shell runs the same first-run flow) and, on
           desktop, the manual update check (launch also checks automatically). */}
+      <div className={CARD + " p-4 mt-4"} data-testid="language-card">
+        <div className={FIELD_LABEL + " mb-2"}>{tr("Language")}</div>
+        <div className="flex gap-2">
+          {LANGS.map((l) => (
+            <button
+              key={l.value}
+              className={
+                BTN_BORDERED +
+                (lang === l.value ? " border-accent text-accent" : "")
+              }
+              aria-pressed={lang === l.value}
+              data-testid={`lang-${l.value}`}
+              onClick={() => {
+                setLang(l.value);
+                setLangState(l.value);
+                void apiSetLanguage(l.value).catch(() => undefined);
+              }}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+        <div className={FIELD_HELP}>
+          {tr("The app's own labels and menus. Mimi replies in whatever language you write.")}
+        </div>
+      </div>
+
       <div className={CARD + " p-4 mt-4"}>
-        <div className={FIELD_LABEL + " mb-2"}>Setup &amp; updates</div>
+        <div className={FIELD_LABEL + " mb-2"}>{tr("Setup & updates")}</div>
         <div className="flex items-center gap-2">
           <button className={BTN_BORDERED} onClick={runSetupAgain}>
-            Run setup again
+            {tr("Run setup again")}
           </button>
           <button
             className={BTN_BORDERED}
             data-testid="show-tour"
             onClick={() => window.dispatchEvent(new CustomEvent("coworker:open-tour"))}
           >
-            Show the tour
+            {tr("Show the tour")}
           </button>
           {desktop && <UpdateInline />}
         </div>
-        <div className={FIELD_HELP}>Replay the first-run setup, or the five-step tour of the interface.</div>
+        <div className={FIELD_HELP}>{tr("Replay the first-run setup, or the five-step tour of the interface.")}</div>
       </div>
     </section>
   );

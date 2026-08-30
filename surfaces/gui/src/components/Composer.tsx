@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import type { Attachment, SessionUsage } from "../types";
 import { isPdfFile, readFile } from "../attach";
 import {
@@ -144,6 +145,7 @@ interface Props {
 }
 
 export function Composer(props: Props) {
+  const t = useT();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   // "/" force-run (SKILLS-SPEC §4.1 #3). The popup derives from the draft: it is open while
@@ -829,7 +831,7 @@ export function Composer(props: Props) {
           placeholder={
             props.running
               ? "Mimi is working — type to steer it mid-run…"
-              : props.placeholder || "Ask the coworker…  (drop or paste files)"
+              : props.placeholder || t("Ask the coworker…  (drop or paste files)")
           }
           value={text}
           onChange={(e) => {
@@ -982,7 +984,7 @@ export function Composer(props: Props) {
           {/* send / stop */}
           {props.running ? (
             <button className="btn danger" onClick={props.onInterrupt}>
-              ⏹ Stop
+              ⏹ {t("Stop")}
             </button>
           ) : (
             <button
@@ -1177,6 +1179,7 @@ function ModeMenu({
   // Bumped by "/permissions" so the palette can pop this menu open.
   openNonce?: number;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (openNonce) setOpen(true);
@@ -1198,7 +1201,7 @@ function ModeMenu({
           (unattended ? " · approvals go to the Inbox" : "")
         }
       >
-        {current?.label || mode}
+        {current ? t(current.label) : mode}
         <Icon name="chevronDown" size={11} className="text-faint" />
       </button>
       {open && (
@@ -1223,10 +1226,10 @@ function ModeMenu({
                     "text-[13px] " + (o.value === mode ? "font-medium text-accent" : "text-ink")
                   }
                 >
-                  {o.label}
+                  {t(o.label)}
                   {o.value === mode && <span className="ml-1.5">✓</span>}
                 </span>
-                <span className="text-[11px] text-faint leading-snug">{o.description}</span>
+                <span className="text-[11px] text-faint leading-snug">{o.description ? t(o.description) : null}</span>
               </button>
             ))}
             {onUnattendedChange && (

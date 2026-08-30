@@ -6,6 +6,7 @@ import {
   type Connector,
 } from "../api";
 import { QualitatiAccountCard } from "./QualitatiAccountCard";
+import { useT } from "../i18n";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { chooseFolder } from "../tauri";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
@@ -78,6 +79,7 @@ export function Onboarding({
   // Test-only: render pre-advanced to a step (the earlier steps need live provider state).
   __startStep?: number;
 }) {
+  const t = useT();
   const [step, setStep] = useState(__startStep);
   // Step 0 (owner ask 2026-08-29): the account comes FIRST — register or sign in with
   // QualiTaTi right here, models included, nothing to configure. Bring-your-own-key is
@@ -161,11 +163,11 @@ export function Onboarding({
         {step === 0 && (
           <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col">
             {/* Persistent header — stays put while the region below swaps (§39). */}
-            <h1 className="text-[19px] font-semibold">Welcome to MimiWork<span className="beta-tag">BETA</span></h1>
+            <h1 className="text-[19px] font-semibold">{t("Welcome to MimiWork")}<span className="beta-tag">BETA</span></h1>
             <p className="text-[13px] text-muted mt-0.5 mb-4">
               {byok
                 ? "Pick a model provider — MimiWork runs on your own key, and your key and your data stay on this computer."
-                : "Create your QualiTaTi account — or sign in — and the Mimi models are ready to work, free tier included. No API keys."}
+                : t("Create your QualiTaTi account — or sign in — and the Mimi models are ready to work, free tier included. No API keys.")}
             </p>
 
             {!byok ? (
@@ -177,7 +179,7 @@ export function Onboarding({
                   data-testid="ob-byok"
                   onClick={() => setByok(true)}
                 >
-                  I'll use my own API key instead (OpenAI, Anthropic, Gemini…)
+                  {t("I'll use my own API key instead (OpenAI, Anthropic, Gemini…)")}
                 </button>
               </div>
             ) : !ps.sel ? (
@@ -188,7 +190,7 @@ export function Onboarding({
                   className="mt-3 text-[12.5px] text-faint hover:text-muted underline"
                   onClick={() => setByok(false)}
                 >
-                  ← Back to QualiTaTi sign-in
+                  {t("← Back to QualiTaTi sign-in")}
                 </button>
               </div>
             ) : (
@@ -202,13 +204,13 @@ export function Onboarding({
             <div className="flex items-center gap-3 pt-5">
               {!skipConfirm ? (
                 <button className="text-[12.5px] text-faint hover:text-muted" onClick={() => setSkipConfirm(true)}>
-                  Skip setup
+                  {t("Skip setup")}
                 </button>
               ) : (
                 <span className="text-[12.5px] text-muted">
                   Nothing works without a model —{" "}
                   <button className="text-accent" onClick={() => finish()}>
-                    skip anyway
+                    {t("skip anyway")}
                   </button>
                 </span>
               )}
@@ -218,7 +220,7 @@ export function Onboarding({
                 onClick={advance}
                 data-testid="ob-continue"
               >
-                {ps.verify.state === "testing" ? "Checking…" : "Next"}
+                {ps.verify.state === "testing" ? t("Checking…") : t("Next")}
               </button>
             </div>
             <p className="text-[11px] text-faint mt-3">

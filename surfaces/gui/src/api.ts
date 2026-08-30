@@ -628,6 +628,7 @@ export interface ModelSettings {
   source: "env" | "store" | null;
   onboarded: boolean;
   tour_seen?: boolean;
+  language?: string;
   surfaces: SurfaceVisibility;
   scratch_base: string;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
@@ -1335,6 +1336,14 @@ export async function removeModel(model: string): Promise<ModelSettings & { ok: 
   return res.json();
 }
 
+export async function setLanguage(value: string): Promise<{ ok: boolean; language: string }> {
+  const res = await fetch(`${httpBase()}/v1/settings/language`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+  return res.json();
+}
 export async function setTourSeen(value = true): Promise<{ ok: boolean; tour_seen: boolean }> {
   const res = await fetch(`${httpBase()}/v1/settings/tour-seen`, {
     method: "POST",

@@ -64,6 +64,7 @@ import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
 import { Tour } from "./components/Tour";
+import { setLang, type Lang } from "./i18n";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
@@ -578,6 +579,7 @@ export function App() {
   const loadSettings = () =>
     getSettings()
       .then((s) => {
+        if (s.language) setLang(s.language as Lang);
         setModels(s.models || []);
         setModelLabels(s.model_labels || {});
         setModelContextWindows(s.model_context_windows || {});
