@@ -3183,10 +3183,16 @@ class SessionManager:
         self._save_prefs()
 
     def time_saved_total(self) -> dict[str, Any]:
-        """The install's all-time estimate, for the badge next to the logo."""
+        """The install's all-time estimate, for the badge next to the logo — plus the
+        EDGE profile, which is the same minutes grouped by what KIND of help they
+        were (see edge.py). Derived here rather than stored, so it is correct for
+        work done before the profile existed."""
+        from ..edge import profile
         from ..timesaved import TimeSaved
 
-        return TimeSaved.from_dict(self._prefs.get("time_saved") or {}).as_dict()
+        totals = TimeSaved.from_dict(self._prefs.get("time_saved") or {}).as_dict()
+        totals["edge"] = profile(totals.get("by_category"))
+        return totals
 
     def set_language(self, value: str) -> dict[str, Any]:
         """The app's display language (en/zh/no/fr) — a UI pref, stored so every

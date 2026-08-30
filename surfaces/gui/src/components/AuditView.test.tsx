@@ -3,9 +3,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 const getAudit = vi.fn();
 const qualitatiCredits = vi.fn();
+const getSettings = vi.fn(async () => ({}) as any);
 vi.mock("../api", () => ({
   getAudit: (...a: any[]) => getAudit(...a),
   qualitatiCredits: (...a: any[]) => qualitatiCredits(...a),
+  // The EDGE panel reads the same settings payload as the hours badge; the default
+  // here is "no profile yet", so these tests keep asserting the page without it.
+  getSettings: () => getSettings(),
 }));
 
 import { AuditView } from "./AuditView";

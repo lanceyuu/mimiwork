@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import {
   getAudit,
+  getSettings,
   qualitatiCredits,
   type AuditEvent,
   type QualitatiCreditRow,
   type QualitatiCredits,
 } from "../api";
 import { PanelHead } from "./IntegrationsView";
+import { EdgeRadar } from "./EdgeRadar";
+import { useT } from "../i18n";
+import type { EdgeProfile } from "../timesaved";
 
 // Activity — connector/browser tool history, restructured onto the IntegrationsView page shell
 // (centered panel + PanelHead + cards), replacing the legacy `page-view` layout. Read-only:
@@ -16,6 +20,8 @@ const INPUT = "px-3 py-1.5 rounded-lg border border-line bg-paper text-[13px] te
 const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white shrink-0";
 
 export function AuditView() {
+  const t = useT();
+  const [edge, setEdge] = useState<EdgeProfile | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [sessionFilter, setSessionFilter] = useState("");
   const [connectorFilter, setConnectorFilter] = useState("");
@@ -40,6 +46,14 @@ export function AuditView() {
       .catch(() => setCredits(null));
   }, []);
 
+  // The EDGE profile rides on the same settings payload as the hours-saved total,
+  // so the shape and the hours can never disagree — they are the same minutes.
+  useEffect(() => {
+    getSettings()
+      .then((s) => setEdge(s.time_saved?.edge ?? null))
+      .catch(() => setEdge(null));
+  }, []);
+
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
       <div className="flex-1 min-w-0 overflow-y-auto hairline-scroll">
@@ -48,6 +62,18 @@ export function AuditView() {
             title="Activity"
             sub="What ran, and what it cost. Tool arguments are sanitized before storage."
           />
+
+          {edge?.ready && (
+            <div className={CARD + " p-4 mb-4"} data-testid="edge-panel">
+              <div className="text-[13px] font-medium text-ink mb-0.5">
+                {t("How Mimi helps you")}
+              </div>
+              <div className="text-[11.5px] text-muted mb-3">
+                {t("The same hours, grouped by the kind of help — the EDGE framework.")}
+              </div>
+              <EdgeRadar edge={edge} />
+            </div>
+          )}
 
           {credits?.ok && <CreditsPanel credits={credits} />}
 

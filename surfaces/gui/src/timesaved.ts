@@ -13,6 +13,24 @@ export interface TimeSaved {
   turns: number;
   approvals: number;
   by_category: Record<string, number>;
+  /** The same minutes grouped by KIND of help — see coworker/edge.py. */
+  edge?: EdgeProfile;
+}
+
+/** The EDGE profile (Efficiency · Decisions · Growth · Empowerment). */
+export interface EdgePillar {
+  key: string;
+  label: string;
+  blurb: string;
+  minutes: number;
+  percent: number;
+}
+export interface EdgeProfile {
+  pillars: EdgePillar[];
+  total_minutes: number;
+  leading: string;
+  /** False below ~30 minutes of attributed work: too little for a shape to mean anything. */
+  ready: boolean;
 }
 
 export const MIN_SHOWN_MINUTES = 30;

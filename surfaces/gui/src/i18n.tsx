@@ -22,6 +22,33 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  // ── EDGE profile (Efficiency · Decisions · Growth · Empowerment) ──
+  "How Mimi helps you": ["Mimi 如何帮到你", "Slik hjelper Mimi deg", "Comment Mimi vous aide"],
+  "The same hours, grouped by the kind of help — the EDGE framework.": [
+    "同样的时长,按帮助类型分组——EDGE 框架。",
+    "De samme timene, gruppert etter typen hjelp — EDGE-rammeverket.",
+    "Les mêmes heures, regroupées par type d'aide — le cadre EDGE.",
+  ],
+  "Efficiency": ["效率", "Effektivitet", "Efficacité"],
+  "Decisions": ["决策", "Beslutninger", "Décisions"],
+  "Growth": ["增长", "Vekst", "Croissance"],
+  "Empowerment": ["赋能", "Myndiggjøring", "Autonomie"],
+  "Work that had to happen anyway, done faster": [
+    "本来就要做的工作,做得更快", "Arbeid som måtte gjøres uansett, gjort raskere",
+    "Le travail à faire de toute façon, fait plus vite",
+  ],
+  "Evidence gathered and analysed so you can choose": [
+    "收集并分析证据,帮你做选择", "Grunnlag samlet og analysert så du kan velge",
+    "Des données réunies et analysées pour choisir",
+  ],
+  "Work aimed outward — decks, messages, delivery": [
+    "面向外部的工作——演示、消息、交付", "Arbeid rettet utover — presentasjoner, meldinger, leveranser",
+    "Le travail tourné vers l'extérieur — présentations, messages, livraisons",
+  ],
+  "Capability that outlasts the session": [
+    "比这次会话更持久的能力", "Kapasitet som varer lenger enn økten",
+    "Des capacités qui survivent à la session",
+  ],
   // ── sidebar ──
   "Inbox": ["收件箱", "Innboks", "Boîte de réception"],
   "Settings": ["设置", "Innstillinger", "Réglages"],

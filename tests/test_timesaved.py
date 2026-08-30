@@ -77,3 +77,70 @@ def test_the_breakdown_names_categories_a_person_recognises():
     t.add_call("run_python", {"code": "print(1)"}, {})
     t.add_call("slack_send_message", {"channel": "x", "text": "hi"}, {})
     assert set(t.by_category) == {"Decks", "Analysis", "Connectors"}
+
+
+# ── the EDGE profile (owner ask 2026-08-30) ────────────────────────────────
+
+
+def test_edge_groups_the_same_minutes_into_the_four_pillars():
+    """The radar must never contradict the hours badge beside it: both read the
+    same by_category minutes, grouped two ways."""
+    from coworker.edge import profile
+
+    got = profile(
+        {"Documents": 100.0, "Reading": 20.0, "Analysis": 60.0, "Decks": 40.0, "Capability": 20.0}
+    )
+    shares = {p["key"]: p["percent"] for p in got["pillars"]}
+    assert shares == {"Efficiency": 50, "Decisions": 25, "Growth": 17, "Empowerment": 8}
+    assert got["total_minutes"] == 240.0 and got["leading"] == "Efficiency"
+
+
+def test_edge_percentages_always_sum_to_exactly_100():
+    """A radar labelled 34/33/33/1 that adds to 101 undermines the chart it sits on."""
+    from coworker.edge import profile
+
+    for mix in (
+        {"Documents": 1.0, "Analysis": 1.0, "Decks": 1.0, "Capability": 1.0},
+        {"Documents": 7.0, "Analysis": 3.0, "Decks": 3.0, "Capability": 3.0},
+        {"Reading": 0.1, "Research": 0.2, "Connectors": 0.3, "Capability": 0.4},
+    ):
+        assert sum(p["percent"] for p in profile(mix)["pillars"]) == 100
+
+
+def test_edge_ignores_categories_it_cannot_place_rather_than_guessing():
+    from coworker.edge import profile
+
+    got = profile({"Documents": 60.0, "SomethingNew": 999.0})
+    assert got["total_minutes"] == 60.0
+    assert {p["key"] for p in got["pillars"]} == {
+        "Efficiency",
+        "Decisions",
+        "Growth",
+        "Empowerment",
+    }
+
+
+def test_edge_reports_every_pillar_even_at_zero_and_hides_itself_when_thin():
+    """An empty axis is information, and a shape drawn from twenty minutes is not."""
+    from coworker.edge import profile
+
+    thin = profile({"Documents": 20.0})
+    assert thin["ready"] is False
+    assert [p["percent"] for p in thin["pillars"]] == [100, 0, 0, 0]
+    assert profile({})["ready"] is False and profile({})["leading"] == ""
+    assert profile({"Documents": 45.0})["ready"] is True
+
+
+def test_capability_tools_feed_the_empowerment_axis():
+    """Without a category for skills, automations and instructions, Empowerment
+    could only ever read zero."""
+    from coworker.edge import profile
+    from coworker.timesaved import TimeSaved
+
+    ts = TimeSaved()
+    ts.add_call("save_skill", {}, {})
+    ts.add_call("create_scheduled_task", {}, {})
+    ts.add_call("set_global_instructions", {}, {})
+    assert ts.by_category["Capability"] == 22.0
+    got = profile(ts.by_category)
+    assert got["leading"] == "Empowerment"

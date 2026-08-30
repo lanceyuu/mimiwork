@@ -51,6 +51,12 @@ MIN_PER_CONNECTOR_READ = 2.0  # open the app, find the thing, read it
 MIN_PER_CONNECTOR_WRITE = 3.0  # compose it, address it, send it
 MIN_PER_SHELL = 1.5  # remember the command, run it, read the output
 MIN_PER_FILE_OP = 0.4  # move/copy/rename by hand
+# Capability someone would otherwise have had to write out by hand. Only the artifact
+# is costed — the re-use it buys later is real but speculative, and this module counts
+# what exists, not what might.
+MIN_PER_SKILL = 12.0  # writing the instructions, examples and rules down properly
+MIN_PER_AUTOMATION = 5.0  # deciding the schedule, wording the standing task
+MIN_PER_INSTRUCTIONS = 5.0  # setting out house rules for a folder
 
 # No single call is worth more than this. A 900-page PDF read is still one action;
 # without a ceiling one outlier turn would dwarf a month of real work.
@@ -177,6 +183,16 @@ def estimate_call(tool: str, args: Optional[dict], result: Any) -> tuple[str, fl
         return "Files", MIN_PER_SHELL
 
     # ── connectors (slack_send_message, gmail_search, qualtrics_export_responses, …) ──
+    # ── capability built to last ──
+    # The Empowerment pillar of the EDGE profile reads this category (see edge.py);
+    # without it that axis could only ever be zero.
+    if name == "save_skill":
+        return "Capability", MIN_PER_SKILL
+    if name in ("create_scheduled_task", "update_scheduled_task"):
+        return "Capability", MIN_PER_AUTOMATION
+    if name in ("set_global_instructions", "write_instructions", "init_agents"):
+        return "Capability", MIN_PER_INSTRUCTIONS
+
     if "_" in name:
         verb = name.split("_", 1)[1]
         if verb.startswith(("send", "post", "create", "update", "reply", "export", "add")):
