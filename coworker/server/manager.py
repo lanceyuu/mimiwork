@@ -1993,6 +1993,36 @@ class SessionManager:
             _harvest(content)
         return found
 
+    # What the user came for, ranked. A turn that writes a report also writes the script
+    # that made it, the intermediate CSV and a scratch note — sorted by time alone, the
+    # .docx someone actually wants lands under three files they never asked about (owner
+    # ask 2026-08-30). Recency still orders WITHIN a tier; it just stops outranking type.
+    _DELIVERABLE_TIERS: tuple[tuple[int, frozenset[str]], ...] = (
+        # Finished things a person opens, presents or sends.
+        (0, frozenset({".pdf", ".docx", ".doc", ".docm", ".pptx", ".ppt", ".pptm",
+                       ".xlsx", ".xls", ".xlsm", ".html", ".htm"})),
+        # Figures and charts — usually the point of an analysis turn.
+        (1, frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"})),
+        # Data someone will open in another tool.
+        (2, frozenset({".csv", ".tsv", ".sav", ".dta", ".json", ".xml", ".parquet"})),
+    )
+    # Everything else — source, notes, logs — is working material: still listed, just
+    # below the deliverables it produced.
+    _WORKING_TIER = 3
+
+    @classmethod
+    def _artifact_tier(cls, name: str) -> int:
+        suffix = Path(name).suffix.lower()
+        for tier, suffixes in cls._DELIVERABLE_TIERS:
+            if suffix in suffixes:
+                return tier
+        return cls._WORKING_TIER
+
+    @staticmethod
+    def _artifact_order(row: dict[str, Any]) -> tuple[int, float]:
+        """Deliverables first, newest first inside each tier."""
+        return (int(row.get("tier", 3)), -float(row.get("modified_at") or 0.0))
+
     def _artifact_row(self, path: Path, root: Path) -> Optional[dict[str, Any]]:
         try:
             st = path.stat()
@@ -2011,6 +2041,8 @@ class SessionManager:
             "kind": _artifact_kind(path),
             "size": st.st_size,
             "modified_at": st.st_mtime,
+            # Sort rank AND a hint the UI can group on — see _artifact_tier.
+            "tier": self._artifact_tier(path.name),
         }
 
     def list_artifacts(self, session_id: str) -> list[dict[str, Any]]:
@@ -2039,7 +2071,7 @@ class SessionManager:
                 rows = [
                     row for row in (self._artifact_row(p, root) for p in touched) if row
                 ]
-                rows.sort(key=lambda a: a["modified_at"], reverse=True)
+                rows.sort(key=self._artifact_order)
                 return rows[:80]
             # Nothing recorded: only a per-conversation scratch folder is safe to walk —
             # everything in it belongs to this conversation by construction.
@@ -2105,11 +2137,12 @@ class SessionManager:
                             "kind": _artifact_kind(path),
                             "size": st.st_size,
                             "modified_at": st.st_mtime,
+                            "tier": self._artifact_tier(path.name),
                         }
                     )
                 except OSError:
                     continue
-        out.sort(key=lambda a: a["modified_at"], reverse=True)
+        out.sort(key=self._artifact_order)
         return out[:80]
 
     MAX_BINARY_PREVIEW = 25 * 1024 * 1024  # base64-over-JSON gets heavy past this

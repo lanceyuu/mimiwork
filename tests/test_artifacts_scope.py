@@ -224,3 +224,48 @@ def test_an_artifact_link_opens_a_file_in_a_granted_folder_by_absolute_path(tmp_
         json={"path": str(stranger), "mode": "open"},
     ).json()
     assert not refused["ok"] and len(opened) == 1
+
+
+def test_the_deliverable_outranks_the_scratch_file_that_made_it(tmp_path):
+    """A turn that writes a report also writes the script, the intermediate CSV and a
+    note. Sorted by time alone the .docx someone actually wants lands under three files
+    they never asked about (owner ask 2026-08-30), so type ranks above recency —
+    recency still orders within a tier."""
+    import os
+
+    from coworker.server import SessionManager
+
+    for index, name in enumerate(
+        ["analysis.py", "notes.md", "chart.png", "rows.csv", "deck.pptx"]
+    ):
+        (tmp_path / name).write_text("x")
+        os.utime(tmp_path / name, (2_000 + index, 2_000 + index))
+    # The deliverable is the OLDEST file in the folder — the worst case for time sorting.
+    (tmp_path / "Report.docx").write_text("x")
+    os.utime(tmp_path / "Report.docx", (900, 900))
+
+    rows = SessionManager(workspace=tmp_path).list_artifacts("no-session")
+    order = [r["name"] for r in rows]
+    assert order[:2] == ["deck.pptx", "Report.docx"]  # tier 0, newest first
+    assert order.index("chart.png") < order.index("rows.csv")  # figure over data
+    assert order[-2:] == ["notes.md", "analysis.py"]  # working files last
+    assert [r["tier"] for r in rows] == sorted(r["tier"] for r in rows)
+
+
+def test_a_full_folder_never_drops_a_deliverable_to_stay_under_the_cap(tmp_path):
+    """The list is capped at 80. Ranking happens BEFORE the cut, so a folder full of
+    fresh scratch files cannot push the one report off the end."""
+    import os
+
+    from coworker.server import SessionManager
+
+    for i in range(120):
+        p = tmp_path / f"step_{i:03d}.py"
+        p.write_text("x")
+        os.utime(p, (9_000 + i, 9_000 + i))  # all newer than the report
+    (tmp_path / "Final report.pdf").write_text("x")
+    os.utime(tmp_path / "Final report.pdf", (100, 100))
+
+    rows = SessionManager(workspace=tmp_path).list_artifacts("no-session")
+    assert rows[0]["name"] == "Final report.pdf"
+    assert len(rows) == 80

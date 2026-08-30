@@ -192,6 +192,8 @@ export async function deleteSession(sessionId: string): Promise<{ ok: boolean; e
 }
 
 export interface ArtifactInfo {
+  /** 0 deliverable · 1 figure · 2 data · 3 working file. Server-ranked. */
+  tier?: number;
   path: string; // workspace-relative (the display/API identifier)
   abs_path?: string; // absolute — what "Copy path" copies
   name: string;

@@ -223,8 +223,17 @@ export function RightRail({
               <div className="rail-muted">Nothing produced yet — files Mimi writes appear here.</div>
             ) : (
               <div className="artifact-list">
-                {artifacts.slice(0, 16).map((a) => (
-                  <button className="artifact-row" key={a.path} onClick={() => openArtifact(a)}>
+                {artifacts.slice(0, 16).map((a, i, list) => (
+                  <div key={a.path}>
+                    {/* The server ranks deliverables above working files; the first
+                        working file gets a quiet label so the split is legible rather
+                        than mysterious. */}
+                    {(a.tier ?? 3) >= 3 && (i === 0 || (list[i - 1].tier ?? 3) < 3) && (
+                      <div className="rail-muted" style={{ padding: "6px 2px 2px" }}>
+                        Working files
+                      </div>
+                    )}
+                    <button className="artifact-row" onClick={() => openArtifact(a)}>
                     <span className="artifact-ico" title={a.kind}>
                       <Icon name={kindIcon(a.kind)} size={17} />
                     </span>
@@ -232,8 +241,9 @@ export function RightRail({
                       {a.name}
                       <span className="artifact-row-meta">{formatBytes(a.size)} · {clockTime(a.modified_at)}</span>
                     </span>
-                    <span className="artifact-open">Open</span>
-                  </button>
+                      <span className="artifact-open">Open</span>
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
