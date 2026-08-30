@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { LANGS, getLang, setLang, tr, useT } from "./i18n";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { LANGS, getLang, installDomTranslations, setLang, tr, useT } from "./i18n";
 
 afterEach(() => {
   setLang("en");
@@ -43,5 +43,42 @@ describe("i18n", () => {
 
   it("offers exactly the four owner-requested languages", () => {
     expect(LANGS.map((l) => l.value).sort()).toEqual(["en", "fr", "no", "zh"]);
+  });
+
+  it("localizes legacy interface text and accessibility labels", async () => {
+    const { container } = render(
+      <section>
+        <button title="Choose location" aria-label="New session">Choose a folder</button>
+        <input placeholder="Search chats" />
+        <p data-no-translate>Settings</p>
+      </section>,
+    );
+    const uninstall = installDomTranslations(container);
+
+    act(() => setLang("fr"));
+    await Promise.resolve();
+
+    expect(screen.getByText("Choisir un dossier")).toBeTruthy();
+    expect(screen.getByTitle("Choisir l'emplacement")).toBeTruthy();
+    expect(screen.getByLabelText("Nouvelle session")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Rechercher des conversations")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+
+    const lateButton = document.createElement("button");
+    lateButton.textContent = "Delete";
+    container.appendChild(lateButton);
+    await waitFor(() => expect(screen.getByText("Supprimer")).toBeTruthy());
+    uninstall();
+  });
+
+  it("can switch a legacy literal directly between translated languages", () => {
+    const { container } = render(<span>Settings</span>);
+    const uninstall = installDomTranslations(container);
+
+    act(() => setLang("zh"));
+    expect(screen.getByText("设置")).toBeTruthy();
+    act(() => setLang("no"));
+    expect(screen.getByText("Innstillinger")).toBeTruthy();
+    uninstall();
   });
 });

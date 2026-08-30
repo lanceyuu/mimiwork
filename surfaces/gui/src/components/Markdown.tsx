@@ -1,6 +1,7 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Icon } from "./Icon";
+import { useT } from "../i18n";
 
 // §34 (UX-016): the agent ends a deliverable turn with plain markdown —
 // [Title](artifact:relative/path) — and the renderer turns it into a chip that opens the
@@ -24,6 +25,7 @@ function decodePath(raw: string): string {
 }
 
 function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
+  const t = useT();
   const path = decodePath(raw);
   const file = path.split("/").pop() || path;
   return (
@@ -42,7 +44,7 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
         <b>{title || file}</b>
         {title && title !== file && <span>{file}</span>}
       </span>
-      <span className="art-chip-open">Open ›</span>
+      <span className="art-chip-open">{t("Open")} ›</span>
     </button>
   );
 }
@@ -52,7 +54,7 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
 // which open the session's artifact viewer.
 export function Markdown({ text }: { text: string }) {
   return (
-    <div className="md">
+    <div className="md" data-no-translate>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         // artifact: is ours — keep it through the sanitizer (everything else gets the default

@@ -4,6 +4,7 @@ import { App } from "./App";
 import { MimiCompanion } from "./components/MimiCompanion";
 import { initTheme } from "./theme";
 import { platformOS } from "./tauri";
+import { installDomTranslations } from "./i18n";
 import "./tailwind.css";
 import "./styles.css";
 
@@ -27,3 +28,5 @@ const companionMode =
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>{companionMode ? <MimiCompanion /> : <App />}</React.StrictMode>,
 );
+
+installDomTranslations(document.getElementById("root")!);

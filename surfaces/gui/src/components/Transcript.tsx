@@ -419,7 +419,10 @@ export function Transcript({ items, running, streamingText, onRetry, onUndoMemor
           case "user":
             return (
               <div className="group self-end max-w-[78%] flex flex-col items-end" key={bi}>
-                <div className="bubble-user px-3.5 py-2.5 rounded-[14px_14px_4px_14px] bg-solid text-onSolid text-[14.5px] leading-relaxed whitespace-pre-wrap">
+                <div
+                  className="bubble-user px-3.5 py-2.5 rounded-[14px_14px_4px_14px] bg-solid text-onSolid text-[14.5px] leading-relaxed whitespace-pre-wrap"
+                  data-no-translate
+                >
                   {item.attachments && item.attachments.length > 0 && (
                     <div className="bubble-attachments">
                       {item.attachments.map((a, i) =>
