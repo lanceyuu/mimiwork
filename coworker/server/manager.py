@@ -3182,6 +3182,75 @@ class SessionManager:
         self._prefs["time_saved"] = total.as_dict()
         self._save_prefs()
 
+    _RELEASES_CACHE: dict[str, Any] = {}
+
+    def about(self) -> dict[str, Any]:
+        """What a user needs to believe this app is alive and will stay current.
+
+        The three questions someone asks a week after installing — is it still being
+        worked on, will my models fall behind, who is behind this — answered with
+        EVIDENCE rather than adjectives: the real release history with real dates,
+        the real size of the model catalogue, and a named maintainer. A claim the
+        user can check is worth ten they have to take on faith.
+
+        The release list comes from the same GitHub host the updater already
+        contacts on launch, so it exposes nothing new, is fetched only when the
+        panel is opened, cached for an hour, and fails to an empty list — an
+        offline user sees the local facts, never an error.
+        """
+        import time as _time
+
+        from ..providers.matrix import MATRIX
+
+        version = ""
+        try:  # the shell's version, written into the bundle at build time
+            from .. import __version__ as _v
+
+            version = str(_v)
+        except Exception:
+            version = ""
+        providers = sorted({k.split(":")[0] for k in MATRIX if ":" in k})
+        cached = self._RELEASES_CACHE
+        fresh = cached.get("at", 0) and (_time.time() - cached["at"] < 3600)
+        releases = cached.get("rows", []) if fresh else self._fetch_releases()
+        return {
+            "version": version,
+            "models": len(MATRIX),
+            "providers": len(providers),
+            "releases": releases,
+            "maintainer": "Shubin Yu, HEC Paris",
+            "repo_url": "https://github.com/lanceyuu/mimiwork",
+            "tutorial_url": "https://github.com/lanceyuu/mimiwork#the-ten-minute-tutorial",
+        }
+
+    def _fetch_releases(self) -> list[dict[str, Any]]:
+        """The five most recent published releases: tag, date, title. Soft-fails."""
+        import json as _json
+        import time as _time
+        from urllib import request
+
+        rows: list[dict[str, Any]] = []
+        try:
+            req = request.Request(
+                "https://api.github.com/repos/lanceyuu/mimiwork/releases?per_page=5",
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "MimiWork"},
+            )
+            with request.urlopen(req, timeout=6) as r:
+                for item in _json.load(r):
+                    if not isinstance(item, dict) or item.get("draft"):
+                        continue
+                    rows.append(
+                        {
+                            "tag": str(item.get("tag_name") or ""),
+                            "name": str(item.get("name") or ""),
+                            "published_at": str(item.get("published_at") or ""),
+                        }
+                    )
+        except Exception:
+            return self._RELEASES_CACHE.get("rows", [])  # keep the last good answer
+        self._RELEASES_CACHE = {"rows": rows, "at": _time.time()}
+        return rows
+
     def time_saved_total(self) -> dict[str, Any]:
         """The install's all-time estimate, for the badge next to the logo — plus the
         EDGE profile, which is the same minutes grouped by what KIND of help they

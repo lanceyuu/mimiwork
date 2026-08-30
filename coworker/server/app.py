@@ -1349,6 +1349,12 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_models_remove(body: dict) -> dict[str, Any]:
         return manager.remove_model((body or {}).get("model", ""))
 
+    @app.get("/v1/about")
+    async def about() -> dict[str, Any]:
+        """Version, model catalogue size, recent releases, maintainer — the
+        evidence behind "this is maintained and current"."""
+        return await asyncio.to_thread(manager.about)
+
     @app.post("/v1/settings/language")
     def settings_set_language(body: dict) -> dict[str, Any]:
         return manager.set_language(str((body or {}).get("value", "en")))

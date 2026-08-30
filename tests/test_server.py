@@ -1224,3 +1224,25 @@ def test_time_saved_accumulates_across_turns_without_double_counting(tmp_path):
     # so the honest answer is zero saved — not a negative, and not a fabrication.
     assert total["saved_minutes"] == 0.0
     assert total["collab_minutes"] > 0
+
+
+def test_about_answers_the_is_this_alive_questions(tmp_path, monkeypatch):
+    """A week after installing, a user asks: still maintained? models current? who
+    is behind it? The endpoint answers with checkable facts, and — crucially — an
+    offline user still gets the local ones instead of an error."""
+    from coworker.server import manager as manager_mod
+
+    client = _client(tmp_path, [])
+
+    def offline(*a, **k):
+        raise OSError("no network")
+
+    monkeypatch.setattr(manager_mod.SessionManager, "_RELEASES_CACHE", {}, raising=False)
+    import urllib.request as request_mod
+
+    monkeypatch.setattr(request_mod, "urlopen", offline)
+    body = client.get("/v1/about").json()
+    assert body["models"] > 20 and body["providers"] > 5  # a real catalogue
+    assert "HEC Paris" in body["maintainer"]
+    assert body["repo_url"].startswith("https://github.com/")
+    assert body["releases"] == []  # soft-failed, not an error page

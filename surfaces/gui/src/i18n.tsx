@@ -22,6 +22,34 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  // ── "is this still alive?" card ──
+  "Maintained and current": ["持续维护,保持最新", "Vedlikeholdt og oppdatert", "Maintenu et à jour"],
+  "Latest release": ["最新版本", "Siste versjon", "Dernière version"],
+  "Before that": ["此前", "Før det", "Avant cela"],
+  "models from": ["个模型,来自", "modeller fra", "modèles de"],
+  "providers": ["家服务商", "leverandører", "fournisseurs"],
+  "the lineup is refreshed with every release": [
+    "每次发版都会更新阵容", "utvalget oppdateres med hver utgivelse",
+    "la sélection est actualisée à chaque version",
+  ],
+  "Signed in with QualiTaTi? The model behind each Mimi tier is upgraded for you — nothing to install, nothing to choose.": [
+    "用 QualiTaTi 登录了?每个 Mimi 档位背后的模型会自动升级——无需安装,无需选择。",
+    "Logget inn med QualiTaTi? Modellen bak hvert Mimi-nivå oppgraderes for deg — ingenting å installere, ingenting å velge.",
+    "Connecté avec QualiTaTi ? Le modèle derrière chaque niveau Mimi est mis à niveau pour vous — rien à installer, rien à choisir.",
+  ],
+  "Built and maintained by": ["开发与维护者", "Laget og vedlikeholdt av", "Conçu et maintenu par"],
+  "Source and releases": ["源码与版本", "Kildekode og utgivelser", "Code source et versions"],
+  "Tutorial": ["教程", "Veiledning", "Tutoriel"],
+  "Everything above is checkable — the release dates come from the public repository.": [
+    "以上内容都可核查——发版日期来自公开代码仓库。",
+    "Alt over kan etterprøves — utgivelsesdatoene kommer fra det offentlige kodelageret.",
+    "Tout ceci est vérifiable — les dates de version proviennent du dépôt public.",
+  ],
+  "today": ["今天", "i dag", "aujourd'hui"],
+  "yesterday": ["昨天", "i går", "hier"],
+  "days ago": ["天前", "dager siden", "jours"],
+  "last month": ["上个月", "forrige måned", "le mois dernier"],
+  "months ago": ["个月前", "måneder siden", "mois"],
   // ── EDGE profile (Efficiency · Decisions · Growth · Empowerment) ──
   "How Mimi helps you": ["Mimi 如何帮到你", "Slik hjelper Mimi deg", "Comment Mimi vous aide"],
   "The same hours, grouped by the kind of help — the EDGE framework.": [

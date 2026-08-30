@@ -1340,6 +1340,21 @@ export async function removeModel(model: string): Promise<ModelSettings & { ok: 
   return res.json();
 }
 
+/** Evidence that this app is maintained and current — see manager.about(). */
+export interface AboutInfo {
+  version: string;
+  models: number;
+  providers: number;
+  releases: { tag: string; name: string; published_at: string }[];
+  maintainer: string;
+  repo_url: string;
+  tutorial_url: string;
+}
+export async function getAbout(): Promise<AboutInfo> {
+  const res = await fetch(`${httpBase()}/v1/about`);
+  return res.json();
+}
+
 export async function setLanguage(value: string): Promise<{ ok: boolean; language: string }> {
   const res = await fetch(`${httpBase()}/v1/settings/language`, {
     method: "POST",

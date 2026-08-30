@@ -44,6 +44,7 @@ import {
 import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
+import { AliveCard } from "./AliveCard";
 import { ModelsTab } from "./ManageTabs";
 import { MemorySection } from "./MemorySection";
 import { PersonasTab } from "./PersonasTab";
@@ -495,6 +496,8 @@ function AppearanceSection() {
       {/* One card for the app-lifecycle actions (UX-021): the onboarding replay (§24 —
           every build, the browser dev shell runs the same first-run flow) and, on
           desktop, the manual update check (launch also checks automatically). */}
+      <AliveCard card={CARD} label={FIELD_LABEL} help={FIELD_HELP} />
+
       <div className={CARD + " p-4 mt-4"} data-testid="language-card">
         <div className={FIELD_LABEL + " mb-2"}>{tr("Language")}</div>
         <div className="flex gap-2">
