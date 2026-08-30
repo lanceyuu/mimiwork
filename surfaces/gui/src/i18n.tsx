@@ -22,6 +22,7 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  "More": ["更多", "Mer", "Plus"],
   // ── "is this still alive?" card ──
   "Maintained and current": ["持续维护,保持最新", "Vedlikeholdt og oppdatert", "Maintenu et à jour"],
   "Latest release": ["最新版本", "Siste versjon", "Dernière version"],

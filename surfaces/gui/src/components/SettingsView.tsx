@@ -78,15 +78,26 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shri
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 
-const SET_TABS: {
+type TabDef = {
   key: SetTab;
   label: string;
   icon: "sliders" | "code" | "mic" | "archive" | "sparkle" | "book" | "file";
-}[] = [
+};
+
+// Eight equal entries made a first-time user's own tool look like a control panel
+// they had to study. These four are what someone touches while actually working —
+// they stay in front. Nothing is removed: the rest is one click away under "More",
+// and any deep link into it opens the group, so a link to Memory still lands on
+// Memory with its nav entry visible.
+const SET_TABS: TabDef[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "instructions", label: "Instructions", icon: "file" },
   { key: "skills", label: "Skills", icon: "book" },
+];
+
+// Set once, or read once, then rarely again.
+const MORE_TABS: TabDef[] = [
   { key: "voice", label: "Voice input", icon: "mic" },
   { key: "memory", label: "Memory", icon: "archive" },
   { key: "personas", label: "Personas", icon: "sparkle" },
@@ -109,9 +120,13 @@ export function SettingsView({
   // deep-link to it (openSettings("personas") callers) so the page never opens on a
   // section with no nav entry.
   const personas = showPersonas();
-  const tabs = personas ? SET_TABS : SET_TABS.filter((t) => t.key !== "personas");
+  const tabs = SET_TABS;
+  const more = personas ? MORE_TABS : MORE_TABS.filter((t) => t.key !== "personas");
   const wanted = initialTab && (personas || initialTab !== "personas") ? initialTab : "appearance";
   const [tab, setTab] = useState<SetTab>(wanted);
+  // Open the group when the page was deep-linked into it — a section with no visible
+  // nav entry reads as a broken page.
+  const [moreOpen, setMoreOpen] = useState(() => more.some((t) => t.key === wanted));
 
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
@@ -134,6 +149,32 @@ export function SettingsView({
             </button>
           );
         })}
+
+        <button
+          className="w-full text-left px-2.5 py-2 rounded-lg text-[13px] flex items-center gap-2 text-faint hover:bg-paper hover:text-muted mt-1"
+          onClick={() => setMoreOpen((v) => !v)}
+          aria-expanded={moreOpen}
+          data-testid="settings-more"
+        >
+          <Icon name={moreOpen ? "chevronDown" : "chevronRight"} size={15} />
+          {tr("More")}
+        </button>
+        {moreOpen &&
+          more.map((t) => {
+            const active = tab === t.key;
+            return (
+              <button
+                key={t.key}
+                className={
+                  "w-full text-left pl-7 pr-2.5 py-2 rounded-lg text-[13px] flex items-center gap-2 " +
+                  (active ? "bg-paper text-accent font-medium" : "text-muted hover:bg-paper hover:text-ink")
+                }
+                onClick={() => setTab(t.key)}
+              >
+                <Icon name={t.icon} size={15} /> {tr(t.label)}
+              </button>
+            );
+          })}
       </nav>
 
       <div className="flex-1 min-w-0 overflow-y-auto hairline-scroll">

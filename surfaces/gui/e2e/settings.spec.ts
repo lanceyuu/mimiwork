@@ -1,8 +1,8 @@
 import { test, expect } from "./fixtures";
 
-// Guards the Settings-as-page refactor (§13, IA per UX-021): the ⚙ menu opens a full-page
-// surface with a left sub-nav — General · Models · Voice input — and each section renders.
-// Files is a card inside General; Personas is launch-flagged off.
+// Guards the Settings-as-page refactor (§13, IA per UX-021) and the 2026-08-30 nav split:
+// four working tabs stay in front, the set-once ones move under "More". Files is a card
+// inside General; Personas is launch-flagged off.
 test("Settings opens as a full page and navigates sections", async ({ page }) => {
   await page.goto("/");
 
@@ -12,9 +12,18 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
   // Full-page: left sub-nav + the General section (no modal backdrop).
   await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
   await expect(page.locator(".modal-backdrop")).toHaveCount(0);
-  for (const label of ["General", "Models", "Voice input"]) {
+  // What someone touches while working is in front...
+  for (const label of ["General", "Models", "Instructions", "Skills"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
+  // ...and the set-once sections are one click away, not gone.
+  await expect(page.getByRole("button", { name: "Voice input", exact: true })).toHaveCount(0);
+  await page.getByTestId("settings-more").click();
+  await expect(page.getByRole("button", { name: "Voice input", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Memory", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Transfer guide", exact: true })).toBeVisible();
+  await page.getByTestId("settings-more").click(); // collapses again
+  await expect(page.getByRole("button", { name: "Memory", exact: true })).toHaveCount(0);
   // Folded/hidden tabs: Files is a General card now; Personas is launch-flagged off.
   await expect(page.getByRole("button", { name: "Files", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Personas", exact: true })).toHaveCount(0);
@@ -32,6 +41,7 @@ test("Settings: Personas tab returns behind the launch flag", async ({ page }) =
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByTestId("settings-more").click();
   await page.getByRole("button", { name: "Personas", exact: true }).click();
   await expect(page.getByText("Add personas")).toBeVisible();
 });
@@ -118,4 +128,18 @@ test("Settings: Token savings card edits PDF fallback and thresholds", async ({ 
     card.getByTestId("pdf-max-pages").fill("30"),
   ]);
   expect(req2.postDataJSON()).toEqual({ pdf_max_pages: 30 });
+});
+
+
+// A deep link into a folded section must open the group with it — a page showing
+// Memory while the nav shows no Memory entry reads as broken (2026-08-30).
+test("Settings: a deep link into a folded section opens More with it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // The Transfer guide is reached from /help and the composer, not the Settings nav.
+  await page.getByTestId("settings-more").click();
+  await page.getByRole("button", { name: "Transfer guide", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Transfer guide", exact: true })).toBeVisible();
+  await expect(page.getByTestId("settings-more")).toHaveAttribute("aria-expanded", "true");
 });

@@ -34,8 +34,17 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
     getAbout().then(setAbout).catch(() => setAbout(null));
   }, []);
 
-  if (!about) return null;
-  const latest = about.releases[0];
+  // Trust nothing about the shape. A GUI newer than its sidecar (an install that
+  // updated the app but is still running the old server) gets a 404 body here, and
+  // reading .releases off it would throw during render — taking the whole General
+  // page down with it. A card about reliability must not be the thing that breaks.
+  if (!about || typeof about !== "object") return null;
+  const releases = Array.isArray(about.releases) ? about.releases : [];
+  const models = Number(about.models) || 0;
+  const providers = Number(about.providers) || 0;
+  const maintainer = about.maintainer || "";
+  if (!models && !releases.length && !maintainer) return null;
+  const latest = releases[0];
 
   return (
     <div className={card + " p-4 mt-4"} data-testid="alive-card">
@@ -47,10 +56,10 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
           <span className="text-muted">· {when(latest.published_at, t)}</span>
         </div>
       )}
-      {about.releases.length > 1 && (
+      {releases.length > 1 && (
         <div className="text-[11.5px] text-muted mt-0.5" data-testid="release-history">
           {t("Before that")}:{" "}
-          {about.releases.slice(1, 4).map((r, i) => (
+          {releases.slice(1, 4).map((r, i) => (
             <span key={r.tag}>
               {i > 0 && " · "}
               {r.tag} <span className="text-faint">{when(r.published_at, t)}</span>
@@ -60,7 +69,7 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
       )}
 
       <div className="text-[12.5px] text-ink mt-2.5">
-        {about.models} {t("models from")} {about.providers} {t("providers")}
+        {models} {t("models from")} {providers} {t("providers")}
         <span className="text-muted"> · {t("the lineup is refreshed with every release")}</span>
       </div>
       <div className="text-[11.5px] text-muted mt-0.5">
@@ -69,14 +78,14 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
 
       <div className="text-[11.5px] text-muted mt-2.5 flex flex-wrap items-center gap-x-1.5">
         <span>
-          {t("Built and maintained by")} <span className="text-ink">{about.maintainer}</span>
+          {t("Built and maintained by")} <span className="text-ink">{maintainer}</span>
         </span>
         <span className="text-faint">·</span>
-        <button className="text-accent hover:underline" onClick={() => openExternal(about.repo_url)}>
+        <button className="text-accent hover:underline" onClick={() => openExternal(about.repo_url || "")}>
           {t("Source and releases")}
         </button>
         <span className="text-faint">·</span>
-        <button className="text-accent hover:underline" onClick={() => openExternal(about.tutorial_url)}>
+        <button className="text-accent hover:underline" onClick={() => openExternal(about.tutorial_url || "")}>
           {t("Tutorial")}
         </button>
       </div>

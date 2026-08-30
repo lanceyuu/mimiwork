@@ -57,4 +57,20 @@ describe("AliveCard", () => {
     expect(screen.queryByTestId("release-history")).toBeNull();
     expect(screen.getByText(/59/)).toBeTruthy(); // local facts still shown
   });
+
+  it("survives a payload from an older sidecar without taking the page down", async () => {
+    // A GUI newer than its server gets a 404 body here. Reading .releases off it threw
+    // during render and blanked the whole General page — caught by the e2e suite, not
+    // by any unit test, which is why this one exists.
+    getAbout.mockResolvedValue({} as any);
+    const { container } = render(<AliveCard {...props} />);
+    await waitFor(() => expect(container.querySelector("[data-testid='alive-card']")).toBeNull());
+  });
+
+  it("still renders when only the local facts arrive", async () => {
+    getAbout.mockResolvedValue({ models: 59, providers: 16, maintainer: "Shubin Yu" } as any);
+    render(<AliveCard {...props} />);
+    await screen.findByTestId("alive-card");
+    expect(screen.queryByTestId("release-history")).toBeNull();
+  });
 });
