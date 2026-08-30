@@ -444,7 +444,7 @@ def test_build_code_engine_injects_memory(tmp_path):
         # when-to-remember guidance is static (it never changes)...
         assert "memory_update" in engine.messages[0]["content"]
         assert (
-            "Don't save what the repo already records" in engine.messages[0]["content"]
+            "skip what the repo already records" in engine.messages[0]["content"]
         )
         # the facts live in the system prompt — session-stable knowledge (§7.1)
         assert "always run black" in engine.messages[0]["content"]
@@ -526,8 +526,10 @@ def test_engine_registers_memory_read_and_revised_guidance(tmp_path):
     try:
         assert "memory_read" in engine.registry.names()
         sys_prompt = engine.messages[0]["content"]
-        # spec §4.2: conservative bias, sensitive-ask-first, announce-on-save
-        assert "Save conservatively" in sys_prompt
+        # spec §4.2: careful bias, sensitive-ask-first, announce-on-save. The bias is
+        # still "a wrong memory costs more than a missing one" — what changed on
+        # 2026-08-31 is that it stopped requiring the user to say "always".
+        assert "A wrong memory costs more than a missing one" in sys_prompt
         assert "Sensitive topics" in sys_prompt
         assert "Want me to remember this for next time?" in sys_prompt
         assert "I'll remember" in sys_prompt
@@ -691,3 +693,61 @@ def test_session_append_only_and_list(tmp_path):
     assert len(listed) == 1
     assert listed[0].message_count == 2
     assert listed[0].title == "a"
+
+
+# ── saving often enough to be worth having (owner report 2026-08-31) ─────────
+
+
+def test_the_guidance_asks_for_the_facts_people_actually_state():
+    """Measured before this change: four memories across twenty-one sessions, three of
+    them written in the same second from one explicit "remember this". The cause was a
+    rule that only accepted "always" / "from now on" phrasing, which nobody uses —
+    "the deploy branch is starfish-prod" is durable and was being dropped."""
+    from coworker.agent import _MEMORY_GUIDANCE
+
+    text = _MEMORY_GUIDANCE.lower()
+    # The four recurring cases are named...
+    for cue in ("correction", "decision", "role", "twice"):
+        assert cue in text, cue
+    # ...and the old gate is gone, explicitly.
+    assert 'do not need the words "always"' in text
+    # The safety rails that made the conservatism worth having are still there.
+    for rail in ("sensitive", "wrong memory costs more", "absolute dates"):
+        assert rail in text, rail
+    # An update is preferred over a near-duplicate.
+    assert "memory_update" in _MEMORY_GUIDANCE
+
+
+def test_compaction_asks_once_for_anything_worth_keeping():
+    """Compaction is the one moment where "save it now or lose it" is literally true.
+    Once per session, not per compaction: a long session compacts repeatedly."""
+    from coworker.agent import MEMORY_CONSOLIDATION_NUDGE
+    from coworker.engine import TurnEngine
+
+    engine = TurnEngine.__new__(TurnEngine)
+    engine._memory_nudged = False
+    engine.memory_enabled = True
+    engine._steering = []
+
+    engine._queue_memory_consolidation()
+    engine._queue_memory_consolidation()  # a second compaction must not ask again
+    assert len(engine._steering) == 1
+    text, source = engine._steering[0]
+    assert text == MEMORY_CONSOLIDATION_NUDGE
+    assert source == {"kind": "memory_consolidation"}
+    # "Nothing durable" must be an acceptable answer, or it becomes a save-something reflex.
+    assert "empty answer is a fine answer" in MEMORY_CONSOLIDATION_NUDGE
+
+
+def test_the_nudge_stays_quiet_when_saving_is_off():
+    """With no write tools, asking the model to save invites exactly the bluffing the
+    off-notice exists to prevent."""
+    from coworker.engine import TurnEngine
+
+    engine = TurnEngine.__new__(TurnEngine)
+    engine._memory_nudged = False
+    engine.memory_enabled = False
+    engine._steering = []
+
+    engine._queue_memory_consolidation()
+    assert engine._steering == []

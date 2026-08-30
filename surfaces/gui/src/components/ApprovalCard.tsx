@@ -104,7 +104,7 @@ export function scopeNote(
 ): { text: string; external: boolean } {
   // save_skill's corner answers WHERE (SKILLS-SPEC §5.2): the exact place to find, edit,
   // or turn off the skill afterwards.
-  if (name === "save_skill") return { text: "saves to Settings ▸ Skills", external: false };
+  if (name === "save_skill") return { text: "saves to Settings ▸ Workflows", external: false };
   if (category === "connector") return { text: "acts on a connected service", external: true };
   if (EXTERNAL.has(name)) {
     const platform = String(args?.target ?? "").split(":")[0];

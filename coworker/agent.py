@@ -71,28 +71,54 @@ rejected, revise the plan using the feedback."""
 # once; a missing one merely means the user repeats themselves.
 _MEMORY_GUIDANCE = """\
 Memory:
-- You have persistent memory across sessions. Use `remember` for durable facts: the user's \
-corrections and stated preferences (include the why), and project context you couldn't \
-rederive from the code. Scope by what the fact is about: facts about the user -> "global"; \
-facts about the current work -> "workspace". Always pass a one-line summary (15 words max) \
-alongside the full content.
-- Save conservatively — a wrong memory costs more than a missing one. Save only clearly \
-durable facts ("from now on", "always", "in all my chats"). Ambiguous one-off phrasing \
-("I prefer simple talking"): apply it now, don't save it. But when the user explicitly \
-asks you to remember something, always save it.
+- You have persistent memory across sessions. Use `remember` for facts that will still \
+matter next week. Scope by what the fact is about: facts about the user -> "global"; \
+facts about the current work -> "workspace". Always pass a one-line summary (15 words \
+max) alongside the full content.
+- Save when you learn something durable, not only when told to. The four that recur:
+  (1) a CORRECTION — they tell you something you had wrong about their setup, their \
+tools, or how they work. Corrections are durable by nature; save the corrected fact \
+with the reason it matters.
+  (2) how their WORLD is arranged — their role, their institution, where things live, \
+which branch deploys, what a name in their stack refers to.
+  (3) a DECISION with a life beyond today — "we use teal, not red", "never push before \
+asking", a convention they set.
+  (4) a preference they state or demonstrate twice.
+- You do not need the words "always" or "from now on". Someone saying "the deploy branch \
+is starfish-prod" or "don't build until I say" has told you something durable in \
+ordinary language, and failing to save it means asking them again next week — the most \
+common way this feature disappoints.
+- Still save carefully. A wrong memory costs more than a missing one, so: save the fact, \
+not your interpretation of it; skip anything true only for today's task; skip what the \
+repo already records (code structure, git history, AGENTS.md); use absolute dates, never \
+"yesterday".
 - Sensitive topics (health, finances, relationships, beliefs): never save silently. Ask \
 first — "Want me to remember this for next time?" — and save only on a yes.
+- Before saving, check the known-memories list: if an entry already covers it, revise \
+that entry with `memory_update` instead of adding a near-duplicate; retire wrong or \
+obsolete entries with `memory_forget`. A correction almost always means an UPDATE to \
+something you already believed, not a new row beside it.
 - When you save, say so in one short plain sentence in your visible reply ("I'll remember \
 that you prefer short replies."). And the first time a remembered fact shapes your \
 behavior in a session, note it in one quiet line ("Keeping this short since you prefer \
 simple replies.") — first use only, not every message.
-- Don't save what the repo already records (code structure, git history, AGENTS.md) or \
-details that only matter to the current task. Use absolute dates, never "yesterday".
-- Before saving, check the known-memories list: if an entry already covers it, revise that \
-entry with `memory_update` instead of adding a near-duplicate; retire wrong or obsolete \
-entries with `memory_forget`.
 - Memories reflect when they were written. If one names a file, flag, or URL, verify it \
 still exists before relying on it."""
+
+# Asked once, when a long conversation is about to lose its own history to compaction.
+# Memory writes previously depended entirely on the model noticing mid-turn, and the
+# measured result was four memories across twenty-one sessions (owner report
+# 2026-08-31) — three of them written in the same second, from a single explicit "remember
+# this". Compaction is the honest moment to ask: the detail is about to go, so anything
+# durable in it has to be saved now or lost. It uses the ordinary tools, so the save
+# notice and Undo still apply and nothing is written silently.
+MEMORY_CONSOLIDATION_NUDGE = """\
+This conversation's earlier detail is about to be condensed. Before it goes: was there \
+anything durable here that should outlive it — a correction to something you had wrong, \
+how their setup is arranged, a decision with a life beyond today? If so, save it now with \
+`remember` (or revise an existing entry with `memory_update`), and say in one line what \
+you saved. If there was nothing durable, say nothing and carry on — an empty answer is a \
+fine answer."""
 
 # Injected INSTEAD of the memory guidance when the user turned memory off (§4.3).
 # Off means "stop LEARNING", not "forget what you know": already-saved memories stay
@@ -528,6 +554,9 @@ def build_engine(
         plan_approver=plan_approver,
         question_asker=question_asker,
     )
+    # Whether this session can save at all — the consolidation nudge at compaction stays
+    # quiet when it can't, so it never invites a claim the tools can't back.
+    engine.memory_enabled = memory_store is not None and _saving_enabled()
     # Plugin-style pre/post tool hooks (opencode hooks). Attached post-construction so the
     # engine defaults (None) are untouched for engines built without them.
     if hooks is not None:

@@ -41,6 +41,14 @@ const UPLOADED_ROW = {
   enabled: false,
 };
 
+const QUALITATI_ROW = {
+  ...ROW,
+  name: "qualitati-list-projects",
+  description: "List QualiTaTi projects before starting research work",
+  instructions: "Use the QualiTaTi project list tool.",
+  path: "/skills/qualitati-list-projects",
+};
+
 const LIST = { skills: [ROW, UPLOADED_ROW] };
 
 afterEach(() => {
@@ -48,13 +56,72 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The single add-action: open the "Add skill" menu, pick a door (SKILLS-SPEC §5).
+// The single add-action: open the "Add workflow" menu, pick a door (SKILLS-SPEC §5).
 const openWriteForm = async () => {
-  fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Add workflow/ }));
   fireEvent.click(screen.getByText("Write it myself"));
 };
 
 describe("SkillsTab", () => {
+  it("presents skills as searchable workflows", async () => {
+    stubFetch([{ match: "/v1/skills", method: "GET", json: LIST }]);
+    render(<SkillsTab />);
+    expect(await screen.findByRole("heading", { name: "Workflows" })).toBeTruthy();
+    expect(screen.getByLabelText("Search workflows")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add workflow/ })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Search workflows"), {
+      target: { value: "Monday" },
+    });
+    expect(screen.getByText("weekly-report")).toBeTruthy();
+    expect(screen.queryByText("greet")).toBeNull();
+  });
+
+  it("keeps built-in QualiTaTi tools collapsed until asked for", async () => {
+    stubFetch([
+      {
+        match: "/v1/skills",
+        method: "GET",
+        json: { skills: [ROW, QUALITATI_ROW] },
+      },
+    ]);
+    render(<SkillsTab />);
+    const disclosure = await screen.findByRole("button", {
+      name: /Built-in QualiTaTi tools/,
+    });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("List Projects")).toBeNull();
+
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("List Projects")).toBeTruthy();
+    expect(screen.getByText("Built in")).toBeTruthy();
+  });
+
+  it("opens built-in tools when a search matches, then folds them away when cleared", async () => {
+    stubFetch([
+      {
+        match: "/v1/skills",
+        method: "GET",
+        json: { skills: [ROW, QUALITATI_ROW] },
+      },
+    ]);
+    render(<SkillsTab />);
+    const search = screen.getByLabelText("Search workflows");
+    const disclosure = await screen.findByRole("button", {
+      name: /Built-in QualiTaTi tools/,
+    });
+
+    fireEvent.change(search, { target: { value: "research" } });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("List Projects")).toBeTruthy();
+    expect(screen.queryByText("weekly-report")).toBeNull();
+
+    fireEvent.change(search, { target: { value: "" } });
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("List Projects")).toBeNull();
+  });
+
   it("renders rows with provenance badges and dims disabled skills", async () => {
     stubFetch([{ match: "/v1/skills", method: "GET", json: LIST }]);
     render(<SkillsTab />);
@@ -71,7 +138,7 @@ describe("SkillsTab", () => {
     stubFetch([{ match: "/v1/skills", method: "GET", json: { skills: [] } }]);
     render(<SkillsTab />);
     await openWriteForm();
-    const save = screen.getByText("Save skill") as HTMLButtonElement;
+    const save = screen.getByText("Save workflow") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "greet" } });
     expect(save.disabled).toBe(true); // instructions still empty
@@ -92,7 +159,7 @@ describe("SkillsTab", () => {
     fireEvent.change(screen.getByLabelText("Instructions"), {
       target: { value: "Say hello." },
     });
-    fireEvent.click(screen.getByText("Save skill"));
+    fireEvent.click(screen.getByText("Save workflow"));
     await waitFor(() => {
       const post = calls.find((c) => c.method === "POST" && c.url.endsWith("/v1/skills"));
       expect(post?.body).toMatchObject({ name: "greet", instructions: "Say hello." });
@@ -116,7 +183,7 @@ describe("SkillsTab", () => {
     const body = screen.getByLabelText("Instructions") as HTMLTextAreaElement;
     expect(body.value).toContain("Collect updates");
     fireEvent.change(body, { target: { value: "New steps" } });
-    fireEvent.click(screen.getByText("Save skill"));
+    fireEvent.click(screen.getByText("Save workflow"));
     await waitFor(() => {
       const patch = calls.find((c) => c.method === "PATCH");
       expect(patch?.url).toContain("/v1/skills/weekly-report");
@@ -191,16 +258,16 @@ describe("SkillsTab", () => {
     });
   });
 
-  it("Add skill menu: three doors; Create with MimiWork hands off to a conversation", async () => {
+  it("Add workflow menu: three doors; Create with MimiWork hands off to a conversation", async () => {
     const calls = stubFetch([{ match: "/v1/skills", method: "GET", json: { skills: [] } }]);
     const onCreateSkill = vi.fn();
     render(<SkillsTab onCreateSkill={onCreateSkill} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add workflow/ }));
     // The three doors (§5), each with its teaching subtitle.
     expect(screen.getByText("Write it myself")).toBeTruthy();
     expect(screen.getByText("Import a file")).toBeTruthy();
     expect(screen.getByText(/you review before it installs/)).toBeTruthy();
-    expect(screen.getByText(/asks before adding it to\s+your skills/)).toBeTruthy();
+    expect(screen.getByText(/asks before adding it to\s+your workflows/)).toBeTruthy();
     fireEvent.click(screen.getByText("Create with MimiWork"));
     // Straight to the conversation — the composer is where you describe it (§5.2).
     expect(onCreateSkill).toHaveBeenCalledWith("");
@@ -227,7 +294,7 @@ describe("SkillsTab", () => {
     await openWriteForm();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "greet" } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "x" } });
-    fireEvent.click(screen.getByText("Save skill"));
+    fireEvent.click(screen.getByText("Save workflow"));
     const status = await screen.findByRole("status");
     expect(status.textContent).toContain("greet"); // name-first — WHICH skill
     expect(status.textContent).toContain("can now use it in every conversation");
@@ -236,7 +303,7 @@ describe("SkillsTab", () => {
   it("the list is the page: no standing add-surfaces, no drafting remnants", async () => {
     stubFetch([{ match: "/v1/skills", method: "GET", json: { skills: [] } }]);
     render(<SkillsTab onCreateSkill={vi.fn()} />);
-    await screen.findByRole("button", { name: /Add skill/ });
+    await screen.findByRole("button", { name: /Add workflow/ });
     // No permanently-open description box or draft-era UI (§5.2/§9) — adding is menu-only.
     expect(screen.queryByLabelText("Describe the skill")).toBeNull();
     expect(screen.queryByText("Start a conversation")).toBeNull();
@@ -245,7 +312,7 @@ describe("SkillsTab", () => {
     // The menu closes after picking a door.
     await openWriteForm();
     expect(screen.queryByText("Write it myself")).toBeNull();
-    expect(screen.getByText("Save skill")).toBeTruthy();
+    expect(screen.getByText("Save workflow")).toBeTruthy();
   });
 
   it("surfaces server-side validation errors", async () => {
@@ -257,7 +324,7 @@ describe("SkillsTab", () => {
     await openWriteForm();
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "x" } });
     fireEvent.change(screen.getByLabelText("Instructions"), { target: { value: "y" } });
-    fireEvent.click(screen.getByText("Save skill"));
+    fireEvent.click(screen.getByText("Save workflow"));
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.getByText(/already exists/)).toBeTruthy();
   });
@@ -304,7 +371,7 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
   };
 
   const openStore = async () => {
-    fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add workflow/ }));
     fireEvent.click(screen.getByTestId("skill-store-open"));
   };
 

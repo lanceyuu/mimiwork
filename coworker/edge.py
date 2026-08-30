@@ -1,72 +1,88 @@
 """The EDGE profile: what KIND of value this account gets from Mimi.
 
-Hours saved answers "how much". This answers "at what" — the shape of the help,
-scored on Shubin Yu's EDGE framework for AI in business (gaiforbusiness.com):
+Definitions and structure come from Chapter 9 of *GenAI for Business* (Shubin Yu,
+2026 second edition) — the framework's own book, read rather than inferred. Two
+things in it changed this module's shape:
 
-    Efficiency    cost and effort taken out of work that had to happen anyway
-    Decisions     evidence gathered and analysed so a choice can be made
-    Growth        work aimed outward — persuading, reaching, delivering to others
-    Empowerment   capability that outlives the session, so the person can do more
+**It is three plus one, not four.** Figure 9.1: "three outcome pillars resting on
+one enabling pillar." Efficiency, Decisions and Growth are outcome pillars — "places
+where value lands in the P&L". Empowerment is the enabling pillar: "the human
+capability that determines whether the other three materialize at all, and which
+produces its own measurable outcomes along the way". Drawing four equal slices that
+sum to 100% would contradict the framework it claims to show, so the shares are of
+the three outcomes and Empowerment is reported beside them, as the foundation.
 
-Two design rules, both learned from the hours-saved badge sitting beside it.
+**Growth is about new revenue, not outward-facing work.** "Creating AI-native
+products, services, and operating models that open new revenue streams." A slide
+deck is not a new revenue stream, so decks are Efficiency (a deliverable produced
+faster), not Growth. Growth is largely invisible from inside a desktop tool, and the
+UI says so rather than implying the user is failing at it.
 
-**Derive, never re-measure.** Every number here comes from `TimeSaved.by_category`,
-which the engine already records per call and merges install-wide. So the radar is
-correct for work done before this feature existed, needs no migration, and can never
-disagree with the hours figure next to it — they are the same minutes, grouped two
-ways.
+Two engineering rules carried over from the hours-saved badge beside it:
 
-**Weight by minutes, not by calls.** Ten file reads are not worth one deck. Counting
-calls would make the busiest tool look like the biggest contribution; counting the
-time each piece of work would have cost a person is the honest weighting, and it is
-the weighting the hours badge already uses.
+**Derive, never re-measure.** Every number comes from `TimeSaved.by_category`, which
+the engine already records per call and merges install-wide. The profile is correct
+for work done before it existed, needs no migration, and can never disagree with the
+hours figure next to it — the same minutes, grouped two ways.
 
-A pillar with no activity reads zero rather than being hidden — an empty axis is
-information ("you have never used Mimi to build capability"), and a radar whose axes
-appear and disappear cannot be compared to last month's.
+**Weight by minutes, not by calls.** Ten file reads are not worth one analysis.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# The four pillars, in the order the acronym spells them.
-PILLARS: tuple[str, ...] = ("Efficiency", "Decisions", "Growth", "Empowerment")
+# The three OUTCOME pillars — where value lands (ch. 9). Order as the acronym spells it.
+OUTCOME_PILLARS: tuple[str, ...] = ("Efficiency", "Decisions", "Growth")
+# The ENABLING pillar. Reported alongside, never as a fourth share.
+ENABLING_PILLAR = "Empowerment"
+PILLARS: tuple[str, ...] = OUTCOME_PILLARS + (ENABLING_PILLAR,)
 
 # One line each, shown under the chart so nobody has to look the framework up.
+# One line each, in the book's own terms.
 BLURBS: dict[str, str] = {
-    "Efficiency": "Work that had to happen anyway, done faster",
-    "Decisions": "Evidence gathered and analysed so you can choose",
-    "Growth": "Work aimed outward — decks, messages, delivery",
-    "Empowerment": "Capability that outlasts the session",
+    "Efficiency": "Doing what you already do, faster and at greater scale",
+    "Decisions": "Insight synthesised from complex material, so you can choose",
+    "Growth": "New offerings and revenue — rarely visible from inside a tool",
+    "Empowerment": "The enabling pillar: capability that multiplies the other three",
 }
 
 # TimeSaved category → pillar. Categories are assigned per tool call in
 # `timesaved.estimate_call`; anything unmapped is ignored rather than guessed into
 # a pillar, because a wrong attribution is worse than a missing one.
 CATEGORY_PILLARS: dict[str, str] = {
-    # Producing and handling the documents the job requires.
+    # "Doing what you already do, but faster, cheaper, and at a greater scale" —
+    # the repetitive, high-volume work a professional would otherwise type out.
+    # Decks belong HERE, not in Growth: producing a deliverable faster is
+    # efficiency; a deck is not a new revenue stream.
     "Documents": "Efficiency",
     "Spreadsheets": "Efficiency",
     "Files": "Efficiency",
     "Reading": "Efficiency",
-    # Working out what is true before deciding.
+    "Decks": "Efficiency",
+    "Connectors": "Efficiency",
+    # "Better, faster choices by using AI to synthesise context-rich insights from
+    # massive, complex, and often unstructured data sets."
     "Analysis": "Decisions",
     "Research": "Decisions",
-    # Pointed at other people: an argument to make, a message to send.
-    "Decks": "Growth",
-    "Connectors": "Growth",
-    # Skills, automations and standing instructions — built once, used forever.
+    # "Equips your workforce with AI tools that act as co-pilots, mentors, and
+    # creative partners" — here, the durable capability the user built: skills,
+    # automations, standing instructions.
     "Capability": "Empowerment",
+    # Growth has no category: new offerings and revenue streams happen in the
+    # market, not in a tool's call log. Inventing a proxy would put a number on the
+    # pillar the book is most careful about. The UI explains the blank instead.
 }
 
 
 def profile(by_category: Any) -> dict[str, Any]:
-    """The EDGE shares for one set of `TimeSaved.by_category` minutes.
+    """The EDGE profile for one set of `TimeSaved.by_category` minutes.
 
-    Returns each pillar's minutes and its percentage of the attributed total, plus
-    the leading pillar. Percentages are rounded so they sum to 100 exactly — a
-    radar labelled 34/33/33/1 that adds to 101 undermines the chart it decorates.
+    Shares are of the three OUTCOME pillars and sum to 100 exactly (largest
+    remainder — a radar labelled 34/33/33 that adds to 101 undermines the chart it
+    decorates). Empowerment is returned separately, with its own minutes and its
+    share of ALL attributed time, because it is the enabling pillar rather than a
+    competing slice.
     """
     minutes = {pillar: 0.0 for pillar in PILLARS}
     source = by_category if isinstance(by_category, dict) else {}
@@ -79,9 +95,13 @@ def profile(by_category: Any) -> dict[str, Any]:
         except (TypeError, ValueError):
             continue
 
-    total = sum(minutes.values())
-    percent = _shares(minutes, total)
-    leader = max(PILLARS, key=lambda p: minutes[p]) if total > 0 else ""
+    outcome_total = sum(minutes[p] for p in OUTCOME_PILLARS)
+    enabling = minutes[ENABLING_PILLAR]
+    total = outcome_total + enabling
+    percent = _shares(minutes, outcome_total)
+    leader = (
+        max(OUTCOME_PILLARS, key=lambda p: minutes[p]) if outcome_total > 0 else ""
+    )
     return {
         "pillars": [
             {
@@ -91,8 +111,17 @@ def profile(by_category: Any) -> dict[str, Any]:
                 "minutes": round(minutes[pillar], 1),
                 "percent": percent[pillar],
             }
-            for pillar in PILLARS
+            for pillar in OUTCOME_PILLARS
         ],
+        "enabling": {
+            "key": ENABLING_PILLAR,
+            "label": ENABLING_PILLAR,
+            "blurb": BLURBS[ENABLING_PILLAR],
+            "minutes": round(enabling, 1),
+            # Share of everything, not of the outcomes — it sits under them.
+            "percent": int(round(enabling / total * 100)) if total > 0 else 0,
+        },
+        "outcome_minutes": round(outcome_total, 1),
         "total_minutes": round(total, 1),
         "leading": leader,
         # Below this there isn't enough work for a shape to mean anything; the UI
@@ -102,14 +131,17 @@ def profile(by_category: Any) -> dict[str, Any]:
 
 
 def _shares(minutes: dict[str, float], total: float) -> dict[str, int]:
-    """Whole-number percentages that sum to 100 (largest-remainder)."""
+    """Whole-number percentages of the OUTCOME total, summing to 100 (largest
+    remainder)."""
     if total <= 0:
-        return {pillar: 0 for pillar in PILLARS}
-    exact = {p: minutes[p] / total * 100.0 for p in PILLARS}
-    out = {p: int(exact[p]) for p in PILLARS}
+        return {pillar: 0 for pillar in OUTCOME_PILLARS}
+    exact = {p: minutes[p] / total * 100.0 for p in OUTCOME_PILLARS}
+    out = {p: int(exact[p]) for p in OUTCOME_PILLARS}
     short = 100 - sum(out.values())
     # Hand the leftover points to the largest fractional parts, biggest first.
-    for pillar in sorted(PILLARS, key=lambda p: exact[p] - int(exact[p]), reverse=True):
+    for pillar in sorted(
+        OUTCOME_PILLARS, key=lambda p: exact[p] - int(exact[p]), reverse=True
+    ):
         if short <= 0:
             break
         out[pillar] += 1

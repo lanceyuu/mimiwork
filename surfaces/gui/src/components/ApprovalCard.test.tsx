@@ -241,7 +241,7 @@ describe("ApprovalCard — save_skill (SKILLS-SPEC §5.2)", () => {
     expect(screen.getByText("weekly-github-report")).toBeTruthy(); // bold obj in the title
     expect(screen.getAllByText(/to your skills/).length).toBeGreaterThan(0); // title + footer
     // The corner answers WHERE; the footer answers what approving means (§5.2 review round).
-    expect(screen.getByText("saves to Settings ▸ Skills")).toBeTruthy();
+    expect(screen.getByText("saves to Settings ▸ Workflows")).toBeTruthy();
     expect(screen.getByText(/usable in every conversation from\s+then on/)).toBeTruthy();
     expect(
       screen.getByText("Create a concise Monday status report from GitHub activity."),
@@ -290,7 +290,7 @@ describe("InboxItemCard — parked save_skill proposals (SKILLS-SPEC §5.2)", ()
   it("wears the same review surface and button copy as the live card", () => {
     const onResolve = vi.fn();
     render(<InboxItemCard item={parked()} onResolve={onResolve} />);
-    expect(screen.getByText("saves to Settings ▸ Skills")).toBeTruthy();
+    expect(screen.getByText("saves to Settings ▸ Workflows")).toBeTruthy();
     expect(
       screen.getByText("Create a concise Monday status report from GitHub activity."),
     ).toBeTruthy();

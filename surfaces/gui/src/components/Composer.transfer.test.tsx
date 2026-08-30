@@ -1,5 +1,5 @@
 /** TRANSFER PACK (GUI) — the gestures a Claude Code / Cowork / Codex user already knows:
- *  one "/" palette (app commands + saved commands + skills), "@" file mentions, and ⇧⇥ to
+ *  one progressive "/" palette (app commands + saved commands + workflows), "@" file mentions, and ⇧⇥ to
  *  cycle permission modes. Owner ask 2026-08-23: what you learn here must work there.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -60,17 +60,35 @@ afterEach(() => {
 });
 
 describe("the / palette", () => {
-  it("offers app commands, saved commands and skills together", async () => {
-    stubFetch();
+  it("starts with only the short app-command menu", async () => {
+    const calls = stubFetch();
     render(<Composer {...props()} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    await waitFor(() => expect(screen.getByText("/digest")).toBeTruthy());
     expect(screen.getByText("/help")).toBeTruthy(); // built-in, same name as Claude Code
-    expect(screen.getByText("/weekly-report")).toBeTruthy(); // a skill
+    expect(screen.queryByText("/digest")).toBeNull();
+    expect(screen.queryByText("/weekly-report")).toBeNull();
     const kinds = screen
       .getAllByRole("option")
       .map((el) => (el as HTMLElement).dataset.kind);
-    expect(new Set(kinds)).toEqual(new Set(["app", "command", "skill"]));
+    expect(new Set(kinds)).toEqual(new Set(["app"]));
+    expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(false);
+    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
+  });
+
+  it("offers saved commands after one character and workflows after two", async () => {
+    const calls = stubFetch();
+    render(<Composer {...props()} />);
+    fireEvent.change(box(), { target: { value: "/d" } });
+    await waitFor(() => expect(screen.getByText("/digest")).toBeTruthy());
+    expect(screen.queryByText("/weekly-report")).toBeNull();
+    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
+
+    fireEvent.change(box(), { target: { value: "/we" } });
+    await waitFor(() => expect(screen.getByText("/weekly-report")).toBeTruthy());
+    const kinds = screen
+      .getAllByRole("option")
+      .map((el) => (el as HTMLElement).dataset.kind);
+    expect(kinds).toContain("skill");
   });
 
   it("filters as you type, across all three kinds", async () => {

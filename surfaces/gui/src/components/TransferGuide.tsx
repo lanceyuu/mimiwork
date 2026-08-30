@@ -66,8 +66,8 @@ const ROWS: Row[] = [
     codex: "~/.codex/AGENTS.md",
   },
   {
-    here: "Skills",
-    what: "A folder with a SKILL.md that teaches your way of doing something.",
+    here: "Workflows",
+    what: "A reusable way of working, stored as a compatible SKILL.md folder.",
     cowork: "Skills",
     code: "Skills",
     codex: "—",

@@ -13,7 +13,7 @@ test("Settings opens as a full page and navigates sections", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "General" })).toBeVisible();
   await expect(page.locator(".modal-backdrop")).toHaveCount(0);
   // What someone touches while working is in front...
-  for (const label of ["General", "Models", "Instructions", "Skills"]) {
+  for (const label of ["General", "Models", "Instructions", "Workflows"]) {
     await expect(page.getByRole("button", { name: label, exact: true })).toBeVisible();
   }
   // ...and the set-once sections are one click away, not gone.

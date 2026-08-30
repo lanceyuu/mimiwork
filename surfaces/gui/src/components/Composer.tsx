@@ -59,7 +59,7 @@ export const APP_COMMANDS: { name: string; description: string }[] = [
   { name: "permissions", description: "Change what needs your approval" },
   { name: "model", description: "Switch the model for this conversation" },
   { name: "memory", description: "What MimiWork remembers about this work" },
-  { name: "skills", description: "Skills, plugins and what's enabled here" },
+  { name: "skills", description: "Workflows, plugins and what's enabled here" },
 ];
 
 type PaletteRow =
@@ -175,49 +175,72 @@ export function Composer(props: Props) {
     !prefixIntact && props.sessionId && text.startsWith("/") && !/\s/.test(text.slice(1))
       ? text.slice(1).toLowerCase()
       : null;
-  // One palette, three row kinds: app commands, the user's saved markdown commands, and
-  // this session's skills. Everything reachable by "/" lives here.
+  // Keep the first impression small: "/" is the short app-command menu. Saved commands
+  // join after one typed character; reusable workflows join after two, when the user has
+  // expressed enough intent to make a broader search useful.
+  const wantsSavedCommands = slashQuery !== null && slashQuery.length >= 1;
+  const wantsWorkflows = slashQuery !== null && slashQuery.length >= 2;
   const paletteRows: PaletteRow[] = [
     ...(props.onAppCommand
       ? APP_COMMANDS.map((c) => ({ kind: "app" as const, ...c }))
       : []),
-    ...(savedCommands ?? []).map((c) => ({
-      kind: "command" as const,
-      name: c.name,
-      description: c.description,
-      scope: c.scope,
-    })),
-    ...(slashSkills ?? []).map((s) => ({
-      kind: "skill" as const,
-      name: s.name,
-      description: s.description,
-      scope: s.scope,
-      skill: s,
-    })),
+    ...(wantsSavedCommands
+      ? (savedCommands ?? []).map((c) => ({
+          kind: "command" as const,
+          name: c.name,
+          description: c.description,
+          scope: c.scope,
+        }))
+      : []),
+    ...(wantsWorkflows
+      ? (slashSkills ?? [])
+          .map((s) => ({
+            kind: "skill" as const,
+            name: s.name,
+            description: s.description,
+            scope: s.scope,
+            skill: s,
+          }))
+      : []),
   ];
-  const slashMatches = paletteRows.filter((r) =>
-    r.name.toLowerCase().includes(slashQuery ?? ""),
-  );
+  const slashMatches = paletteRows.filter((row) => {
+    // QualiTaTi entries are implementation capabilities Mimi chooses automatically,
+    // not commands or reusable workflows a person should have to know by name.
+    if (row.name.toLowerCase().startsWith("qualitati-")) return false;
+    const query = slashQuery ?? "";
+    const searchable =
+      row.kind === "skill" ? `${row.name} ${row.description}` : row.name;
+    return searchable.toLowerCase().includes(query);
+  });
+  const slashLoading =
+    (wantsSavedCommands && savedCommands === null) ||
+    (wantsWorkflows && slashSkills === null);
+  const activeSlashIndex = Math.min(slashIndex, Math.max(slashMatches.length - 1, 0));
+
   useEffect(() => {
-    // Fetch on each popup open (fresh menu); drop when closed.
-    if (slashQuery === null) {
-      setSlashSkills(null);
-      setSavedCommands(null);
-      setSlashIndex(0);
-      return;
-    }
-    if (slashSkills === null && props.sessionId) {
-      sessionSkills(props.sessionId, props.workspace)
-        .then((all) => setSlashSkills(all.filter((s) => s.enabled)))
-        .catch(() => setSlashSkills([]));
-    }
-    if (savedCommands === null) {
-      listCommands(props.workspace)
-        .then(setSavedCommands)
-        .catch(() => setSavedCommands([]));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slashQuery === null]);
+    if (!wantsSavedCommands) return;
+    let live = true;
+    listCommands(props.workspace)
+      .then((all) => live && setSavedCommands(all))
+      .catch(() => live && setSavedCommands([]));
+    return () => {
+      live = false;
+    };
+  }, [wantsSavedCommands, props.workspace]);
+
+  useEffect(() => {
+    if (!wantsWorkflows || !props.sessionId) return;
+    let live = true;
+    sessionSkills(props.sessionId, props.workspace)
+      .then((all) => live && setSlashSkills(all.filter((s) => s.enabled)))
+      .catch(() => live && setSlashSkills([]));
+    return () => {
+      live = false;
+    };
+  }, [wantsWorkflows, props.sessionId, props.workspace]);
+
+  // `activeSlashIndex` clamps a late async result to a real row; the textarea change
+  // handler resets the stored index whenever the person changes their query.
   const pickSkill = (s: SessionSkillRow) => {
     setPendingSkill(s);
     setText(`/${s.name} `);
@@ -620,12 +643,12 @@ export function Composer(props: Props) {
     if (slashQuery !== null) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSlashIndex((i) => Math.min(i + 1, Math.max(slashMatches.length - 1, 0)));
+        setSlashIndex(Math.min(activeSlashIndex + 1, Math.max(slashMatches.length - 1, 0)));
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSlashIndex((i) => Math.max(i - 1, 0));
+        setSlashIndex(Math.max(activeSlashIndex - 1, 0));
         return;
       }
       if (e.key === "Escape") {
@@ -635,7 +658,7 @@ export function Composer(props: Props) {
       }
       if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
         e.preventDefault();
-        const chosen = slashMatches[slashIndex];
+        const chosen = slashMatches[activeSlashIndex];
         if (chosen) pickPaletteRow(chosen);
         return;
       }
@@ -761,24 +784,25 @@ export function Composer(props: Props) {
           if (e.dataTransfer.files.length) void dropFiles(e.dataTransfer.files);
         }}
       >
-        {/* "/" palette — app commands, saved markdown commands and this session's skills,
-            the same three things "/" offers in Claude Code and Cowork. */}
+        {/* "/" palette — compact at rest, then progressively searches saved commands and
+            reusable workflows as the user types. */}
         {slashQuery !== null && (
-          <div className="px-2 pt-2" data-testid="skill-popup" role="listbox" aria-label="Commands and skills">
-            {slashSkills === null && savedCommands === null && !props.onAppCommand ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">Loading…</div>
-            ) : slashMatches.length === 0 ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">Nothing matches.</div>
-            ) : (
+          <div
+            className="px-2 pt-2"
+            data-testid="skill-popup"
+            role="listbox"
+            aria-label="Commands and workflows"
+          >
+            {slashMatches.length > 0 ? (
               slashMatches.map((row, i) => (
                 <button
                   key={`${row.kind}:${row.name}`}
                   role="option"
-                  aria-selected={i === slashIndex}
+                  aria-selected={i === activeSlashIndex}
                   data-kind={row.kind}
                   className={
                     "w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-lg " +
-                    (i === slashIndex ? "bg-paper" : "hover:bg-paper")
+                    (i === activeSlashIndex ? "bg-paper" : "hover:bg-paper")
                   }
                   onMouseEnter={() => setSlashIndex(i)}
                   onClick={() => pickPaletteRow(row)}
@@ -790,7 +814,23 @@ export function Composer(props: Props) {
                   </span>
                 </button>
               ))
-            )}
+            ) : slashLoading ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">
+                Looking for commands and workflows…
+              </div>
+            ) : slashQuery.length === 0 ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">
+                Type a command, or keep typing to find saved commands and workflows.
+              </div>
+            ) : slashQuery.length === 1 ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">
+                Keep typing to search workflows.
+              </div>
+            ) : slashMatches.length === 0 ? (
+              <div className="px-2 py-1.5 text-[12px] text-faint">
+                No commands or workflows match “{slashQuery}”. Try another word.
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -838,6 +878,7 @@ export function Composer(props: Props) {
           value={text}
           onChange={(e) => {
             caretRef.current = e.target.selectionStart;
+            setSlashIndex(0);
             setText(e.target.value);
           }}
           onSelect={(e) => {

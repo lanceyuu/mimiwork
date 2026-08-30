@@ -9,6 +9,12 @@ const MENU = {
   skills: [
     { name: "weekly-report", description: "Monday status report", scope: "global", enabled: true },
     { name: "greet", description: "says hello", scope: "project", enabled: true },
+    {
+      name: "qualitati-projects",
+      description: "List research projects",
+      scope: "global",
+      enabled: true,
+    },
     { name: "muted-one", description: "muted here", scope: "global", enabled: false },
   ],
 };
@@ -20,6 +26,20 @@ function stubFetch() {
     vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url, method: (init?.method || "GET").toUpperCase() });
       if (url.includes("/skills")) return { ok: true, json: async () => MENU } as Response;
+      if (url.includes("/v1/commands"))
+        return {
+          ok: true,
+          json: async () => ({
+            commands: [
+              {
+                name: "qualitati-export",
+                description: "Internal export command",
+                scope: "global",
+                path: "/commands/qualitati-export.md",
+              },
+            ],
+          }),
+        } as Response;
       return { ok: true, json: async () => ({}) } as Response;
     }),
   );
@@ -47,25 +67,57 @@ afterEach(() => {
 });
 
 describe("Composer / skills popup", () => {
-  it("opens on a leading '/' and lists only enabled skills from the effective menu", async () => {
-    stubFetch();
-    render(<Composer {...props()} />);
+  it("keeps a bare '/' to app commands and does not fetch broader menus", async () => {
+    const calls = stubFetch();
+    render(<Composer {...props({ onAppCommand: vi.fn() })} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    await screen.findByTestId("skill-popup");
-    expect(await screen.findByText("/weekly-report")).toBeTruthy();
-    expect(screen.getByText("/greet")).toBeTruthy();
-    expect(screen.queryByText("/muted-one")).toBeNull(); // muted → not offered
-    expect(screen.getByText("project")).toBeTruthy(); // scope badge
+    expect(await screen.findByRole("listbox", { name: "Commands and workflows" })).toBeTruthy();
+    expect(screen.getByText("/help")).toBeTruthy();
+    expect(screen.queryByText("/weekly-report")).toBeNull();
+    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
+    expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(false);
   });
 
-  it("filters as you type", async () => {
+  it("waits for two typed characters before fetching workflows", async () => {
+    const calls = stubFetch();
+    render(<Composer {...props()} />);
+    fireEvent.change(box(), { target: { value: "/g" } });
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(true),
+    );
+    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
+    expect(screen.queryByText("/greet")).toBeNull();
+
+    fireEvent.change(box(), { target: { value: "/gr" } });
+    expect(await screen.findByText("/greet")).toBeTruthy();
+    expect(calls.some((c) => c.url.includes("/skills"))).toBe(true);
+  });
+
+  it("searches workflow names and descriptions but never exposes QualiTaTi tools", async () => {
     stubFetch();
     render(<Composer {...props()} />);
+    fireEvent.change(box(), { target: { value: "/monday" } });
+    expect(await screen.findByText("/weekly-report")).toBeTruthy();
+    expect(screen.queryByText("/muted-one")).toBeNull();
+
+    fireEvent.change(box(), { target: { value: "/qualitati" } });
+    await screen.findByText(/No commands or workflows match/);
+    expect(screen.queryByText("/qualitati-projects")).toBeNull();
+    expect(screen.queryByText("/qualitati-export")).toBeNull();
+  });
+
+  it("resets keyboard selection when the query changes", async () => {
+    stubFetch();
+    const onAppCommand = vi.fn();
+    render(<Composer {...props({ onAppCommand })} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    await screen.findByText("/weekly-report");
-    fireEvent.change(box(), { target: { value: "/wee" } });
-    expect(screen.getByText("/weekly-report")).toBeTruthy();
-    expect(screen.queryByText("/greet")).toBeNull();
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+
+    fireEvent.change(box(), { target: { value: "/mo" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onAppCommand).toHaveBeenCalledWith("model");
   });
 
   it("does NOT open for a mid-text slash", async () => {

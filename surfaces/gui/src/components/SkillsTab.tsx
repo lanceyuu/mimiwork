@@ -42,6 +42,18 @@ const BTN_BORDERED =
 const BADGE =
   "text-[11px] px-2 py-0.5 rounded-full border border-line bg-paper text-muted shrink-0";
 
+const isQualitatiTool = (row: SkillRow) => row.name.toLowerCase().startsWith("qualitati-");
+
+const workflowLabel = (row: SkillRow) =>
+  isQualitatiTool(row)
+    ? row.name
+        .slice("qualitati-".length)
+        .split("-")
+        .filter(Boolean)
+        .map((part) => part[0]?.toUpperCase() + part.slice(1))
+        .join(" ")
+    : row.name;
+
 type Editor = {
   mode: "new" | "edit";
   name: string;
@@ -87,6 +99,8 @@ export function SkillsTab({
   const [editor, setEditor] = useState<Editor | null>(null);
   const [upload, setUpload] = useState<SkillUploadPreview | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [workflowQuery, setWorkflowQuery] = useState("");
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [error, setError] = useState("");
   // The state-change callout (SKILLS-SPEC §4.1 #2): name-first so the user knows WHICH
@@ -231,14 +245,99 @@ export function SkillsTab({
     refresh();
   };
 
+  const normalizedQuery = workflowQuery.trim().toLowerCase();
+  const matchesQuery = (row: SkillRow) =>
+    !normalizedQuery ||
+    row.name.toLowerCase().includes(normalizedQuery) ||
+    row.description.toLowerCase().includes(normalizedQuery) ||
+    workflowLabel(row).toLowerCase().includes(normalizedQuery);
+  const personalRows = rows.filter((row) => !isQualitatiTool(row));
+  const qualitatiRows = rows.filter(isQualitatiTool);
+  const visiblePersonalRows = personalRows.filter(matchesQuery);
+  const visibleQualitatiRows = qualitatiRows.filter(matchesQuery);
+  const showQualitatiTools = toolsOpen || (Boolean(normalizedQuery) && visibleQualitatiRows.length > 0);
+
+  const renderWorkflowRow = (row: SkillRow, builtIn = false) => (
+    <div key={row.name} className="flex items-center gap-3 px-4 py-3">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className={`text-[13px] font-medium ${row.enabled ? "" : "text-muted"}`}>
+            {workflowLabel(row)}
+          </span>
+          {builtIn ? <span className={BADGE}>Built in</span> : null}
+          {!builtIn && row.source !== "local" ? <span className={BADGE}>{row.source}</span> : null}
+          {/* §6: a rich skill must not look identical to a one-file one. Styled as a
+              chip with a folder icon so it READS as clickable (live drive: plain
+              text hid the affordance). */}
+          {row.files ? (
+            <button
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md border border-line bg-paper text-muted hover:text-ink hover:border-lineStrong shrink-0"
+              title="Show folder"
+              onClick={() => revealSkill(row.name)}
+            >
+              <Icon name="folder" size={11} /> {row.files} file{row.files === 1 ? "" : "s"}
+            </button>
+          ) : null}
+        </div>
+        <div className="text-[12px] text-muted leading-relaxed line-clamp-2">
+          {row.description}
+        </div>
+      </div>
+      <button
+        className={BTN_BORDERED}
+        title="Edit"
+        aria-label={`Edit ${workflowLabel(row)}`}
+        onClick={() =>
+          setEditor({
+            mode: "edit",
+            name: row.name,
+            description: row.description,
+            instructions: row.instructions,
+          })
+        }
+      >
+        <Icon name="pencil" size={13} />
+      </button>
+      <button
+        className={BTN_BORDERED}
+        aria-label={`Delete ${row.name}`}
+        onClick={() => remove(row)}
+        onBlur={() => setArmedDelete(null)}
+      >
+        {armedDelete === row.name ? "Confirm delete" : <Icon name="trash" size={13} />}
+      </button>
+      <label className="inline-flex items-center gap-1.5 text-[12px] text-muted">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label={`${row.name} enabled`}
+          checked={row.enabled}
+          onChange={(e) => {
+            const on = e.target.checked;
+            updateSkill(row.name, { enabled: on }).then((res) => {
+              if (!fail(res))
+                setNotice({
+                  name: row.name,
+                  text: on ? CONFIRMATION : OFF_NOTE,
+                  tone: on ? "ok" : "warn",
+                });
+              refresh();
+            });
+          }}
+        />
+        On
+      </label>
+    </div>
+  );
+
   return (
     <section>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-[16px] font-semibold">Skills</h2>
+          <h2 className="text-[16px] font-semibold">Workflows</h2>
           <p className="text-[12.5px] text-muted mt-1 leading-relaxed">
-            Reusable instructions the worker can follow in every conversation. Off here means
-            off everywhere.
+            Reusable ways Mimi handles recurring work. Turn one off here and it stays off
+            everywhere.
           </p>
         </div>
         {/* One add-action, three doors behind it (SKILLS-SPEC §5): the list is the page. */}
@@ -250,7 +349,7 @@ export function SkillsTab({
             onClick={() => setAddOpen((v) => !v)}
           >
             <span className="inline-flex items-center gap-1.5">
-              <Icon name="plus" size={13} /> Add skill
+              <Icon name="plus" size={13} /> Add workflow
             </span>
           </button>
           {addOpen ? (
@@ -299,7 +398,7 @@ export function SkillsTab({
                   <div className="text-[13px] font-medium">Create with MimiWork</div>
                   <div className="text-[11.5px] text-muted">
                     Starts a conversation — the worker builds it and asks before adding it to
-                    your skills
+                    your workflows
                   </div>
                 </button>
                 <button
@@ -352,6 +451,21 @@ export function SkillsTab({
           e.target.value = "";
         }}
       />
+
+      <div className="relative mb-4">
+        <Icon
+          name="search"
+          size={14}
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none"
+        />
+        <input
+          className={`${INPUT} pl-9`}
+          aria-label="Search workflows"
+          placeholder="Search your workflows…"
+          value={workflowQuery}
+          onChange={(e) => setWorkflowQuery(e.target.value)}
+        />
+      </div>
 
       {importOpen ? (
         <div className={`${CARD} p-4 mb-4`} data-testid="skill-import">
@@ -725,7 +839,7 @@ export function SkillsTab({
       {editor ? (
         <div className={`${CARD} p-4 mb-4`}>
           <div className="text-[13px] font-medium mb-3">
-            {editor.mode === "new" ? "New skill" : `Edit ${editor.name}`}
+            {editor.mode === "new" ? "New workflow" : `Edit ${editor.name}`}
           </div>
           <label className={FIELD_LABEL} htmlFor="skill-name">
             Name
@@ -764,7 +878,7 @@ export function SkillsTab({
               disabled={!editor.name.trim() || !editor.instructions.trim()}
               onClick={save}
             >
-              Save skill
+              Save workflow
             </button>
             <button className={BTN_BORDERED} onClick={() => setEditor(null)}>
               Cancel
@@ -773,84 +887,61 @@ export function SkillsTab({
         </div>
       ) : null}
 
-      <div className={`${CARD} divide-y divide-line`}>
-        {rows.length === 0 && !editor ? (
-          <div className="p-5 text-[13px] text-muted">
-            No skills yet — <b>Add skill</b> teaches your worker its first one, like
-            “prepare my Monday status report”.
-          </div>
-        ) : null}
-        {rows.map((row) => (
-          <div key={row.name} className="flex items-center gap-3 px-4 py-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`text-[13px] font-medium ${row.enabled ? "" : "text-muted"}`}>
-                  {row.name}
-                </span>
-                {row.source !== "local" ? <span className={BADGE}>{row.source}</span> : null}
-                {/* §6: a rich skill must not look identical to a one-file one. Styled as a
-                    chip with a folder icon so it READS as clickable (live drive: plain
-                    text hid the affordance). */}
-                {row.files ? (
-                  <button
-                    className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-md border border-line bg-paper text-muted hover:text-ink hover:border-lineStrong shrink-0"
-                    title="Show folder"
-                    onClick={() => revealSkill(row.name)}
-                  >
-                    <Icon name="folder" size={11} /> {row.files} file{row.files === 1 ? "" : "s"}
-                  </button>
-                ) : null}
-              </div>
-              {/* Full description, wrapping — a skill's one-liner is its menu entry; cutting
-                  it mid-word hid what the skill does (live drive). */}
-              <div className="text-[12px] text-muted leading-relaxed">{row.description}</div>
-            </div>
-            <button
-              className={BTN_BORDERED}
-              title="Edit"
-              onClick={() =>
-                setEditor({
-                  mode: "edit",
-                  name: row.name,
-                  description: row.description,
-                  instructions: row.instructions,
-                })
-              }
-            >
-              <Icon name="pencil" size={13} />
-            </button>
-            <button
-              className={BTN_BORDERED}
-              aria-label={`Delete ${row.name}`}
-              onClick={() => remove(row)}
-              onBlur={() => setArmedDelete(null)}
-            >
-              {armedDelete === row.name ? "Confirm delete" : <Icon name="trash" size={13} />}
-            </button>
-            <label className="inline-flex items-center gap-1.5 text-[12px] text-muted">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={`${row.name} enabled`}
-                checked={row.enabled}
-                onChange={(e) => {
-                  const on = e.target.checked;
-                  updateSkill(row.name, { enabled: on }).then((res) => {
-                    if (!fail(res))
-                      setNotice({
-                        name: row.name,
-                        text: on ? CONFIRMATION : OFF_NOTE,
-                        tone: on ? "ok" : "warn",
-                      });
-                    refresh();
-                  });
-                }}
-              />
-              On
-            </label>
-          </div>
-        ))}
+      <div className="flex items-center justify-between gap-3 mb-2 px-0.5">
+        <h3 className="text-[12px] font-semibold text-muted uppercase tracking-[0.08em]">
+          Your workflows
+        </h3>
+        <span className="text-[11.5px] text-faint">
+          {normalizedQuery ? `${visiblePersonalRows.length} found` : personalRows.length}
+        </span>
       </div>
+
+      {visiblePersonalRows.length > 0 ? (
+        <div className={`${CARD} divide-y divide-line`} data-testid="workflow-list">
+          {visiblePersonalRows.map((row) => renderWorkflowRow(row))}
+        </div>
+      ) : !normalizedQuery && personalRows.length === 0 && !editor ? (
+        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="workflow-empty">
+          No workflows yet — <b>Add workflow</b> to teach Mimi a recurring task, like
+          “prepare my Monday status report”.
+        </div>
+      ) : visibleQualitatiRows.length === 0 ? (
+        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="workflow-no-results">
+          Nothing matches “{workflowQuery.trim()}”. Try a task, outcome, or workflow name.
+        </div>
+      ) : null}
+
+      {qualitatiRows.length > 0 && (!normalizedQuery || visibleQualitatiRows.length > 0) ? (
+        <div className={`${CARD} mt-4 overflow-hidden`} data-testid="qualitati-tools">
+          <button
+            type="button"
+            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset"
+            aria-expanded={showQualitatiTools}
+            aria-controls="qualitati-tool-list"
+            onClick={() => setToolsOpen((open) => !open)}
+          >
+            <Icon
+              name={showQualitatiTools ? "chevronDown" : "chevronRight"}
+              size={14}
+              className="text-faint shrink-0"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium">Built-in QualiTaTi tools</span>
+                <span className={BADGE}>{visibleQualitatiRows.length}</span>
+              </div>
+              <p className="text-[11.5px] text-muted mt-0.5 leading-relaxed">
+                Mimi uses these automatically for projects, interviews, surveys, and exports.
+              </p>
+            </div>
+          </button>
+          {showQualitatiTools ? (
+            <div id="qualitati-tool-list" className="border-t border-line divide-y divide-line">
+              {visibleQualitatiRows.map((row) => renderWorkflowRow(row, true))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
     </section>
   );

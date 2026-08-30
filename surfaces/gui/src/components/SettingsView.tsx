@@ -93,7 +93,7 @@ const SET_TABS: TabDef[] = [
   { key: "appearance", label: "General", icon: "sliders" },
   { key: "models", label: "Models", icon: "code" },
   { key: "instructions", label: "Instructions", icon: "file" },
-  { key: "skills", label: "Skills", icon: "book" },
+  { key: "skills", label: "Workflows", icon: "book" },
 ];
 
 // Set once, or read once, then rarely again.

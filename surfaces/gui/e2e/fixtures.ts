@@ -564,6 +564,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const skills: any[] = [
     { name: "weekly-report", description: "Monday status report", instructions: "1. Collect updates\n2. Write it up", scope: "global", source: "local", enabled: true, path: "/state/skills/weekly-report", files: 0 },
     { name: "html-to-markdown", description: "Convert an HTML document or fragment to clean markdown.", instructions: "Convert the given HTML to markdown, preserving structure.", scope: "global", source: "uploaded", enabled: true, path: "/state/skills/html-to-markdown", files: 2 },
+    { name: "qualitati-list-interviews", description: "Find and filter interviews in a QualiTaTi project.", instructions: "List the matching QualiTaTi interviews.", scope: "global", source: "local", enabled: true, path: "/state/skills/qualitati-list-interviews", files: 0 },
   ];
   let stagedSkill: any = null;
 

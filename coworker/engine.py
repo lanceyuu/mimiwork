@@ -23,6 +23,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 from . import compaction as _compaction
 from . import repetition as _repetition
 from .events import Event, EventType
+from .fivea import classify_turn
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import (
@@ -33,6 +34,7 @@ from .providers.errors import (
 )
 from .repetition import RepetitionGuard as _RepetitionGuard
 from .timesaved import TimeSaved
+from .timesaved import estimate_call as _estimate_call
 from .tools import RecoveryPolicy, ToolRegistry
 
 
@@ -156,6 +158,22 @@ class TurnEngine:
         # What this turn would have cost by hand, minus what it cost with Mimi.
         # Accumulated from real tool results (see timesaved.py) and reset each turn.
         self.time_saved = TimeSaved()
+        # Five A's (ch. 7): a turn is placed by BEHAVIOUR, so the engine records what
+        # it actually reached for — tool names and their categories — and the rung is
+        # decided at the end. Counts live beside the time totals and travel with them.
+        self.five_a: dict[str, int] = {}
+        # Memory consolidation (see _queue_memory_consolidation): asked once, at the
+        # first compaction. `memory_enabled` is set by the builder — false when the
+        # user turned saving off, so the nudge stays quiet rather than inviting a bluff.
+        self._memory_nudged = False
+        # Fail closed: an engine built without a memory store must never be asked to
+        # save. The builder turns this on when there is a store AND saving is enabled.
+        self.memory_enabled = False
+        self._turn_tools: set[str] = set()
+        self._turn_categories: set[str] = set()
+        # Set by the surface when an automation started the turn, or a plan was approved.
+        self.turn_scheduled = False
+        self._turn_planned = False
         self._turn_started = 0.0
         self._turn_approvals = 0
         if instructions and not (
@@ -624,6 +642,21 @@ class TurnEngine:
                 self._inject_steering()
 
     # -- auto-compaction (OPE-27) ------------------------------------------------
+    def _queue_memory_consolidation(self) -> None:
+        """Ask, once per session, for anything durable to be saved before it is lost.
+
+        Once, not per compaction: a long session compacts repeatedly, and repeating the
+        prompt would spend a turn each time and train the model to ignore it. Silent
+        when memory is switched off — with no write tools the nudge would only invite
+        the bluffing the off-notice exists to prevent.
+        """
+        if self._memory_nudged or not self.memory_enabled:
+            return
+        self._memory_nudged = True
+        from .agent import MEMORY_CONSOLIDATION_NUDGE
+
+        self.queue_steering(MEMORY_CONSOLIDATION_NUDGE, {"kind": "memory_consolidation"})
+
     def _compaction_config(self) -> dict[str, Any]:
         cfg = dict(self.compaction_settings() or {}) if self.compaction_settings else {}
         if not cfg.get("context_window"):
@@ -712,6 +745,12 @@ class TurnEngine:
         if state is not None:
             self.compaction_state = state
             self._last_context_tokens = None  # stale once the outbound view shrank
+            # The one moment where "save it now or lose it" is literally true: the
+            # detail this conversation is built on is about to be summarised away.
+            # Queued as steering so it lands at the next safe step and uses the
+            # ordinary tools — the save notice and Undo still apply, and nothing is
+            # written without the user seeing it.
+            self._queue_memory_consolidation()
             return "Context compacted — earlier turns were summarized"
         if failed or force:
             trimmed = _compaction.trim_state(self.messages, prior=self.compaction_state)
@@ -1349,6 +1388,9 @@ class TurnEngine:
     def _begin_turn(self) -> None:
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
+        self._turn_tools = set()
+        self._turn_categories = set()
+        self._turn_planned = False
         if self.file_recovery is not None:
             self.file_recovery.begin_turn()
 
@@ -1359,9 +1401,18 @@ class TurnEngine:
         whole estimate that is measured rather than modelled."""
         elapsed = time.monotonic() - self._turn_started if self._turn_started else 0.0
         self.time_saved.add_turn(elapsed, approvals=self._turn_approvals)
+        rung = classify_turn(
+            tools=self._turn_tools,
+            categories=self._turn_categories,
+            scheduled=self.turn_scheduled,
+            planned=self._turn_planned,
+        )
+        self.five_a[rung] = self.five_a.get(rung, 0) + 1
         self._turn_started = 0.0
         self._turn_approvals = 0
-        return self.time_saved.as_dict()
+        totals = self.time_saved.as_dict()
+        totals["five_a"] = dict(self.five_a)
+        return totals
 
     def _audit(self, tool_call: ToolCall, **event: Any) -> None:
         # Every finished tool call is also an entry in the time estimate; approvals are
@@ -1371,6 +1422,14 @@ class TurnEngine:
             self.time_saved.add_call(
                 tool_call.name, tool_call.arguments, event.get("result")
             )
+            self._turn_tools.add(tool_call.name)
+            category, _minutes = _estimate_call(
+                tool_call.name, tool_call.arguments, event.get("result")
+            )
+            if category:
+                self._turn_categories.add(category)
+            if tool_call.name == "propose_plan":
+                self._turn_planned = True
         elif stage == "approval_requested":
             self._turn_approvals += 1
         if self.audit_sink is None:

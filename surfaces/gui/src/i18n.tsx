@@ -22,6 +22,55 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  // ── EDGE (ch. 9) and the Five A's (ch. 7) ──
+  "Where the value lands": ["价值落在哪里", "Hvor verdien lander", "Où atterrit la valeur"],
+  "What makes them possible": ["是什么让它们成为可能", "Hva som gjør dem mulig", "Ce qui les rend possibles"],
+  "Doing what you already do, faster and at greater scale": [
+    "把本来就在做的事做得更快、规模更大", "Gjøre det du allerede gjør, raskere og i større skala",
+    "Faire ce que vous faites déjà, plus vite et à plus grande échelle",
+  ],
+  "Insight synthesised from complex material, so you can choose": [
+    "从复杂材料中综合出洞见,帮你做选择", "Innsikt syntetisert fra komplekst materiale, så du kan velge",
+    "Une synthèse tirée de matériaux complexes, pour choisir",
+  ],
+  "New offerings and revenue — rarely visible from inside a tool": [
+    "新产品与新收入——工具内部很难看见", "Nye tilbud og inntekter — sjelden synlig inne i et verktøy",
+    "Nouvelles offres et revenus — rarement visibles depuis un outil",
+  ],
+  "The enabling pillar: capability that multiplies the other three": [
+    "赋能支柱:让其余三根都倍增的能力", "Den muliggjørende pilaren: kapasitet som forsterker de tre andre",
+    "Le pilier habilitant : la capacité qui démultiplie les trois autres",
+  ],
+  "Growth reads zero for almost everyone here, and that is not a failing: it means new offerings and revenue, which happen in the market rather than in a tool's log.": [
+    "这里几乎所有人的 Growth 都是零,这不是缺点:它指的是新产品与新收入,发生在市场里,而不在工具的日志里。",
+    "Vekst står på null for nesten alle her, og det er ikke en mangel: det betyr nye tilbud og inntekter, som skjer i markedet, ikke i et verktøys logg.",
+    "La Croissance est à zéro pour presque tout le monde ici, et ce n'est pas un échec : elle désigne de nouvelles offres et de nouveaux revenus, qui se produisent sur le marché, pas dans le journal d'un outil.",
+  ],
+  "How you work with Mimi": ["你与 Mimi 的协作方式", "Slik jobber du med Mimi", "Votre façon de travailler avec Mimi"],
+  "Your turns placed on the Five A's continuum — by what they did, not what they were called.": [
+    "把你的每一轮放在 Five A's 连续谱上——按它实际做了什么,而不是叫什么。",
+    "Rundene dine plassert på Five A's-kontinuumet — etter hva de gjorde, ikke hva de het.",
+    "Vos tours placés sur le continuum des Five A's — selon ce qu'ils ont fait, non leur nom.",
+  ],
+  "The model alone, answering directly": [
+    "只有模型本身,直接作答", "Modellen alene, som svarer direkte", "Le modèle seul, qui répond directement",
+  ],
+  "Grounded in your own skills, notes and instructions": [
+    "基于你自己的技能、笔记和指令", "Forankret i dine egne ferdigheter, notater og instruksjoner",
+    "Ancré dans vos propres compétences, notes et instructions",
+  ],
+  "One defined job, one finished artifact": [
+    "一个明确任务,一份成品", "Én definert jobb, ett ferdig resultat", "Une tâche définie, un livrable fini",
+  ],
+  "Ran on a schedule, without you watching": [
+    "按计划运行,无需你盯着", "Kjørte etter en plan, uten at du så på", "Exécuté selon un calendrier, sans vous",
+  ],
+  "Planned and carried out a multi-step goal": [
+    "规划并完成了一个多步目标", "Planla og gjennomførte et flertrinnsmål", "A planifié et mené un objectif en plusieurs étapes",
+  ],
+  "more human involvement": ["人的参与更多", "mer menneskelig involvering", "plus d'intervention humaine"],
+  "more autonomy": ["自主性更高", "mer autonomi", "plus d'autonomie"],
+  "Mostly": ["主要是", "Mest", "Surtout"],
   "More": ["更多", "Mer", "Plus"],
   // ── "is this still alive?" card ──
   "Maintained and current": ["持续维护,保持最新", "Vedlikeholdt og oppdatert", "Maintenu et à jour"],
@@ -119,6 +168,7 @@ const D: Record<string, [string, string, string]> = {
   "Models": ["模型", "Modeller", "Modèles"],
   "Instructions": ["指令", "Instruksjoner", "Instructions"],
   "Skills": ["技能", "Ferdigheter", "Compétences"],
+  "Workflows": ["工作流", "Arbeidsflyter", "Flux de travail"],
   "Voice input": ["语音输入", "Taleinndata", "Saisie vocale"],
   "Memory": ["记忆", "Minne", "Mémoire"],
   "Personas": ["角色", "Personaer", "Personas"],

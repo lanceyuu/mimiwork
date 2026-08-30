@@ -3198,10 +3198,29 @@ class SessionManager:
                 for k, v in turn.by_category.items()
             },
         )
-        self._session_time_saved[session_id] = turn.as_dict()
+        # Five A's counts ride the same event and bank the same way — the delta since
+        # this session last reported, so a reconnect can't double-count a turn.
+        turn_five = totals.get("five_a") if isinstance(totals.get("five_a"), dict) else {}
+        seen_five = (self._session_time_saved.get(session_id) or {}).get("five_a") or {}
+        five_delta = {
+            level: max(0, int(count) - int(seen_five.get(level, 0)))
+            for level, count in turn_five.items()
+            if isinstance(count, (int, float))
+        }
+
+        banked = turn.as_dict()
+        banked["five_a"] = dict(turn_five)
+        self._session_time_saved[session_id] = banked
+
         total = TimeSaved.from_dict(self._prefs.get("time_saved") or {})
         total.merge(delta)
-        self._prefs["time_saved"] = total.as_dict()
+        stored = total.as_dict()
+        running_five = dict(self._prefs.get("five_a") or {})
+        for level, count in five_delta.items():
+            if count:
+                running_five[level] = int(running_five.get(level, 0)) + count
+        self._prefs["five_a"] = running_five
+        self._prefs["time_saved"] = stored
         self._save_prefs()
 
     _RELEASES_CACHE: dict[str, Any] = {}
@@ -3279,10 +3298,14 @@ class SessionManager:
         were (see edge.py). Derived here rather than stored, so it is correct for
         work done before the profile existed."""
         from ..edge import profile
+        from ..fivea import profile as five_a_profile
         from ..timesaved import TimeSaved
 
         totals = TimeSaved.from_dict(self._prefs.get("time_saved") or {}).as_dict()
         totals["edge"] = profile(totals.get("by_category"))
+        # Which of the Five A's the account works in (ch. 7) — counts, not minutes:
+        # a mode of working is a choice made once per turn.
+        totals["five_a"] = five_a_profile(self._prefs.get("five_a"))
         return totals
 
     def set_language(self, value: str) -> dict[str, Any]:

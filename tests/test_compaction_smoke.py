@@ -66,11 +66,15 @@ def test_long_session_survives_repeated_compaction(tmp_path):
             async for _ in engine.run(f"user step {i}: keep drafting the Q3 report"):
                 pass
             # Every turn must produce a real reply — an empty assistant message means
-            # the stream got dropped, not answered.
+            # the stream got dropped, not answered. Asserted by SHAPE rather than by
+            # reply number: since 2026-08-31 the first compaction also asks the model
+            # to save anything durable before the detail is condensed away, and that
+            # costs one extra call, so replies stop matching the turn index.
             last = next(
                 m for m in reversed(engine.messages) if m.get("role") == "assistant"
             )
-            assert f"turn {i + 1}:" in str(last.get("content", ""))
+            assert str(last.get("content", "")).startswith("turn ")
+            assert len(str(last.get("content", ""))) > 100
             if engine.compaction_state is not None:
                 if (
                     not boundaries
@@ -111,3 +115,43 @@ def test_long_session_survives_repeated_compaction(tmp_path):
     # The persisted record round-trips the final state.
     record = mgr.session_store.load(sid)
     assert record.compaction["boundary_index"] == engine.compaction_state.boundary_index
+
+
+def test_a_long_session_is_asked_once_to_save_what_it_learned(tmp_path):
+    """The measured problem (owner report 2026-08-31): four memories across twenty-one
+    sessions, because writes depended entirely on the model noticing mid-turn.
+    Compaction is the moment where "save it now or lose it" is literally true — the
+    detail is about to be summarised away — so the session is asked exactly once.
+
+    Once, not per compaction: a long session compacts repeatedly, and asking every time
+    would spend a call each time and train the model to ignore it.
+    """
+    import asyncio
+
+    from coworker.agent import MEMORY_CONSOLIDATION_NUDGE
+
+    provider = LongSessionProvider()
+    mgr = SessionManager(workspace=tmp_path, provider=provider)
+    mgr._prefs["compaction_cap_tokens"] = 3_000
+    sid = "smoke-consolidate"
+
+    async def scenario():
+        engine = mgr.get_engine(sid, agent="cowork", workspace=str(tmp_path))
+        for i in range(8):
+            async for _ in engine.run(f"user step {i}: keep drafting the Q3 report"):
+                pass
+            mgr.save(sid, engine)
+        return engine
+
+    engine = asyncio.run(scenario())
+
+    # It compacted (otherwise this test proves nothing) ...
+    assert engine.compaction_state is not None
+    # ... and the nudge reached the model exactly once, as a user-role steering message.
+    nudges = [
+        m
+        for m in engine.messages
+        if m.get("role") == "user" and MEMORY_CONSOLIDATION_NUDGE in str(m.get("content", ""))
+    ]
+    assert len(nudges) == 1
+    assert nudges[0].get("source") == {"kind": "memory_consolidation"}

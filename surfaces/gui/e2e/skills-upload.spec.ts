@@ -8,10 +8,10 @@ test("skills-upload: preview installs nothing → confirm → uploaded badge", a
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Skills", exact: true }).click();
+  await page.getByRole("button", { name: "Workflows", exact: true }).click();
 
-  // Add skill ▾ → Import a file → straight to the (hidden) picker.
-  await page.getByRole("button", { name: /Add skill/ }).click();
+  // Add workflow ▾ → Import a file → straight to the (hidden) picker.
+  await page.getByRole("button", { name: /Add workflow/ }).click();
   await page.getByText("Import a file").click();
   await page.getByLabel("Upload a skill archive").setInputFiles({
     name: "greet.zip",

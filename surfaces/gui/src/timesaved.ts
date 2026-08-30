@@ -15,6 +15,8 @@ export interface TimeSaved {
   by_category: Record<string, number>;
   /** The same minutes grouped by KIND of help — see coworker/edge.py. */
   edge?: EdgeProfile;
+  /** Which mode of working the turns fell into — see coworker/fivea.py. */
+  five_a?: FiveAProfile;
 }
 
 /** The EDGE profile (Efficiency · Decisions · Growth · Empowerment). */
@@ -26,10 +28,29 @@ export interface EdgePillar {
   percent: number;
 }
 export interface EdgeProfile {
+  /** The three OUTCOME pillars — shares sum to 100. */
   pillars: EdgePillar[];
+  /** The ENABLING pillar (ch. 9), reported beside the outcomes, never as a fourth slice. */
+  enabling?: EdgePillar;
+  outcome_minutes?: number;
   total_minutes: number;
   leading: string;
   /** False below ~30 minutes of attributed work: too little for a shape to mean anything. */
+  ready: boolean;
+}
+
+/** The Five A's continuum (ch. 7) — Access → Assistants → Applications → Automation → Agents. */
+export interface FiveALevel {
+  key: string;
+  label: string;
+  blurb: string;
+  turns: number;
+  percent: number;
+}
+export interface FiveAProfile {
+  levels: FiveALevel[];
+  total_turns: number;
+  leading: string;
   ready: boolean;
 }
 

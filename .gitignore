@@ -21,3 +21,4 @@ stt/target/
 # Local tooling state
 .claude/
 .DS_Store
+.gstack/

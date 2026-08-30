@@ -9,8 +9,9 @@ import {
 } from "../api";
 import { PanelHead } from "./IntegrationsView";
 import { EdgeRadar } from "./EdgeRadar";
+import { FiveABars } from "./FiveABars";
 import { useT } from "../i18n";
-import type { EdgeProfile } from "../timesaved";
+import type { EdgeProfile, FiveAProfile } from "../timesaved";
 
 // Activity — connector/browser tool history, restructured onto the IntegrationsView page shell
 // (centered panel + PanelHead + cards), replacing the legacy `page-view` layout. Read-only:
@@ -22,6 +23,7 @@ const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white sh
 export function AuditView() {
   const t = useT();
   const [edge, setEdge] = useState<EdgeProfile | null>(null);
+  const [fiveA, setFiveA] = useState<FiveAProfile | null>(null);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [sessionFilter, setSessionFilter] = useState("");
   const [connectorFilter, setConnectorFilter] = useState("");
@@ -50,8 +52,14 @@ export function AuditView() {
   // so the shape and the hours can never disagree — they are the same minutes.
   useEffect(() => {
     getSettings()
-      .then((s) => setEdge(s.time_saved?.edge ?? null))
-      .catch(() => setEdge(null));
+      .then((s) => {
+        setEdge(s.time_saved?.edge ?? null);
+        setFiveA(s.time_saved?.five_a ?? null);
+      })
+      .catch(() => {
+        setEdge(null);
+        setFiveA(null);
+      });
   }, []);
 
   return (
@@ -72,6 +80,23 @@ export function AuditView() {
                 {t("The same hours, grouped by the kind of help — the EDGE framework.")}
               </div>
               <EdgeRadar edge={edge} />
+              {edge.pillars?.some((p) => p.key === "Growth" && p.percent === 0) && (
+                <div className="text-[11px] text-faint mt-3 pt-2.5 border-t border-line">
+                  {t("Growth reads zero for almost everyone here, and that is not a failing: it means new offerings and revenue, which happen in the market rather than in a tool's log.")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {fiveA?.ready && (
+            <div className={CARD + " p-4 mb-4"} data-testid="fivea-panel">
+              <div className="text-[13px] font-medium text-ink mb-0.5">
+                {t("How you work with Mimi")}
+              </div>
+              <div className="text-[11.5px] text-muted mb-3">
+                {t("Your turns placed on the Five A's continuum — by what they did, not what they were called.")}
+              </div>
+              <FiveABars five={fiveA} />
             </div>
           )}
 
