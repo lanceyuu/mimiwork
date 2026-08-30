@@ -145,7 +145,7 @@ checksums and older versions, is on the [Releases page](https://github.com/lance
 The one habit that matters most: **ask for the outcome, not the steps.** "Read these
 transcripts and write me a themed summary as a Word doc" gets you `summary.docx`. "Can you
 help me analyse interviews?" gets you a conversation.
-([One page: docs/TUTORIAL.md](docs/TUTORIAL.md) · [Illustrated PDF, 13 pages: docs/MimiWork-Tutorial.pdf](docs/MimiWork-Tutorial.pdf))
+([One page: docs/TUTORIAL.md](docs/TUTORIAL.md) — also in [中文](docs/TUTORIAL.zh.md), [Norsk](docs/TUTORIAL.no.md), [Français](docs/TUTORIAL.fr.md) · [Illustrated PDF, 13 pages: docs/MimiWork-Tutorial.pdf](docs/MimiWork-Tutorial.pdf))
 
 <details>
 <summary><b>1 · Connect a model</b> — QualiTaTi credits or your own key (2 minutes)</summary>

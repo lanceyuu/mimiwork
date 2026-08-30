@@ -1,5 +1,7 @@
 # The MimiWork tutorial
 
+**English** · [中文](TUTORIAL.zh.md) · [Norsk](TUTORIAL.no.md) · [Français](TUTORIAL.fr.md)
+
 Ten minutes, from first launch to your own automation. Every step here works on a fresh
 install — nothing needs a developer.
 
