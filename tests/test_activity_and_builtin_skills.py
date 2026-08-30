@@ -40,6 +40,10 @@ BUILTIN = {
     "survey-generator",
     # authored for the GenAI-for-Business teaching arc
     "agentic-architect",
+    # the QualiTaTi/MimiWork brand system — teal tokens, 85 named icon assets,
+    # per-medium guides (owner ask 2026-08-30: every customer-facing deliverable
+    # should come out on-brand without being asked)
+    "mimi-style",
     # emilkowalski/skills — fluid Apple-style interfaces for web deliverables
     "apple-design",
 }
@@ -62,6 +66,10 @@ def test_seeding_installs_the_builtin_catalog(tmp_path):
     assert (tmp_path / "skills" / "theory-building" / "SKILL.md").is_file()
     # The slide skill carries its resources, not just the manifest.
     assert (tmp_path / "skills" / "slide-design" / "STYLE_PRESETS.md").is_file()
+    # The brand skill carries its ASSETS — a style guide without the icons it
+    # names would send every deliverable hunting for missing files.
+    assert (tmp_path / "skills" / "mimi-style" / "assets" / "tiles" / "tile-survey.png").is_file()
+    assert (tmp_path / "skills" / "mimi-style" / "references" / "social.md").is_file()
 
 
 def test_descriptions_survive_the_single_line_frontmatter_parser(tmp_path):
