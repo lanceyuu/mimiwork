@@ -231,3 +231,16 @@ describe("WorkspaceView", () => {
     });
   });
 });
+
+describe("api base resolution", () => {
+  it("fetches against an absolute sidecar URL, never a relative path", async () => {
+    // Regression (owner report 2026-08-30): a local resolver read only the Vite env
+    // var and returned "" in the packaged app, so every request went relative to
+    // tauri://localhost and WebKit threw "The string did not match the expected
+    // pattern" — the Files page showed a raw SyntaxError instead of the tree.
+    const { calls } = mockFetch({ "/v1/workspace/tree": treeFixture });
+    render(<WorkspaceView workspace="/ws/demo" sessionId="s1" />);
+    await waitFor(() => expect(calls.length).toBeGreaterThan(0));
+    for (const url of calls) expect(url).toMatch(/^https?:\/\//);
+  });
+});

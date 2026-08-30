@@ -5,7 +5,7 @@ declare const __COWORKER_DEV_TOKEN__: string;
 // Endpoint resolution order: runtime-injected globals (Tauri sets `window.__COWORKER_HTTP__`
 // for its dynamically-chosen sidecar port) → Vite env → the 127.0.0.1:8765 dev default. This
 // keeps a single codebase: browser `npm run dev` hits 8765; the desktop shell hits its sidecar.
-const httpBase = (): string =>
+export const httpBase = (): string =>
   (globalThis as any).__COWORKER_HTTP__ ||
   (import.meta as any).env?.VITE_COWORKER_HTTP ||
   "http://127.0.0.1:8765";
@@ -13,7 +13,7 @@ const wsBase = (): string =>
   (globalThis as any).__COWORKER_WS__ ||
   (import.meta as any).env?.VITE_COWORKER_WS ||
   "ws://127.0.0.1:8765";
-const apiToken = (): string =>
+export const apiToken = (): string =>
   (globalThis as any).__COWORKER_API_TOKEN__ ||
   (import.meta as any).env?.VITE_COWORKER_API_TOKEN ||
   (typeof __COWORKER_DEV_TOKEN__ === "string" ? __COWORKER_DEV_TOKEN__ : "");

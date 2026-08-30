@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+// The sidecar's address and launch token come from api.ts — the shell injects the
+// real port at runtime. A local resolver that only read the Vite env var returned ""
+// in the packaged app, so every fetch went to tauri://localhost and WebKit threw
+// "The string did not match the expected pattern" (owner report 2026-08-30).
+import { apiToken, httpBase } from "../api";
 import { PanelHead } from "./IntegrationsView";
 import { Icon } from "./Icon";
 
@@ -39,21 +44,6 @@ const INPUT =
 const BTN =
   "text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-paper text-ink hover:bg-panel shrink-0";
 
-function apiBase(): string {
-  return (
-    (import.meta as unknown as { env?: Record<string, string> }).env
-      ?.VITE_COWORKER_HTTP ?? ""
-  );
-}
-
-function apiToken(): string {
-  return (
-    (globalThis as unknown as Record<string, string>).__COWORKER_API_TOKEN__ ||
-    (import.meta as unknown as { env?: Record<string, string> }).env
-      ?.VITE_COWORKER_API_TOKEN ||
-    ""
-  );
-}
 
 function jsonPost(body: unknown): RequestInit {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -64,7 +54,7 @@ function jsonPost(body: unknown): RequestInit {
 
 async function apiGet<T>(path: string, params: Record<string, string>): Promise<T> {
   const q = new URLSearchParams(params).toString();
-  const url = `${apiBase()}${path}${q ? `?${q}` : ""}`;
+  const url = `${httpBase()}${path}${q ? `?${q}` : ""}`;
   const headers: Record<string, string> = {};
   const t = apiToken();
   if (t) headers["X-OpenWorker-Token"] = t;
@@ -177,7 +167,7 @@ export function WorkspaceView(props: {
     setErr("");
     try {
       const r = await fetch(
-        `${apiBase()}/v1/manuscript/save`,
+        `${httpBase()}/v1/manuscript/save`,
         jsonPost({ path: file.path, content: draft, label: "manual", ...base() }),
       );
       const d = (await r.json()) as { ok?: boolean; error?: string; saved?: boolean };
@@ -213,7 +203,7 @@ export function WorkspaceView(props: {
     setProof(null);
     try {
       const r = await fetch(
-        `${apiBase()}/v1/manuscript/proofread`,
+        `${httpBase()}/v1/manuscript/proofread`,
         jsonPost({ path: file.path, ...base() }),
       );
       const d = (await r.json()) as {
@@ -245,7 +235,7 @@ export function WorkspaceView(props: {
     setBusy(true);
     try {
       const r = await fetch(
-        `${apiBase()}/v1/manuscript/restore`,
+        `${httpBase()}/v1/manuscript/restore`,
         jsonPost({ path: file.path, ts, ...base() }),
       );
       const d = (await r.json()) as { content?: string; error?: string };
@@ -289,7 +279,7 @@ export function WorkspaceView(props: {
         <div className="px-4 pt-5 pb-3">
           <PanelHead
             title="Files"
-            sub="The folders this session can see. Read-only browsing — edits go through the agent's approval-gated tools."
+            sub="Browse everything this conversation can see — your granted folders and the files Mimi made. Text files open in a light editor with saved versions; for bigger changes, just ask Mimi."
           />
         </div>
 
