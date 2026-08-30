@@ -46,6 +46,25 @@ BUILTIN = {
     "mimi-style",
     # emilkowalski/skills — fluid Apple-style interfaces for web deliverables
     "apple-design",
+    # One discoverable workflow per QualiTaTi tool exposed by MimiWork. These remain
+    # ordinary editable skills; allowed-tools records the exact one-to-one binding.
+    "qualitati-projects",
+    "qualitati-mimi",
+    "qualitati-interviews",
+    "qualitati-interview-transcript",
+    "qualitati-surveys",
+    "qualitati-survey-responses",
+    "qualitati-export-survey",
+}
+
+QUALITATI_TOOL_SKILLS = {
+    "qualitati-projects": "qualitati_projects",
+    "qualitati-mimi": "qualitati_mimi",
+    "qualitati-interviews": "qualitati_interviews",
+    "qualitati-interview-transcript": "qualitati_interview_transcript",
+    "qualitati-surveys": "qualitati_surveys",
+    "qualitati-survey-responses": "qualitati_survey_responses",
+    "qualitati-export-survey": "qualitati_export_survey",
 }
 
 
@@ -106,6 +125,33 @@ def test_user_edits_are_never_overwritten(tmp_path):
     md.write_text(md.read_text() + "\nMY EDIT", encoding="utf-8")
     SkillStore(tmp_path / "skills", seed_builtin=True)
     assert md.read_text().endswith("MY EDIT")
+
+
+def test_every_qualitati_tool_has_one_preinstalled_skill(tmp_path):
+    from coworker.skills.base import SkillLoader
+    from coworker.tools.qualitati_data import qualitati_data_tools
+    from coworker.tools.qualitati_tools import qualitati_tools
+
+    class _SignedOutSecrets:
+        def get(self, _key):
+            return None
+
+    tool_names = {
+        tool.__name__
+        for tool in [
+            *qualitati_tools(),
+            *qualitati_data_tools(_SignedOutSecrets(), workspace=tmp_path),
+        ]
+    }
+    assert set(QUALITATI_TOOL_SKILLS.values()) == tool_names
+
+    SkillStore(tmp_path / "skills", seed_builtin=True)
+    loader = SkillLoader([tmp_path / "skills"])
+    for skill_name, tool_name in QUALITATI_TOOL_SKILLS.items():
+        skill = loader.get(skill_name)
+        assert skill is not None, skill_name
+        assert skill.allowed_tools == [tool_name]
+        assert f"`{tool_name}`" in skill.instructions
 
 
 # ── activity ─────────────────────────────────────────────────────────────────
@@ -338,4 +384,3 @@ def test_pending_inbox_items_flip_the_activity_signal(tmp_path):
     _asyncio.run(scenario())
     signals = [(f["data"]["busy"], f["data"]["pending_input"]) for f in frames if f["type"] == "activity"]
     assert (False, 1) in signals and (False, 0) in signals
-
