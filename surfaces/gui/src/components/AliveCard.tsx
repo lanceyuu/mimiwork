@@ -18,7 +18,13 @@ import { useT } from "../i18n";
 
 function when(iso: string, t: (s: string) => string): string {
   if (!iso) return "";
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  const then = new Date(iso);
+  if (Number.isNaN(then.getTime())) return "";
+  // CALENDAR days, not elapsed hours. Flooring the difference made two releases from
+  // different days both read "yesterday" (v0.4.11 at 1.4 days, v0.4.10 at 1.99), which
+  // on a card whose whole claim is "checkable" is the worst kind of small wrong.
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(new Date()) - midnight(then)) / 86_400_000);
   if (days <= 0) return t("today");
   if (days === 1) return t("yesterday");
   if (days < 30) return `${days} ${t("days ago")}`;

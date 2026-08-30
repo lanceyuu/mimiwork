@@ -529,7 +529,11 @@ export function App() {
       getHealth()
         .then(async (h) => {
           if (cancelled) return;
-          setModel(h.model);
+          // Only ever a string: an error body (401 from a sidecar whose token rotated,
+          // or a payload from a mismatched version) has no `model`, and setting state
+          // to undefined white-screened the whole app at the subtitle below — the
+          // worst failure mode there is, from the most ordinary cause.
+          if (typeof h?.model === "string" && h.model) setModel(h.model);
           // First-run setup wizard (desktop): show until the user completes/dismisses it.
           if (isTauri()) {
             getSettings()
@@ -1365,9 +1369,10 @@ export function App() {
   const hasHistory = items.length > 0;
   // Curated labels read "Claude Opus 4.8 · Anthropic" — the provider suffix is dropdown context,
   // noise in a facts line. Fall back to the raw id without its provider prefix.
+  const modelName = typeof model === "string" ? model : "";
   const modelDisplay =
-    modelLabels[model]?.split(" · ")[0] ||
-    (model.includes(":") ? model.split(":").slice(1).join(":") : model);
+    modelLabels[modelName]?.split(" · ")[0] ||
+    (modelName.includes(":") ? modelName.split(":").slice(1).join(":") : modelName);
   // Persona name dropped for this release (owner ask 2026-07-22): personas are hidden,
   // so "Coworker" read as noise. The model (+ project folder) are the real fixed facts.
   const subtitleParts = [modelDisplay];
@@ -1502,7 +1507,11 @@ export function App() {
         <Onboarding
           onDone={(next, starter) => {
             setOnboarding(false);
-            getHealth().then((h) => setModel(h.model)).catch(() => {});
+            getHealth()
+              .then((h) => {
+                if (typeof h?.model === "string" && h.model) setModel(h.model);
+              })
+              .catch(() => {});
             loadSettings(); // pick up a model connected during setup (clears the composer chip)
             // First-run tour (owner ask 2026-08-29): via the open-tour handler, which
             // returns to the session view first — the spotlights point at live session

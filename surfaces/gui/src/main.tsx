@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { MimiCompanion } from "./components/MimiCompanion";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTheme } from "./theme";
 import { platformOS } from "./tauri";
 import { installDomTranslations } from "./i18n";
@@ -26,7 +27,9 @@ const companionMode =
   Boolean((globalThis as any).__MIMI_COMPANION__) || window.location.hash === "#companion";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{companionMode ? <MimiCompanion /> : <App />}</React.StrictMode>,
+  <React.StrictMode>
+    <ErrorBoundary>{companionMode ? <MimiCompanion /> : <App />}</ErrorBoundary>
+  </React.StrictMode>,
 );
 
 installDomTranslations(document.getElementById("root")!);

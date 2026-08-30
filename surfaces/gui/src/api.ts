@@ -1178,7 +1178,12 @@ export async function getInbox(sessionId?: string, state?: string): Promise<Inbo
   if (sessionId) q.set("session_id", sessionId);
   if (state) q.set("state", state);
   const res = await fetch(`${httpBase()}/v1/inbox?${q.toString()}`);
-  return (await res.json()).items;
+  // `?? []` is load-bearing: an error body (a 401 from a sidecar whose token rotated)
+  // has no `items`, and returning undefined put undefined into React state, where
+  // `sessionInbox[0]` threw during render and white-screened the whole app. A helper
+  // that promises an array must return one whatever the server said.
+  const body = await res.json().catch(() => ({}));
+  return Array.isArray(body?.items) ? body.items : [];
 }
 
 export async function resolveInboxItem(
@@ -1225,7 +1230,8 @@ export interface InboxBinding {
 
 export async function getInboxRouting(): Promise<InboxBinding[]> {
   const res = await fetch(`${httpBase()}/v1/inbox/routing`);
-  return (await res.json()).bindings ?? [];
+  const body = await res.json().catch(() => ({}));
+  return Array.isArray(body?.bindings) ? body.bindings : [];
 }
 
 export async function setInboxBinding(

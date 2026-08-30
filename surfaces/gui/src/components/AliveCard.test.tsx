@@ -12,7 +12,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+// Anchored to local midnight so the fixture means "N calendar days ago" regardless of
+// what time the suite runs — the bug this guards against was exactly a time-of-day one.
+const ago = (days: number) => {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - days);
+  return d.toISOString();
+};
 const about = {
   version: "0.4.13",
   models: 59,
@@ -65,6 +72,24 @@ describe("AliveCard", () => {
     getAbout.mockResolvedValue({} as any);
     const { container } = render(<AliveCard {...props} />);
     await waitFor(() => expect(container.querySelector("[data-testid='alive-card']")).toBeNull());
+  });
+
+  it("counts calendar days, so two releases from different days read differently", async () => {
+    // v0.4.11 (1.4 days back) and v0.4.10 (1.99 days back) both floored to "yesterday",
+    // which told the reader two versions shipped the same day.
+    getAbout.mockResolvedValue({
+      ...about,
+      releases: [
+        { tag: "v0.4.13", name: "", published_at: ago(0) },
+        { tag: "v0.4.11", name: "", published_at: ago(1) },
+        { tag: "v0.4.10", name: "", published_at: ago(2) },
+      ],
+    });
+    render(<AliveCard {...props} />);
+    await screen.findByTestId("alive-card");
+    const history = screen.getByTestId("release-history").textContent || "";
+    expect(history).toContain("yesterday");
+    expect(history).toContain("2 days ago");
   });
 
   it("still renders when only the local facts arrive", async () => {
