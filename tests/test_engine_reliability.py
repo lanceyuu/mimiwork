@@ -58,7 +58,8 @@ def _engine(tmp_path, provider, max_iterations=12):
         max_iterations=max_iterations,
         approver=_allow,
     )
-    engine.retry_delays = (0, 0, 0)
+    # Keep the production retry count while removing wall-clock waits.
+    engine.retry_delays = tuple(0 for _ in engine.retry_delays)
     return engine
 
 
@@ -83,11 +84,49 @@ def test_transient_errors_are_retried_then_succeed(tmp_path):
     assert not [e for e in events if e.type == EventType.ERROR]
 
 
+def test_gateway_outage_recovers_after_more_than_three_retries(tmp_path):
+    gateway_error = RuntimeError(
+        "<!DOCTYPE html><html><body><p>Error code: 502</p>"
+        "<h1>via_upstream (502 -)</h1>"
+        "<p>App Platform failed to forward this request to the application.</p>"
+        "</body></html>"
+    )
+    provider = FlakyProvider(
+        [gateway_error] * 5,
+        [AssistantTurn(text="recovered")],
+    )
+    engine = _engine(tmp_path, provider)
+
+    events = _run(engine, "finish the document")
+
+    assert provider.calls == 6
+    assert events[-1].type == EventType.TURN_END
+    assert not [e for e in events if e.type == EventType.ERROR]
+
+
+def test_exhausted_gateway_outage_hides_raw_html_from_the_user(tmp_path):
+    gateway_error = RuntimeError(
+        "<!DOCTYPE html><html><body><p>Error code: 502</p>"
+        "<h1>via_upstream (502 -)</h1>"
+        "<p>App Platform failed to forward this request to the application.</p>"
+        "</body></html>"
+    )
+    engine = _engine(tmp_path, FlakyProvider([gateway_error] * 20, []))
+
+    events = _run(engine, "finish the document")
+    error = next(e for e in events if e.type == EventType.ERROR)
+
+    assert "temporarily unavailable" in error.data["error"]
+    assert "automatically" in error.data["error"]
+    assert "<!DOCTYPE" not in error.data["error"]
+    assert "via_upstream" in error.data["raw"]
+
+
 def test_retry_budget_is_finite(tmp_path):
-    provider = FlakyProvider([RateLimited()] * 4, [AssistantTurn(text="never")])
+    provider = FlakyProvider([RateLimited()] * 7, [AssistantTurn(text="never")])
     engine = _engine(tmp_path, provider)
     events = _run(engine, "hi")
-    assert provider.calls == 4  # first try + 3 retries
+    assert provider.calls == 7  # first try + 6 retries
     assert events[-1].type == EventType.ERROR
 
 

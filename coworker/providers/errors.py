@@ -13,6 +13,7 @@ dressed up as an access problem.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 # Error-body markers, verbatim from the vendors' error codes/messages:
@@ -81,6 +82,10 @@ _TRANSIENT_MARKERS = (
     "incomplete chunked read",
     "try again",
 )
+_STATUS_IN_TEXT = re.compile(
+    r"(?:error\s+code\s*:\s*|status(?:_code)?[=:\s]+|via_upstream\s*\()(\d{3})",
+    re.IGNORECASE,
+)
 
 
 def is_transient(exc: Exception) -> bool:
@@ -94,10 +99,23 @@ def is_transient(exc: Exception) -> bool:
         status = getattr(response, "status_code", None)
     if isinstance(status, int) and status in _TRANSIENT_STATUS:
         return True
+    embedded_status = _STATUS_IN_TEXT.search(text)
+    if embedded_status and int(embedded_status.group(1)) in _TRANSIENT_STATUS:
+        return True
     if any(marker in text for marker in _TRANSIENT_MARKERS):
         return True
     name = type(exc).__name__.lower()
     return any(k in name for k in ("timeout", "connecterror", "connectionerror", "ratelimit", "apiconnection"))
+
+
+def friendly_transient_error(exc: Exception) -> Optional[str]:
+    """Plain-language terminal message for a temporary failure after retries are spent."""
+    if not is_transient(exc):
+        return None
+    return (
+        "The model service is temporarily unavailable. MimiWork retried automatically, "
+        "but the service is still not responding. Your work is safe — try again in a moment."
+    )
 
 
 def retry_after_seconds(exc: Exception, cap: float = 30.0) -> Optional[float]:

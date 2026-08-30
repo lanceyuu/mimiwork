@@ -25,7 +25,12 @@ from . import repetition as _repetition
 from .events import Event, EventType
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
-from .providers.errors import friendly_model_error, is_transient, retry_after_seconds
+from .providers.errors import (
+    friendly_model_error,
+    friendly_transient_error,
+    is_transient,
+    retry_after_seconds,
+)
 from .repetition import RepetitionGuard as _RepetitionGuard
 from .timesaved import TimeSaved
 from .tools import RecoveryPolicy, ToolRegistry
@@ -134,7 +139,7 @@ class TurnEngine:
         # Transient provider failures (429/5xx/timeouts) are retried with these delays
         # before the turn surfaces an error — only when nothing has streamed yet, so the
         # user never sees duplicated text. Tests shrink the delays to zero.
-        self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0)
+        self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0, 15.0, 30.0, 30.0)
         self._wrap_up_sent = False
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
         # constructor footprint stays put. `compaction_settings` is a live getter (Settings
@@ -494,7 +499,9 @@ class TurnEngine:
                 # arrive survives the failure.
                 if streamed or streamed_reasoning:
                     self.messages.append(_assistant_message(_partial_turn()))
-                friendly = friendly_model_error(self.model, exc)
+                friendly = friendly_model_error(
+                    self.model, exc
+                ) or friendly_transient_error(exc)
                 payload = {
                     "error": friendly or str(exc),
                     "error_type": type(exc).__name__,
