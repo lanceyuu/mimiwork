@@ -1205,3 +1205,22 @@ def test_language_setting_round_trips_and_validates(tmp_path):
     bad = client.post("/v1/settings/language", json={"value": "klingon"}).json()
     assert bad["ok"] is False and "en, zh, no, fr" in bad["error"]
     assert client.get("/v1/settings").json()["language"] == "zh"  # unchanged
+
+
+def test_time_saved_accumulates_across_turns_without_double_counting(tmp_path):
+    """The engine's per-session figure is cumulative; the install total must bank the
+    DELTA each turn or a long session would inflate the badge every time it ticks."""
+    # Three scripted replies: the session titler spends one between the turns.
+    client = _client(tmp_path, [_text("one"), _text("Title"), _text("two")])
+    with client.websocket_connect("/ws/session/saved") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_message", "text": "first"})
+        _drain(ws)
+        ws.send_json({"type": "user_message", "text": "second"})
+        _drain(ws)
+    total = client.get("/v1/settings").json()["time_saved"]
+    assert total["turns"] == 2
+    # Two turns of pure conversation: the user spent time, Mimi produced no artifact,
+    # so the honest answer is zero saved — not a negative, and not a fabrication.
+    assert total["saved_minutes"] == 0.0
+    assert total["collab_minutes"] > 0

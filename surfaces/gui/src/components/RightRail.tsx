@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 // Emits the asset URL only; the worker itself loads lazily with the pdfjs chunk.
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
@@ -87,6 +87,23 @@ export function RightRail({
   });
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const [selected, setSelected] = useState<ArtifactInfo | null>(null);
+
+  // Opening an artifact is ONE decision, made here: a Word/Excel/PowerPoint file has no
+  // in-app preview, so it goes to the OS; everything else opens the viewer. This used to
+  // be decided in two places — the artifact: chip in the transcript knew the rule, the
+  // Artifacts list did not — so clicking a .docx Mimi had just written selected a file
+  // the viewer could not render and the click looked dead (owner report 2026-08-30).
+  const openArtifact = useCallback(
+    (a: ArtifactInfo) => {
+      const ext = (a.path.split(".").pop() || "").toLowerCase();
+      if (OPENS_ELSEWHERE.has(ext)) {
+        void revealArtifact(sessionId, a.path, "open");
+        return;
+      }
+      setSelected(a);
+    },
+    [sessionId],
+  );
   const [content, setContent] = useState<ArtifactContent | null>(null);
 
   const refreshArtifacts = () => getArtifacts(sessionId).then(setArtifacts).catch(() => setArtifacts([]));
@@ -137,27 +154,21 @@ export function RightRail({
     const onOpen = (e: Event) => {
       const path = String((e as CustomEvent).detail?.path || "");
       if (!path) return;
-      const ext = (path.split(".").pop() || "").toLowerCase();
-      if (OPENS_ELSEWHERE.has(ext)) {
-        // No preview to show and nothing to decide: hand it to Word/Excel/PowerPoint now.
-        void revealArtifact(sessionId, path, "open");
-        return;
-      }
       const found = match(artifacts, path);
       if (found) {
-        setSelected(found);
+        openArtifact(found);
         return;
       }
       getArtifacts(sessionId)
         .then((list) => {
           setArtifacts(list);
-          setSelected(match(list, path) ?? minimal(path));
+          openArtifact(match(list, path) ?? minimal(path));
         })
-        .catch(() => setSelected(minimal(path)));
+        .catch(() => openArtifact(minimal(path)));
     };
     window.addEventListener(OPEN_ARTIFACT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_ARTIFACT_EVENT, onOpen);
-  }, [active, sessionId, artifacts]);
+  }, [active, sessionId, artifacts, openArtifact]);
 
   if (!active) return null;
 
@@ -213,7 +224,7 @@ export function RightRail({
             ) : (
               <div className="artifact-list">
                 {artifacts.slice(0, 16).map((a) => (
-                  <button className="artifact-row" key={a.path} onClick={() => setSelected(a)}>
+                  <button className="artifact-row" key={a.path} onClick={() => openArtifact(a)}>
                     <span className="artifact-ico" title={a.kind}>
                       <Icon name={kindIcon(a.kind)} size={17} />
                     </span>

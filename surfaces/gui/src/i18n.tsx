@@ -29,6 +29,7 @@ const D: Record<string, [string, string, string]> = {
   "Automations": ["自动化", "Automatiseringer", "Automatisations"],
   "Activity": ["活动", "Aktivitet", "Activité"],
   "Files": ["文件", "Filer", "Fichiers"],
+  "saved so far": ["累计节省", "spart så langt", "gagnées jusqu'ici"],
   "Projects": ["项目", "Prosjekter", "Projets"],
   "Sign out of QualiTaTi": ["退出 QualiTaTi", "Logg ut av QualiTaTi", "Se déconnecter de QualiTaTi"],
   // ── permission modes ──

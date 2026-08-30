@@ -65,6 +65,7 @@ import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
 import { Tour } from "./components/Tour";
 import { setLang, type Lang } from "./i18n";
+import { emptyTimeSaved, type TimeSaved } from "./timesaved";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { RightRail } from "./components/RightRail";
@@ -206,6 +207,9 @@ export function App() {
   // Per-session token usage (OPE-42): rebuilt from the transcript on session load,
   // accumulated live from assistant_message events, reset with the transcript.
   const [usage, setUsage] = useState<SessionUsage>(emptyUsage());
+  // Session estimate (from each turn_end) and the install's all-time total (settings).
+  const [timeSaved, setTimeSaved] = useState<TimeSaved>(emptyTimeSaved());
+  const [timeSavedTotal, setTimeSavedTotal] = useState<TimeSaved>(emptyTimeSaved());
   const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true });
   const [mode, setMode] = useState("interactive");
   const [connected, setConnected] = useState(false);
@@ -580,6 +584,7 @@ export function App() {
     getSettings()
       .then((s) => {
         if (s.language) setLang(s.language as Lang);
+        if (s.time_saved) setTimeSavedTotal(s.time_saved as TimeSaved);
         setModels(s.models || []);
         setModelLabels(s.model_labels || {});
         setModelContextWindows(s.model_context_windows || {});
@@ -793,6 +798,14 @@ export function App() {
         case "turn_end":
           if (d.status === "max_iterations_exceeded")
             setItems((p) => [...p, { kind: "notice", tone: "warn", text: "Stopped: max iterations reached." }]);
+          // The turn's cumulative session estimate rides the event; the server has
+          // already banked the delta, so re-read the all-time total for the badge.
+          if (d.time_saved) {
+            setTimeSaved(d.time_saved as TimeSaved);
+            getSettings()
+              .then((s) => s.time_saved && setTimeSavedTotal(s.time_saved as TimeSaved))
+              .catch(() => undefined);
+          }
           break;
         case "model_changed":
           // Mid-session switch (server-applied): update the header fact and drop the
@@ -1539,6 +1552,7 @@ export function App() {
         sessions={sessions}
         projects={projects}
         activeSession={sessionId}
+        timeSaved={timeSavedTotal}
         onSwitchAgent={switchAgent}
         onNewSession={startNewSession}
         onSelectSession={selectSession}
@@ -1913,6 +1927,7 @@ export function App() {
               onPrefillConsumed={() => setComposerPrefill(undefined)}
               resetKey={sessionId}
               usage={usage}
+              timeSaved={timeSaved}
               contextWindow={modelContextWindows[model]}
               contextBar={contextBar}
               placeholder={

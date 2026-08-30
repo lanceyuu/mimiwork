@@ -1775,6 +1775,13 @@ def create_app(manager: SessionManager) -> FastAPI:
                     await manager.broadcast_session(
                         session_id, {"type": event.type.value, "data": event.data}
                     )
+                    if event.type.value == "turn_end":
+                        # Bank this turn's estimate into the install's all-time total
+                        # (the badge by the logo). The per-session figure rides the
+                        # event itself and needs no storage.
+                        manager.record_time_saved(
+                            session_id, (event.data or {}).get("time_saved") or {}
+                        )
                     if event.type.value in _CHECKPOINTS:
                         manager.save(session_id, engine)
             finally:

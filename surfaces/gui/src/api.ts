@@ -629,6 +629,8 @@ export interface ModelSettings {
   onboarded: boolean;
   tour_seen?: boolean;
   language?: string;
+  /** All-time hours-saved estimate (see timesaved.ts). */
+  time_saved?: import("./timesaved").TimeSaved;
   surfaces: SurfaceVisibility;
   scratch_base: string;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)

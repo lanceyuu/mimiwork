@@ -180,6 +180,9 @@ class SessionManager:
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
         self._engines: dict[str, TurnEngine] = {}
+        # Per-session time-saved totals, so the all-time counter banks deltas
+        # rather than re-adding a session's cumulative figure every turn.
+        self._session_time_saved: dict[str, dict] = {}
         # Sessions with an in-flight turn (busy): id → epoch the turn started
         # (the start time feeds mission control's elapsed display; membership is
         # all the busy logic ever tests).
@@ -2916,6 +2919,7 @@ class SessionManager:
             "onboarded": bool(self._prefs.get("onboarded")),
             "tour_seen": bool(self._prefs.get("tour_seen")),
             "language": str(self._prefs.get("language") or "en"),
+            "time_saved": self.time_saved_total(),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "nav_layout": self._nav_layout(),
@@ -3112,6 +3116,42 @@ class SessionManager:
         self._prefs["default_model"] = model
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
+
+    def record_time_saved(self, session_id: str, totals: dict[str, Any]) -> None:
+        """Fold a finished turn's estimate into the install's running total.
+
+        The per-session figure lives on the engine and rides each turn_end event; this
+        is the all-time counter behind the logo. Stored as the accumulated components
+        rather than the difference, so a later change to the rates re-reads the past
+        honestly instead of freezing an old claim."""
+        from ..timesaved import TimeSaved
+
+        if not isinstance(totals, dict):
+            return
+        turn = TimeSaved.from_dict(totals)
+        session = TimeSaved.from_dict(self._session_time_saved.get(session_id) or {})
+        # The engine's totals are cumulative for the session — bank the delta only.
+        delta = TimeSaved(
+            human_minutes=max(0.0, turn.human_minutes - session.human_minutes),
+            collab_minutes=max(0.0, turn.collab_minutes - session.collab_minutes),
+            turns=max(0, turn.turns - session.turns),
+            approvals=max(0, turn.approvals - session.approvals),
+            by_category={
+                k: max(0.0, v - session.by_category.get(k, 0.0))
+                for k, v in turn.by_category.items()
+            },
+        )
+        self._session_time_saved[session_id] = turn.as_dict()
+        total = TimeSaved.from_dict(self._prefs.get("time_saved") or {})
+        total.merge(delta)
+        self._prefs["time_saved"] = total.as_dict()
+        self._save_prefs()
+
+    def time_saved_total(self) -> dict[str, Any]:
+        """The install's all-time estimate, for the badge next to the logo."""
+        from ..timesaved import TimeSaved
+
+        return TimeSaved.from_dict(self._prefs.get("time_saved") or {}).as_dict()
 
     def set_language(self, value: str) -> dict[str, Any]:
         """The app's display language (en/zh/no/fr) — a UI pref, stored so every

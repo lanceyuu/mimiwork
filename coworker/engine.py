@@ -27,6 +27,7 @@ from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import friendly_model_error, is_transient, retry_after_seconds
 from .repetition import RepetitionGuard as _RepetitionGuard
+from .timesaved import TimeSaved
 from .tools import RecoveryPolicy, ToolRegistry
 
 
@@ -147,6 +148,11 @@ class TurnEngine:
         self.spill: Optional[Any] = None
         self._last_context_tokens: Optional[int] = None
         self.audit_context: dict[str, Any] = {}
+        # What this turn would have cost by hand, minus what it cost with Mimi.
+        # Accumulated from real tool results (see timesaved.py) and reset each turn.
+        self.time_saved = TimeSaved()
+        self._turn_started = 0.0
+        self._turn_approvals = 0
         if instructions and not (
             self.messages and self.messages[0].get("role") == "system"
         ):
@@ -240,6 +246,7 @@ class TurnEngine:
             data["source"] = source
         if display is not None:
             data["display"] = display
+        self._begin_turn()
         yield Event(EventType.TURN_START, data)
         async for event in self._loop():
             yield event
@@ -310,6 +317,7 @@ class TurnEngine:
         if not self._tail_is_retriable_error():
             return
         self._cancel.clear()
+        self._begin_turn()
         yield Event(EventType.TURN_START, {"input": ""})
         async for event in self._loop():
             yield event
@@ -324,6 +332,7 @@ class TurnEngine:
         if not pending:
             return
         self._cancel.clear()
+        self._begin_turn()
         yield Event(EventType.TURN_START, {"input": "(resumed)"})
         self._resuming = True
         try:
@@ -382,7 +391,7 @@ class TurnEngine:
             if iterations >= self.max_iterations:
                 yield Event(
                     EventType.TURN_END,
-                    {"status": "max_iterations_exceeded", "iterations": iterations},
+                    {**{"status": "max_iterations_exceeded", "iterations": iterations}, "time_saved": self._close_turn()},
                 )
                 return
             iterations += 1
@@ -551,7 +560,7 @@ class TurnEngine:
                     continue
                 yield Event(
                     EventType.TURN_END,
-                    {"status": "completed", "iterations": iterations},
+                    {**{"status": "completed", "iterations": iterations}, "time_saved": self._close_turn()},
                 )
                 return
 
@@ -575,7 +584,7 @@ class TurnEngine:
                 )
                 yield Event(
                     EventType.TURN_END,
-                    {"status": "repetition_stop", "iterations": iterations},
+                    {**{"status": "repetition_stop", "iterations": iterations}, "time_saved": self._close_turn()},
                 )
                 return
             if verdict == "hint":
@@ -1317,7 +1326,31 @@ class TurnEngine:
             },
         )
 
+    def _begin_turn(self) -> None:
+        self._turn_started = time.monotonic()
+        self._turn_approvals = 0
+
+    def _close_turn(self) -> dict[str, Any]:
+        """Charge the user's side of this turn and hand back the running totals.
+
+        The waiting time is real elapsed time, not a guess — the one number in the
+        whole estimate that is measured rather than modelled."""
+        elapsed = time.monotonic() - self._turn_started if self._turn_started else 0.0
+        self.time_saved.add_turn(elapsed, approvals=self._turn_approvals)
+        self._turn_started = 0.0
+        self._turn_approvals = 0
+        return self.time_saved.as_dict()
+
     def _audit(self, tool_call: ToolCall, **event: Any) -> None:
+        # Every finished tool call is also an entry in the time estimate; approvals are
+        # counted because reading a card and deciding is time the user spent.
+        stage = event.get("stage")
+        if stage == "finished" and event.get("status") == "ok":
+            self.time_saved.add_call(
+                tool_call.name, tool_call.arguments, event.get("result")
+            )
+        elif stage == "approval_requested":
+            self._turn_approvals += 1
         if self.audit_sink is None:
             return
         payload = {

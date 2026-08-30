@@ -14,6 +14,7 @@ import {
   type SessionSkillRow,
 } from "../api";
 import { formatTokens, totalTokens } from "../usage";
+import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
 import { Dropdown, type Option } from "./Dropdown";
 import { Icon } from "./Icon";
 import { Toggle } from "./Toggle";
@@ -137,6 +138,7 @@ interface Props {
   // Per-session token usage (OPE-42) — absent/empty hides the usage chip entirely
   // (older servers, backends that don't report usage, fresh sessions).
   usage?: SessionUsage;
+  timeSaved?: TimeSaved;
   // Context-window size (tokens) of the ACTIVE model, from the curated matrix;
   // undefined hides the fill meter (unverified/custom models) but keeps the counts.
   contextWindow?: number;
@@ -919,6 +921,28 @@ export function Composer(props: Props) {
           {/* token usage (OPE-42) — a quiet chip; hidden until the server reports usage.
               Shows the context-window fill bar alone (the session total lives in the
               popover), or the session total when there's no window / the bar is off. */}
+          {/* Hours saved (owner ask 2026-08-30): the counterweight to the token count —
+              what the work cost vs what it would have cost by hand. Estimated from the
+              artifacts produced, hidden below half an hour, breakdown in the tooltip. */}
+          {!dictation?.recording && worthShowing(props.timeSaved) && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] text-muted tabular-nums shrink-0"
+              data-testid="time-saved-chip"
+              title={
+                `Estimated time saved this session: ${formatSaved(props.timeSaved!.saved_minutes)}\n` +
+                `By hand ≈${Math.round(props.timeSaved!.human_minutes)} min · with Mimi ≈${Math.round(props.timeSaved!.collab_minutes)} min\n` +
+                Object.entries(props.timeSaved!.by_category)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([k, v]) => `${k}: ≈${Math.round(v)} min`)
+                  .join("\n") +
+                "\n\nAn estimate from what was produced, not a measurement."
+              }
+            >
+              <Icon name="clock" size={12} className="text-faint" />
+              {formatSaved(props.timeSaved!.saved_minutes)} saved
+            </span>
+          )}
+
           {!dictation?.recording && props.usage && totalTokens(props.usage) > 0 && (
             <UsageChip
               usage={props.usage}
