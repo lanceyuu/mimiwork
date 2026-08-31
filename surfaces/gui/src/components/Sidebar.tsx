@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
 import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
@@ -188,9 +189,11 @@ export function Sidebar(props: Props) {
   }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  // Two-step delete inside the row's ⋮ menu: Delete arms ("Delete?"), a second click deletes.
+  // Delete inside the row's ⋮ menu opens a confirm dialog naming the chat. It used to arm
+  // in place ("Delete?" replacing "Delete"), which put the confirm under a mouse already
+  // travelling toward it — the second click was often the first one's momentum.
   // Archive is the primary way to put a conversation away — one click, reversible.
-  const [confirmDelId, setConfirmDelId] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<{ id: string; title: string } | null>(null);
   // The open row-actions ⋮ menu (one at a time). Fixed-position, not absolute: the expanded
   // accordion group clips overflow (its rounded fill), so an absolute popover on its lower rows
   // would be cut off — same constraint as SlackDetail's person picker.
@@ -202,13 +205,11 @@ export function Sidebar(props: Props) {
   } | null>(null);
   const closeRowMenu = () => {
     setRowMenu(null);
-    setConfirmDelId(null);
   };
   const openRowMenu = (id: string, anchor: HTMLElement) => {
     const r = anchor.getBoundingClientRect();
     const MENU_W = 160; // w-40
     const MENU_H = 150; // ~4 items + divider; only used to flip upward near the window bottom
-    setConfirmDelId(null);
     setRowMenu({
       id,
       top: r.bottom + 4 + MENU_H > window.innerHeight ? r.top - MENU_H : r.bottom + 4,
@@ -465,31 +466,18 @@ export function Sidebar(props: Props) {
                 props.onForkSession(s.session_id),
               )}
               <div className="h-px bg-line my-1 mx-2" />
-              {confirmDelId === s.session_id ? (
-                <button
-                  title="Click again to permanently delete"
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left font-medium text-danger hover:bg-paper"
-                  data-testid="row-menu-delete"
-                  role="menuitem"
-                  onClick={() => {
-                    closeRowMenu();
-                    props.onDeleteSession(s.session_id);
-                  }}
-                >
-                  <Icon name="trash" size={13} className="shrink-0" />
-                  <span className="flex-1">Delete?</span>
-                </button>
-              ) : (
-                <button
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left text-danger hover:bg-paper"
-                  data-testid="row-menu-delete"
-                  role="menuitem"
-                  onClick={() => setConfirmDelId(s.session_id)}
-                >
-                  <Icon name="trash" size={13} className="shrink-0" />
-                  <span className="flex-1">Delete</span>
-                </button>
-              )}
+              <button
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left text-danger hover:bg-paper"
+                data-testid="row-menu-delete"
+                role="menuitem"
+                onClick={() => {
+                  closeRowMenu();
+                  setConfirmDel({ id: s.session_id, title: s.title || "this chat" });
+                }}
+              >
+                <Icon name="trash" size={13} className="shrink-0" />
+                <span className="flex-1">Delete</span>
+              </button>
             </div>
           </>
         )}
@@ -1447,6 +1435,19 @@ export function Sidebar(props: Props) {
             props.onSelectSession(id, ws, ag);
           }}
           onClose={() => setSearchModalOpen(false)}
+        />
+      )}
+      {confirmDel && (
+        <ConfirmDialog
+          title={t("Delete this chat?")}
+          body={`${confirmDel.title} — ${t("its messages and the record of what it did are removed. Files it wrote to your folders stay where they are.")}`}
+          confirmLabel={t("Delete chat")}
+          onCancel={() => setConfirmDel(null)}
+          onConfirm={() => {
+            const id = confirmDel.id;
+            setConfirmDel(null);
+            props.onDeleteSession(id);
+          }}
         />
       )}
     </div>

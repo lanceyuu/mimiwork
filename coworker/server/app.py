@@ -753,31 +753,41 @@ def create_app(manager: SessionManager) -> FastAPI:
         # paths from web file dialogs). Off the event loop: blocks until pick/cancel.
         return await asyncio.to_thread(manager.pick_native_folder)
 
-    # -- projects (PROJECTS spec): a project = a real workspace folder + metadata ------
+    # -- projects: a project GROUPS sessions (2026-08-31) -----------------------------
+    # It has no folder and no bearing on where a session writes; membership is a column
+    # on the session. The old shape — a project IS a workspace folder — made "file this
+    # conversation under X" and "put its files in X" the same act, so you could not do
+    # one without the other.
     @app.get("/v1/projects")
     def projects() -> dict[str, Any]:
         return {"projects": manager.list_projects()}
 
+    @app.post("/v1/projects")
+    def create_project(body: dict) -> dict[str, Any]:
+        b = body or {}
+        return manager.create_project(str(b.get("name", "")), str(b.get("emoji", "")))
+
     @app.patch("/v1/projects")
     def update_project(body: dict) -> dict[str, Any]:
         b = body or {}
-        fields = {k: b[k] for k in ("name", "emoji", "pinned", "archived") if k in b}
-        return manager.update_project(str(b.get("path", "")), **fields)
+        fields = {k: b[k] for k in ("name", "emoji", "pinned", "archived", "sort_order") if k in b}
+        return manager.update_project(str(b.get("id", "")), **fields)
 
     @app.delete("/v1/projects")
-    def delete_project(path: str, delete_sessions: bool = True) -> dict[str, Any]:
-        """Remove a project from MimiWork (identity, memory and — by default — its
-        conversations). The folder on disk is left exactly as it is."""
-        return manager.delete_project(path, delete_sessions=delete_sessions)
+    def delete_project(id: str, delete_sessions: bool = False) -> dict[str, Any]:
+        """Remove the group. Its conversations are returned to the flat list, NOT
+        deleted, unless delete_sessions is explicitly asked for."""
+        return manager.delete_project(id, delete_sessions=delete_sessions)
 
     @app.get("/v1/projects/detail")
-    def project_detail(path: str) -> dict[str, Any]:
-        return manager.project_detail(path)
+    def project_detail(id: str) -> dict[str, Any]:
+        return manager.project_detail(id)
 
-    @app.put("/v1/projects/instructions")
-    def project_instructions(body: dict) -> dict[str, Any]:
-        b = body or {}
-        return manager.set_project_instructions(str(b.get("path", "")), str(b.get("text", "")))
+    @app.post("/v1/sessions/{session_id}/project")
+    def move_session_to_project(session_id: str, body: dict) -> dict[str, Any]:
+        """File a session under a group (or none). Never moves files."""
+        pid = (body or {}).get("project_id")
+        return manager.move_session_to_project(session_id, str(pid) if pid else None)
 
     @app.get("/v1/sessions")
     def sessions(workspace: str | None = None) -> dict[str, Any]:

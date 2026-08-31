@@ -83,6 +83,18 @@ class ConversationStore:
             CREATE TABLE IF NOT EXISTS workspaces (
                 path TEXT PRIMARY KEY, last_used TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS store_meta (
+                key TEXT PRIMARY KEY, value TEXT
+            );
+            CREATE TABLE IF NOT EXISTS projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                emoji TEXT,
+                pinned INTEGER DEFAULT 0,
+                archived INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS tool_runs (
                 session_id TEXT NOT NULL,
                 message_index INTEGER NOT NULL,
@@ -116,6 +128,12 @@ class ConversationStore:
             "ALTER TABLE sessions ADD COLUMN renamed INTEGER DEFAULT 0",
             "ALTER TABLE sessions ADD COLUMN grants TEXT",
             "ALTER TABLE sessions ADD COLUMN compaction TEXT",
+            # A project is a GROUP, not a folder (2026-08-31). It used to be the
+            # workspace path itself, which meant "which project is this in" and
+            # "where do its files go" were the same answer and you could not have
+            # one without the other. project_id carries membership on its own;
+            # `workspace` keeps doing only its real job.
+            "ALTER TABLE sessions ADD COLUMN project_id TEXT",
         ):
             try:
                 self._conn.execute(ddl)
@@ -123,6 +141,7 @@ class ConversationStore:
                 pass
         self._conn.commit()
         self._backfill_counts()
+        self._migrate_folder_projects_to_groups()
 
     # -- file helpers -----------------------------------------------------------
     def _file(self, sid: str) -> Path:
@@ -202,6 +221,91 @@ class ConversationStore:
                 os.unlink(temporary)
             except FileNotFoundError:
                 pass
+
+    def _migrate_folder_projects_to_groups(self) -> None:
+        """Turn each folder-backed project into a group, once.
+
+        A project used to BE a workspace folder, so membership was "your workspace
+        equals the project's path". Groups replace that, and this carries the
+        existing ones over: every workspace that has real sessions becomes a project
+        row, and those sessions get its project_id.
+
+        `sessions.workspace` is deliberately NOT touched. It still says where the
+        session's files live, which must not change because the way they are
+        ORGANISED did. Nothing moves on disk.
+
+        Idempotent: it only considers sessions whose project_id is still NULL, so a
+        session later dragged out of its group is not silently dragged back in on the
+        next start.
+        """
+        import uuid as _uuid
+
+        with self._lock:
+            # Exactly once, ever — recorded by a flag rather than inferred from the
+            # data. Inferring it ("no groups yet?") re-ran the migration on every
+            # start, so a session the user deliberately dragged OUT of its group was
+            # silently filed straight back in on the next launch.
+            done = self._conn.execute(
+                "SELECT value FROM store_meta WHERE key='folder_projects_migrated'"
+            ).fetchone()
+            if done is not None:
+                return
+            rows = self._conn.execute(
+                # A per-conversation scratch directory is named after the session that
+                # owns it (`<scratch base>/<session id>`), so it is that session's
+                # private working area and never a project. Excluded by that exact
+                # shape rather than by guessing at path prefixes — the store must not
+                # need to know where the manager puts scratch.
+                "SELECT s.workspace AS path, COUNT(*) AS n FROM sessions s "
+                "WHERE s.project_id IS NULL AND s.workspace IS NOT NULL "
+                "  AND s.workspace != '' AND s.session_id NOT LIKE '\\_\\_%' ESCAPE '\\' "
+                "  AND s.workspace NOT LIKE '%/' || s.session_id "
+                "  AND s.workspace NOT LIKE '%\\' || s.session_id "
+                "GROUP BY s.workspace",
+                (),
+            ).fetchall()
+            meta = {
+                r["path"]: r
+                for r in self._conn.execute(
+                    "SELECT path, name, emoji, pinned, archived FROM workspaces"
+                ).fetchall()
+            }
+            for row in rows:
+                path = row["path"]
+                if self._is_scratch_like(path):
+                    continue  # a per-conversation scratch dir was never a project
+                m = meta.get(path)
+                name = (m["name"] if m and m["name"] else "") or Path(path).name or path
+                pid = f"grp_{_uuid.uuid4().hex[:12]}"
+                self._conn.execute(
+                    "INSERT INTO projects (id, name, emoji, pinned, archived) VALUES (?,?,?,?,?)",
+                    (
+                        pid,
+                        name[:80],
+                        (m["emoji"] if m else "") or "",
+                        int(bool(m["pinned"])) if m else 0,
+                        int(bool(m["archived"])) if m else 0,
+                    ),
+                )
+                self._conn.execute(
+                    "UPDATE sessions SET project_id=? WHERE workspace=? AND project_id IS NULL",
+                    (pid, path),
+                )
+            self._conn.execute(
+                "INSERT OR REPLACE INTO store_meta (key, value) VALUES ('folder_projects_migrated','1')"
+            )
+            self._conn.commit()
+
+    @staticmethod
+    def _is_scratch_like(path: str) -> bool:
+        """Machinery folders that were never projects.
+
+        `__`-prefixed names are MimiWork's own (an automation's `__task__…` working
+        directory, for instance). Per-session scratch dirs are excluded by the query
+        above instead, which matches them exactly rather than by naming convention.
+        """
+        name = Path(str(path or "")).name
+        return name.startswith("__") or name.startswith("session-")
 
     def _backfill_counts(self) -> None:
         """One-time per session: move any inline blob into a .jsonl and persist
@@ -322,6 +426,7 @@ class ConversationStore:
             archived=bool(row["archived"]),
             origin=row["origin"],
             origin_label=row["origin_label"],
+            project_id=row["project_id"] if "project_id" in row.keys() else None,
         )
 
     def fork(self, session_id: str) -> Optional[str]:
@@ -389,6 +494,7 @@ class ConversationStore:
                 archived=bool(r["archived"]),
                 origin=r["origin"],
                 origin_label=r["origin_label"],
+                project_id=r["project_id"],
             )
             for r in rows
         ]
@@ -447,6 +553,101 @@ class ConversationStore:
 
     # -- projects (a project is a workspace row + display metadata) --------------
     _PROJECT_FIELDS = ("name", "emoji", "pinned", "archived")
+
+    # -- projects as groups (2026-08-31) ---------------------------------------
+    # A project groups sessions and nothing else: no path, no folder, no bearing on
+    # where a session writes. Membership is `sessions.project_id`.
+
+    def create_project(self, name: str, emoji: str = "") -> dict:
+        import uuid as _uuid
+
+        pid = f"grp_{_uuid.uuid4().hex[:12]}"
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO projects (id, name, emoji) VALUES (?,?,?)",
+                (pid, (name or "New project")[:80], emoji or ""),
+            )
+            self._conn.commit()
+        return {"id": pid, "name": (name or "New project")[:80], "emoji": emoji or ""}
+
+    def list_projects(self) -> list[dict]:
+        """Every group with its live session count, most recently active first.
+
+        The count and last_activity come from the member sessions, so a group that
+        has been emptied sorts to the bottom rather than pretending to be current.
+        Archived sessions do not count toward the badge — the group would look busy
+        while showing nothing when opened.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT p.id, p.name, p.emoji, p.pinned, p.archived, p.sort_order, "
+                "       COUNT(s.session_id) AS sessions, MAX(s.updated_at) AS last_activity "
+                "FROM projects p "
+                "LEFT JOIN sessions s ON s.project_id = p.id AND s.archived = 0 "
+                "     AND s.session_id NOT LIKE '\\_\\_%' ESCAPE '\\' "
+                "GROUP BY p.id "
+                "ORDER BY p.pinned DESC, p.sort_order ASC, last_activity DESC, p.created_at DESC",
+                (),
+            ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "emoji": r["emoji"] or "",
+                "pinned": bool(r["pinned"]),
+                "archived": bool(r["archived"]),
+                "sessions": int(r["sessions"] or 0),
+                "last_activity": r["last_activity"] or "",
+            }
+            for r in rows
+        ]
+
+    def update_project(self, project_id: str, **fields) -> bool:
+        allowed = {"name", "emoji", "pinned", "archived", "sort_order"}
+        sets, values = [], []
+        for key, value in fields.items():
+            if key not in allowed or value is None:
+                continue
+            sets.append(f"{key}=?")
+            values.append(
+                int(bool(value)) if key in ("pinned", "archived") else value
+            )
+        if not sets:
+            return False
+        values.append(project_id)
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE projects SET {', '.join(sets)} WHERE id=?", values
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def delete_project(self, project_id: str) -> bool:
+        """Remove the group. Its sessions are UNGROUPED, never deleted — a group is
+        an organising idea, and deleting one must not take conversations with it."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE sessions SET project_id=NULL WHERE project_id=?", (project_id,)
+            )
+            cur = self._conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+            self._conn.commit()
+        return cur.rowcount > 0
+
+    def set_session_project(self, session_id: str, project_id: Optional[str]) -> bool:
+        """Move a session into a group, or out of one with None."""
+        with self._lock:
+            if project_id is not None:
+                exists = self._conn.execute(
+                    "SELECT 1 FROM projects WHERE id=?", (project_id,)
+                ).fetchone()
+                if exists is None:
+                    return False
+            cur = self._conn.execute(
+                "UPDATE sessions SET project_id=? WHERE session_id=?",
+                (project_id, session_id),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
 
     def workspaces_with_meta(self, limit: int = 200) -> list[dict]:
         """Recent workspaces with their project metadata, most recently used first."""

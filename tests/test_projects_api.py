@@ -1,7 +1,13 @@
-"""PROJECTS — a project is a real workspace folder with display metadata, its own
-instructions (AGENTS.md, already injected as 'Project conventions') and its own memory
-(the workspace scope the `remember` tool writes to). These tests pin the REST surface the
-sidebar Projects band and the Project page stand on."""
+"""PROJECTS — a project GROUPS sessions and nothing else (2026-08-31).
+
+It has no folder, no instructions file and no memory scope of its own. It used to BE a
+workspace folder, which meant "file this conversation under X" and "put its files in X"
+were the same act and neither could happen without the other. Now `sessions.project_id`
+carries membership and `sessions.workspace` goes back to meaning only where files land.
+
+These tests pin the REST surface the sidebar's Projects band stands on, and — most
+importantly — that grouping never moves anybody's files.
+"""
 
 from __future__ import annotations
 
@@ -25,13 +31,12 @@ def _fixture(tmp_path):
 
 
 def _session(manager, session_id, workspace):
-    """A saved conversation in that folder — enough for the delete paths to see it."""
     from coworker.conversations import SessionRecord
 
     manager.session_store.save(
         SessionRecord(
             session_id=session_id,
-            workspace=str(workspace.resolve()),
+            workspace=str(workspace),
             model="m",
             mode="interactive",
             messages=[{"role": "user", "content": "hi"}],
@@ -40,175 +45,254 @@ def _session(manager, session_id, workspace):
     )
 
 
-def _open(client, path):
-    assert client.post("/v1/workspaces/open", json={"path": str(path)}).json()["ok"]
+def _make(client, name="Fieldwork", emoji=""):
+    body = client.post("/v1/projects", json={"name": name, "emoji": emoji}).json()
+    assert body["ok"], body
+    return body["project"]["id"]
 
 
-def test_projects_list_excludes_scratch_and_carries_metadata(tmp_path):
-    client, manager = _fixture(tmp_path)
-    proj = tmp_path / "thesis"
-    proj.mkdir()
-    _open(client, proj)
-    # A per-conversation scratch dir is a workspace to the store but never a project.
-    scratch = manager.scratch_base() / "abc123"
-    scratch.mkdir(parents=True, exist_ok=True)
-    _open(client, scratch)
+def test_a_project_needs_no_folder(tmp_path):
+    """The whole point: you can group conversations without nominating a directory."""
+    client, _ = _fixture(tmp_path)
+    pid = _make(client, "Reading group", "📚")
 
     rows = client.get("/v1/projects").json()["projects"]
-    paths = [r["path"] for r in rows]
-    assert str(proj.resolve()) in paths
-    assert all(not p.startswith(str(manager.scratch_base().resolve())) for p in paths)
-    row = next(r for r in rows if r["path"] == str(proj.resolve()))
-    assert row["name"] == "thesis" and row["emoji"] == "" and row["exists"] is True
-    assert row["pinned"] is False and row["archived"] is False
-    assert row["sessions"] == 0 and row["has_instructions"] is False
+    row = next(r for r in rows if r["id"] == pid)
+    assert row["name"] == "Reading group" and row["emoji"] == "📚"
+    assert "path" not in row, "a group must not carry a folder"
+    assert row["sessions"] == 0
+
+
+def test_grouping_a_session_never_moves_its_files(tmp_path):
+    """The one invariant worth guarding. Membership changed; the workspace — where the
+    session's documents actually live — must be exactly as it was."""
+    client, manager = _fixture(tmp_path)
+    home = tmp_path / "Thesis chapter 3"
+    home.mkdir()
+    _session(manager, "s1", home)
+    pid = _make(client, "Thesis")
+
+    before = manager.session_store.load("s1").workspace
+    assert client.post("/v1/sessions/s1/project", json={"project_id": pid}).json()["ok"]
+    after = manager.session_store.load("s1").workspace
+
+    assert after == before == str(home)
+    assert home.is_dir(), "the folder itself must be untouched"
+
+
+def test_a_grouped_session_reports_its_group_and_can_leave_it(tmp_path):
+    client, manager = _fixture(tmp_path)
+    _session(manager, "s1", tmp_path / "w")
+    pid = _make(client)
+
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+    row = next(s for s in client.get("/v1/sessions").json()["sessions"] if s["session_id"] == "s1")
+    assert row["project_id"] == pid
+
+    # Passing no project returns it to the flat list.
+    assert client.post("/v1/sessions/s1/project", json={"project_id": None}).json()["ok"]
+    row = next(s for s in client.get("/v1/sessions").json()["sessions"] if s["session_id"] == "s1")
+    assert row["project_id"] is None
+
+
+def test_the_group_count_reflects_its_live_members(tmp_path):
+    client, manager = _fixture(tmp_path)
+    for sid in ("s1", "s2"):
+        _session(manager, sid, tmp_path / "w")
+    pid = _make(client)
+    for sid in ("s1", "s2"):
+        client.post(f"/v1/sessions/{sid}/project", json={"project_id": pid})
+
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["sessions"] == 2
 
 
 def test_rename_emoji_pin_archive_round_trip(tmp_path):
     client, _ = _fixture(tmp_path)
-    proj = tmp_path / "grant"
-    proj.mkdir()
-    _open(client, proj)
+    pid = _make(client, "Untitled")
 
-    r = client.patch(
-        "/v1/projects",
-        json={"path": str(proj), "name": "ERC grant 2027", "emoji": "🎯", "pinned": True},
+    out = client.patch(
+        "/v1/projects", json={"id": pid, "name": "Interview study", "emoji": "🎤", "pinned": True}
     ).json()
-    assert r["ok"] and r["project"]["name"] == "ERC grant 2027"
-    assert r["project"]["emoji"] == "🎯" and r["project"]["pinned"] is True
+    assert out["ok"] and out["project"]["name"] == "Interview study"
+    assert out["project"]["emoji"] == "🎤" and out["project"]["pinned"] is True
 
-    rows = client.get("/v1/projects").json()["projects"]
-    assert rows[0]["path"] == str(proj.resolve())  # pinned sorts first
-
-    r = client.patch("/v1/projects", json={"path": str(proj), "archived": True}).json()
-    assert r["project"]["archived"] is True
-    # Unknown folders are refused — metadata can't be attached to arbitrary paths.
-    bad = client.patch("/v1/projects", json={"path": str(tmp_path / "nope"), "name": "x"}).json()
-    assert bad["ok"] is False
+    assert client.patch("/v1/projects", json={"id": pid, "archived": True}).json()["ok"]
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["archived"] is True
 
 
-def test_instructions_write_read_and_clear(tmp_path):
-    client, _ = _fixture(tmp_path)
-    proj = tmp_path / "paper"
-    proj.mkdir()
-    _open(client, proj)
-
-    r = client.put(
-        "/v1/projects/instructions",
-        json={"path": str(proj), "text": "Cite in APA 7. Never touch data/raw."},
-    ).json()
-    assert r["ok"]
-    assert (proj / "AGENTS.md").read_text(encoding="utf-8") == "Cite in APA 7. Never touch data/raw.\n"
-
-    detail = client.get("/v1/projects/detail", params={"path": str(proj)}).json()
-    assert detail["ok"] and detail["instructions"].startswith("Cite in APA 7")
-    assert detail["project"]["has_instructions"] is True
-    assert detail["instructions_file"].endswith("AGENTS.md")
-
-    # Emptying the editor removes the file rather than leaving a blank conventions block.
-    client.put("/v1/projects/instructions", json={"path": str(proj), "text": "  \n"})
-    assert not (proj / "AGENTS.md").exists()
-    # And writing outside a known project is refused.
-    assert client.put(
-        "/v1/projects/instructions", json={"path": str(tmp_path / "else"), "text": "x"}
-    ).json()["ok"] is False
-
-
-def test_project_memory_is_the_workspace_scope(tmp_path):
-    client, _ = _fixture(tmp_path)
-    a, b = tmp_path / "a", tmp_path / "b"
-    a.mkdir()
-    b.mkdir()
-    _open(client, a)
-    _open(client, b)
-    client.post("/v1/memory", json={"content": "likes tables", "scope": "global"})
-    client.post("/v1/memory", json={"content": "A uses Stata", "scope": "workspace", "workspace": str(a)})
-    client.post("/v1/memory", json={"content": "B uses R", "scope": "workspace", "workspace": str(b)})
-
-    mem_a = client.get("/v1/memory", params={"workspace": str(a.resolve())}).json()["memory"]
-    assert [m["content"] for m in mem_a] == ["A uses Stata"]
-    assert mem_a[0]["workspace"] == str(a.resolve())
-    detail = client.get("/v1/projects/detail", params={"path": str(a)}).json()
-    assert [m["content"] for m in detail["memory"]] == ["A uses Stata"]
-    # The unfiltered screen still shows everything.
-    assert len(client.get("/v1/memory").json()["memory"]) == 3
-
-
-def test_canonicalize_keeps_project_metadata(tmp_path):
-    _, manager = _fixture(tmp_path)
-    proj = tmp_path / "keep"
-    proj.mkdir()
-    store = manager.session_store
-    store.touch_workspace(str(proj.resolve()))
-    store.set_workspace_meta(str(proj.resolve()), name="Keep me", emoji="📌", pinned=True)
-    store.canonicalize_workspaces()
-    meta = store.workspace_meta(str(proj.resolve()))
-    assert meta["name"] == "Keep me" and meta["emoji"] == "📌" and meta["pinned"] is True
-
-
-def test_deleting_a_project_forgets_it_but_never_touches_the_folder(tmp_path):
-    """Delete = bookkeeping. The project's identity, memory and conversations go; the
-    folder and its files (AGENTS.md included) are the user's and stay put."""
+def test_deleting_a_group_returns_its_conversations_to_the_flat_list(tmp_path):
+    """A group is how you file things. Removing the folder they were filed under must
+    not shred the conversations — they come back to the flat list, intact."""
     client, manager = _fixture(tmp_path)
-    proj = tmp_path / "old-study"
-    proj.mkdir()
-    (proj / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
-    _open(client, proj)
-    client.patch("/v1/projects", json={"path": str(proj), "name": "Old study", "emoji": "📚"})
-    client.put("/v1/projects/instructions", json={"path": str(proj), "text": "Cite APA."})
-    client.post(
-        "/v1/memory",
-        json={
-            "content": "the pilot ran in March",
-            "scope": "workspace",
-            "workspace": str(proj.resolve()),
-        },
+    _session(manager, "s1", tmp_path / "w")
+    pid = _make(client)
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+
+    out = client.delete(f"/v1/projects?id={pid}").json()
+    assert out["ok"] and out["deleted_sessions"] == 0 and out["ungrouped"] == 1
+
+    assert manager.session_store.load("s1") is not None, "the conversation must survive"
+    row = next(s for s in client.get("/v1/sessions").json()["sessions"] if s["session_id"] == "s1")
+    assert row["project_id"] is None
+
+
+def test_deleting_a_group_takes_its_conversations_only_when_asked(tmp_path):
+    client, manager = _fixture(tmp_path)
+    _session(manager, "s1", tmp_path / "w")
+    pid = _make(client)
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+
+    out = client.delete(f"/v1/projects?id={pid}&delete_sessions=true").json()
+    assert out["ok"] and out["deleted_sessions"] == 1
+    assert manager.session_store.load("s1") is None
+
+
+def test_a_running_conversation_blocks_a_delete_that_would_take_it(tmp_path):
+    client, manager = _fixture(tmp_path)
+    _session(manager, "s1", tmp_path / "w")
+    pid = _make(client)
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+    manager.try_mark_running("s1")
+
+    out = client.delete(f"/v1/projects?id={pid}&delete_sessions=true").json()
+    assert out["ok"] is False and "running" in out["error"]
+    assert manager.session_store.load("s1") is not None
+
+    # Ungrouping is always safe, though — nothing is destroyed, so nothing to block.
+    assert client.delete(f"/v1/projects?id={pid}").json()["ok"]
+
+
+def test_an_unknown_group_is_refused_not_invented(tmp_path):
+    client, manager = _fixture(tmp_path)
+    _session(manager, "s1", tmp_path / "w")
+
+    assert client.patch("/v1/projects", json={"id": "grp_nope", "name": "x"}).json()["ok"] is False
+    assert client.get("/v1/projects/detail?id=grp_nope").json()["ok"] is False
+    out = client.post("/v1/sessions/s1/project", json={"project_id": "grp_nope"}).json()
+    assert out["ok"] is False, "a session must not be filed under a group that does not exist"
+
+
+def test_internal_sessions_are_never_grouped(tmp_path):
+    """Automation runs and other `__`-prefixed sessions are machinery, not conversations
+    the user files."""
+    client, manager = _fixture(tmp_path)
+    _session(manager, "__run__r1", tmp_path / "w")
+    pid = _make(client)
+
+    out = client.post("/v1/sessions/__run__r1/project", json={"project_id": pid}).json()
+    assert out["ok"] is False
+
+
+def _legacy_db(base, folder, session_ids):
+    """A database as it looked BEFORE projects were groups: sessions carrying a
+    workspace, no projects table, no project_id. Written with raw SQL because the
+    store itself would migrate it on the way in — the point is to hand the new code
+    genuinely old data, which is the only upgrade that will ever happen for real."""
+    import sqlite3
+
+    base.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(base / "coworker.db")
+    conn.execute(
+        "CREATE TABLE sessions (session_id TEXT PRIMARY KEY, workspace TEXT, model TEXT, "
+        "mode TEXT, title TEXT, agent TEXT DEFAULT 'cowork', n_msgs INTEGER DEFAULT 0, "
+        "messages TEXT, extra_roots TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0, "
+        "origin TEXT, origin_label TEXT, auto_title TEXT, renamed INTEGER DEFAULT 0, "
+        "updated_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+    )
+    conn.execute("CREATE TABLE workspaces (path TEXT PRIMARY KEY, last_used TEXT, name TEXT, "
+                 "emoji TEXT, pinned INTEGER DEFAULT 0, archived INTEGER DEFAULT 0)")
+    conn.execute("INSERT INTO workspaces (path, last_used) VALUES (?, CURRENT_TIMESTAMP)",
+                 (str(folder),))
+    for sid in session_ids:
+        conn.execute(
+            "INSERT INTO sessions (session_id, workspace, model, mode, title, n_msgs, messages) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (sid, str(folder), "m", "interactive", "hi", 1, '[{"role":"user","content":"hi"}]'),
+        )
+    conn.commit()
+    conn.close()
+
+
+def test_existing_folder_projects_become_groups_without_moving_anything(tmp_path):
+    """The upgrade. Every folder that had conversations becomes a group named after it,
+    its conversations land inside, and not one workspace path changes."""
+    from coworker.conversations import ConversationStore
+
+    base = tmp_path / "state"
+    folder = tmp_path / "Online marketing course"
+    folder.mkdir(exist_ok=True)
+    _legacy_db(base, folder, ("s1", "s2"))
+
+    store = ConversationStore(base)
+    groups = store.list_projects()
+    assert len(groups) == 1, groups
+    assert groups[0]["name"] == "Online marketing course"
+    assert groups[0]["sessions"] == 2
+
+    for sid in ("s1", "s2"):
+        rec = store.load(sid)
+        assert rec.project_id == groups[0]["id"]
+        assert rec.workspace == str(folder), "the upgrade must not touch where files live"
+    assert folder.is_dir()
+
+    # Idempotent: opening again must not duplicate the group.
+    assert len(ConversationStore(base).list_projects()) == 1
+
+
+def test_a_session_dragged_out_stays_out_across_a_restart(tmp_path):
+    """The migration runs exactly once, recorded by a flag rather than inferred from
+    the data. Inferring it ("no groups yet?") re-filed a session the user had
+    deliberately dragged out, every single launch."""
+    from coworker.conversations import ConversationStore
+
+    base = tmp_path / "state"
+    folder = tmp_path / "Fieldwork"
+    folder.mkdir(exist_ok=True)
+    _legacy_db(base, folder, ("s1",))
+
+    store = ConversationStore(base)
+    assert store.load("s1").project_id is not None
+    store.set_session_project("s1", None)  # the user drags it out
+
+    assert ConversationStore(base).load("s1").project_id is None, (
+        "a restart re-filed a session the user removed from its group"
     )
 
-    r = client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json()
-    assert r["ok"] and r["forgotten_memories"] == 1
 
-    assert str(proj.resolve()) not in [p["path"] for p in client.get("/v1/projects").json()["projects"]]
-    assert manager.list_memory(workspace=str(proj.resolve())) == []
-    # The folder is untouched — files and the instructions file are still there.
-    assert (proj / "data.csv").read_text(encoding="utf-8") == "a,b\n1,2\n"
-    assert (proj / "AGENTS.md").is_file()
-    # Unknown afterwards: a second delete is a clean no-op, not a crash.
-    assert client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json() == {
-        "ok": False,
-        "error": "unknown project",
-    }
+def test_a_sessions_own_scratch_folder_never_becomes_a_group(tmp_path):
+    """Found on the owner's real database. Every conversation gets a private working
+    directory named after itself (`~/MimiWork/<session id>`), and an automation gets a
+    `__task__…` one. Migrating those would have filled the sidebar with groups named
+    after uuids — one per conversation ever held."""
+    from coworker.conversations import ConversationStore
 
+    base = tmp_path / "state"
+    scratch = tmp_path / "MimiWork" / "d4df21d9-6c4"
+    scratch.mkdir(parents=True)
+    task_dir = tmp_path / "MimiWork" / "__task__task-61c89bc39d"
+    task_dir.mkdir(parents=True)
+    real = tmp_path / "ETF recruiting"
+    real.mkdir()
 
-def test_deleting_a_project_takes_its_conversations_unless_asked_to_keep_them(tmp_path):
-    client, manager = _fixture(tmp_path)
-    keep = tmp_path / "keeper"
-    keep.mkdir()
-    _open(client, keep)
-    _session(manager, "s-keep-1", keep)
-    r = client.request(
-        "DELETE", "/v1/projects", params={"path": str(keep), "delete_sessions": "false"}
-    ).json()
-    assert r["ok"] and r["deleted_sessions"] == 0
-    assert manager.session_store.load("s-keep-1") is not None
+    _legacy_db(base, real, ("s-real",))
+    import sqlite3
 
-    drop = tmp_path / "dropper"
-    drop.mkdir()
-    _open(client, drop)
-    _session(manager, "s-drop-1", drop)
-    r = client.request("DELETE", "/v1/projects", params={"path": str(drop)}).json()
-    assert r["ok"] and r["deleted_sessions"] == 1
-    assert manager.session_store.load("s-drop-1") is None
+    conn = sqlite3.connect(base / "coworker.db")
+    # A conversation sitting in its own scratch dir, and an automation run in a task dir.
+    conn.execute(
+        "INSERT INTO sessions (session_id, workspace, model, mode, title, n_msgs, messages) "
+        "VALUES (?,?,?,?,?,?,?)",
+        ("d4df21d9-6c4", str(scratch), "m", "interactive", "hi", 1, "[]"),
+    )
+    conn.execute(
+        "INSERT INTO sessions (session_id, workspace, model, mode, title, n_msgs, messages) "
+        "VALUES (?,?,?,?,?,?,?)",
+        ("__run__run-ce2d6d78e6", str(task_dir), "m", "interactive", "hi", 1, "[]"),
+    )
+    conn.commit()
+    conn.close()
 
-
-def test_a_running_conversation_blocks_the_delete(tmp_path):
-    client, manager = _fixture(tmp_path)
-    proj = tmp_path / "busy"
-    proj.mkdir()
-    _open(client, proj)
-    _session(manager, "s-busy-1", proj)
-    manager.mark_running("s-busy-1")
-    r = client.request("DELETE", "/v1/projects", params={"path": str(proj)}).json()
-    assert not r["ok"] and "running" in r["error"]
-    assert manager.session_store.load("s-busy-1") is not None
-    assert str(proj.resolve()) in [p["path"] for p in client.get("/v1/projects").json()["projects"]]
+    names = [g["name"] for g in ConversationStore(base).list_projects()]
+    assert names == ["ETF recruiting"], names

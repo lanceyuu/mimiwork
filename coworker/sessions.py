@@ -34,6 +34,9 @@ class SessionRecord:
     # (e.g. origin="slack", origin_label="#general · T0ABCD"). Set once at spawn.
     origin: Optional[str] = None
     origin_label: Optional[str] = None
+    # Which project GROUPS this session (2026-08-31). Independent of `workspace`:
+    # a group says how the user files their conversations, not where files land.
+    project_id: Optional[str] = None
     # Auto-compaction state (OPE-27): CompactionState.as_dict(), {} when never compacted.
     # Persisted so a reloaded session keeps its compacted outbound view.
     compaction: dict[str, Any] = field(default_factory=dict)

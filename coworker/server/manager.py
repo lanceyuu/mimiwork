@@ -445,37 +445,6 @@ class SessionManager:
         except OSError:
             return False
 
-    def _project_row(self, meta: dict[str, Any], stats: dict[str, dict]) -> dict[str, Any]:
-        path = meta["path"]
-        p = Path(path)
-        st = stats.get(path) or {}
-        return {
-            "path": path,
-            "name": meta.get("name") or p.name or path,
-            "emoji": meta.get("emoji") or "",
-            "pinned": bool(meta.get("pinned")),
-            "archived": bool(meta.get("archived")),
-            "exists": p.is_dir(),
-            "sessions": int(st.get("sessions") or 0),
-            "last_activity": st.get("last_activity") or meta.get("last_used") or "",
-            "has_instructions": (p / "AGENTS.md").is_file(),
-        }
-
-    def list_projects(self, *, include_archived: bool = True) -> list[dict[str, Any]]:
-        stats = self.session_store.session_stats_by_workspace()
-        out = []
-        for meta in self.session_store.workspaces_with_meta():
-            if self._is_scratch_path(meta["path"]):
-                continue
-            row = self._project_row(meta, stats)
-            if row["archived"] and not include_archived:
-                continue
-            out.append(row)
-        # Pinned first, then most recent activity (stable sorts, applied innermost-first).
-        out.sort(key=lambda r: r["last_activity"] or "", reverse=True)
-        out.sort(key=lambda r: not r["pinned"])
-        return out
-
     def _project_path(self, requested: str) -> Optional[str]:
         """A known, non-scratch project path (canonical) — or None."""
         if not requested:
@@ -487,97 +456,84 @@ class SessionManager:
             return None
         return path
 
-    def update_project(self, path: str, **fields: Any) -> dict[str, Any]:
-        canonical = self._project_path(path)
-        if canonical is None:
-            return {"ok": False, "error": "unknown project"}
+    def list_projects(self, *, include_archived: bool = True) -> list[dict[str, Any]]:
+        rows = self.session_store.list_projects()
+        return [r for r in rows if include_archived or not r["archived"]]
+
+    def create_project(self, name: str = "", emoji: str = "") -> dict[str, Any]:
+        row = self.session_store.create_project((name or "New project").strip()[:80], (emoji or "").strip()[:8])
+        return {"ok": True, "project": {**row, "sessions": 0, "pinned": False, "archived": False, "last_activity": ""}}
+
+    def update_project(self, project_id: str, **fields: Any) -> dict[str, Any]:
         if "name" in fields and fields["name"] is not None:
             fields["name"] = str(fields["name"]).strip()[:80]
         if "emoji" in fields and fields["emoji"] is not None:
             fields["emoji"] = str(fields["emoji"]).strip()[:8]
-        self.session_store.set_workspace_meta(canonical, **fields)
-        meta = self.session_store.workspace_meta(canonical) or {"path": canonical}
-        return {"ok": True, "project": self._project_row(meta, self.session_store.session_stats_by_workspace())}
+        if not self.session_store.update_project(project_id, **fields):
+            return {"ok": False, "error": "unknown project"}
+        row = next(
+            (p for p in self.session_store.list_projects() if p["id"] == project_id), None
+        )
+        return {"ok": True, "project": row}
 
-    def delete_project(self, path: str, *, delete_sessions: bool = True) -> dict[str, Any]:
-        """Delete a project from MimiWork: its identity (name/emoji/pin), its place in the
-        Projects band, its workspace memory and — unless asked otherwise — its conversations.
+    def delete_project(self, project_id: str, *, delete_sessions: bool = False) -> dict[str, Any]:
+        """Delete the group. Its sessions are UNGROUPED by default, not deleted.
 
-        The folder on disk is never touched, AGENTS.md included: a project IS a real folder
-        the user owns, and removing it here is bookkeeping, not a file operation. Refused
-        while one of its conversations is running, so nothing is deleted mid-turn.
+        A group is how the user files conversations, so removing the folder they are
+        filed under must not shred the conversations — they return to the flat list.
+        `delete_sessions=True` is the deliberate opt-in, and is refused while one of
+        them is running so nothing is destroyed mid-turn.
         """
-        canonical = self._project_path(path)
-        if canonical is None:
+        rows = [
+            s
+            for s in self.list_sessions_in_project(project_id)
+            if not str(s.get("session_id", "")).startswith("__")
+        ]
+        deleted = 0
+        if delete_sessions:
+            busy = [s for s in rows if self.is_running(str(s.get("session_id")))]
+            if busy:
+                return {
+                    "ok": False,
+                    "error": "a conversation in this project is still running — stop it first",
+                }
+            for row in rows:
+                if self.delete_session(str(row["session_id"])).get("ok"):
+                    deleted += 1
+        if not self.session_store.delete_project(project_id):
+            return {"ok": False, "error": "unknown project"}
+        return {"ok": True, "id": project_id, "deleted_sessions": deleted, "ungrouped": len(rows) - deleted}
+
+    def list_sessions_in_project(self, project_id: str) -> list[dict[str, Any]]:
+        return [s for s in self.list_sessions() if s.get("project_id") == project_id]
+
+    def project_detail(self, project_id: str) -> dict[str, Any]:
+        row = next(
+            (p for p in self.session_store.list_projects() if p["id"] == project_id), None
+        )
+        if row is None:
             return {"ok": False, "error": "unknown project"}
         sessions = [
             s
-            for s in self.list_sessions(canonical)
-            if not str(s.get("session_id", "")).startswith("__")
-        ]
-        busy = [s for s in sessions if self.is_running(str(s.get("session_id")))]
-        if busy:
-            return {
-                "ok": False,
-                "error": "a conversation in this project is still running — stop it first",
-            }
-        deleted = 0
-        if delete_sessions:
-            for row in sessions:
-                if self.delete_session(str(row["session_id"])).get("ok"):
-                    deleted += 1
-        forgotten = 0
-        for item in self.list_memory(workspace=canonical):
-            if self.memory_store.delete(int(item["id"])):
-                forgotten += 1
-        self.session_store.delete_workspace(canonical)
-        return {
-            "ok": True,
-            "path": canonical,
-            "deleted_sessions": deleted,
-            "forgotten_memories": forgotten,
-        }
-
-    def project_detail(self, path: str) -> dict[str, Any]:
-        canonical = self._project_path(path)
-        if canonical is None:
-            return {"ok": False, "error": "unknown project"}
-        meta = self.session_store.workspace_meta(canonical) or {"path": canonical}
-        agents = Path(canonical) / "AGENTS.md"
-        try:
-            instructions = agents.read_text(encoding="utf-8") if agents.is_file() else ""
-        except OSError:
-            instructions = ""
-        sessions = [
-            s for s in self.list_sessions(canonical)
+            for s in self.list_sessions_in_project(project_id)
             if not s.get("archived") and not str(s.get("session_id", "")).startswith("__")
-        ][:30]
-        return {
-            "ok": True,
-            "project": self._project_row(meta, self.session_store.session_stats_by_workspace()),
-            "instructions": instructions,
-            "instructions_file": str(agents),
-            "memory": self.list_memory(workspace=canonical),
-            "sessions": sessions,
-        }
+        ][:50]
+        return {"ok": True, "project": row, "sessions": sessions}
 
-    def set_project_instructions(self, path: str, text: str) -> dict[str, Any]:
-        """Write the project's AGENTS.md — the block the agent injects as 'Project
-        conventions' at session start (applies to NEW conversations). Empty text removes
-        the file so an emptied editor doesn't leave a blank block behind."""
-        canonical = self._project_path(path)
-        if canonical is None:
-            return {"ok": False, "error": "unknown project"}
-        agents = Path(canonical) / "AGENTS.md"
-        text = (text or "").rstrip()
-        try:
-            if text:
-                agents.write_text(text + "\n", encoding="utf-8")
-            elif agents.is_file():
-                agents.unlink()
-        except OSError as exc:
-            return {"ok": False, "error": str(exc)}
-        return {"ok": True, "instructions": text, "instructions_file": str(agents)}
+    def move_session_to_project(
+        self, session_id: str, project_id: Optional[str]
+    ) -> dict[str, Any]:
+        """File a session under a group, or return it to the flat list with None.
+
+        This changes only how the session is FILED. Its workspace — where its files
+        live — is deliberately untouched: grouping is the user's organising idea, and
+        it must never move anybody's documents.
+        """
+        if session_id.startswith("__"):
+            return {"ok": False, "error": "internal sessions cannot be grouped"}
+        if not self.session_store.set_session_project(session_id, project_id or None):
+            return {"ok": False, "error": "unknown session or project"}
+        return {"ok": True, "session_id": session_id, "project_id": project_id or None}
 
     # -- transfer pack: commands, instructions, @-mentions, skill import ------------
     # The vocabulary here is deliberately the one Claude Code / Cowork / Codex use, so a
@@ -5481,6 +5437,8 @@ class SessionManager:
                 # "From Slack" group and the row's platform icon.
                 "origin": r.origin,
                 "origin_label": r.origin_label,
+                # Which group the user filed this under (null = the flat list).
+                "project_id": r.project_id,
                 # Attention = Inbox items awaiting this session (the amber count that bubbles
                 # session → persona → footer Inbox). Liveness = working (in-flight turn) /
                 # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.
