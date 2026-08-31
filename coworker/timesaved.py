@@ -54,6 +54,9 @@ MIN_PER_FILE_OP = 0.4  # move/copy/rename by hand
 # Capability someone would otherwise have had to write out by hand. Only the artifact
 # is costed — the re-use it buys later is real but speculative, and this module counts
 # what exists, not what might.
+# What you learned. Looking a method up in the curated knowledge base replaces
+# finding, opening and reading the source — costed like the reading it saves.
+MIN_PER_KB_LOOKUP = 4.0
 MIN_PER_SKILL = 12.0  # writing the instructions, examples and rules down properly
 MIN_PER_AUTOMATION = 5.0  # deciding the schedule, wording the standing task
 MIN_PER_INSTRUCTIONS = 5.0  # setting out house rules for a folder
@@ -183,9 +186,15 @@ def estimate_call(tool: str, args: Optional[dict], result: Any) -> tuple[str, fl
         return "Files", MIN_PER_SHELL
 
     # ── connectors (slack_send_message, gmail_search, qualtrics_export_responses, …) ──
+    # ── learning ──
+    # The Empowerment pillar is "you learned something" (see edge.py). Looking a
+    # method up in the knowledge base is exactly that; without this it fell through
+    # to the generic `*_search` rule below and read as a connector fetch.
+    if name in ("kb_search", "kb_read", "kb_list"):
+        return "Learning", MIN_PER_KB_LOOKUP
+
     # ── capability built to last ──
-    # The Empowerment pillar of the EDGE profile reads this category (see edge.py);
-    # without it that axis could only ever be zero.
+    # Also Empowerment: what you learned, made permanent.
     if name == "save_skill":
         return "Capability", MIN_PER_SKILL
     if name in ("create_scheduled_task", "update_scheduled_task"):
@@ -212,6 +221,14 @@ class TimeSaved:
     turns: int = 0
     approvals: int = 0
     by_category: dict[str, float] = field(default_factory=dict)
+    # Minutes per TOOL, not per category. The install-wide novelty test behind the
+    # Growth pillar (see `manager.record_time_saved`) needs to know which tool the
+    # minutes came from — a category cannot say whether you had ever reached for
+    # `write_presentation` before this week.
+    by_tool: dict[str, float] = field(default_factory=dict)
+    # Which pillar-bearing category each tool's minutes landed in, so the novelty
+    # test can MOVE those minutes rather than guess where they came from.
+    tool_categories: dict[str, str] = field(default_factory=dict)
 
     def add_call(self, tool: str, args: Optional[dict], result: Any) -> float:
         category, minutes = estimate_call(tool, args, result)
@@ -220,7 +237,14 @@ class TimeSaved:
         minutes = min(minutes, MAX_MINUTES_PER_CALL)
         self.human_minutes += minutes
         self.by_category[category] = self.by_category.get(category, 0.0) + minutes
+        if tool:
+            self.by_tool[tool] = self.by_tool.get(tool, 0.0) + minutes
+            self.tool_categories[tool] = category
         return minutes
+
+    def tool_category(self, tool: str) -> str:
+        """The category this tool's minutes were filed under, or "" if unknown."""
+        return self.tool_categories.get(tool, "")
 
     def add_turn(self, wall_seconds: float, approvals: int = 0) -> None:
         self.turns += 1
@@ -244,12 +268,16 @@ class TimeSaved:
             "turns": self.turns,
             "approvals": self.approvals,
             "by_category": {k: round(v, 1) for k, v in sorted(self.by_category.items())},
+            "by_tool": {k: round(v, 1) for k, v in sorted(self.by_tool.items())},
+            "tool_categories": dict(sorted(self.tool_categories.items())),
         }
 
     @classmethod
     def from_dict(cls, data: Any) -> "TimeSaved":
         d = data if isinstance(data, dict) else {}
         cats = d.get("by_category")
+        tools = d.get("by_tool")
+        tool_cats = d.get("tool_categories")
         return cls(
             human_minutes=_num(d.get("human_minutes")),
             collab_minutes=_num(d.get("collab_minutes")),
@@ -257,6 +285,14 @@ class TimeSaved:
             approvals=int(_num(d.get("approvals"))),
             by_category={
                 str(k): _num(v) for k, v in (cats.items() if isinstance(cats, dict) else [])
+            },
+            by_tool={
+                str(k): _num(v)
+                for k, v in (tools.items() if isinstance(tools, dict) else [])
+            },
+            tool_categories={
+                str(k): str(v)
+                for k, v in (tool_cats.items() if isinstance(tool_cats, dict) else [])
             },
         )
 
@@ -267,3 +303,6 @@ class TimeSaved:
         self.approvals += other.approvals
         for k, v in other.by_category.items():
             self.by_category[k] = self.by_category.get(k, 0.0) + v
+        for k, v in other.by_tool.items():
+            self.by_tool[k] = self.by_tool.get(k, 0.0) + v
+        self.tool_categories.update(other.tool_categories)

@@ -6,55 +6,47 @@ import type { EdgeProfile, FiveAProfile } from "../timesaved";
 
 afterEach(cleanup);
 
-const edge = (percents: number[], enablingPercent = 12): EdgeProfile => ({
-  pillars: ["Efficiency", "Decisions", "Growth"].map((label, i) => ({
+const edge = (percents: number[]): EdgeProfile => ({
+  pillars: ["Efficiency", "Decisions", "Growth", "Empowerment"].map((label, i) => ({
     key: label,
     label,
     blurb: `${label} blurb`,
     minutes: percents[i] * 2,
     percent: percents[i],
   })),
-  enabling: {
-    key: "Empowerment",
-    label: "Empowerment",
-    blurb: "The enabling pillar",
-    minutes: 30,
-    percent: enablingPercent,
-  },
-  outcome_minutes: 200,
   total_minutes: 230,
   leading: "Efficiency",
   ready: true,
 });
 
-describe("EdgeRadar — three outcome pillars on one enabling pillar (ch. 9)", () => {
-  it("draws a triangle, not a four-axis radar", () => {
-    // Empowerment is "the enabling pillar", not a fourth slice; drawing four equal
-    // axes summing to 100 contradicted the framework the chart claims to show.
-    const { container } = render(<EdgeRadar edge={edge([50, 30, 20])} />);
-    expect(container.querySelectorAll("circle")).toHaveLength(3);
-    for (const label of ["Efficiency", "Decisions", "Growth"]) {
+describe("EdgeRadar — four axes", () => {
+  it("draws all four pillars", () => {
+    const { container } = render(<EdgeRadar edge={edge([40, 30, 18, 12])} />);
+    expect(container.querySelectorAll("circle")).toHaveLength(4);
+    for (const label of ["Efficiency", "Decisions", "Growth", "Empowerment"]) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
   });
 
-  it("shows the enabler as a foundation, separate from the shares", () => {
-    render(<EdgeRadar edge={edge([50, 30, 20])} />);
+  it("lists every pillar with its share and its blurb", () => {
+    render(<EdgeRadar edge={edge([40, 30, 18, 12])} />);
     expect(screen.getByText("Where the value lands")).toBeTruthy();
-    expect(screen.getByText("What makes them possible")).toBeTruthy();
-    expect(screen.getAllByText("Empowerment").length).toBeGreaterThan(0);
+    for (const pct of ["40%", "30%", "18%", "12%"]) {
+      expect(screen.getByText(pct)).toBeTruthy();
+    }
+    expect(screen.getByText("Empowerment blurb")).toBeTruthy();
   });
 
   it("scales to the largest share so an even split still fills the chart", () => {
-    const { container } = render(<EdgeRadar edge={edge([34, 33, 33])} />);
+    const { container } = render(<EdgeRadar edge={edge([25, 25, 25, 25])} />);
     const polys = container.querySelectorAll("polygon");
     const drawn = polys[polys.length - 1].getAttribute("points") || "";
     const ys = drawn.split(" ").map((p) => Number(p.split(",")[1]));
-    expect(Math.min(...ys)).toBeCloseTo(84 - 58, 0); // CY − R at the top vertex
+    expect(Math.min(...ys)).toBeCloseTo(95 - 62, 0); // CY − R at the top vertex
   });
 
   it("renders nothing rather than a broken shape if a pillar is missing", () => {
-    const partial = { ...edge([50, 50, 0]), pillars: [] } as EdgeProfile;
+    const partial = { ...edge([50, 50, 0, 0]), pillars: [] } as EdgeProfile;
     const { container } = render(<EdgeRadar edge={partial} />);
     expect(container.querySelector("[data-testid='edge-radar']")).toBeNull();
   });

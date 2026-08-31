@@ -33,18 +33,18 @@ const D: Record<string, [string, string, string]> = {
     "从复杂材料中综合出洞见,帮你做选择", "Innsikt syntetisert fra komplekst materiale, så du kan velge",
     "Une synthèse tirée de matériaux complexes, pour choisir",
   ],
-  "New offerings and revenue — rarely visible from inside a tool": [
+  "Work that is new and different — the first time you try something": [
     "新产品与新收入——工具内部很难看见", "Nye tilbud og inntekter — sjelden synlig inne i et verktøy",
-    "Nouvelles offres et revenus — rarement visibles depuis un outil",
+    "Un travail nouveau et différent — la première fois que vous essayez quelque chose",
   ],
-  "The enabling pillar: capability that multiplies the other three": [
-    "赋能支柱:让其余三根都倍增的能力", "Den muliggjørende pilaren: kapasitet som forsterker de tre andre",
-    "Le pilier habilitant : la capacité qui démultiplie les trois autres",
+  "What you learned, and what you made permanent": [
+    "你学到的东西,以及你把它固定下来的部分", "Det du lærte, og det du gjorde varig",
+    "Ce que vous avez appris, et ce que vous avez rendu permanent",
   ],
-  "Growth reads zero for almost everyone here, and that is not a failing: it means new offerings and revenue, which happen in the market rather than in a tool's log.": [
-    "这里几乎所有人的 Growth 都是零,这不是缺点:它指的是新产品与新收入,发生在市场里,而不在工具的日志里。",
-    "Vekst står på null for nesten alle her, og det er ikke en mangel: det betyr nye tilbud og inntekter, som skjer i markedet, ikke i et verktøys logg.",
-    "La Croissance est à zéro pour presque tout le monde ici, et ce n'est pas un échec : elle désigne de nouvelles offres et de nouveaux revenus, qui se produisent sur le marché, pas dans le journal d'un outil.",
+  "Growth is empty so far — it fills when you reach for something you have not used before, so it grows by trying a new kind of work rather than by doing more of the same.": [
+    "Growth 目前是空的——当你去用以前没用过的东西时它才会涨。所以它靠尝试新的工作方式增长,而不是靠把同一件事做更多遍。",
+    "Vekst er tom foreløpig — den fylles når du tar i bruk noe du ikke har brukt før, så den vokser ved å prøve en ny type arbeid, ikke ved å gjøre mer av det samme.",
+    "La Croissance est encore vide — elle se remplit lorsque vous utilisez quelque chose que vous n'aviez jamais utilisé, elle croît donc en essayant un nouveau type de travail, pas en refaisant la même chose.",
   ],
   "How you work with Mimi": ["你与 Mimi 的协作方式", "Slik jobber du med Mimi", "Votre façon de travailler avec Mimi"],
   "Your turns placed on the Five A's continuum — by what they did, not what they were called.": [

@@ -1,27 +1,26 @@
 import type { EdgeProfile } from "../timesaved";
 import { useT } from "../i18n";
 
-// The EDGE profile, drawn the way Chapter 9 draws it (Figure 9.1): three outcome
-// pillars resting on one enabling pillar.
+// The EDGE profile as a four-axis radar: Efficiency, Decisions, Growth, Empowerment,
+// shares summing to 100.
 //
-// The first version of this component was a four-axis radar with the shares summing
-// to 100 — which contradicted the framework it claimed to show. Empowerment is not a
-// fourth slice competing with the others; it is "the human capability that
-// determines whether the other three materialize at all", and the book draws it as
-// the foundation the three sit on. So: a triangle for the outcomes, a foundation bar
-// underneath for the enabler.
+// Growth and Empowerment are the two a usage log cannot read off its categories, so
+// they are given operating definitions (see coworker/edge.py): Growth is work that is
+// new and very different — the first time you reach for something; Empowerment is
+// when you learned something, taken in or made permanent. Both are measured, so all
+// four axes can carry a real number and the radar is a radar rather than three
+// numbers and an apology.
 //
-// Inline SVG rather than a charting library: three points and a bar do not justify a
-// dependency, and this way the shape is exactly the book's.
+// Inline SVG rather than a charting library: four points do not justify a dependency.
 
 const W = 300;
-const H = 172;
+const H = 190;
 const CX = W / 2;
-const CY = 84;
-const R = 58;
+const CY = H / 2;
+const R = 62;
 
-/** Axis angles, clockwise from the top: Efficiency → Decisions → Growth. */
-const ANGLES = [-90, 30, 150];
+/** Axis angles, clockwise from the top: Efficiency → Decisions → Growth → Empowerment. */
+const ANGLES = [-90, 0, 90, 180];
 const RINGS = [0.33, 0.66, 1];
 
 function point(index: number, fraction: number): [number, number] {
@@ -34,15 +33,21 @@ function ring(fraction: number): string {
   return ANGLES.map((_, i) => point(i, fraction).join(",")).join(" ");
 }
 
+/** Labels sit outside the outer ring; anchor by side so none of them clip. */
+function anchor(index: number): "start" | "middle" | "end" {
+  if (index === 1) return "start";
+  if (index === 3) return "end";
+  return "middle";
+}
+
 export function EdgeRadar({ edge }: { edge: EdgeProfile }) {
   const t = useT();
-  const pillars = (edge.pillars || []).slice(0, 3);
-  if (pillars.length < 3) return null;
-  // Scale to the largest share, not to 100: an even 33/33/33 would otherwise draw a
-  // tiny triangle and read as "you barely use it".
+  const pillars = (edge.pillars || []).slice(0, 4);
+  if (pillars.length < 4) return null;
+  // Scale to the largest share, not to 100: an even 25/25/25/25 would otherwise draw
+  // a tiny diamond and read as "you barely use it".
   const peak = Math.max(...pillars.map((p) => p.percent), 1);
   const shape = pillars.map((p, i) => point(i, p.percent / peak).join(",")).join(" ");
-  const enabling = edge.enabling;
 
   return (
     <div className="flex flex-wrap items-start gap-5" data-testid="edge-radar">
@@ -67,13 +72,13 @@ export function EdgeRadar({ edge }: { edge: EdgeProfile }) {
           return <circle key={p.key} cx={x} cy={y} r={3.5} fill="var(--accent)" />;
         })}
         {pillars.map((p, i) => {
-          const [x, y] = point(i, 1.3);
+          const [x, y] = point(i, 1.26);
           return (
             <text
               key={p.key}
               x={x}
               y={y}
-              textAnchor={i === 1 ? "start" : i === 2 ? "end" : "middle"}
+              textAnchor={anchor(i)}
               dominantBaseline="middle"
               fontSize="10"
               fill="var(--muted)"
@@ -82,32 +87,6 @@ export function EdgeRadar({ edge }: { edge: EdgeProfile }) {
             </text>
           );
         })}
-        {/* The enabling pillar, drawn as what it is: the base the three rest on. */}
-        {enabling && (
-          <>
-            <rect
-              x={40}
-              y={H - 26}
-              width={W - 80}
-              height={18}
-              rx={5}
-              fill="var(--accent)"
-              fillOpacity={0.14}
-              stroke="var(--accent)"
-              strokeOpacity={0.35}
-            />
-            <text
-              x={CX}
-              y={H - 17}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fontSize="9.5"
-              fill="var(--muted)"
-            >
-              {t(enabling.label)} · {enabling.percent}%
-            </text>
-          </>
-        )}
       </svg>
 
       <div className="min-w-[210px] flex-1">
@@ -123,20 +102,6 @@ export function EdgeRadar({ edge }: { edge: EdgeProfile }) {
             <span className="text-[11px] text-faint truncate">{t(p.blurb)}</span>
           </div>
         ))}
-        {enabling && (
-          <div className="mt-2 pt-2 border-t border-line">
-            <div className="text-[10px] uppercase tracking-wide text-faint mb-1">
-              {t("What makes them possible")}
-            </div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-[13px] tabular-nums text-ink w-9 text-right font-medium">
-                {enabling.percent}%
-              </span>
-              <span className="text-[12.5px] text-ink">{t(enabling.label)}</span>
-            </div>
-            <div className="text-[11px] text-faint mt-0.5">{t(enabling.blurb)}</div>
-          </div>
-        )}
       </div>
     </div>
   );

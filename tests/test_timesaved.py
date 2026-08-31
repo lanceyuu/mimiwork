@@ -7,6 +7,8 @@ every assertion here is really asking "would a professional recognise this figur
 
 from __future__ import annotations
 
+import pytest
+
 from coworker.timesaved import TimeSaved, estimate_call
 
 
@@ -82,44 +84,48 @@ def test_the_breakdown_names_categories_a_person_recognises():
 # ── the EDGE profile, per Chapter 9 of the book ───────────────────────────
 
 
-def test_edge_shares_the_three_outcome_pillars_and_reports_the_enabler_apart():
-    """Figure 9.1: "three outcome pillars resting on one enabling pillar." Drawing
-    four equal slices summing to 100 would contradict the framework it shows, so the
-    shares are of Efficiency/Decisions/Growth and Empowerment is returned beside
-    them."""
+def test_edge_shares_all_four_pillars_and_sums_to_100():
+    """Four axes, four shares. Growth and Empowerment are measured (see edge.py) —
+    Growth from work that is new for this account, Empowerment from what the user
+    learned — so neither is a decorative zero."""
     from coworker.edge import profile
 
     got = profile(
-        {"Documents": 100.0, "Decks": 20.0, "Analysis": 60.0, "Capability": 20.0}
+        {
+            "Documents": 100.0,
+            "Decks": 20.0,
+            "Analysis": 60.0,
+            "Growth": 40.0,
+            "Capability": 20.0,
+        }
     )
     shares = {p["key"]: p["percent"] for p in got["pillars"]}
-    assert set(shares) == {"Efficiency", "Decisions", "Growth"}
-    assert shares["Efficiency"] == 67 and shares["Decisions"] == 33
+    assert set(shares) == {"Efficiency", "Decisions", "Growth", "Empowerment"}
     assert sum(shares.values()) == 100
-    # The enabler is not one of the shares; it carries its own share of ALL time.
-    assert got["enabling"]["key"] == "Empowerment"
-    assert got["enabling"]["minutes"] == 20.0
-    assert got["enabling"]["percent"] == 10  # 20 of 200 total minutes
+    assert shares["Efficiency"] == 50  # 120 of 240
+    assert shares["Decisions"] == 25 and shares["Growth"] == 17
+    assert got["total_minutes"] == 240.0 and got["leading"] == "Efficiency"
 
 
-def test_a_deck_is_efficiency_not_growth():
-    """Growth is "creating AI-native products, services, and operating models that
-    open new revenue streams". A slide deck produced faster is efficiency; calling it
-    growth would put a number on the pillar the book is most careful about."""
+def test_a_deck_is_efficiency_growth_comes_from_novelty_instead():
+    """Producing a deliverable faster is Efficiency however outward-facing it is.
+    Growth is written by the install-wide novelty test, never by a tool, so no tool
+    category may claim it directly."""
     from coworker.edge import CATEGORY_PILLARS
 
     assert CATEGORY_PILLARS["Decks"] == "Efficiency"
     assert CATEGORY_PILLARS["Connectors"] == "Efficiency"
-    assert "Growth" not in set(CATEGORY_PILLARS.values())
+    assert [k for k, v in CATEGORY_PILLARS.items() if v == "Growth"] == ["Growth"]
 
 
-def test_edge_outcome_percentages_always_sum_to_exactly_100():
+def test_edge_percentages_always_sum_to_exactly_100():
     from coworker.edge import profile
 
     for mix in (
         {"Documents": 1.0, "Analysis": 1.0},
         {"Documents": 7.0, "Analysis": 3.0, "Research": 3.0},
         {"Reading": 0.1, "Research": 0.2, "Decks": 0.3},
+        {"Documents": 1.0, "Analysis": 1.0, "Growth": 1.0, "Capability": 1.0},
     ):
         assert sum(p["percent"] for p in profile(mix)["pillars"]) == 100
 
@@ -128,7 +134,7 @@ def test_edge_ignores_categories_it_cannot_place_rather_than_guessing():
     from coworker.edge import profile
 
     got = profile({"Documents": 60.0, "SomethingNew": 999.0})
-    assert got["outcome_minutes"] == 60.0
+    assert got["total_minutes"] == 60.0
 
 
 def test_edge_hides_itself_when_there_is_too_little_to_shape():
@@ -139,19 +145,46 @@ def test_edge_hides_itself_when_there_is_too_little_to_shape():
     assert profile({"Documents": 45.0})["ready"] is True
 
 
-def test_capability_tools_feed_the_enabling_pillar():
-    """Without a category for skills, automations and instructions, Empowerment —
-    the pillar the book calls the multiplier on everything else — could only ever
-    read zero."""
+def test_empowerment_is_what_you_learned_and_what_you_made_permanent():
+    """Two shapes of learning: taken in (a method looked up) and made permanent (a
+    skill, an automation, house rules). Without both, the axis could only ever read
+    the second."""
     from coworker.edge import profile
     from coworker.timesaved import TimeSaved
 
     ts = TimeSaved()
-    ts.add_call("save_skill", {}, {})
+    ts.add_call("kb_search", {}, {})          # learned something
+    ts.add_call("save_skill", {}, {})         # made it permanent
     ts.add_call("create_scheduled_task", {}, {})
     ts.add_call("set_global_instructions", {}, {})
+    assert ts.by_category["Learning"] == 4.0
     assert ts.by_category["Capability"] == 22.0
-    assert profile(ts.by_category)["enabling"]["minutes"] == 22.0
+    got = {p["key"]: p["minutes"] for p in profile(ts.by_category)["pillars"]}
+    assert got["Empowerment"] == 26.0
+
+
+def test_a_knowledge_base_lookup_is_learning_not_a_connector_fetch():
+    """`kb_search` matched the generic `*_search` rule and read as a connector
+    fetch, which put "I looked a method up" under Efficiency."""
+    from coworker.timesaved import estimate_call
+
+    assert estimate_call("kb_search", {}, {})[0] == "Learning"
+    assert estimate_call("slack_search", {}, {})[0] == "Connectors"
+
+
+def test_minutes_are_recorded_per_tool_so_novelty_can_be_judged():
+    from coworker.timesaved import TimeSaved
+
+    ts = TimeSaved()
+    ts.add_call("write_presentation", {"slides": [{"title": "x"}]}, {"slides_written": 1})
+    ts.add_call("save_skill", {}, {})
+    assert set(ts.by_tool) == {"write_presentation", "save_skill"}
+    assert ts.tool_category("save_skill") == "Capability"
+    assert sum(ts.by_tool.values()) == pytest.approx(sum(ts.by_category.values()))
+    # And it survives the round trip the manager banks it through.
+    back = TimeSaved.from_dict(ts.as_dict())
+    assert back.by_tool == {k: round(v, 1) for k, v in ts.by_tool.items()}
+    assert back.tool_categories == ts.tool_categories
 
 
 # ── the Five A's, per Chapter 7 ───────────────────────────────────────────

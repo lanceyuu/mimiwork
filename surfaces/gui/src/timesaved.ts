@@ -19,7 +19,7 @@ export interface TimeSaved {
   five_a?: FiveAProfile;
 }
 
-/** The EDGE profile (Efficiency · Decisions · Growth · Empowerment). */
+/** The EDGE profile (Efficiency · Decisions · Growth · Empowerment) — four axes. */
 export interface EdgePillar {
   key: string;
   label: string;
@@ -28,11 +28,8 @@ export interface EdgePillar {
   percent: number;
 }
 export interface EdgeProfile {
-  /** The three OUTCOME pillars — shares sum to 100. */
+  /** All four pillars — Efficiency, Decisions, Growth, Empowerment; shares sum to 100. */
   pillars: EdgePillar[];
-  /** The ENABLING pillar (ch. 9), reported beside the outcomes, never as a fourth slice. */
-  enabling?: EdgePillar;
-  outcome_minutes?: number;
   total_minutes: number;
   leading: string;
   /** False below ~30 minutes of attributed work: too little for a shape to mean anything. */

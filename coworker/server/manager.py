@@ -3174,6 +3174,44 @@ class SessionManager:
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
 
+    # Below this many distinct tools, the account is still learning the app rather
+    # than exploring: in week one everything is new, and a Growth axis at 90% would
+    # say nothing about the user. Novelty starts counting once there is a habit to
+    # be different from.
+    _NOVELTY_WARMUP = 8
+
+    def _attribute_growth(self, delta: "TimeSaved") -> None:
+        """Move a turn's first-ever-tool minutes from their usual pillar into Growth.
+
+        MOVE, never add: the pillars have to keep summing to the same minutes as the
+        hours-saved badge beside them. A tool counts as new exactly once — it joins
+        the seen set here — so a Growth spike is a real first, not a recurring bonus.
+        """
+        seen = self._prefs.get("seen_tools")
+        seen = set(seen) if isinstance(seen, list) else set()
+        fresh = [t for t, m in delta.by_tool.items() if m > 0 and t not in seen]
+        warmed = len(seen) >= self._NOVELTY_WARMUP
+        if fresh:
+            self._prefs["seen_tools"] = sorted(seen | set(fresh))
+        if not (fresh and warmed):
+            return
+        moved = 0.0
+        for tool in fresh:
+            minutes = delta.by_tool.get(tool, 0.0)
+            category = delta.tool_category(tool)
+            if not category or minutes <= 0:
+                continue
+            available = delta.by_category.get(category, 0.0)
+            take = min(minutes, available)
+            if take <= 0:
+                continue
+            delta.by_category[category] = available - take
+            if delta.by_category[category] <= 0:
+                delta.by_category.pop(category, None)
+            moved += take
+        if moved > 0:
+            delta.by_category["Growth"] = delta.by_category.get("Growth", 0.0) + moved
+
     def record_time_saved(self, session_id: str, totals: dict[str, Any]) -> None:
         """Fold a finished turn's estimate into the install's running total.
 
@@ -3197,7 +3235,16 @@ class SessionManager:
                 k: max(0.0, v - session.by_category.get(k, 0.0))
                 for k, v in turn.by_category.items()
             },
+            by_tool={
+                k: max(0.0, v - session.by_tool.get(k, 0.0))
+                for k, v in turn.by_tool.items()
+            },
+            tool_categories=dict(turn.tool_categories),
         )
+        # Growth = work that is new and very different (see edge.py). The engine
+        # cannot judge that — a session does not know what the account has done
+        # before — so the install-wide test lives here, where the seen set does.
+        self._attribute_growth(delta)
         # Five A's counts ride the same event and bank the same way — the delta since
         # this session last reported, so a reconnect can't double-count a turn.
         turn_five = totals.get("five_a") if isinstance(totals.get("five_a"), dict) else {}
@@ -3210,6 +3257,9 @@ class SessionManager:
 
         banked = turn.as_dict()
         banked["five_a"] = dict(turn_five)
+        # Bank the raw (pre-relabel) totals: the delta is computed against these
+        # next turn, and moving minutes into Growth here would make the next
+        # subtraction see a category that never existed on the engine's side.
         self._session_time_saved[session_id] = banked
 
         total = TimeSaved.from_dict(self._prefs.get("time_saved") or {})

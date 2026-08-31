@@ -82,7 +82,7 @@ export function AuditView() {
               <EdgeRadar edge={edge} />
               {edge.pillars?.some((p) => p.key === "Growth" && p.percent === 0) && (
                 <div className="text-[11px] text-faint mt-3 pt-2.5 border-t border-line">
-                  {t("Growth reads zero for almost everyone here, and that is not a failing: it means new offerings and revenue, which happen in the market rather than in a tool's log.")}
+                  {t("Growth is empty so far — it fills when you reach for something you have not used before, so it grows by trying a new kind of work rather than by doing more of the same.")}
                 </div>
               )}
             </div>
