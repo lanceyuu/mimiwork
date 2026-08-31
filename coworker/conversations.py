@@ -951,18 +951,26 @@ class ConversationStore:
             self._conn.commit()
         return cur.rowcount > 0
 
-    def set_auto_title(self, session_id: str, title: str) -> bool:
+    def set_auto_title(
+        self, session_id: str, title: str, *, overwrite: bool = False
+    ) -> bool:
         """Store a generated title. Its own column — never `title` — so a manual rename
         (past or future) always wins; doesn't touch updated_at (a title landing after the
-        turn must not reorder the session list)."""
+        turn must not reorder the session list).
+
+        Without ``overwrite`` an existing generated title stands, which keeps the ordinary
+        first-turn pass from racing itself. The content re-title passes ``overwrite=True``:
+        replacing the opening-derived title with one drawn from what the session actually
+        produced is the entire point of that pass.
+        """
         clean = " ".join((title or "").split())[:60]
         if not clean:
             return False
+        sql = "UPDATE sessions SET auto_title = ? WHERE session_id = ? AND renamed = 0"
+        if not overwrite:
+            sql += " AND (auto_title IS NULL OR auto_title = '')"
         with self._lock:
-            cur = self._conn.execute(
-                "UPDATE sessions SET auto_title = ? WHERE session_id = ? AND renamed = 0",
-                (clean, session_id),
-            )
+            cur = self._conn.execute(sql, (clean, session_id))
             self._conn.commit()
         return cur.rowcount > 0
 

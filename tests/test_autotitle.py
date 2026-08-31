@@ -41,10 +41,14 @@ def _text(text):
     return AssistantTurn(text=text, finish_reason="stop")
 
 
-async def _turn(mgr: SessionManager, sid: str, text: str) -> None:
+async def _turn(
+    mgr: SessionManager, sid: str, text: str, *, agent: str = "chat", workspace=None
+) -> None:
     """Drive one user turn the way the server does: run, save, mark idle (the
     auto-title hook), then wait for the fire-and-forget call to settle."""
-    engine = mgr.get_engine(sid, agent="chat")
+    engine = mgr.get_engine(
+        sid, agent=agent, **({"workspace": str(workspace)} if workspace else {})
+    )
     mgr.mark_running(sid)
     async for _ in engine.run(text):
         pass
@@ -146,3 +150,85 @@ async def test_sanitizes_and_rejects_absurd_output(tmp_path):
     mgr2, _ = _mgr(tmp_path / "b", [_text("ok")], ["x" * 90])
     await _turn(mgr2, "s8", "the login page 500s")
     assert mgr2.session_store.title_state("s8")["auto_title"] is None
+
+
+# ── re-titling from what the session produced (owner ask 2026-08-31) ──────────
+
+
+async def test_a_long_session_is_retitled_from_what_it_became(tmp_path):
+    """Titling from the opening alone means a conversation that starts "help me with
+    this" is named after the vague part for ever, however much work followed. Once the
+    session has a subject, the title comes from it."""
+    mgr, provider = _mgr(
+        tmp_path,
+        [_text("on it"), _text("b"), _text("c"), _text("the churn is in month two")],
+        ["Help With This Thing", "Month Two Churn"],
+    )
+    await _turn(mgr, "s1", "help me with this")
+    assert mgr.session_store.title_state("s1")["auto_title"] == "Help With This Thing"
+
+    for text in ("keep going", "and then", "summarise it"):
+        await _turn(mgr, "s1", text)
+
+    assert mgr.session_store.title_state("s1")["auto_title"] == "Month Two Churn"
+    last = provider.title_calls[-1]
+    # The re-title was given what the session SAID, not only how it opened.
+    assert "churn is in month two" in last[-1]["content"]
+    assert "produce" in str(last[0]["content"]).lower()
+
+
+async def test_the_retitle_is_given_the_files_the_session_produced(tmp_path):
+    """Files are the strongest signal of what a session was about, and they trigger the
+    re-title on their own — without waiting for the conversation to get long."""
+    mgr, provider = _mgr(
+        tmp_path, [_text("on it"), _text("done")], ["Help With This", "Q3 Churn Analysis"]
+    )
+    await _turn(mgr, "s1", "help me with this")
+
+    # Stand in for the artifact tracker: what matters here is that produced files reach
+    # the titling call, not how the tracker decides a file was produced.
+    mgr.list_artifacts = lambda _sid: [{"name": "Q3 churn analysis.docx"}]  # type: ignore[method-assign]
+    await _turn(mgr, "s1", "write it up")
+
+    assert mgr.session_store.title_state("s1")["auto_title"] == "Q3 Churn Analysis"
+    assert "Q3 churn analysis.docx" in provider.title_calls[-1][-1]["content"]
+
+
+async def test_the_retitle_happens_once_not_on_every_turn(tmp_path):
+    """A title the user has grown used to must not keep moving under them."""
+    mgr, provider = _mgr(
+        tmp_path,
+        [_text("a"), _text("b"), _text("c")],
+        ["First Title Here", "Second Title Here"],
+    )
+    await _turn(mgr, "s1", "help me with this")
+    mgr.list_artifacts = lambda _sid: [{"name": "report.docx"}]  # type: ignore[method-assign]
+
+    await _turn(mgr, "s1", "keep going")
+    await _turn(mgr, "s1", "and again")
+
+    assert len(provider.title_calls) == 2, "the title was regenerated more than once"
+    assert mgr.session_store.title_state("s1")["auto_title"] == "Second Title Here"
+
+
+async def test_a_manual_rename_survives_the_content_pass(tmp_path):
+    """The one thing re-titling must never do."""
+    mgr, _ = _mgr(tmp_path, [_text("a"), _text("b")], ["Auto One", "Auto Two"])
+    await _turn(mgr, "s1", "help me with this")
+    mgr.rename_session("s1", "My own name")
+
+    mgr.list_artifacts = lambda _sid: [{"name": "report.docx"}]  # type: ignore[method-assign]
+    await _turn(mgr, "s1", "carry on")
+
+    assert mgr.session_store.load("s1").title == "My own name"
+
+
+async def test_nothing_produced_and_barely_started_keeps_its_opening_title(tmp_path):
+    """A short chat that made nothing has no better name available — asking the model
+    again would just spend a call to get the same answer back."""
+    mgr, provider = _mgr(tmp_path, [_text("a"), _text("b")], ["Opening Title Here"])
+    await _turn(mgr, "s1", "what is a p value")
+    await _turn(mgr, "s1", "thanks")
+
+    assert len(provider.title_calls) == 1
+    assert mgr.session_store.title_state("s1")["auto_title"] == "Opening Title Here"

@@ -195,6 +195,9 @@ class SessionManager:
         self._autotitle_inflight: set[str] = set()
         self._autotitle_tasks: set[asyncio.Task] = set()
         self._autotitle_attempts: dict[str, int] = {}
+        # Sessions whose title has already been redone from what they produced. Once
+        # each: a title the user has grown used to should not keep moving.
+        self._autotitle_retitled: set[str] = set()
         self.workspace_trust = WorkspaceTrustStore()
         self.secrets = SecretStore()
         # No explicit provider injected → route by the model's `provider:` prefix (OpenAI default,
@@ -552,7 +555,38 @@ class SessionManager:
             return {"ok": False, "error": "internal sessions cannot be grouped"}
         if not self.session_store.set_session_project(session_id, project_id or None):
             return {"ok": False, "error": "unknown session or project"}
+        if project_id:
+            self._maybe_name_group_from_contents(project_id)
         return {"ok": True, "session_id": session_id, "project_id": project_id or None}
+
+    # A group made from the sidebar's "+" is called "New project" until it is renamed,
+    # and a placeholder nobody bothers to change is worse than no name. Once something
+    # has been filed into it, take the name from the work (owner ask 2026-08-31).
+    _PLACEHOLDER_GROUP_NAMES = {"new project", "untitled", "new group", ""}
+
+    def _maybe_name_group_from_contents(self, project_id: str) -> None:
+        """Name a still-unnamed group after the first conversation filed into it.
+
+        Only ever replaces a placeholder — a name the user typed, or one already taken
+        from a conversation, is left exactly alone.
+        """
+        row = next(
+            (p for p in self.session_store.list_projects() if p["id"] == project_id), None
+        )
+        if row is None:
+            return
+        if str(row.get("name", "")).strip().lower() not in self._PLACEHOLDER_GROUP_NAMES:
+            return
+        members = self.list_sessions_in_project(project_id)
+        titles = [
+            str(m.get("title") or "").strip()
+            for m in members
+            if str(m.get("title") or "").strip()
+            and str(m.get("title")).strip().lower() != "new session"
+        ]
+        if not titles:
+            return
+        self.session_store.update_project(project_id, name=titles[0][:80])
 
     # -- transfer pack: commands, instructions, @-mentions, skill import ------------
     # The vocabulary here is deliberately the one Claude Code / Cowork / Codex use, so a
@@ -4876,6 +4910,16 @@ class SessionManager:
         '"how are you", "hi there"), reply with exactly: small-talk'
     )
 
+    # The re-title, once the session has actually produced something. Titling from the
+    # opening alone means a conversation that starts "help me with this" is named after
+    # the vague part for ever, however much work followed (owner ask 2026-08-31).
+    _RETITLE_PROMPT = (
+        "You title chat sessions. Given how a session opened AND what it went on to "
+        "produce, reply with ONLY a 4-5 word title — no quotes or punctuation wrapping "
+        "it. Name what the session turned out to be ABOUT. Prefer the substance of the "
+        "work over the words of the request, and never name the file format."
+    )
+
     def _maybe_autotitle(self, session_id: str) -> None:
         """Kick off title generation after a turn completes, fire-and-forget. Only while
         the session has neither a manual rename nor a generated title, at most twice:
@@ -4897,7 +4941,13 @@ class SessionManager:
         if not users:
             return
         state = self.session_store.title_state(session_id)
-        if state is None or state["renamed"] or state["auto_title"]:
+        if state is None or state["renamed"]:
+            return
+        if state["auto_title"]:
+            # Already titled from the opening. One more pass is allowed, and only once
+            # the session has produced something to be named after — a title taken from
+            # "help me with this" should not outlive the work that followed.
+            self._maybe_retitle_from_content(session_id, engine)
             return
         from ..attachments import content_to_text
 
@@ -4922,8 +4972,86 @@ class SessionManager:
         self._autotitle_tasks.add(task)
         task.add_done_callback(self._autotitle_tasks.discard)
 
+    def _produced_digest(self, session_id: str, engine: TurnEngine) -> str:
+        """What this session actually made: the files it produced, plus the last thing it
+        said. Names only — a title should come from the substance, and file sizes and
+        paths are noise to a model asked for four words."""
+        names: list[str] = []
+        try:
+            names = [
+                str(a.get("name") or "")
+                for a in self.list_artifacts(session_id)[:6]
+                if a.get("name")
+            ]
+        except Exception:
+            names = []
+        from ..attachments import content_to_text
+
+        last = ""
+        for m in reversed(engine.messages):
+            if m.get("role") == "assistant":
+                last = content_to_text(m.get("content"), image_placeholder="").strip()
+                if last:
+                    break
+        parts = []
+        if names:
+            parts.append("Files produced: " + ", ".join(names))
+        if last:
+            parts.append("Last reply: " + last[:600])
+        return "\n".join(parts)
+
+    def _maybe_retitle_from_content(self, session_id: str, engine: TurnEngine) -> None:
+        """Re-title once, from what the session produced rather than how it opened.
+
+        Gated on there being something to go on: files produced, or a conversation long
+        enough to have a subject. Only ever runs once per session, so a title the user
+        has grown used to does not keep moving under them.
+        """
+        if session_id in self._autotitle_retitled or session_id in self._autotitle_inflight:
+            return
+        digest = self._produced_digest(session_id, engine)
+        if not digest:
+            return
+        turns = sum(1 for m in engine.messages if m.get("role") == "user")
+        has_files = digest.startswith("Files produced:")
+        if not has_files and turns < 4:
+            return  # nothing produced and barely under way — the opening title still fits
+        from ..attachments import content_to_text
+
+        openers = [
+            text
+            for m in engine.messages
+            if m.get("role") == "user"
+            and (text := content_to_text(m.get("content"), image_placeholder="").strip())
+        ][:1]
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._autotitle_retitled.add(session_id)
+        self._autotitle_inflight.add(session_id)
+        task = loop.create_task(
+            self._generate_autotitle(
+                session_id,
+                engine,
+                openers,
+                prompt=self._RETITLE_PROMPT,
+                extra=digest,
+                overwrite=True,
+            )
+        )
+        self._autotitle_tasks.add(task)
+        task.add_done_callback(self._autotitle_tasks.discard)
+
     async def _generate_autotitle(
-        self, session_id: str, engine: TurnEngine, openers: list[str]
+        self,
+        session_id: str,
+        engine: TurnEngine,
+        openers: list[str],
+        *,
+        prompt: Optional[str] = None,
+        extra: str = "",
+        overwrite: bool = False,
     ) -> None:
         """One cheap non-streaming completion on the session's own provider/model. Every
         failure (provider error, empty, absurdly long) is swallowed — the title_from
@@ -4934,8 +5062,11 @@ class SessionManager:
                 engine.provider.complete,
                 model=engine.model,
                 messages=[
-                    {"role": "system", "content": self._AUTOTITLE_PROMPT},
-                    {"role": "user", "content": "\n\n".join(openers)},
+                    {"role": "system", "content": prompt or self._AUTOTITLE_PROMPT},
+                    {
+                        "role": "user",
+                        "content": "\n\n".join([*openers, extra] if extra else openers),
+                    },
                 ],
                 temperature=0.2,
                 # Reasoning-routed models spend hidden tokens BEFORE emitting text; a
@@ -4957,7 +5088,9 @@ class SessionManager:
                 return
             if not title or len(title) > 80:
                 return
-            if self.session_store.set_auto_title(session_id, title[:60]):
+            if self.session_store.set_auto_title(
+                session_id, title[:60], overwrite=overwrite
+            ):
                 # Best-effort nudge for any live viewer; the sidebar's poll and
                 # post-turn refresh pick the new title up regardless.
                 await self.broadcast_session(

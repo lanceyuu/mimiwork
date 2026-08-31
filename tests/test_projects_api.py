@@ -337,3 +337,70 @@ def test_group_instructions_reach_the_conversations_filed_under_it(tmp_path):
 
     # No group, no folder files, nothing to say.
     assert load_agents_md(empty, global_path=tmp_path / "none.md") == ""
+
+
+def test_a_placeholder_group_takes_its_name_from_what_is_filed_into_it(tmp_path):
+    """"New project" is what the sidebar's "+" makes, and a placeholder nobody bothers
+    to rename is worse than no name at all. The first conversation filed in names it."""
+    client, manager = _fixture(tmp_path)
+    from coworker.conversations import SessionRecord
+
+    manager.session_store.save(
+        SessionRecord(
+            session_id="s1",
+            workspace=str(tmp_path / "w"),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "hi"}],
+            title="Interview coding scheme",
+        )
+    )
+    pid = _make(client, "New project")
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["name"] == "Interview coding scheme"
+
+
+def test_a_name_the_user_typed_is_never_overwritten(tmp_path):
+    client, manager = _fixture(tmp_path)
+    from coworker.conversations import SessionRecord
+
+    manager.session_store.save(
+        SessionRecord(
+            session_id="s1",
+            workspace=str(tmp_path / "w"),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "hi"}],
+            title="Interview coding scheme",
+        )
+    )
+    pid = _make(client, "Thesis")
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["name"] == "Thesis", "a name the user chose must stand"
+
+
+def test_an_untitled_conversation_does_not_name_a_group(tmp_path):
+    """"New session" is a placeholder too — naming a group after one would just move the
+    placeholder somewhere more visible."""
+    client, manager = _fixture(tmp_path)
+    from coworker.conversations import SessionRecord
+
+    manager.session_store.save(
+        SessionRecord(
+            session_id="s1",
+            workspace=str(tmp_path / "w"),
+            model="m",
+            mode="interactive",
+            messages=[],
+            title="New session",
+        )
+    )
+    pid = _make(client, "New project")
+    client.post("/v1/sessions/s1/project", json={"project_id": pid})
+
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["name"] == "New project"
