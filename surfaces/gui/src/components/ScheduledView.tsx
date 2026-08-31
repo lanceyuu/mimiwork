@@ -664,12 +664,16 @@ function TaskDetail({
       .catch(() => {});
   useEffect(() => {
     setSeenMark(null);
-    refresh();
     // Opening the detail IS reading it: advance the seen mark and nudge the
-    // sidebar so the badge clears immediately (UX-023).
-    markAutomationSeen(id)
-      .then(() => announceAutomationsChanged())
-      .catch(() => {});
+    // sidebar so the badge clears immediately (UX-023). But READ the old mark
+    // first — fired together, a mark-seen that lands before the GET returns
+    // makes every run look already-seen and erases the "new" pills the badge
+    // just promised. Order them (owner-hit 2026-08-31).
+    refresh().then(() =>
+      markAutomationSeen(id)
+        .then(() => announceAutomationsChanged())
+        .catch(() => {}),
+    );
   }, [id]);
 
   if (!task)

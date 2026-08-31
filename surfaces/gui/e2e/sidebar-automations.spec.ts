@@ -70,3 +70,22 @@ test("deleting an automation clears the band at once; nav re-entry lands on the 
   await expect(page.getByRole("heading", { name: "Automations" })).toBeVisible();
   await expect(page.getByText("Loading…")).toHaveCount(0);
 });
+
+test("a slow detail fetch cannot erase the 'new' pills (mark-seen is ordered after the read)", async ({
+  page,
+}) => {
+  // The regression: the detail used to fire the GET and the mark-seen POST together.
+  // When the POST won the race, the GET came back with seen_runs_at already advanced,
+  // every run tested older-than-the-mark, and the "new" pills the sidebar badge had
+  // just promised were gone. Hold the GET back so the POST lands first.
+  await page.route(/\/v1\/automations\/task-1$/, async (route) => {
+    await new Promise((r) => setTimeout(r, 400));
+    await route.fallback();
+  });
+
+  await page.goto("/");
+  await page.getByTestId("scheduled-task-1").click();
+
+  await expect(page.getByRole("heading", { name: "Daily AI News" })).toBeVisible();
+  await expect(page.getByTestId("run-new").first()).toBeVisible();
+});
