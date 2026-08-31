@@ -1005,6 +1005,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
         ok: true,
         project: { ...row, sessions: membersOf(row.id).length, last_activity: "", has_instructions: !!row.instructions },
         instructions: row.instructions || "",
+        memory: [],
         sessions: membersOf(row.id),
       });
     }

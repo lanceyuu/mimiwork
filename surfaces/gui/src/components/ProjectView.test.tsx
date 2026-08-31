@@ -178,3 +178,19 @@ describe("ProjectView — what Mimi knows, scoped to the group", () => {
     });
   });
 });
+
+describe("ProjectView — a partial payload must not take the page down", () => {
+  it("renders without a memory list at all", async () => {
+    // An older sidecar, or an error body missing a field. Reading `.length` off it
+    // crashed the whole page over a section that is not even the point of it — the same
+    // shape of bug that once white-screened the General tab.
+    const { memory: _omitted, ...noMemory } = DETAIL;
+    stubFetch(noMemory);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("Thesis")).toBeTruthy();
+    expect(screen.queryByTestId("project-memory-row")).toBeNull();
+    // And you can still teach it something.
+    expect(screen.getByTestId("project-memory-new")).toBeTruthy();
+  });
+});

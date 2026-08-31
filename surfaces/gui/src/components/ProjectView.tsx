@@ -127,6 +127,10 @@ export function ProjectView(props: {
 
   const proj = detail.project;
   const dirty = text !== savedText;
+  // Never read a list straight off the payload: a response without `memory` (an older
+  // sidecar, a partial error body) would take the whole page down over a section that
+  // is not even the point of it.
+  const memory = Array.isArray(detail.memory) ? detail.memory : [];
 
   return (
     <main className="flex-1 min-w-0 overflow-y-auto bg-paper">
@@ -214,9 +218,9 @@ export function ProjectView(props: {
           <p className="text-[12px] text-muted mt-1 leading-relaxed">
             {t("Facts Mimi picked up while working on this project. Edits apply to new conversations.")}
           </p>
-          {detail.memory.length > 0 && (
+          {memory.length > 0 && (
             <div className="mt-2.5 rounded-xl2 border border-line bg-panel overflow-hidden">
-              {detail.memory.map((m) => (
+              {memory.map((m) => (
                 <div
                   key={m.id}
                   className="flex items-start gap-2.5 px-3.5 py-2.5 border-b border-line last:border-b-0"

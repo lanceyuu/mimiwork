@@ -388,14 +388,6 @@ async function fileToB64(file: File): Promise<string> {
   return btoa(bin);
 }
 
-// Node id → which part of the form it edits, for the click-to-edit flow preview.
-const NODE_HINTS: Record<string, string> = {
-  trigger: "Schedule — when this runs",
-  agent: "Where it works — the folder and files it can use",
-  ask: "Approvals — it asks before consequential steps",
-  output: "Where the result lands",
-};
-
 function NewAutomationForm({
   busy,
   onCancel,
@@ -434,37 +426,16 @@ function NewAutomationForm({
   // Default to asking: an unattended task that can do anything is a decision, not
   // a default.
   const [mode, setMode] = useState<string>("interactive");
-  // Revision notes attached to flow nodes — folded into the instructions on create,
-  // so "check the flowchart, annotate what to change" is part of the request itself.
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [activeNode, setActiveNode] = useState<string | null>(null);
-
   const valid = title.trim() && instructions.trim();
 
-  // A draft task so the live flowchart mirrors the form as it's filled in.
-  const draft = {
-    id: "draft",
-    title: title || "New automation",
-    enabled: true,
-    schedule: `${freq} at ${time}`,
-    agent: "cowork",
-    workspace: folder,
-    always_allowed: [],
-    notify_on_completion: true,
-    last_status: null,
-  } as unknown as Automation;
-
-  const notedNodes = new Set(Object.keys(notes).filter((k) => notes[k]?.trim()));
-
+  // The flow diagram used to live here, drawn from a half-filled draft — so it showed a
+  // schedule before one was chosen and "Approval-gated" whatever permission was set. A
+  // diagram of a thing that does not exist yet can only guess. It moved to the
+  // automation's own page, where it describes something real (owner ask 2026-08-31).
   const submit = async () => {
-    const noteLines = Object.entries(notes)
-      .filter(([, v]) => v.trim())
-      .map(([k, v]) => `- ${NODE_HINTS[k] ?? k}: ${v.trim()}`);
     onCreate({
       title: title.trim(),
-      instructions:
-        instructions.trim() +
-        (noteLines.length ? `\n\nRevision notes from the flow review:\n${noteLines.join("\n")}` : ""),
+      instructions: instructions.trim(),
       cron: toCron(time, freq),
       ...(model ? { model } : {}),
       mode,
@@ -596,33 +567,6 @@ function NewAutomationForm({
           ))}
         </div>
       )}
-
-      {/* Live flow preview: what will actually happen, as a pipeline. Click a node to
-          see what it means and leave a revision note — notes travel with the request. */}
-      <div className="mt-3">
-        <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-1.5">
-          Flow preview — click a step to annotate it
-        </div>
-        <AutomationFlow
-          task={draft}
-          onNodeClick={(id) => setActiveNode(activeNode === id ? null : id)}
-          notedNodes={notedNodes}
-        />
-        {activeNode && (
-          <div className="mt-1.5 flex items-start gap-2" data-testid="auto-node-note">
-            <div className="text-[12px] text-muted pt-1.5 shrink-0">
-              {NODE_HINTS[activeNode] ?? activeNode}:
-            </div>
-            <input
-              className="tmpl-input flex-1"
-              placeholder="Revision note (e.g. skip weekends when I'm traveling; keep reports under one page)"
-              value={notes[activeNode] ?? ""}
-              autoFocus
-              onChange={(e) => setNotes({ ...notes, [activeNode]: e.target.value })}
-            />
-          </div>
-        )}
-      </div>
 
       <div className="tmpl-form-actions">
         <button className="btn-primary sm" disabled={!valid || busy} onClick={submit}>
@@ -840,7 +784,12 @@ function TaskDetail({
           </div>
         )}
 
-        {!editing && <AutomationFlow task={task} running={task.last_status === "running"} />}
+        {!editing && (
+          <>
+            <div className="sa-sub">What it does</div>
+            <AutomationFlow task={task} running={task.last_status === "running"} />
+          </>
+        )}
 
         <div className="sa-sub">Instructions</div>
         {editing ? (

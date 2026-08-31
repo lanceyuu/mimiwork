@@ -27,16 +27,42 @@ describe("flowNodes", () => {
   it("builds trigger → agent → one action per grant → output", () => {
     const { agentCol, actions, output } = flowNodes(TASK);
     expect(agentCol[0].sub).toBe("Mondays at 09:00");
-    expect(agentCol[1].sub).toBe("sales"); // workspace basename, not the path
-    expect(actions.map((a) => a.title)).toEqual(["send_message", "run_shell"]);
+    expect(agentCol[1].sub).toContain("sales"); // workspace basename, not the path
+    // Grants, then the permission level — a standing grant is an exception to the
+    // mode, not a replacement for it.
+    expect(actions.map((a) => a.title)).toEqual(["send_message", "run_shell", "Asks first"]);
     expect(actions[0].sub).toBe("→ slack:C9");
-    expect(output.sub).toContain("completion note");
+    // A send grant means the result is DELIVERED, and the diagram should say where.
+    expect(output.title).toBe("Delivered");
+    expect(output.sub).toContain("slack:C9");
   });
 
-  it("no grants → a single approval-gated node, never an empty column", () => {
+  it("no grants → a single permission node, never an empty column", () => {
     const { actions } = flowNodes({ ...TASK, always_allowed: [] });
     expect(actions).toHaveLength(1);
-    expect(actions[0].title).toBe("Approval-gated");
+    expect(actions[0].title).toBe("Asks first");
+  });
+
+  it("the permission node says what the automation ACTUALLY does", () => {
+    // It used to say "Approval-gated" whatever the mode was — so an automation set to
+    // Full access was drawn as one that asks, which is the diagram stating the opposite
+    // of the truth (owner-hit 2026-08-31).
+    const bare = { ...TASK, always_allowed: [] };
+    expect(flowNodes({ ...bare, mode: "auto" }).actions[0].title).toBe("Runs unattended");
+    expect(flowNodes({ ...bare, mode: "auto" }).actions[0].sub).toBe("acts without asking");
+    expect(flowNodes({ ...bare, mode: "plan" }).actions[0].title).toBe("Proposes only");
+    expect(flowNodes({ ...bare, mode: "interactive" }).actions[0].title).toBe("Asks first");
+  });
+
+  it("an unattended run with grants does not also claim to ask", () => {
+    const { actions } = flowNodes({ ...TASK, mode: "auto" });
+    expect(actions.map((a) => a.title)).toEqual(["send_message", "run_shell"]);
+  });
+
+  it("names the model that answers the run, without its routing prefix", () => {
+    const { agentCol } = flowNodes({ ...TASK, model: "qualitati:mimi-wolf" });
+    expect(agentCol[1].sub).toContain("mimi-wolf");
+    expect(agentCol[1].sub).not.toContain("qualitati:");
   });
 
   it("a task's internal __task__ folder shows its parent workspace instead", () => {
