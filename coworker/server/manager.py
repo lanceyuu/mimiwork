@@ -16,7 +16,10 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:  # annotation only — the runtime import stays local, as before.
+    from ..timesaved import TimeSaved
 
 from ..agent import build_engine
 from ..agents import get_agent
