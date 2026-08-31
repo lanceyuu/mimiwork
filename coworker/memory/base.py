@@ -17,6 +17,10 @@ class Scope(str, Enum):
     GLOBAL = "global"
     WORKSPACE = "workspace"
     SESSION = "session"
+    # A project GROUP (2026-08-31). What used to be "this project" was really "this
+    # folder" — the two were the same thing. Now that a project groups conversations
+    # rather than owning a directory, what it knows belongs to the group.
+    PROJECT = "project"
 
 
 @dataclass
@@ -28,6 +32,8 @@ class MemoryItem:
     summary: Optional[str] = None
     workspace: Optional[str] = None
     session_id: Optional[str] = None
+    # Set for PROJECT-scoped memory: the group this fact belongs to (2026-08-31).
+    project_id: Optional[str] = None
     created_at: Optional[str] = None
 
 

@@ -30,6 +30,11 @@ def memory_tools(
     store: MemoryStore,
     *,
     workspace: Optional[str],
+    # The project GROUP this conversation is filed under, if any (2026-08-31). When set,
+    # "remember this about the project" attaches to the group rather than the folder —
+    # a project is a group now, and what it knows should follow the conversations, not
+    # the directory they happened to write files into.
+    project_id: Optional[str] = None,
     on_saved: Optional[Callable[[MemoryItem, Optional[str]], None]] = None,
     saving_enabled: Optional[Callable[[], bool]] = None,
 ) -> list:
@@ -80,11 +85,17 @@ def memory_tools(
         chosen = Scope(scope) if scope in _SCOPES else Scope.WORKSPACE
         if chosen is Scope.SESSION:  # dead scope (spec §3): never save to it
             chosen = Scope.WORKSPACE
+        # "workspace" is the model's word for "this project only". When the conversation
+        # is filed under a group, that IS the project — so the fact belongs to the group.
+        # Ungrouped conversations keep folder-scoped memory, which still works.
+        if chosen is Scope.WORKSPACE and project_id:
+            chosen = Scope.PROJECT
         item = store.add(
             content,
             scope=chosen,
             summary=summary.strip() or None,
             workspace=workspace if chosen is Scope.WORKSPACE else None,
+            project_id=project_id if chosen is Scope.PROJECT else None,
         )
         _announce(item, None)
         return {"id": item.id, "scope": item.scope.value, "saved": True}

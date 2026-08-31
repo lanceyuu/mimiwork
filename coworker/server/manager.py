@@ -180,6 +180,7 @@ class SessionManager:
         self.memory_settings = MemorySettingsStore(base / "memory-settings.json")
         self.audit_store = AuditStore(base / "coworker.db")
         self.session_store = ConversationStore(base)
+        self._rescope_folder_memory_to_groups()
         self.session_store.canonicalize_workspaces()  # collapse /tmp vs /private/tmp etc.
         if self.default_workspace:
             self.session_store.touch_workspace(self.default_workspace)
@@ -459,6 +460,38 @@ class SessionManager:
             return None
         return path
 
+    def _rescope_folder_memory_to_groups(self) -> None:
+        """Move what a project knew onto the group that replaced it. Once, at startup.
+
+        Project memory used to be workspace-scoped, because a project WAS a folder. With
+        the folder gone, those facts would have been orphaned — still in the database,
+        still injected for anything working in that directory, but no longer reachable
+        from the project they belong to. The folder-to-group migration records where each
+        group came from; this follows that trail.
+        """
+        try:
+            origins = self.session_store.project_origins()
+        except Exception:
+            return
+        if not origins:
+            return
+        moved = 0
+        for project_id, folder in origins.items():
+            try:
+                items = self.memory_store.list(
+                    scope=Scope.WORKSPACE, workspace=folder
+                )
+            except Exception:
+                continue
+            for item in items:
+                try:
+                    if self.memory_store.rescope_to_project(item.id, project_id):
+                        moved += 1
+                except Exception:
+                    continue
+        if moved:
+            logger.info("re-scoped %d folder memories onto their project groups", moved)
+
     def list_projects(self, *, include_archived: bool = True) -> list[dict[str, Any]]:
         rows = self.session_store.list_projects()
         return [r for r in rows if include_archived or not r["archived"]]
@@ -540,6 +573,7 @@ class SessionManager:
             "project": row,
             "sessions": sessions,
             "instructions": self.session_store.project_instructions(project_id),
+            "memory": self.list_memory(project_id=project_id),
         }
 
     def move_session_to_project(
@@ -1146,6 +1180,7 @@ class SessionManager:
             group_instructions=self.session_store.project_instructions(
                 (record.project_id if record else None) or ""
             ),
+            project_id=(record.project_id if record else None) or None,
             on_memory_saved=self._memory_saved_notifier(session_id),
             messages=messages,
             extra_tools=extra_tools,
@@ -5874,18 +5909,22 @@ class SessionManager:
 
         return build_graph(self.memory_store.list())
 
-    def list_memory(self, workspace: Optional[str] = None) -> list[dict[str, Any]]:
-        """All memories, or — with `workspace` — just that project's facts (PROJECTS)."""
-        items = (
-            self.memory_store.list(scope=Scope.WORKSPACE, workspace=workspace)
-            if workspace
-            else self.memory_store.list()
-        )
+    def list_memory(
+        self, workspace: Optional[str] = None, project_id: Optional[str] = None
+    ) -> list[dict[str, Any]]:
+        """All memories, or just one scope's: a folder's, or a project group's."""
+        if project_id:
+            items = self.memory_store.list(scope=Scope.PROJECT, project_id=project_id)
+        elif workspace:
+            items = self.memory_store.list(scope=Scope.WORKSPACE, workspace=workspace)
+        else:
+            items = self.memory_store.list()
         return [
             {
                 "id": m.id,
                 "scope": m.scope.value,
                 "workspace": m.workspace,
+                "project_id": m.project_id,
                 "content": m.content,
                 "summary": m.summary or "",
                 "created_at": m.created_at or "",
@@ -5894,14 +5933,27 @@ class SessionManager:
         ]
 
     def add_memory(
-        self, content: str, scope: str = "workspace", workspace: Optional[str] = None
+        self,
+        content: str,
+        scope: str = "workspace",
+        workspace: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> dict[str, Any]:
         content = (content or "").strip()
         if not content:
             return {"ok": False, "error": "content required"}
         chosen = Scope(scope) if scope in _SCOPES else Scope.WORKSPACE
+        # A group id makes it the group's fact, whatever word the caller used: the
+        # project page has no folder to scope against.
+        if project_id:
+            chosen = Scope.PROJECT
         ws = self.resolve_workspace(workspace) if chosen is Scope.WORKSPACE else None
-        item = self.memory_store.add(content, scope=chosen, workspace=ws)
+        item = self.memory_store.add(
+            content,
+            scope=chosen,
+            workspace=ws,
+            project_id=project_id if chosen is Scope.PROJECT else None,
+        )
         return {"id": item.id, "scope": item.scope.value, "content": item.content}
 
     def update_memory(self, item_id: int, content: str) -> dict[str, Any]:

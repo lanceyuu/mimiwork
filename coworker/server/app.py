@@ -870,8 +870,8 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.memory_graph()
 
     @app.get("/v1/memory")
-    def memory(workspace: str | None = None) -> dict[str, Any]:
-        return {"memory": manager.list_memory(workspace or None)}
+    def memory(workspace: str | None = None, project_id: str | None = None) -> dict[str, Any]:
+        return {"memory": manager.list_memory(workspace or None, project_id or None)}
 
     @app.post("/v1/memory")
     def add_memory(body: dict) -> dict[str, Any]:
@@ -880,6 +880,7 @@ def create_app(manager: SessionManager) -> FastAPI:
             str(body.get("content", "")),
             str(body.get("scope", "workspace")),
             workspace=(str(body["workspace"]) if body.get("workspace") else None),
+            project_id=(str(body["project_id"]) if body.get("project_id") else None),
         )
 
     # Declared before the /{item_id} routes so "settings" can never be parsed as an id.

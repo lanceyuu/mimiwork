@@ -56,6 +56,7 @@ import { streamMode } from "./streamGate";
 import { InboxItemCard } from "./components/InboxItemCard";
 import { isTauri, platformOS, startWindowDrag } from "./tauri";
 import { Icon } from "./components/Icon";
+import { nextPose } from "./mimiPose";
 import { Sidebar } from "./components/Sidebar";
 import { ThinkingBlock, Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
@@ -465,6 +466,10 @@ export function App() {
   // Retry health for a while: the desktop shell starts its sidecar in parallel, so the
   // server may not answer for a second or two. Only fall back to the gate once it's truly up.
   const [booting, setBooting] = useState(true);
+  // Chosen once per launch, not per render: the lazy initialiser also ADVANCES the
+  // stored counter, so calling it on every render would race through all ten poses
+  // while the splash was still on screen.
+  const [bootPose] = useState(nextPose);
   const [onboarding, setOnboarding] = useState(false);
   const [tour, setTour] = useState(false);
   // True once we've resumed a prior conversation on boot (drives the splash wording).
@@ -1410,10 +1415,11 @@ export function App() {
             <span /><span /><span />
           </div>
         )}
-        {/* The real MimiWork mark (6-point star, same as the app/tray icon) — the old
-            ✦ text glyph was a 4-point sparkle that read as another product's logo. */}
+        {/* Mimi, not a mark. Opening the app is the one moment it has a face, and a star
+            is nobody's face — so a puppy greets you, a different pose each launch
+            (owner ask 2026-08-31). */}
         <div className="boot-mark">
-          <Icon name="logo" size={38} />
+          <img src={bootPose} alt="" className="boot-mimi" draggable={false} />
         </div>
         <div className="boot-text">
           {resumedExisting ? "Restoring your session…" : "Starting MimiWork…"}

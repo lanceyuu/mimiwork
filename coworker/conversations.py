@@ -94,6 +94,7 @@ class ConversationStore:
                 archived INTEGER DEFAULT 0,
                 sort_order INTEGER DEFAULT 0,
                 instructions TEXT,
+                source_workspace TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS tool_runs (
@@ -140,6 +141,10 @@ class ConversationStore:
             # would have been worse than none: the OS empties it, and instructions
             # someone typed must not evaporate.
             "ALTER TABLE projects ADD COLUMN instructions TEXT",
+            # The folder this group was migrated FROM. Provenance only — nothing reads
+            # it as a working directory — but it is what lets memory the user saved
+            # against that folder be re-scoped to the group that replaced it.
+            "ALTER TABLE projects ADD COLUMN source_workspace TEXT",
         ):
             try:
                 self._conn.execute(ddl)
@@ -284,13 +289,15 @@ class ConversationStore:
                 name = (m["name"] if m and m["name"] else "") or Path(path).name or path
                 pid = f"grp_{_uuid.uuid4().hex[:12]}"
                 self._conn.execute(
-                    "INSERT INTO projects (id, name, emoji, pinned, archived) VALUES (?,?,?,?,?)",
+                    "INSERT INTO projects (id, name, emoji, pinned, archived, source_workspace) "
+                    "VALUES (?,?,?,?,?,?)",
                     (
                         pid,
                         name[:80],
                         (m["emoji"] if m else "") or "",
                         int(bool(m["pinned"])) if m else 0,
                         int(bool(m["archived"])) if m else 0,
+                        path,
                     ),
                 )
                 self._conn.execute(
@@ -608,6 +615,19 @@ class ConversationStore:
             }
             for r in rows
         ]
+
+    def project_origins(self) -> dict[str, str]:
+        """`{project_id: the folder it was migrated from}` for groups that came from one.
+
+        Provenance from the folder-to-group migration. The manager uses it once, to move
+        memory the user saved against a folder onto the group that replaced it.
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, source_workspace FROM projects WHERE source_workspace IS NOT NULL "
+                "AND source_workspace != ''"
+            ).fetchall()
+        return {r["id"]: r["source_workspace"] for r in rows}
 
     def project_instructions(self, project_id: str) -> str:
         """The group's standing instructions, or "" — read per session build."""

@@ -231,6 +231,9 @@ def build_engine(
     # Standing instructions from the session's project GROUP (2026-08-31). A group has
     # no folder, so this arrives as text rather than being read off disk.
     group_instructions: Optional[str] = None,
+    # The project GROUP this conversation is filed under. Scopes the memory it starts
+    # with, and the memory `remember` writes when the model says "about this project".
+    project_id: Optional[str] = None,
     # True when the user turned memory OFF in Settings (vs. memory simply not wired):
     # injects the honesty notice so the model says so instead of faking a save.
     memory_off: bool = False,
@@ -429,6 +432,7 @@ def build_engine(
             memory_tools(
                 memory_store,
                 workspace=str(ws) if ws else None,
+                project_id=project_id,
                 on_saved=on_memory_saved,
                 saving_enabled=_saving_enabled,
             )

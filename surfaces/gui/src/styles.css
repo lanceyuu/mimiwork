@@ -1051,6 +1051,15 @@ button.btn.sm.danger-btn:hover { border-color: var(--danger); }
   opacity: 0.9;
   animation: boot-pulse 1.4s ease-in-out infinite;
 }
+/* A fixed BOX, not a fixed height: the poses have different aspect ratios (a sleeping
+   Mimi is wide, a sitting one tall) and sizing by one dimension made some of them
+   loom. object-fit keeps every pose the same optical weight. */
+.boot-mimi {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  display: block;
+}
 .boot-text {
   font-size: 14px;
   opacity: 0.6;
