@@ -579,6 +579,11 @@ def build_engine(
     }
     engine.skill_loader = skill_loader  # type: ignore[attr-defined]
     engine.command_store = command_store  # type: ignore[attr-defined]  # None for workspace-less
+    # Teardown handle for the analysis kernel. It is a live subprocess with open
+    # pipes, so letting go of the engine does NOT reclaim it; whoever retires an
+    # engine has to close this. python_tools sets it on the context and its comment
+    # has always promised this hand-off — until now nothing read it back.
+    engine.python_kernel = getattr(context, "python_kernel", None)  # type: ignore[attr-defined]
     _engine_box.append(engine)  # late-bind for the countermand (see context_provider)
     return engine
 

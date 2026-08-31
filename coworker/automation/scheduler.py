@@ -13,7 +13,7 @@ import logging
 from typing import Awaitable, Callable, Optional
 
 from .models import ScheduledTask, TaskRun
-from .store import TaskStore
+from .store import TaskStore, _epoch_now
 
 logger = logging.getLogger("coworker.automation")
 
@@ -110,6 +110,7 @@ class Scheduler:
                 logger.info("skipping %s — previous run still going", task.id)
                 return None
             self._running_ids.add(task.id)
+        run: Optional[TaskRun] = None
         try:
             run = await self.runner(task, trigger)
         except Exception as exc:
@@ -117,14 +118,29 @@ class Scheduler:
             run = TaskRun(
                 task_id=task.id, status="error", error=str(exc), trigger=trigger
             )
-            self.store.add_run(run)
+            # Recording the failure must not COST us the reschedule below. When the
+            # host is out of file descriptors every run fails here AND this write
+            # fails too, and an escaping exception used to skip the save — so
+            # next_run never advanced, the task came due again on the next 30s tick,
+            # and each retry leaked more descriptors. Hundreds of sessions, all
+            # "[Errno 24] Too many open files" (owner-hit 2026-08-31).
+            try:
+                self.store.add_run(run)
+            except Exception:
+                logger.exception("could not record the failed run for %s", task.id)
         finally:
             self._running_ids.discard(task.id)
-        # advance the task (run_count/last_run) → save recomputes next_run.
-        fresh = self.store.get(task.id)
-        if fresh is not None:
-            fresh.run_count += 1
-            fresh.last_run = run.started_at if run else None
-            fresh.last_status = run.status if run else "error"
-            self.store.save(fresh)
+            # Advance the task (run_count/last_run) → save recomputes next_run.
+            # In `finally` because a schedule that cannot move forward is the one
+            # failure that repeats itself: whatever went wrong, this task must not
+            # still be due when the next tick comes round.
+            try:
+                fresh = self.store.get(task.id)
+                if fresh is not None:
+                    fresh.run_count += 1
+                    fresh.last_run = run.started_at if run else _epoch_now()
+                    fresh.last_status = run.status if run else "error"
+                    self.store.save(fresh)
+            except Exception:
+                logger.exception("could not advance the schedule for %s", task.id)
         return run

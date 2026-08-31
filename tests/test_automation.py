@@ -538,3 +538,107 @@ async def test_scheduled_run_broadcasts_run_started_event(tmp_path, monkeypatch)
     assert event["data"]["session_id"] == run.session_id
     assert event["data"]["trigger"] == "schedule"
     assert dead not in manager._event_clients  # dropped, not fatal
+
+
+# -- the runaway-automation regression (owner-hit 2026-08-31) ------------------
+def _force_due(store, task) -> None:
+    """Push a saved task's next_run into the past (save() recomputes it)."""
+    store._conn.execute(
+        "UPDATE scheduled_tasks SET next_run=1.0 WHERE id=?", (task.id,)
+    )
+    store._conn.commit()
+
+
+async def test_a_schedule_advances_even_when_recording_the_failure_fails(tmp_path):
+    """The runaway loop: on a host out of file descriptors the run failed AND writing
+    the failure failed, the exception escaped past the reschedule, so next_run never
+    moved and the task came due again on every 30s tick — each retry leaking more
+    descriptors. Hundreds of dead sessions, all "[Errno 24] Too many open files"."""
+    store = TaskStore(tmp_path / "auto.db")
+    t = _task(schedule=Schedule(kind="cron", cron="* * * * *"))
+    store.save(t)
+    _force_due(store, t)
+
+    async def failing_runner(task, trigger):
+        raise OSError(24, "Too many open files")
+
+    sched = Scheduler(store, failing_runner)
+    # The store cannot record the failure either — the disk/descriptor problem that
+    # broke the run breaks the write about it.
+    def refuse(_run):
+        raise OSError(24, "Too many open files")
+
+    store.add_run = refuse  # type: ignore[method-assign]
+
+    await sched.run_task(t, trigger="schedule")
+
+    advanced = store.get(t.id)
+    assert advanced is not None
+    assert advanced.last_status == "error"
+    # The one thing that must hold: it is no longer due, so the next tick lets it be.
+    assert advanced.next_run is not None and advanced.next_run > time.time()
+    assert store.due() == []
+
+
+def test_finished_automation_runs_do_not_pile_up_live_engines(tmp_path):
+    """The root cause of the runaway. Every scheduled run registered a live engine
+    under its `__run__` session and nothing ever removed one — `delete_session`
+    refuses `__` ids, so the user could not clear them either. On a machine that had
+    been up a while that ends as "[Errno 24] Too many open files", every later run
+    fails, and (before the scheduler fix) the schedule stopped advancing and retried
+    every tick for ever.
+
+    Retiring one is free: the transcript is on disk and reopening rebuilds it."""
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+
+    class _Engine:
+        def __init__(self) -> None:
+            self.python_kernel = _Kernel()
+
+    class _Kernel:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    engines = {f"__run__r{i}": _Engine() for i in range(40)}
+    mgr._engines.update(engines)
+    mgr._engines["a-real-session"] = _Engine()  # a person's session, not a run
+
+    newest = "__run__r39"
+    mgr._retire_finished_run_engines(keep=newest)
+
+    kept = [sid for sid in mgr._engines if sid.startswith("__run__")]
+    assert len(kept) == mgr._RUN_ENGINE_CACHE + 1, kept
+    assert newest in kept, "the run just registered must survive"
+    assert kept == sorted(kept, key=lambda s: int(s.removeprefix("__run__r")))[-len(kept):], (
+        "the survivors must be the newest, not an arbitrary slice"
+    )
+    # A person's own session is never touched by automation housekeeping.
+    assert "a-real-session" in mgr._engines
+    # And the retired kernels are actually shut down — dropping the reference does
+    # not reclaim a child process holding pipes.
+    retired = [sid for sid in engines if sid not in kept]
+    assert retired and all(engines[sid].python_kernel.closed for sid in retired)
+
+
+def test_a_run_still_going_is_never_retired(tmp_path):
+    """Age is not the test — liveness is. A long automation parked on an approval
+    must keep its engine however many runs have started since."""
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+
+    class _Engine:
+        python_kernel = None
+
+    for i in range(40):
+        mgr._engines[f"__run__r{i}"] = _Engine()
+    parked = "__run__r0"  # the oldest of all
+    mgr.try_mark_running(parked)
+
+    mgr._retire_finished_run_engines(keep="__run__r39")
+
+    assert parked in mgr._engines, "a live run lost its engine mid-flight"

@@ -4409,6 +4409,21 @@ class SessionManager:
             task_id=task.id, trigger=trigger
         )  # __post_init__ sets run.session_id
         self.task_store.add_run(run)  # mark "running"
+        try:
+            return await self._drive_scheduled_run(task, run, trigger)
+        except Exception as exc:
+            # Everything from here to the engine's own try/finally — building the
+            # engine, claiming the session, the start broadcast — used to be able to
+            # throw straight past the run row we just wrote as "running". The row
+            # stayed "running" for ever and the scheduler wrote a SECOND row for the
+            # same attempt, which is why a failing automation showed up as endless
+            # error/running pairs (owner-hit 2026-08-31). One attempt, one row.
+            run.status, run.error = "error", str(exc)
+            run.finished_at = _epoch()
+            self.task_store.add_run(run)
+            return run
+
+    async def _drive_scheduled_run(self, task, run: TaskRun, trigger: str) -> TaskRun:
         self._active_automation_runs += 1
         self._active_automation_titles.append(task.title)
         self._active_automation_info.append(
@@ -4438,6 +4453,7 @@ class SessionManager:
         # Register the live engine up-front: a parked approval persists the session
         # mid-run (durable suspend), and resolving from the Inbox must find this engine.
         self._engines[run.session_id] = engine
+        self._retire_finished_run_engines(keep=run.session_id)
         if not self.try_mark_running(run.session_id):
             raise RuntimeError("scheduled run session is already active")
         # The first turn is the task itself. The framing matters: instructions often restate the
@@ -4474,10 +4490,46 @@ class SessionManager:
             try:
                 self.save(run.session_id, engine)
                 self._engines[run.session_id] = engine
+                self._retire_finished_run_engines(keep=run.session_id)
             except Exception:
                 pass
             self.task_store.add_run(run)
         return run
+
+    # How many finished automation runs keep a live engine in memory. The point of
+    # holding one at all is the immediate follow-up: the run finishes, the user opens
+    # it and asks "why?" while it is still on screen. A handful covers that. Past it,
+    # the engine is just a parked Python kernel and a fistful of open files.
+    _RUN_ENGINE_CACHE = 8
+
+    def _retire_finished_run_engines(self, *, keep: str) -> None:
+        """Drop all but the newest few finished automation-run engines.
+
+        An automation that runs every few minutes used to add one engine per run and
+        never remove one: `__run__` sessions cannot be deleted (delete_session refuses
+        `__` ids), so nothing ever evicted them. On a long-lived server that ends as
+        "[Errno 24] Too many open files", every subsequent run fails, and — before the
+        scheduler fix alongside this — the schedule stopped advancing and retried every
+        tick for ever (owner-hit 2026-08-31, hundreds of dead sessions).
+
+        Dropping one is free: the transcript is on disk and `build_engine` rebuilds it
+        on the next open. Runs still going are never touched, whatever their age.
+        """
+        run_ids = [
+            sid
+            for sid in self._engines
+            if sid.startswith("__run__") and sid != keep and not self.is_running(sid)
+        ]
+        for sid in run_ids[: max(0, len(run_ids) - self._RUN_ENGINE_CACHE)]:
+            engine = self._engines.pop(sid, None)
+            # Dropping the reference is not enough for the analysis kernel: it is a
+            # child process holding pipes, and it outlives the engine unless closed.
+            kernel = getattr(engine, "python_kernel", None)
+            if kernel is not None:
+                try:
+                    kernel.close()
+                except Exception:
+                    logger.exception("could not close the analysis kernel for %s", sid)
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
