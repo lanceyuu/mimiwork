@@ -58,7 +58,9 @@ test("deleting an automation clears the band at once; nav re-entry lands on the 
   // Open the automation from the band, delete it from the detail.
   await page.getByTestId("scheduled-task-2").click();
   await expect(page.getByRole("heading", { name: "Weekly CRM digest" })).toBeVisible();
-  await page.getByRole("button", { name: /Delete/ }).click();
+  await page.getByTestId("automation-detail-delete").click();
+  // Deleting asks now (2026-08-31) — answer it.
+  await page.getByTestId("confirm-accept").click();
 
   // The Scheduled band drops the entry immediately (broadcast, not the 15s poll)…
   await expect(page.getByTestId("scheduled-task-2")).toHaveCount(0);

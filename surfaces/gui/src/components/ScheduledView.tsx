@@ -15,6 +15,7 @@ import {
   type AutomationRun,
   type Blueprint,
 } from "../api";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { SelectMenu } from "./SelectMenu";
@@ -144,6 +145,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  // The automation the delete dialog is asking about (null = not asking).
+  const [confirmDel, setConfirmDel] = useState<{ id: string; title: string } | null>(null);
   // A parsed .mimiflow.json waiting in the creation form (import flow).
   const [prefill, setPrefill] = useState<Blueprint | null>(null);
   // Starter blueprints bundled with the app — one click prefills the review form.
@@ -335,10 +338,13 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
                   className="sched-card-del"
                   title="Delete automation"
                   aria-label={`Delete ${t.title}`}
-                  onClick={async (e) => {
+                  data-testid="automation-card-delete"
+                  onClick={(e) => {
                     e.stopPropagation();
-                    await deleteAutomation(t.id);
-                    refresh();
+                    // This used to delete on the click itself, with no question asked,
+                    // from a list you scroll past — the trash icon sits inches from the
+                    // card you were aiming for (2026-08-31).
+                    setConfirmDel({ id: t.id, title: t.title });
                   }}
                 >
                   <Icon name="trash" size={14} />
@@ -352,6 +358,21 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
             </div>
           ))}
         </div>
+      )}
+      {confirmDel && (
+        <ConfirmDialog
+          title="Delete this automation?"
+          body={`${confirmDel.title} — it stops running and its past runs are removed. Files it produced stay where they are.`}
+          confirmLabel="Delete automation"
+          onCancel={() => setConfirmDel(null)}
+          onConfirm={async () => {
+            const id = confirmDel.id;
+            setConfirmDel(null);
+            await deleteAutomation(id).catch(() => undefined);
+            announceAutomationsChanged();
+            refresh();
+          }}
+        />
       )}
     </Shell>
   );
@@ -647,6 +668,10 @@ function TaskDetail({
   // The seen mark AS OF opening — the "new" pills compare against this frozen value
   // while mark-seen advances the stored one (badge clears; highlights survive).
   const [seenMark, setSeenMark] = useState<number | null>(null);
+  // Declared with the other hooks and ABOVE the `if (!task)` early return: a useState
+  // below it runs conditionally, which crashes the whole detail page on the render
+  // where the task has not arrived yet.
+  const [confirmRemove, setConfirmRemove] = useState(false);
 
   const refresh = () =>
     getAutomation(id)
@@ -766,7 +791,11 @@ function TaskDetail({
                   Share blueprint
                 </button>
                 <button className="btn sm" onClick={startEdit}>Edit</button>
-                <button className="btn sm danger-btn" onClick={remove}>
+                <button
+                  className="btn sm danger-btn"
+                  data-testid="automation-detail-delete"
+                  onClick={() => setConfirmRemove(true)}
+                >
                   <Icon name="trash" size={14} /> Delete
                 </button>
               </>
@@ -888,6 +917,18 @@ function TaskDetail({
           </div>
         ))}
       </div>
+      {confirmRemove && (
+        <ConfirmDialog
+          title="Delete this automation?"
+          body={`${task.title} — it stops running and its past runs are removed. Files it produced stay where they are.`}
+          confirmLabel="Delete automation"
+          onCancel={() => setConfirmRemove(false)}
+          onConfirm={() => {
+            setConfirmRemove(false);
+            void remove();
+          }}
+        />
+      )}
     </Shell>
   );
 }

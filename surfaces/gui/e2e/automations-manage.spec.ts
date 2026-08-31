@@ -41,12 +41,14 @@ test("enable toggle pauses the task", async ({ page }) => {
 test("delete removes the task; deleting the last one shows the empty state", async ({ page }) => {
   await openAutomations(page);
   await page.locator(".sched-card", { hasText: "Daily AI News" }).click();
-  await page.getByRole("button", { name: /Delete/ }).click();
+  await page.getByTestId("automation-detail-delete").click();
+  await page.getByTestId("confirm-accept").click(); // deleting asks now (2026-08-31)
   // Back on the list, the deleted task is gone; the other seeded task remains.
   await expect(page.locator(".sched-card", { hasText: "Daily AI News" })).toHaveCount(0);
   await expect(page.locator(".sched-card", { hasText: "Weekly CRM digest" })).toHaveCount(1);
 
   await page.locator(".sched-card", { hasText: "Weekly CRM digest" }).click();
-  await page.getByRole("button", { name: /Delete/ }).click();
+  await page.getByTestId("automation-detail-delete").click();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.getByText(/No scheduled tasks yet/)).toBeVisible();
 });
