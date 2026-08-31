@@ -14,6 +14,7 @@ function stubFetch(detail: any) {
     if (url.includes("/v1/projects/detail")) return { ok: true, json: async () => detail } as Response;
     if (url.includes("/v1/projects/instructions"))
       return { ok: true, json: async () => ({ ok: true }) } as Response;
+    if (url.includes("/v1/memory")) return { ok: true, json: async () => ({ id: 9 }) } as Response;
     if (url.includes("/v1/projects") && method === "DELETE")
       return { ok: true, json: async () => ({ ok: true, deleted_sessions: 0, ungrouped: 1 }) } as Response;
     if (url.includes("/v1/projects") && method === "PATCH")
@@ -36,6 +37,9 @@ const DETAIL = {
     sessions: 1, last_activity: "", has_instructions: true,
   },
   instructions: "Cite in APA 7.",
+  memory: [
+    { id: 7, scope: "project", content: "Participants are coded P01–P24", summary: "", created_at: "" },
+  ],
   sessions: [
     { session_id: "s1", title: "Lit review", workspace: "/p/thesis", agent: "cowork", updated_at: "" },
   ],
@@ -136,5 +140,41 @@ describe("ProjectView — a group, not a folder", () => {
     fireEvent.click(await screen.findByTestId("project-delete"));
     expect(screen.getByTestId("confirm-dialog").textContent).toContain("empty");
     expect(screen.queryByTestId("project-delete-sessions")).toBeNull();
+  });
+});
+
+describe("ProjectView — what Mimi knows, scoped to the group", () => {
+  it("lists the group's memory and adds a new fact against the group", async () => {
+    const calls = stubFetch(DETAIL);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} />);
+
+    expect((await screen.findByTestId("project-memory-row")).textContent).toContain(
+      "Participants are coded P01–P24",
+    );
+
+    fireEvent.change(screen.getByTestId("project-memory-new"), {
+      target: { value: "Interviews run 45 minutes" },
+    });
+    fireEvent.click(screen.getByTestId("project-memory-add"));
+
+    await waitFor(() => {
+      const post = calls.find((c) => c.url.includes("/v1/memory") && c.method === "POST");
+      // The group, never a folder — the page has no folder to scope against.
+      expect(post?.body).toEqual({
+        content: "Interviews run 45 minutes",
+        scope: "project",
+        project_id: "grp_1",
+      });
+    });
+  });
+
+  it("forgetting a fact asks the server to delete it", async () => {
+    const calls = stubFetch(DETAIL);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("project-memory-forget"));
+
+    await waitFor(() => {
+      expect(calls.find((c) => c.url.includes("/v1/memory/7") && c.method === "DELETE")).toBeTruthy();
+    });
   });
 });

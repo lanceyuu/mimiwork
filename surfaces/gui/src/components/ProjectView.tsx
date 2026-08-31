@@ -11,6 +11,8 @@
  */
 import { useEffect, useState } from "react";
 import {
+  addMemory,
+  deleteMemory,
   deleteProject,
   getProjectDetail,
   setProjectInstructions,
@@ -59,6 +61,7 @@ export function ProjectView(props: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [alsoSessions, setAlsoSessions] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [newFact, setNewFact] = useState("");
 
   const refresh = () =>
     getProjectDetail(props.projectId)
@@ -85,6 +88,14 @@ export function ProjectView(props: {
   const patch = async (fields: Parameters<typeof updateProject>[1]) => {
     await updateProject(props.projectId, fields).catch(() => undefined);
     props.onChanged?.();
+    void refresh();
+  };
+
+  const saveFact = async () => {
+    const content = newFact.trim();
+    if (!content) return;
+    setNewFact("");
+    await addMemory(content, "project", undefined, props.projectId).catch(() => undefined);
     void refresh();
   };
 
@@ -193,6 +204,60 @@ export function ProjectView(props: {
               {saving ? t("Saving…") : t("Save")}
             </button>
             {dirty && <span className="text-[12px] text-faint">{t("Unsaved changes")}</span>}
+          </div>
+        </section>
+
+        {/* What Mimi has learned. Scoped to the GROUP now: this used to be the folder's
+            memory, which had nowhere to live once a project stopped being a folder. */}
+        <section className="mt-8">
+          <h2 className="text-[13px] font-semibold text-ink">{t("What Mimi knows")}</h2>
+          <p className="text-[12px] text-muted mt-1 leading-relaxed">
+            {t("Facts Mimi picked up while working on this project. Edits apply to new conversations.")}
+          </p>
+          {detail.memory.length > 0 && (
+            <div className="mt-2.5 rounded-xl2 border border-line bg-panel overflow-hidden">
+              {detail.memory.map((m) => (
+                <div
+                  key={m.id}
+                  className="flex items-start gap-2.5 px-3.5 py-2.5 border-b border-line last:border-b-0"
+                  data-testid="project-memory-row"
+                >
+                  <span className="flex-1 min-w-0 text-[12.5px] text-ink leading-relaxed">
+                    {m.content}
+                  </span>
+                  <button
+                    className="shrink-0 text-faint hover:text-danger"
+                    title={t("Forget this")}
+                    aria-label={t("Forget this")}
+                    data-testid="project-memory-forget"
+                    onClick={async () => {
+                      await deleteMemory(m.id).catch(() => undefined);
+                      void refresh();
+                    }}
+                  >
+                    <Icon name="trash" size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="flex-1 px-3 py-2 rounded-lg border border-line bg-panel text-[13px] text-ink outline-none focus:border-lineStrong"
+              value={newFact}
+              data-testid="project-memory-new"
+              placeholder={t("Teach Mimi something about this project")}
+              onChange={(e) => setNewFact(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && newFact.trim() && void saveFact()}
+            />
+            <button
+              className="btn sm"
+              disabled={!newFact.trim()}
+              data-testid="project-memory-add"
+              onClick={() => void saveFact()}
+            >
+              {t("Add")}
+            </button>
           </div>
         </section>
 

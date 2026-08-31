@@ -1444,13 +1444,19 @@ export async function getMemory(workspace?: string): Promise<MemoryEntry[]> {
  * `remember` tool writes to when a session runs in that folder). */
 export async function addMemory(
   content: string,
-  scope: "workspace" | "global" = "workspace",
+  scope: "workspace" | "global" | "project" = "workspace",
   workspace?: string,
+  projectId?: string,
 ): Promise<{ id?: number; ok?: boolean; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/memory`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, scope, ...(workspace ? { workspace } : {}) }),
+    body: JSON.stringify({
+      content,
+      scope,
+      ...(workspace ? { workspace } : {}),
+      ...(projectId ? { project_id: projectId } : {}),
+    }),
   });
   return res.json();
 }
@@ -1478,6 +1484,8 @@ export interface ProjectDetail {
   project: Project;
   /** Standing instructions, stored ON the group — a group has no file to hold them. */
   instructions: string;
+  /** What Mimi has learned about this project. Scoped to the GROUP now, not a folder. */
+  memory: MemoryEntry[];
   sessions: SessionInfo[];
 }
 

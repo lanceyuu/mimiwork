@@ -404,3 +404,74 @@ def test_an_untitled_conversation_does_not_name_a_group(tmp_path):
 
     row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
     assert row["name"] == "New project"
+
+
+def test_what_a_project_knows_follows_it_from_the_folder_to_the_group(tmp_path):
+    """Project memory was workspace-scoped, because a project WAS a folder. With the
+    folder gone those facts would have been orphaned — still in the database, still
+    injected for anything working in that directory, but unreachable from the project
+    they belong to. The migration records where each group came from; the memory follows
+    that trail exactly once."""
+    from coworker.memory import Scope, SQLiteMemoryStore
+
+    base = tmp_path / "state"
+    folder = tmp_path / "Interview study"
+    folder.mkdir()
+    _legacy_db(base, folder, ("s1",))
+
+    # A fact the user saved against that folder, before the change.
+    mem = SQLiteMemoryStore(base / "coworker.db")
+    mem.add("Participants are coded P01–P24", scope=Scope.WORKSPACE, workspace=str(folder))
+
+    manager = SessionManager(workspace=tmp_path, data_dir=base, provider=_StubProvider())
+    groups = manager.session_store.list_projects()
+    assert len(groups) == 1
+    pid = groups[0]["id"]
+
+    moved = manager.list_memory(project_id=pid)
+    assert [m["content"] for m in moved] == ["Participants are coded P01–P24"]
+    # And it no longer answers as a folder fact — one memory, one home.
+    assert manager.list_memory(workspace=str(folder)) == []
+
+
+def test_a_grouped_conversation_saves_what_it_learns_to_the_group(tmp_path):
+    """"Remember this about the project" has to mean the group now."""
+    from coworker.memory import Scope, SQLiteMemoryStore
+    from coworker.memory.tools import memory_tools
+
+    store = SQLiteMemoryStore(tmp_path / "m.db")
+    tools = memory_tools(store, workspace=str(tmp_path / "w"), project_id="grp_1")
+    remember = next(t for t in tools if t.__name__ == "remember")
+
+    out = remember("Cite the transcript line number", "citation style", "workspace")
+    assert out["saved"] and out["scope"] == "project"
+    items = store.list(scope=Scope.PROJECT, project_id="grp_1")
+    assert [i.content for i in items] == ["Cite the transcript line number"]
+    # Not also filed under the folder.
+    assert store.list(scope=Scope.WORKSPACE, workspace=str(tmp_path / "w")) == []
+
+
+def test_an_ungrouped_conversation_still_uses_folder_memory(tmp_path):
+    """Not everything is in a group, and folder-scoped memory still works for the rest."""
+    from coworker.memory import Scope, SQLiteMemoryStore
+    from coworker.memory.tools import memory_tools
+
+    store = SQLiteMemoryStore(tmp_path / "m.db")
+    tools = memory_tools(store, workspace=str(tmp_path / "w"), project_id=None)
+    remember = next(t for t in tools if t.__name__ == "remember")
+
+    assert remember("Uses Stata 18", "", "workspace")["scope"] == "workspace"
+    assert len(store.list(scope=Scope.WORKSPACE, workspace=str(tmp_path / "w"))) == 1
+
+
+def test_a_global_fact_is_never_pulled_into_a_group(tmp_path):
+    """Facts about the USER apply everywhere; grouping must not narrow them."""
+    from coworker.memory import Scope, SQLiteMemoryStore
+    from coworker.memory.tools import memory_tools
+
+    store = SQLiteMemoryStore(tmp_path / "m.db")
+    tools = memory_tools(store, workspace=str(tmp_path / "w"), project_id="grp_1")
+    remember = next(t for t in tools if t.__name__ == "remember")
+
+    assert remember("Writes in British English", "", "global")["scope"] == "global"
+    assert store.list(scope=Scope.PROJECT, project_id="grp_1") == []
