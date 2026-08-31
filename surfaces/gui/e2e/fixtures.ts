@@ -524,6 +524,17 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // Installed personas — mutable so enable/surface/delete round-trip through the UI.
   const personas: any[] = PERSONAS.personas.map((p) => ({ ...p }));
   // Sessions — mutable so archive (PATCH), rename (PATCH), and delete round-trip.
+  // Project groups, and the helpers the routes above use to answer about membership.
+  const projects: any[] = [];
+  const membersOf = (id: string) =>
+    sessions.filter((s: any) => s.project_id === id && !s.session_id.startsWith("__"));
+  const projectRows = () =>
+    projects.map((r) => ({
+      ...r,
+      sessions: membersOf(r.id).length,
+      last_activity: "",
+      has_instructions: !!r.instructions,
+    }));
   const sessions: any[] = [
     { ...PINNED_SESSION },
     ...EXTRA_SESSIONS.map((s) => ({ ...s })),
@@ -951,8 +962,59 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const match = /%%pages=(\d+)/.exec(atob(data.split(",")[1] || "") || "");
       return json({ ok: true, pages: match ? Number(match[1]) : 1, bytes: data.length });
     }
-    if (p.endsWith("/v1/projects") && m === "GET") return json({ projects: [] });
-    if (p.endsWith("/v1/projects/detail")) return json({ ok: false, error: "unknown project" });
+    const gb = () => req.postDataJSON() || {};
+    const qs = () => new URL(req.url()).searchParams;
+    // Projects are GROUPS (2026-08-31): mutable here so create + drag-to-file can be
+    // driven end to end, the way the real app does it.
+    if (p.endsWith("/v1/projects") && m === "GET") return json({ projects: projectRows() });
+    if (p.endsWith("/v1/projects") && m === "POST") {
+      const row = {
+        id: `grp_${projects.length + 1}`,
+        name: String(gb()?.name || "New project"),
+        emoji: String(gb()?.emoji || ""),
+        pinned: false,
+        archived: false,
+        instructions: "",
+      };
+      projects.push(row);
+      return json({ ok: true, project: { ...row, sessions: 0, last_activity: "", has_instructions: false } });
+    }
+    if (p.endsWith("/v1/projects") && m === "PATCH") {
+      const row = projects.find((r) => r.id === gb()?.id);
+      if (row) Object.assign(row, gb());
+      return json({ ok: !!row, project: row });
+    }
+    if (p.endsWith("/v1/projects") && m === "DELETE") {
+      const id = qs().get("id") || "";
+      const idx = projects.findIndex((r) => r.id === id);
+      if (idx >= 0) projects.splice(idx, 1);
+      sessions.forEach((s: any) => {
+        if (s.project_id === id) s.project_id = null;
+      });
+      return json({ ok: idx >= 0, deleted_sessions: 0, ungrouped: 0 });
+    }
+    if (p.endsWith("/v1/projects/instructions") && m === "PUT") {
+      const row = projects.find((r) => r.id === gb()?.id);
+      if (row) row.instructions = String(gb()?.text || "");
+      return json({ ok: !!row, instructions: row?.instructions ?? "" });
+    }
+    if (p.endsWith("/v1/projects/detail")) {
+      const row = projects.find((r) => r.id === qs().get("id"));
+      if (!row) return json({ ok: false, error: "unknown project" });
+      return json({
+        ok: true,
+        project: { ...row, sessions: membersOf(row.id).length, last_activity: "", has_instructions: !!row.instructions },
+        instructions: row.instructions || "",
+        sessions: membersOf(row.id),
+      });
+    }
+    if (/\/v1\/sessions\/[^/]+\/project$/.test(p) && m === "POST") {
+      const sid = p.split("/").slice(-2)[0];
+      const target = sessions.find((s: any) => s.session_id === sid);
+      if (!target) return json({ ok: false, error: "unknown session" });
+      target.project_id = gb()?.project_id ?? null;
+      return json({ ok: true, session_id: sid, project_id: target.project_id });
+    }
     if (p.endsWith("/v1/workspaces/recent")) return json({ workspaces: [] });
     if (p.endsWith("/v1/workspaces/pick") && m === "POST") {
       return json({ ok: true, path: "/tmp/picked-folder" });

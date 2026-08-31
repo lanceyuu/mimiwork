@@ -86,7 +86,7 @@ test("pin via the row menu moves the session to the Pinned band and back", async
   await expect(page.getByTitle("Weekly plan 4")).toHaveCount(1);
 });
 
-test("delete is two-step: the menu's Delete arms, Delete? confirms", async ({ page }) => {
+test("delete asks in a dialog naming the chat, and cancelling keeps it", async ({ page }) => {
   await page.goto("/");
   const row = page.getByTitle("Weekly plan 3");
   await expect(row).toBeVisible();
@@ -94,10 +94,34 @@ test("delete is two-step: the menu's Delete arms, Delete? confirms", async ({ pa
   await row.hover();
   await row.getByTestId("row-menu").click();
   await row.getByTestId("row-menu-delete").click();
-  // First click only ARMS — the menu stays open showing the confirm affordance, the row remains.
-  await expect(row.getByTestId("row-menu-delete")).toHaveText("Delete?");
+
+  // A dialog, not the word "Delete?" appearing under a mouse already moving toward it.
+  const dialog = page.getByTestId("confirm-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Weekly plan 3");
   await expect(page.getByTitle("Weekly plan 3")).toHaveCount(1);
 
+  // Cancel means cancel.
+  await page.getByTestId("confirm-cancel").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTitle("Weekly plan 3")).toHaveCount(1);
+
+  await row.hover();
+  await row.getByTestId("row-menu").click();
   await row.getByTestId("row-menu-delete").click();
+  await page.getByTestId("confirm-accept").click();
   await expect(page.getByTitle("Weekly plan 3")).toHaveCount(0);
+});
+
+test("Escape leaves the delete dialog without deleting", async ({ page }) => {
+  await page.goto("/");
+  const row = page.getByTitle("Weekly plan 2");
+  await row.hover();
+  await row.getByTestId("row-menu").click();
+  await row.getByTestId("row-menu-delete").click();
+
+  await expect(page.getByTestId("confirm-dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("confirm-dialog")).toHaveCount(0);
+  await expect(page.getByTitle("Weekly plan 2")).toHaveCount(1);
 });

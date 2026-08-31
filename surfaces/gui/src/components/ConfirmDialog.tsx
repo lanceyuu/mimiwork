@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { useT } from "../i18n";
@@ -20,6 +20,7 @@ export function ConfirmDialog({
   destructive = true,
   onConfirm,
   onCancel,
+  children,
 }: {
   title: string;
   /** Optional second line — the specific consequence, in plain words. */
@@ -28,6 +29,9 @@ export function ConfirmDialog({
   destructive?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Extra controls that change what the confirm DOES — e.g. "also delete its
+   *  conversations". Anything here must be a choice, never more prose. */
+  children?: ReactNode;
 }) {
   const t = useT();
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -62,6 +66,7 @@ export function ConfirmDialog({
           <div className="min-w-0">
             <div className="text-[13.5px] font-semibold text-ink">{title}</div>
             {body && <div className="mt-1 text-[12.5px] text-muted leading-relaxed">{body}</div>}
+            {children}
           </div>
         </div>
         <div className="px-5 py-3 border-t border-line flex items-center justify-end gap-2">

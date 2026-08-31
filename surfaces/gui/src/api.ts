@@ -1455,15 +1455,18 @@ export async function addMemory(
   return res.json();
 }
 
-// ── Projects (PROJECTS spec, 2026-08-21): a project = a real folder + metadata ──
+// ── Projects: a project GROUPS conversations (2026-08-31) ──
+// No path, no folder, no bearing on where a session writes. It used to BE a workspace
+// folder, so "file this under X" and "put its files in X" were one act; membership now
+// rides on the session (`project_id`) and the folder went away entirely.
 
 export interface Project {
-  path: string;
+  id: string;
   name: string;
   emoji: string;
   pinned: boolean;
   archived: boolean;
-  exists: boolean;
+  /** Live members — archived conversations are not counted. */
   sessions: number;
   last_activity: string;
   has_instructions: boolean;
@@ -1473,58 +1476,86 @@ export interface ProjectDetail {
   ok: boolean;
   error?: string;
   project: Project;
-  /** The folder's AGENTS.md — injected into every new session as "Project conventions". */
+  /** Standing instructions, stored ON the group — a group has no file to hold them. */
   instructions: string;
-  instructions_file: string;
-  memory: MemoryEntry[];
   sessions: SessionInfo[];
 }
 
 export async function getProjects(): Promise<Project[]> {
   const res = await fetch(`${httpBase()}/v1/projects`);
-  return (await res.json()).projects ?? [];
+  const body = await res.json().catch(() => ({}));
+  return Array.isArray(body?.projects) ? body.projects : [];
+}
+
+export async function createProject(
+  name: string,
+  emoji = "",
+): Promise<{ ok: boolean; project?: Project; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, emoji }),
+  });
+  return res.json();
 }
 
 export async function updateProject(
-  path: string,
+  id: string,
   fields: Partial<Pick<Project, "name" | "emoji" | "pinned" | "archived">>,
 ): Promise<{ ok: boolean; project?: Project; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/projects`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, ...fields }),
+    body: JSON.stringify({ id, ...fields }),
   });
   return res.json();
 }
 
-/** Remove a project from MimiWork. The folder on disk is never touched — only the
- *  project's identity, its workspace memory and (unless kept) its conversations. */
+/** Remove the group. Its conversations return to the flat list; they are deleted only
+ *  when `deleteSessions` is explicitly asked for. */
 export async function deleteProject(
-  path: string,
+  id: string,
   opts: { deleteSessions?: boolean } = {},
-): Promise<{ ok: boolean; deleted_sessions?: number; error?: string }> {
-  const keep = opts.deleteSessions === false ? "false" : "true";
+): Promise<{ ok: boolean; deleted_sessions?: number; ungrouped?: number; error?: string }> {
+  const take = opts.deleteSessions === true ? "true" : "false";
   const res = await fetch(
-    `${httpBase()}/v1/projects?path=${encodeURIComponent(path)}&delete_sessions=${keep}`,
+    `${httpBase()}/v1/projects?id=${encodeURIComponent(id)}&delete_sessions=${take}`,
     { method: "DELETE" },
   );
   return res.json();
 }
 
-export async function getProjectDetail(path: string): Promise<ProjectDetail> {
-  const res = await fetch(`${httpBase()}/v1/projects/detail?path=${encodeURIComponent(path)}`);
+export async function getProjectDetail(id: string): Promise<ProjectDetail> {
+  const res = await fetch(`${httpBase()}/v1/projects/detail?id=${encodeURIComponent(id)}`);
   return res.json();
 }
 
 export async function setProjectInstructions(
-  path: string,
+  id: string,
   text: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/projects/instructions`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path, text }),
+    body: JSON.stringify({ id, text }),
   });
+  return res.json();
+}
+
+/** File a conversation under a group, or pass null to return it to the flat list.
+ *  Never moves files — grouping is about how you file things, not where they live. */
+export async function moveSessionToProject(
+  sessionId: string,
+  projectId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/project`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId }),
+    },
+  );
   return res.json();
 }
 

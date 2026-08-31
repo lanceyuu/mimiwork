@@ -84,6 +84,9 @@ export interface SessionInfo {
   // "From Slack" group and the row's platform icon.
   origin?: string;
   origin_label?: string;
+  // Which project GROUP this conversation is filed under (null/absent = the flat list).
+  // Independent of `workspace`: grouping says how you file things, not where files land.
+  project_id?: string | null;
 }
 
 // Attachments (images, PDFs, text files, Office/binary files) sent with a user message.

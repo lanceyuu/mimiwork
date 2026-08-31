@@ -143,12 +143,18 @@ describe("Chronological list row actions (⋮ menu)", () => {
     fireEvent.click(screen.getByTestId("row-menu-archive"));
     expect(baseProps.onArchiveSession).toHaveBeenCalledWith("s-ops-1", true);
 
-    // Delete is two-step: first click arms ("Delete?"), the second deletes.
+    // Delete opens a dialog naming the chat. It used to arm in place ("Delete?"
+    // replacing "Delete"), which put the confirm under a mouse already moving toward
+    // it — the second click was often the first one's momentum (2026-08-31).
     openOpsMenu();
     fireEvent.click(screen.getByTestId("row-menu-delete"));
     expect(baseProps.onDeleteSession).not.toHaveBeenCalled();
-    expect(screen.getByTestId("row-menu-delete").textContent).toContain("Delete?");
-    fireEvent.click(screen.getByTestId("row-menu-delete"));
+    const dialog = screen.getByTestId("confirm-dialog");
+    expect(dialog.textContent).toContain("Delete this chat?");
+    // Cancel holds focus, not the destructive button: a reflex should produce the
+    // safe answer.
+    expect(document.activeElement).toBe(screen.getByTestId("confirm-cancel"));
+    fireEvent.click(screen.getByTestId("confirm-accept"));
     expect(baseProps.onDeleteSession).toHaveBeenCalledWith("s-ops-1");
   });
 
@@ -330,8 +336,8 @@ describe("Sidebar projects band", () => {
         {...baseProps}
         onOpenProject={onOpenProject}
         projects={[
-          { path: "/p/thesis", name: "Thesis", emoji: "🎓", pinned: true, archived: false, exists: true, sessions: 3, last_activity: "", has_instructions: true },
-          { path: "/p/old", name: "Old", emoji: "", pinned: false, archived: true, exists: true, sessions: 0, last_activity: "", has_instructions: false },
+          { id: "grp_p_thesis", name: "Thesis", emoji: "🎓", pinned: true, archived: false, sessions: 3, last_activity: "", has_instructions: true },
+          { id: "grp_p_old", name: "Old", emoji: "", pinned: false, archived: true, sessions: 0, last_activity: "", has_instructions: false },
         ]}
       />,
     );
@@ -339,8 +345,9 @@ describe("Sidebar projects band", () => {
     const rows = band.querySelectorAll('[data-testid="project-row"]');
     expect(rows.length).toBe(1);
     expect(rows[0].textContent).toContain("Thesis");
-    fireEvent.click(rows[0]);
-    expect(onOpenProject).toHaveBeenCalledWith("/p/thesis");
+    // The row's NAME opens the project; the chevron beside it only expands.
+    fireEvent.click(rows[0].querySelectorAll("button")[1]);
+    expect(onOpenProject).toHaveBeenCalledWith("grp_p_thesis");
   });
 });
 
@@ -349,8 +356,8 @@ describe("Sidebar drag-to-project", () => {
     stubFetch([]);
     const onMoveSession = vi.fn();
     const project = {
-      path: "/Users/me/Thesis", name: "Thesis", emoji: "", pinned: false, archived: false,
-      exists: true, sessions: 0, last_activity: "", has_instructions: false,
+      id: "grp_thesis", name: "Thesis", emoji: "", pinned: false, archived: false,
+      sessions: 0, last_activity: "", has_instructions: false,
     };
     render(<Sidebar {...baseProps} projects={[project as any]} onMoveSession={onMoveSession} />);
     const row = (await screen.findAllByTestId("session-row"))[0];
@@ -367,7 +374,8 @@ describe("Sidebar drag-to-project", () => {
     fireEvent.dragOver(target, { dataTransfer: dt });
     expect(target.getAttribute("data-drop-active")).toBe("true");
     fireEvent.drop(target, { dataTransfer: dt });
-    expect(onMoveSession).toHaveBeenCalledWith(baseProps.sessions[0].session_id, "/Users/me/Thesis");
+    // Filed under the GROUP — the session's folder is not part of this at all.
+    expect(onMoveSession).toHaveBeenCalledWith(baseProps.sessions[0].session_id, "grp_thesis");
     expect(target.getAttribute("data-drop-active")).toBeNull();
   });
 });
@@ -377,7 +385,7 @@ describe("Sidebar archived projects", () => {
     stubFetch([]);
     const onOpenProject = vi.fn();
     const mk = (name: string, archived: boolean) => ({
-      path: `/p/${name}`, name, emoji: "", pinned: false, archived, exists: true,
+      id: `grp_${name}`, name, emoji: "", pinned: false, archived,
       sessions: 0, last_activity: "", has_instructions: false,
     });
     render(
@@ -390,12 +398,72 @@ describe("Sidebar archived projects", () => {
     await screen.findByTestId("projects-band");
     expect(screen.getAllByTestId("project-row").map((r) => r.textContent)).toEqual(["Live"]);
     const toggle = screen.getByTestId("projects-archived-toggle");
-    expect(toggle.textContent).toContain("Archived (1)");
+    expect(toggle.textContent).toContain("1 archived");
     expect(screen.queryByTestId("project-row-archived")).toBeNull();
     fireEvent.click(toggle);
     const row = screen.getByTestId("project-row-archived");
     expect(row.textContent).toContain("Old thesis");
     fireEvent.click(row);
-    expect(onOpenProject).toHaveBeenCalledWith("/p/Old thesis");
+    expect(onOpenProject).toHaveBeenCalledWith("grp_Old thesis");
+  });
+});
+
+describe("Sidebar — a project groups conversations (2026-08-31)", () => {
+  const GROUP = {
+    id: "grp_thesis", name: "Thesis", emoji: "🎓", pinned: false, archived: false,
+    sessions: 1, last_activity: "", has_instructions: false,
+  };
+
+  it("a filed conversation leaves the flat list and appears under its project", async () => {
+    stubFetch([]);
+    const filed = { ...baseProps.sessions[0], project_id: "grp_thesis" };
+    const rest = baseProps.sessions.slice(1);
+    render(<Sidebar {...baseProps} sessions={[filed, ...rest]} projects={[GROUP as any]} />);
+
+    // Gone from the flat list — a list that shows everything twice is not organised.
+    const flat = await screen.findAllByTestId("session-row");
+    expect(flat.map((r) => r.getAttribute("title") || r.textContent).join(" ")).not.toContain(
+      filed.title,
+    );
+
+    // And present once its project is expanded.
+    fireEvent.click(screen.getAllByTestId("project-toggle")[0]);
+    const inside = screen.getAllByTestId("project-session-row");
+    expect(inside.map((r) => r.textContent).join(" ")).toContain(filed.title);
+  });
+
+  it("projects sit BELOW the conversations", async () => {
+    stubFetch([]);
+    render(<Sidebar {...baseProps} projects={[GROUP as any]} />);
+
+    const band = await screen.findByTestId("projects-band");
+    const row = screen.getAllByTestId("session-row")[0];
+    // Node.compareDocumentPosition: FOLLOWING means the band comes after the row.
+    expect(row.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("dragging a conversation OUT of a project files it back to the flat list", async () => {
+    stubFetch([]);
+    const onMoveSession = vi.fn();
+    const filed = { ...baseProps.sessions[0], project_id: "grp_thesis" };
+    render(
+      <Sidebar
+        {...baseProps}
+        sessions={[filed, ...baseProps.sessions.slice(1)]}
+        projects={[GROUP as any]}
+        onMoveSession={onMoveSession}
+      />,
+    );
+    fireEvent.click((await screen.findAllByTestId("project-toggle"))[0]);
+    const inside = screen.getAllByTestId("project-session-row")[0];
+    expect(inside.getAttribute("draggable")).toBe("true");
+  });
+
+  it("with no projects yet, the band invites the gesture rather than naming a folder", async () => {
+    stubFetch([]);
+    render(<Sidebar {...baseProps} projects={[]} />);
+    const band = await screen.findByTestId("projects-band");
+    expect(band.textContent).toContain("Drag a conversation here");
+    expect(band.textContent).not.toContain("folder");
   });
 });

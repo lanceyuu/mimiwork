@@ -1,10 +1,8 @@
-/** Project page: identity edits, instructions round-trip, project memory, sessions. */
+/** Project page — a project groups conversations (2026-08-31). Identity edits,
+ *  instructions round-trip, its conversations, and a delete that says what it takes. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ProjectView } from "./ProjectView";
-
-const { openExternal } = vi.hoisted(() => ({ openExternal: vi.fn() }));
-vi.mock("../tauri", () => ({ openExternal }));
 
 type Call = { url: string; method: string; body?: any };
 function stubFetch(detail: any) {
@@ -14,12 +12,12 @@ function stubFetch(detail: any) {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ url, method, body });
     if (url.includes("/v1/projects/detail")) return { ok: true, json: async () => detail } as Response;
-    if (url.includes("/v1/projects/instructions")) return { ok: true, json: async () => ({ ok: true }) } as Response;
+    if (url.includes("/v1/projects/instructions"))
+      return { ok: true, json: async () => ({ ok: true }) } as Response;
     if (url.includes("/v1/projects") && method === "DELETE")
-      return { ok: true, json: async () => ({ ok: true, deleted_sessions: 1 }) } as Response;
+      return { ok: true, json: async () => ({ ok: true, deleted_sessions: 0, ungrouped: 1 }) } as Response;
     if (url.includes("/v1/projects") && method === "PATCH")
       return { ok: true, json: async () => ({ ok: true, project: { ...detail.project, ...body } }) } as Response;
-    if (url.includes("/v1/memory") && method === "POST") return { ok: true, json: async () => ({ id: 9 }) } as Response;
     return { ok: true, json: async () => ({}) } as Response;
   });
   vi.stubGlobal("fetch", fn);
@@ -34,139 +32,109 @@ afterEach(() => {
 const DETAIL = {
   ok: true,
   project: {
-    path: "/p/thesis", name: "Thesis", emoji: "🎓", pinned: false, archived: false,
-    exists: true, sessions: 1, last_activity: "", has_instructions: true,
+    id: "grp_1", name: "Thesis", emoji: "🎓", pinned: false, archived: false,
+    sessions: 1, last_activity: "", has_instructions: true,
   },
   instructions: "Cite in APA 7.",
-  instructions_file: "/p/thesis/AGENTS.md",
-  memory: [{ id: 1, scope: "workspace", workspace: "/p/thesis", content: "Uses Stata 18", summary: "", created_at: "" }],
-  sessions: [{ session_id: "s1", title: "Lit review", workspace: "/p/thesis", agent: "cowork", updated_at: "" }],
+  sessions: [
+    { session_id: "s1", title: "Lit review", workspace: "/p/thesis", agent: "cowork", updated_at: "" },
+  ],
 };
 
-describe("ProjectView", () => {
-  it("renders identity, instructions, memory and sessions from the detail endpoint", async () => {
+describe("ProjectView — a group, not a folder", () => {
+  it("shows the group's identity and its conversations, and never a folder path", async () => {
     stubFetch(DETAIL);
-    const onSelectSession = vi.fn();
-    const onNewSession = vi.fn();
-    render(<ProjectView path="/p/thesis" onNewSession={onNewSession} onSelectSession={onSelectSession} />);
-    expect(((await screen.findByTestId("project-name")) as HTMLInputElement).value).toBe("Thesis");
-    expect((screen.getByTestId("project-instructions-text") as HTMLTextAreaElement).value).toBe("Cite in APA 7.");
-    expect(screen.getByTestId("project-memory").textContent).toContain("Uses Stata 18");
-    fireEvent.click(screen.getByTestId("project-session-row"));
-    expect(onSelectSession).toHaveBeenCalledWith("s1", "/p/thesis", "cowork");
-    fireEvent.click(screen.getByTestId("project-new-session"));
-    expect(onNewSession).toHaveBeenCalledWith("/p/thesis");
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("Thesis")).toBeTruthy();
+    expect(screen.getByTestId("project-emoji").textContent).toBe("🎓");
+    expect(screen.getByTestId("project-session").textContent).toContain("Lit review");
+    // The page must not offer a path anywhere — a group does not have one.
+    expect(document.body.textContent).not.toContain("/p/thesis");
   });
 
-  it("saves edited instructions to the folder's AGENTS.md and renames via PATCH", async () => {
+  it("saves instructions to the group, not to a file", async () => {
     const calls = stubFetch(DETAIL);
-    const onChanged = vi.fn();
-    render(<ProjectView path="/p/thesis" onNewSession={vi.fn()} onSelectSession={vi.fn()} onChanged={onChanged} />);
-    const ta = (await screen.findByTestId("project-instructions-text")) as HTMLTextAreaElement;
-    expect((screen.getByTestId("project-instructions-save") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(ta, { target: { value: "Cite in APA 7.\nNever touch data/raw." } });
-    expect((screen.getByTestId("project-instructions-save") as HTMLButtonElement).disabled).toBe(false);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} onChanged={vi.fn()} />);
+
+    const box = (await screen.findByTestId("project-instructions")) as HTMLTextAreaElement;
+    expect(box.value).toBe("Cite in APA 7.");
+    fireEvent.change(box, { target: { value: "Cite in APA 7. Use British English." } });
     fireEvent.click(screen.getByTestId("project-instructions-save"));
-    await waitFor(() =>
-      expect(calls.find((c) => c.url.includes("/v1/projects/instructions"))?.body).toEqual({
-        path: "/p/thesis",
-        text: "Cite in APA 7.\nNever touch data/raw.",
-      }),
-    );
-    const name = screen.getByTestId("project-name") as HTMLInputElement;
-    fireEvent.change(name, { target: { value: "PhD thesis" } });
-    fireEvent.blur(name);
-    await waitFor(() =>
-      expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ path: "/p/thesis", name: "PhD thesis" }),
-    );
-    expect(onChanged).toHaveBeenCalled();
-  });
 
-  it("adds a project-scoped memory fact", async () => {
-    const calls = stubFetch(DETAIL);
-    render(<ProjectView path="/p/thesis" onNewSession={vi.fn()} onSelectSession={vi.fn()} />);
-    const input = await screen.findByTestId("project-memory-add");
-    fireEvent.change(input, { target: { value: "Advisor prefers British spelling" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() =>
-      expect(calls.find((c) => c.url.includes("/v1/memory") && c.method === "POST")?.body).toEqual({
-        content: "Advisor prefers British spelling",
-        scope: "workspace",
-        workspace: "/p/thesis",
-      }),
-    );
-  });
-
-  it("deleting asks first, says the folder is safe, and reports the page is done", async () => {
-    const calls = stubFetch(DETAIL);
-    const onDeleted = vi.fn();
-    const onChanged = vi.fn();
-    render(
-      <ProjectView
-        path="/p/thesis"
-        onNewSession={() => {}}
-        onSelectSession={() => {}}
-        onChanged={onChanged}
-        onDeleted={onDeleted}
-      />,
-    );
-    await screen.findByTestId("project-instructions");
-    // Nothing happens on the first click — it only arms the confirm panel.
-    fireEvent.click(screen.getByTestId("project-delete"));
-    const panel = screen.getByTestId("project-delete-confirm");
-    expect(panel.textContent).toContain("stay exactly where they are");
-    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-
-    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
-    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith("/p/thesis"));
-    const del = calls.find((c) => c.method === "DELETE")!;
-    expect(del.url).toContain("delete_sessions=true");
-    expect(decodeURIComponent(del.url)).toContain("/p/thesis");
-    expect(onChanged).toHaveBeenCalled(); // the sidebar band re-reads
-  });
-
-  it("keeps the conversations when the box is unticked", async () => {
-    const calls = stubFetch(DETAIL);
-    render(
-      <ProjectView path="/p/thesis" onNewSession={() => {}} onSelectSession={() => {}} />,
-    );
-    await screen.findByTestId("project-instructions");
-    fireEvent.click(screen.getByTestId("project-delete"));
-    fireEvent.click(screen.getByTestId("project-delete-sessions")); // untick
-    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
-    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
-    expect(calls.find((c) => c.method === "DELETE")!.url).toContain("delete_sessions=false");
-  });
-
-  it("keeps the page open and shows why when the server refuses", async () => {
-    stubFetch(DETAIL);
-    const fn = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method || "GET").toUpperCase();
-      if (url.includes("/v1/projects/detail"))
-        return { ok: true, json: async () => DETAIL } as Response;
-      if (method === "DELETE")
-        return {
-          ok: true,
-          json: async () => ({ ok: false, error: "a conversation in this project is still running" }),
-        } as Response;
-      return { ok: true, json: async () => ({}) } as Response;
+    await waitFor(() => {
+      const put = calls.find((c) => c.url.includes("/v1/projects/instructions") && c.method === "PUT");
+      expect(put?.body).toEqual({ id: "grp_1", text: "Cite in APA 7. Use British English." });
     });
-    vi.stubGlobal("fetch", fn);
+  });
+
+  it("renames on blur", async () => {
+    const calls = stubFetch(DETAIL);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} onChanged={vi.fn()} />);
+
+    const input = (await screen.findByTestId("project-name")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Thesis chapter 3" } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      const patch = calls.find((c) => c.method === "PATCH");
+      expect(patch?.body).toEqual({ id: "grp_1", name: "Thesis chapter 3" });
+    });
+  });
+
+  it("deleting says the conversations come BACK, and takes them only when asked", async () => {
+    const calls = stubFetch(DETAIL);
     const onDeleted = vi.fn();
-    render(
-      <ProjectView
-        path="/p/thesis"
-        onNewSession={() => {}}
-        onSelectSession={() => {}}
-        onDeleted={onDeleted}
-      />,
-    );
-    await screen.findByTestId("project-instructions");
-    fireEvent.click(screen.getByTestId("project-delete"));
-    fireEvent.click(screen.getByTestId("project-delete-confirm-btn"));
-    await waitFor(() =>
-      expect(screen.getByTestId("project-delete-confirm").textContent).toContain("still running"),
-    );
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} onDeleted={onDeleted} />);
+
+    fireEvent.click(await screen.findByTestId("project-delete"));
+    const dialog = screen.getByTestId("confirm-dialog");
+    // The default must reassure: nothing is destroyed.
+    expect(dialog.textContent).toContain("returns");
+    expect(dialog.textContent).toContain("nothing is deleted");
+
+    fireEvent.click(screen.getByTestId("confirm-accept"));
+    await waitFor(() => {
+      const del = calls.find((c) => c.method === "DELETE");
+      expect(del?.url).toContain("delete_sessions=false");
+    });
+    expect(onDeleted).toHaveBeenCalled();
+  });
+
+  it("ticking the box changes both the wording and what is sent", async () => {
+    const calls = stubFetch(DETAIL);
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} onDeleted={vi.fn()} />);
+
+    fireEvent.click(await screen.findByTestId("project-delete"));
+    fireEvent.click(screen.getByTestId("project-delete-sessions"));
+    expect(screen.getByTestId("confirm-dialog").textContent).toContain("deleted too");
+
+    fireEvent.click(screen.getByTestId("confirm-accept"));
+    await waitFor(() => {
+      const del = calls.find((c) => c.method === "DELETE");
+      expect(del?.url).toContain("delete_sessions=true");
+    });
+  });
+
+  it("cancelling deletes nothing", async () => {
+    const calls = stubFetch(DETAIL);
+    const onDeleted = vi.fn();
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} onDeleted={onDeleted} />);
+
+    fireEvent.click(await screen.findByTestId("project-delete"));
+    fireEvent.click(screen.getByTestId("confirm-cancel"));
+
+    expect(screen.queryByTestId("confirm-dialog")).toBeNull();
+    expect(calls.find((c) => c.method === "DELETE")).toBeUndefined();
     expect(onDeleted).not.toHaveBeenCalled();
+  });
+
+  it("an empty group says so instead of offering a checkbox", async () => {
+    stubFetch({ ...DETAIL, project: { ...DETAIL.project, sessions: 0 }, sessions: [] });
+    render(<ProjectView projectId="grp_1" onSelectSession={vi.fn()} />);
+
+    fireEvent.click(await screen.findByTestId("project-delete"));
+    expect(screen.getByTestId("confirm-dialog").textContent).toContain("empty");
+    expect(screen.queryByTestId("project-delete-sessions")).toBeNull();
   });
 });

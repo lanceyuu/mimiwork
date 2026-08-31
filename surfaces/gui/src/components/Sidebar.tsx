@@ -103,14 +103,16 @@ interface Props {
   surfaces: SurfaceVisibility;
   sessions: SessionInfo[];
   projects: Project[];
-  onOpenProject: (path: string) => void;
+  onOpenProject: (id: string) => void;
   activeSession: string;
   onSwitchAgent: (agent: string) => void;
   onNewSession: (agent: string) => void;
   onSelectSession: (id: string, workspace: string, agent: string) => void;
-  onNewProject: (persona: string) => void;
+  onNewProject: () => void;
   onRenameSession: (id: string, title: string) => void;
-  onMoveSession: (id: string, workspace: string) => void;
+  /** File a conversation under a group, or pass null to return it to the flat list.
+   *  Never moves files — see moveSessionToProject. */
+  onMoveSession: (id: string, projectId: string | null) => void;
   onForkSession: (id: string) => void;
   onDeleteSession: (id: string) => void;
   onArchiveSession: (id: string, archived: boolean) => void;
@@ -313,8 +315,12 @@ export function Sidebar(props: Props) {
   };
 
   // Pinned sessions across ALL personas — the cross-persona band at the top (manual pins only).
+  // Grouped conversations live under their project and nowhere else: a list that shows
+  // everything twice is not an organised list. Search still reaches them (SearchModal
+  // reads props.sessions directly).
+  const ungrouped = (s: SessionInfo) => !s.project_id;
   const pinnedSessions = props.sessions.filter(
-    (s) => s.pinned && !s.session_id.startsWith("__") && !s.archived,
+    (s) => s.pinned && !s.session_id.startsWith("__") && !s.archived && ungrouped(s),
   );
   // §31 (revised 2026-07-21): mention-spawned sessions list chronologically in Recent like any
   // other session — the OriginIcon in the row's indicator cluster marks where they came from.
@@ -380,7 +386,11 @@ export function Sidebar(props: Props) {
   // Body data is keyed to the BROWSED persona (only one body renders at a time). Pinned sessions are
   // EXCLUDED here: they live in the cross-persona Pinned band only, so they don't repeat inside the
   // persona group / project list (matching the flat layout's Recent, which also drops pinned).
-  const all = props.sessions.filter((s) => s.agent === browseKey && !s.session_id.startsWith("__"));
+  // The per-persona accordion honours grouping too — a filed conversation lives under its
+  // project, whichever sidebar layout is on.
+  const all = props.sessions.filter(
+    (s) => s.agent === browseKey && !s.session_id.startsWith("__") && !s.project_id,
+  );
   const mine = all.filter((s) => !s.archived && !s.pinned);
   const archived = all.filter((s) => s.archived);
   // Only PROJECT-SCOPED personas group sessions by project (git-bound Code, project-bound Ops).
@@ -398,6 +408,7 @@ export function Sidebar(props: Props) {
   // (by updated_at; missing timestamps keep store order), search-filtered. Drives the flat layout.
   const recentSessions = [...props.sessions]
     .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.pinned)
+    .filter(ungrouped)
     .filter((s) => personaVisible(s.agent))
     .filter(matches)
     .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
@@ -676,6 +687,16 @@ export function Sidebar(props: Props) {
   // page; "+" is the existing folder picker. The per-persona Codex-style accordion below
   // still groups Code/Ops sessions by folder — this band is the cross-persona entry point.
   const [projectsShowAll, setProjectsShowAll] = useState(false);
+  // Which groups are open. Expanded state is per-session-of-the-app, not persisted: the
+  // list is short and a group you opened to find something should not stay open forever.
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const toggleProject = (id: string) =>
+    setExpandedProjects((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Archived projects fold away under the band (owner ask 2026-08-22: "where is the
   // archived project?" — they had simply vanished). Open one to unarchive it on its page.
   const [archivedOpen, setArchivedOpen] = useState(false);
@@ -691,27 +712,34 @@ export function Sidebar(props: Props) {
       e.dataTransfer.effectAllowed = "move";
     },
   });
-  const dropProps = (path: string) => ({
+  const dropProps = (projectId: string) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      if (dropTarget !== path) setDropTarget(path);
+      if (dropTarget !== projectId) setDropTarget(projectId);
     },
-    onDragLeave: () => setDropTarget((cur) => (cur === path ? null : cur)),
+    onDragLeave: () => setDropTarget((cur) => (cur === projectId ? null : cur)),
     onDrop: (e: React.DragEvent) => {
       const id = e.dataTransfer.getData(DRAG_MIME);
       setDropTarget(null);
       if (!id) return;
       e.preventDefault();
-      props.onMoveSession(id, path);
+      props.onMoveSession(id, projectId);
     },
   });
+
   const projectsBand = () => {
     const live = props.projects.filter((p) => !p.archived);
     const archived = props.projects.filter((p) => p.archived);
     const PEEK = 6;
     const shown = projectsShowAll ? live : live.slice(0, PEEK);
+    const sessionsIn = (id: string) =>
+      props.sessions
+        .filter((s) => s.project_id === id && !s.archived && !s.session_id.startsWith("__"))
+        .filter(matches)
+        .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+
     return (
       <div data-testid="projects-band">
         <div className="flex items-center justify-between px-1.5 mb-1">
@@ -720,42 +748,93 @@ export function Sidebar(props: Props) {
           </span>
           <button
             className="w-6 h-6 grid place-items-center rounded-md text-faint hover:text-ink hover:bg-paper -mr-1"
-            title="New project (pick a folder)"
-            aria-label="New project"
+            title={t("New project")}
+            aria-label={t("New project")}
             data-testid="projects-new"
-            onClick={() => props.onNewProject(props.agent)}
+            onClick={() => props.onNewProject()}
           >
-            <Icon name="folderPlus" size={14} />
+            <Icon name="plus" size={14} />
           </button>
         </div>
         {live.length === 0 ? (
           <div className="px-2 py-1 text-[12px] text-faint leading-snug">
-            No projects yet — a project is a folder Mimi works in.
+            {t("Drag a conversation here to start a project.")}
           </div>
         ) : (
           <div className="space-y-0.5">
             {shown.map((p) => {
-              const active = p.path === props.workspace;
+              const open = expandedProjects.has(p.id);
+              const rows = open ? sessionsIn(p.id) : [];
               return (
-                <button
-                  key={p.path}
-                  className={
-                    "w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left " +
-                    (active ? "bg-paper text-ink" : "text-muted hover:bg-paper hover:text-ink") +
-                    (dropTarget === p.path ? " project-drop-target" : "")
-                  }
-                  title={p.path}
-                  data-testid="project-row"
-                  data-drop-active={dropTarget === p.path ? "true" : undefined}
-                  onClick={() => props.onOpenProject(p.path)}
-                  {...dropProps(p.path)}
-                >
-                  <span className="w-4 text-center shrink-0 text-[13px] leading-none">
-                    {p.emoji || <Icon name="folder" size={14} className="inline-block text-faint" />}
-                  </span>
-                  <span className="flex-1 truncate">{p.name}</span>
-                  {p.pinned && <Icon name="pin" size={11} className="shrink-0 text-faint" />}
-                </button>
+                <div key={p.id}>
+                  <div
+                    className={
+                      "group w-full flex items-center gap-1.5 pr-1.5 rounded-lg text-[12.5px] " +
+                      "text-muted hover:bg-paper hover:text-ink" +
+                      (dropTarget === p.id ? " project-drop-target" : "")
+                    }
+                    data-testid="project-row"
+                    data-drop-active={dropTarget === p.id ? "true" : undefined}
+                    {...dropProps(p.id)}
+                  >
+                    <button
+                      className="w-5 h-7 grid place-items-center shrink-0 text-faint hover:text-ink"
+                      aria-expanded={open}
+                      aria-label={open ? t("Collapse") : t("Expand")}
+                      data-testid="project-toggle"
+                      onClick={() => toggleProject(p.id)}
+                    >
+                      <Icon
+                        name="chevronDown"
+                        size={12}
+                        className={"transition-transform " + (open ? "" : "-rotate-90")}
+                      />
+                    </button>
+                    <button
+                      className="flex-1 min-w-0 flex items-center gap-2 py-1.5 text-left"
+                      title={p.name}
+                      onClick={() => props.onOpenProject(p.id)}
+                    >
+                      <span className="w-4 text-center shrink-0 text-[13px] leading-none">
+                        {p.emoji || <Icon name="folder" size={14} className="inline-block text-faint" />}
+                      </span>
+                      <span className="flex-1 truncate">{p.name}</span>
+                      {p.pinned && <Icon name="pin" size={11} className="shrink-0 text-faint" />}
+                      <span className="text-[11px] text-faint shrink-0 tabular-nums">
+                        {p.sessions || ""}
+                      </span>
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="ml-[26px] border-l border-line pl-1 space-y-0.5 mb-1">
+                      {rows.length === 0 ? (
+                        <div className="px-2 py-1 text-[11.5px] text-faint">
+                          {t("Nothing here yet")}
+                        </div>
+                      ) : (
+                        rows.map((s) => (
+                          <button
+                            key={s.session_id}
+                            className={
+                              "w-full text-left px-2 py-1 rounded-lg text-[12.5px] truncate " +
+                              (s.session_id === props.activeSession
+                                ? "bg-paper text-ink"
+                                : "text-muted hover:bg-paper hover:text-ink")
+                            }
+                            data-testid="project-session-row"
+                            title={s.title || "New session"}
+                            {...dragProps(s)}
+                            onClick={() =>
+                              props.onSelectSession(s.session_id, s.workspace, s.agent)
+                            }
+                          >
+                            {s.title || "New session"}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               );
             })}
             {live.length > PEEK && (
@@ -763,7 +842,7 @@ export function Sidebar(props: Props) {
                 className="px-2 py-1 text-[12px] text-faint hover:text-ink"
                 onClick={() => setProjectsShowAll((v) => !v)}
               >
-                {projectsShowAll ? "Show less" : `Show ${live.length - PEEK} more`}
+                {projectsShowAll ? t("Show less") : `${t("Show")} ${live.length - PEEK} ${t("more")}`}
               </button>
             )}
           </div>
@@ -778,22 +857,23 @@ export function Sidebar(props: Props) {
             >
               <Icon
                 name="chevronDown"
-                size={12}
-                className={"shrink-0 transition-transform " + (archivedOpen ? "" : "-rotate-90")}
+                size={11}
+                className={"transition-transform " + (archivedOpen ? "" : "-rotate-90")}
               />
-              Archived ({archived.length})
+              {archived.length} {t("archived")}
             </button>
             {archivedOpen && (
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 mt-0.5">
                 {archived.map((p) => (
                   <button
-                    key={p.path}
+                    key={p.id}
                     className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12.5px] text-left text-faint hover:bg-paper hover:text-ink"
-                    title={`${p.path} — open to unarchive`}
                     data-testid="project-row-archived"
-                    onClick={() => props.onOpenProject(p.path)}
+                    onClick={() => props.onOpenProject(p.id)}
                   >
-                    <Icon name="archive" size={13} className="shrink-0" />
+                    <span className="w-4 text-center shrink-0 text-[13px] leading-none">
+                      {p.emoji || <Icon name="folder" size={14} className="inline-block" />}
+                    </span>
                     <span className="flex-1 truncate">{p.name}</span>
                   </button>
                 ))}
@@ -933,7 +1013,7 @@ export function Sidebar(props: Props) {
   // persona from New Session, never orphan its conversations).
   const agentsWithSessions = new Set(
     props.sessions
-      .filter((s) => !s.archived && !s.session_id.startsWith("__"))
+      .filter((s) => !s.archived && !s.session_id.startsWith("__") && !s.project_id)
       .map((s) => s.agent),
   );
   const visibleSurfaces = (
@@ -974,7 +1054,7 @@ export function Sidebar(props: Props) {
                 className="w-5 h-5 grid place-items-center rounded text-faint hover:text-ink hover:bg-panel"
                 title="New project"
                 aria-label="New project"
-                onClick={() => props.onNewProject(browseKey)}
+                onClick={() => props.onNewProject()}
               >
                 <Icon name="folderPlus" size={14} />
               </button>
@@ -1160,7 +1240,6 @@ export function Sidebar(props: Props) {
             onOpenAutomation={props.onOpenAutomation}
             onOpenInbox={props.onOpenInbox}
           />
-          {projectsBand()}
           {pinnedBand()}
           {scheduledBand()}
           <div>
@@ -1237,6 +1316,10 @@ export function Sidebar(props: Props) {
             </div>
             )}
           </div>
+          {/* Projects sit BELOW the conversations and stay quiet (2026-08-31). What you
+              are looking for is nearly always a recent conversation; filing is the thing
+              you do occasionally, so it should not lead. */}
+          {projectsBand()}
         </div>
       </div>
 

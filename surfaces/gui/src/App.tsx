@@ -22,7 +22,6 @@ import {
   forkSession,
   addRoot,
   deleteSession,
-  moveSession,
   renameSession,
   runAutomation,
   setSessionFlags,
@@ -34,9 +33,11 @@ import {
   type RecentWorkspace,
   type SurfaceVisibility,
   type WorkspaceCommandTrust,
+  createProject,
   getProjects,
+  getRecentWorkspaces,
+  moveSessionToProject,
   type Project,
-  openWorkspace,
 } from "./api";
 import type {
   ApprovalDecision,
@@ -238,6 +239,9 @@ export function App() {
   const [todo, setTodo] = useState<TodoItem[]>([]);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  // Folders the user has worked in — drives the folder gate and the workspace
+  // fallback. Separate from `projects`, which are groups and have no folder.
+  const [recentFolders, setRecentFolders] = useState<RecentWorkspace[]>([]);
   const [sessionId, setSessionId] = useState<string>(newId());
   // Automation-run context (§ owner ask 2026-07-04): which task an open __run__ session belongs
   // to, driving the banner + "Back to runs". Best-effort — a run session without context still
@@ -249,9 +253,6 @@ export function App() {
   // "Loading…" forever (owner-hit 2026-07-20). Nav re-entry should land on the list.
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
-  // The Projects band's "+": a PROJECT gate, independent of the session surface — choosing
-  // a folder lands on the Project page (instructions, memory), not in a fresh conversation.
-  const [projectGate, setProjectGate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
   const openSettings = (tab: SettingsTab = "appearance") => {
@@ -263,8 +264,8 @@ export function App() {
   // load; corrected by loadSettings.
   const [modelReady, setModelReady] = useState(true);
   const [surface, setSurface] = useState<Surface>("session");
-  // PROJECTS: which project the Project page shows (surface === "project").
-  const [projectPath, setProjectPath] = useState<string | null>(null);
+  // PROJECTS: which group the Project page shows (surface === "project").
+  const [projectId, setProjectId] = useState<string | null>(null);
   // Navigation history (owner ask 2026-08-21: "very confusing for navigation"). Every
   // surface change pushes the one it left, so the frame's "← Back" always returns to
   // where the user actually came from — Settings → Persona → Back lands on Settings.
@@ -285,8 +286,8 @@ export function App() {
     surfaceBackNav.current = true;
     setSurface(prev);
   };
-  const openProject = (path: string) => {
-    setProjectPath(path);
+  const openProject = (id: string) => {
+    setProjectId(id);
     setSurface("project");
   };
   // A remembered Scheduled-detail target must not outlive the surface (see the
@@ -506,8 +507,10 @@ export function App() {
       /* fall through */
     }
     try {
-      const recents = await getProjects();
-      setProjects(recents);
+      // Recent FOLDERS, not groups: this picks a working directory. They used to be
+      // the same list only because a project was a folder (2026-08-31).
+      const recents = await getRecentWorkspaces();
+      setRecentFolders(recents);
       // Only auto-adopt a recent folder for gated surfaces (Code). Cowork starts orphan.
       if (gatesWorkspace(agent)) {
         const ws = recents.find((w) => w.exists) || recents[0];
@@ -1189,7 +1192,9 @@ export function App() {
     if (name === agent) return;
     rememberLastSession(agent, sessionId, workspace);
     const knownSessions = sessions.length ? sessions : await getSessions().catch(() => []);
-    const knownProjects = projects.length ? projects : await getProjects().catch(() => []);
+    const knownFolders = recentFolders.length
+      ? recentFolders
+      : await getRecentWorkspaces().catch(() => []);
     const target = resumeTargetForAgent(name, knownSessions);
 
     setAgent(name);
@@ -1208,7 +1213,7 @@ export function App() {
       // Code falls back to a recent folder; Cowork resumes its scratch (target.workspace) or
       // starts orphan ("" → server provisions). Chat has no workspace.
       const targetWorkspace = gatesWorkspace(name)
-        ? target.workspace || fallbackWorkspace(inheritable, knownProjects)
+        ? target.workspace || fallbackWorkspace(inheritable, knownFolders)
         : needsWorkspace(name)
           ? target.workspace || ""
           : "";
@@ -1234,7 +1239,7 @@ export function App() {
     }
 
     const id = newId();
-    const fallback = gatesWorkspace(name) ? fallbackWorkspace(inheritable, knownProjects) : "";
+    const fallback = gatesWorkspace(name) ? fallbackWorkspace(inheritable, knownFolders) : "";
     if (fallback && fallback !== workspace) {
       setWorkspace(fallback);
       setBranch(null);
@@ -1263,39 +1268,33 @@ export function App() {
   // surface==="session" && gatesWorkspace(agent) guard passes even if the active session was Chat/Cowork.
   // PROJECTS: start a fresh conversation bound to a known project folder (no gate — the
   // folder was already chosen when the project was created).
-  const newSessionIn = async (path: string) => {
-    const res = await openWorkspace(path).catch(() => null);
-    if (!res?.ok) return;
-    setSurface("session");
-    setRunning(false);
-    chooseWorkspace(res.path, res.git_branch ?? null);
-  };
-  // New project = a new PLACE. Nothing about the current conversation changes; the folder
-  // picker opens in create mode and a successful pick opens the Project page.
-  const newProject = (_forAgent?: string) => {
-    setProjectGate(true);
-  };
-  const createProject = (path: string) => {
-    setProjectGate(false);
-    refreshSessions(); // the projects list now includes it
-    openProject(path);
-  };
   const renameConversation = async (id: string, title: string) => {
     const res = await renameSession(id, title);
     if (res.ok) refreshSessions();
   };
-  // Drag-to-project (2026-08-22): re-bind the conversation's folder; if it's the open one,
-  // reselect so the rail's Access section and the workspace chip follow the move.
-  const moveConversation = async (id: string, workspace: string) => {
-    const res: Awaited<ReturnType<typeof moveSession>> = await moveSession(id, workspace).catch(
-      () => ({ ok: false, error: "server unreachable" }),
-    );
+  // Dragging a conversation onto a project FILES it there. It does not move files: the
+  // session keeps the workspace it already had, because how you organise conversations
+  // and where their documents live are different questions now (2026-08-31).
+  const moveConversation = async (id: string, projectId: string | null) => {
+    const res = await moveSessionToProject(id, projectId).catch(() => ({
+      ok: false,
+      error: "server unreachable",
+    }));
     if (!res.ok) {
-      if (res.error) alert(`Couldn't move the conversation: ${res.error}`);
+      if (res.error) alert(`Couldn't file the conversation: ${res.error}`);
       return;
     }
     refreshSessions();
-    if (id === sessionId && res.workspace) void selectSession(id, res.workspace, agent);
+    void getProjects().then(setProjects).catch(() => {});
+  };
+
+  // "+" on the Projects band: a group needs only a name, so make one and open it —
+  // no folder picker, because a project is not a folder any more.
+  const createGroup = async () => {
+    const out = await createProject("New project").catch(() => null);
+    if (!out?.ok || !out.project) return;
+    await getProjects().then(setProjects).catch(() => {});
+    openProject(out.project.id);
   };
   // Fork (design spec 2026-08-20 §3): duplicate the thread server-side, then open the
   // copy — the original stays untouched in the list.
@@ -1565,7 +1564,7 @@ export function App() {
         onSwitchAgent={switchAgent}
         onNewSession={startNewSession}
         onSelectSession={selectSession}
-        onNewProject={newProject}
+        onNewProject={() => void createGroup()}
         onOpenProject={openProject}
         onRenameSession={renameConversation}
         onMoveSession={moveConversation}
@@ -1606,7 +1605,7 @@ export function App() {
         inbox: "Inbox",
         persona: "Persona",
         settings: "Settings",
-        project: projects.find((p) => p.path === projectPath)?.name || baseName(projectPath || ""),
+        project: projects.find((p) => p.id === projectId)?.name || "Project",
         files: "Files",
       };
       const view = surface === "scheduled" ? (
@@ -1645,15 +1644,14 @@ export function App() {
           personaId={personaViewId || agent}
           onOpenIntegrations={() => setSurface("integrations")}
         />
-      ) : surface === "project" && projectPath ? (
+      ) : surface === "project" && projectId ? (
         <ProjectView
-          path={projectPath}
-          onNewSession={(path) => void newSessionIn(path)}
+          projectId={projectId}
           onSelectSession={(id, ws, ag) => void selectSession(id, ws, ag)}
           onChanged={() => getProjects().then(setProjects).catch(() => {})}
           onDeleted={() => {
-            // The page's subject is gone — leave it before it can re-fetch a dead path.
-            setProjectPath(null);
+            // The page's subject is gone — leave it before it can re-fetch a dead id.
+            setProjectId(null);
             setSurface("session");
             void getProjects().then(setProjects).catch(() => {});
             void refreshSessions();
@@ -1753,16 +1751,12 @@ export function App() {
                 className="topbar-workspace-chip"
                 data-testid="topbar-workspace"
                 onMouseDown={(e) => e.stopPropagation()}
+                // The chip names the session's FOLDER, which is no longer a project —
+                // clicking it opens that folder (2026-08-31).
                 onClick={() =>
-                  projects.some((p) => p.path === workspace)
-                    ? openProject(workspace)
-                    : void revealArtifact(sessionId, workspace, "open").catch(() => undefined)
+                  void revealArtifact(sessionId, workspace, "open").catch(() => undefined)
                 }
-                title={
-                  projects.some((p) => p.path === workspace)
-                    ? `${workspace} — open project`
-                    : workspace
-                }
+                title={workspace}
               >
                 <Icon name="folder" size={13} />
                 <span className="topbar-workspace-name">{baseName(workspace)}</span>
@@ -2021,14 +2015,6 @@ export function App() {
         />
       )}
 
-      {projectGate && (
-        <FolderGate
-          create
-          mode="project"
-          onChoose={(path) => createProject(path)}
-          onCancel={() => setProjectGate(false)}
-        />
-      )}
       {showGate && surface === "session" && gatesWorkspace(agent) && (
         <FolderGate
           create={gateCreate}

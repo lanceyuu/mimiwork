@@ -1,24 +1,25 @@
-/** Project page (PROJECTS spec, 2026-08-21) — MimiWork's take on Claude Code's projects.
+/** Project page — a project GROUPS conversations (2026-08-31).
  *
- * A project IS a real folder. This page is where the folder's identity (emoji + name),
- * its standing instructions (the folder's AGENTS.md, injected into every NEW session as
- * "Project conventions"), what Mimi remembers about it (the workspace-scoped memory the
- * `remember` tool already writes to), and its conversations all live in one place.
+ * It used to be a real folder, and this page was that folder's home: a file browser, the
+ * folder's AGENTS.md, the workspace-scoped memory. A group has no folder, so what is left
+ * is what a group actually is — a name, an emoji, standing instructions, and the
+ * conversations filed under it.
+ *
+ * The instructions live on the group row in the database rather than in a file: a group
+ * has nowhere on disk to put one, and a temp directory would be worse than nowhere
+ * because the OS empties it under text somebody typed.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  addMemory,
-  deleteMemory,
   deleteProject,
   getProjectDetail,
   setProjectInstructions,
-  updateMemory,
   updateProject,
-  type MemoryEntry,
   type ProjectDetail,
 } from "../api";
-import { openExternal } from "../tauri";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { useT } from "../i18n";
 
 const EMOJIS = [
   "📁", "🎓", "📊", "📝", "🧪", "💼", "🎯", "📚",
@@ -40,14 +41,14 @@ function relTime(iso: string | null | undefined): string {
 }
 
 export function ProjectView(props: {
-  path: string;
-  onNewSession: (path: string) => void;
+  projectId: string;
   onSelectSession: (id: string, workspace: string, agent: string) => void;
-  /** Metadata changed (name/emoji/pin/archive) — the sidebar band re-reads. */
+  /** Name/emoji/pin changed — the sidebar band re-reads. */
   onChanged?: () => void;
-  /** The project was deleted — the page must close (its data is gone). */
-  onDeleted?: (path: string) => void;
+  /** The group is gone — the page must close. */
+  onDeleted?: (id: string) => void;
 }) {
+  const t = useT();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -55,405 +56,230 @@ export function ProjectView(props: {
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [saving, setSaving] = useState(false);
-  const [newFact, setNewFact] = useState("");
-  const [editing, setEditing] = useState<{ id: number; content: string } | null>(null);
-  // Delete is a two-step: the button arms a panel that says exactly what goes and what
-  // stays, because "delete project" reads like "delete my folder" to anyone sane.
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [alsoSessions, setAlsoSessions] = useState(true);
-  const [deleting, setDeleting] = useState(false);
-  // Its own error slot: the page-level `error` replaces the whole view, and a refused
-  // delete must leave the project exactly where the user can see it.
+  const [alsoSessions, setAlsoSessions] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const textRef = useRef<HTMLTextAreaElement>(null);
 
-  const load = () =>
-    getProjectDetail(props.path)
+  const refresh = () =>
+    getProjectDetail(props.projectId)
       .then((d) => {
         if (!d.ok) {
-          setError(d.error || "unknown project");
+          setError(d.error || "This project no longer exists.");
           return;
         }
         setDetail(d);
         setName(d.project.name);
-        setText(d.instructions);
-        setSavedText(d.instructions);
+        setText(d.instructions || "");
+        setSavedText(d.instructions || "");
         setError(null);
       })
-      .catch(() => setError("server unreachable"));
+      .catch(() => setError("Could not load this project."));
+
   useEffect(() => {
     setDetail(null);
-    void load();
+    setError(null);
+    void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.path]);
+  }, [props.projectId]);
 
   const patch = async (fields: Parameters<typeof updateProject>[1]) => {
-    const r = await updateProject(props.path, fields).catch(() => null);
-    if (r?.ok && r.project) {
-      setDetail((d) => (d ? { ...d, project: r.project! } : d));
-      props.onChanged?.();
-    }
+    await updateProject(props.projectId, fields).catch(() => undefined);
+    props.onChanged?.();
+    void refresh();
   };
-  const commitName = () => {
-    const next = name.trim();
-    if (!detail) return;
-    if (!next) {
-      setName(detail.project.name);
-      return;
-    }
-    if (next !== detail.project.name) void patch({ name: next });
-  };
+
   const saveInstructions = async () => {
     setSaving(true);
-    const r = await setProjectInstructions(props.path, text).catch(() => ({ ok: false }));
-    setSaving(false);
-    if (r.ok) {
-      setSavedText(text.trimEnd());
-      setText(text.trimEnd());
-      setDetail((d) =>
-        d ? { ...d, project: { ...d.project, has_instructions: !!text.trim() } } : d,
-      );
+    try {
+      await setProjectInstructions(props.projectId, text);
+      setSavedText(text);
       props.onChanged?.();
+    } finally {
+      setSaving(false);
     }
-  };
-  const dirty = text.trimEnd() !== savedText.trimEnd();
-
-  const refreshMemory = () =>
-    getProjectDetail(props.path).then((d) => d.ok && setDetail((cur) => (cur ? { ...cur, memory: d.memory } : d)));
-  const addFact = async () => {
-    const content = newFact.trim();
-    if (!content) return;
-    await addMemory(content, "workspace", props.path).catch(() => null);
-    setNewFact("");
-    void refreshMemory();
-  };
-  const saveEdit = async () => {
-    if (!editing) return;
-    await updateMemory(editing.id, editing.content.trim()).catch(() => null);
-    setEditing(null);
-    void refreshMemory();
-  };
-  const removeFact = async (m: MemoryEntry) => {
-    await deleteMemory(m.id).catch(() => null);
-    void refreshMemory();
   };
 
   if (error) {
     return (
-      <main className="flex-1 min-w-0 flex flex-col bg-paper" data-testid="project-view">
-        <div className="p-12 text-center text-faint text-[13px]">{error}</div>
+      <main className="flex-1 min-w-0 overflow-y-auto bg-paper">
+        <div className="mx-auto max-w-[760px] px-6 py-8 text-[13px] text-muted">{error}</div>
       </main>
     );
   }
   if (!detail) {
     return (
-      <main className="flex-1 min-w-0 flex flex-col bg-paper" data-testid="project-view">
-        <div className="p-12 text-center text-faint text-[13px]">Loading…</div>
+      <main className="flex-1 min-w-0 overflow-y-auto bg-paper">
+        <div className="mx-auto max-w-[760px] px-6 py-8 text-[13px] text-muted">Loading…</div>
       </main>
     );
   }
+
   const proj = detail.project;
+  const dirty = text !== savedText;
 
   return (
-    <main className="flex-1 min-w-0 overflow-y-auto bg-paper" data-testid="project-view">
-      <div className="max-w-[760px] mx-auto px-8 py-7">
-        {/* Identity row: emoji · name · path, then the actions. */}
-        <div className="flex items-start gap-3.5">
-          <div className="relative shrink-0">
+    <main className="flex-1 min-w-0 overflow-y-auto bg-paper">
+      <div className="mx-auto max-w-[760px] px-6 py-8">
+        {/* Identity */}
+        <div className="flex items-center gap-3">
+          <div className="relative">
             <button
-              className="project-emoji-btn"
-              title="Change emoji"
-              aria-label="Change emoji"
+              className="w-11 h-11 rounded-xl2 border border-line bg-panel text-[20px] leading-none flex items-center justify-center hover:border-lineStrong"
               data-testid="project-emoji"
+              title="Choose an icon"
               onClick={() => setEmojiOpen((v) => !v)}
             >
-              {proj.emoji || <Icon name="folder" size={22} className="text-muted" />}
+              {proj.emoji || "📁"}
             </button>
             {emojiOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setEmojiOpen(false)} />
-                <div className="project-emoji-pop" role="listbox" data-testid="project-emoji-pop">
-                  {EMOJIS.map((e) => (
-                    <button
-                      key={e}
-                      role="option"
-                      aria-selected={proj.emoji === e}
-                      onClick={() => {
-                        setEmojiOpen(false);
-                        void patch({ emoji: e });
-                      }}
-                    >
-                      {e}
-                    </button>
-                  ))}
-                </div>
-              </>
+              <div className="absolute z-20 mt-1.5 p-2 rounded-xl2 border border-line bg-panel shadow-xl grid grid-cols-8 gap-1 w-[280px]">
+                {EMOJIS.map((e) => (
+                  <button
+                    key={e}
+                    className="w-8 h-8 rounded-lg hover:bg-paper text-[17px]"
+                    onClick={() => {
+                      setEmojiOpen(false);
+                      void patch({ emoji: e });
+                    }}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-          <div className="min-w-0 flex-1">
-            <input
-              className="project-name-input"
-              value={name}
-              aria-label="Project name"
-              data-testid="project-name"
-              onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                if (e.key === "Escape") setName(proj.name);
-              }}
-            />
-            <button
-              className="mt-1 flex items-center gap-1.5 text-[12px] text-faint hover:text-ink max-w-full"
-              title="Open in your file manager"
-              onClick={() => openExternal(`file://${proj.path}`)}
-              data-testid="project-path"
-            >
-              <Icon name="folder" size={12} className="shrink-0" />
-              <span className="truncate">{proj.path}</span>
-              {!proj.exists && <span className="text-danger shrink-0">· folder missing</span>}
-            </button>
-          </div>
+          <input
+            className="flex-1 min-w-0 bg-transparent outline-none text-[19px] font-semibold text-ink border-b border-transparent focus:border-line py-0.5"
+            value={name}
+            data-testid="project-name"
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => name.trim() && name !== proj.name && void patch({ name: name.trim() })}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          />
+          <button
+            className="btn sm"
+            title={proj.pinned ? "Unpin" : "Pin to the top"}
+            onClick={() => void patch({ pinned: !proj.pinned })}
+          >
+            <Icon name="pin" size={14} className={proj.pinned ? "text-accent" : "text-faint"} />
+          </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button
-            className="btn btn-primary text-[12.5px] whitespace-nowrap"
-            disabled={!proj.exists}
-            onClick={() => props.onNewSession(proj.path)}
-            data-testid="project-new-session"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Icon name="plus" size={13} /> New session here
-            </span>
-          </button>
-          <button
-            className="btn text-[12.5px]"
-            onClick={() => void patch({ pinned: !proj.pinned })}
-            data-testid="project-pin"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Icon name="pin" size={13} /> {proj.pinned ? "Unpin" : "Pin"}
-            </span>
-          </button>
-          <button
-            className="btn text-[12.5px]"
-            onClick={() => void patch({ archived: !proj.archived })}
-            data-testid="project-archive"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Icon name="archive" size={13} /> {proj.archived ? "Unarchive" : "Archive"}
-            </span>
-          </button>
-          <button
-            className="btn sm danger-btn text-[12.5px]"
-            onClick={() => setConfirmDelete((v) => !v)}
-            data-testid="project-delete"
-          >
-            <span className="inline-flex items-center gap-1.5">
-              <Icon name="trash" size={13} /> Delete
-            </span>
-          </button>
-          <span className="text-[12px] text-faint ml-auto">
-            {proj.sessions} {proj.sessions === 1 ? "conversation" : "conversations"}
-            {proj.last_activity ? ` · active ${relTime(proj.last_activity)}` : ""}
-          </span>
+        <div className="mt-1.5 text-[12px] text-faint">
+          {proj.sessions} {proj.sessions === 1 ? "conversation" : "conversations"}
+          {proj.last_activity ? ` · active ${relTime(proj.last_activity)}` : ""}
         </div>
+
+        {/* Standing instructions */}
+        <section className="mt-7">
+          <h2 className="text-[13px] font-semibold text-ink">{t("Instructions")}</h2>
+          <p className="text-[12px] text-muted mt-1 leading-relaxed">
+            {t("Added to every new conversation in this project. Say how you want the work done — the conventions you would otherwise repeat each time.")}
+          </p>
+          <textarea
+            className="mt-2.5 w-full h-[150px] rounded-xl2 border border-line bg-panel p-3 text-[13px] text-ink outline-none focus:border-lineStrong resize-y leading-relaxed"
+            value={text}
+            data-testid="project-instructions"
+            placeholder={t("e.g. Always cite the transcript line number. Write in British English.")}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              className="btn sm accent-btn"
+              disabled={!dirty || saving}
+              data-testid="project-instructions-save"
+              onClick={() => void saveInstructions()}
+            >
+              {saving ? t("Saving…") : t("Save")}
+            </button>
+            {dirty && <span className="text-[12px] text-faint">{t("Unsaved changes")}</span>}
+          </div>
+        </section>
+
+        {/* Its conversations */}
+        <section className="mt-8">
+          <h2 className="text-[13px] font-semibold text-ink mb-2">{t("Conversations")}</h2>
+          {detail.sessions.length === 0 ? (
+            <p className="text-[12.5px] text-muted">
+              {t("Nothing filed here yet — drag a conversation onto this project in the sidebar.")}
+            </p>
+          ) : (
+            <div className="rounded-xl2 border border-line bg-panel overflow-hidden">
+              {detail.sessions.map((s) => (
+                <button
+                  key={s.session_id}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-paper border-b border-line last:border-b-0"
+                  data-testid="project-session"
+                  onClick={() => props.onSelectSession(s.session_id, s.workspace, s.agent)}
+                >
+                  <Icon name="chat" size={14} className="text-faint shrink-0" />
+                  <span className="flex-1 min-w-0 truncate text-[13px] text-ink">
+                    {s.title || "New session"}
+                  </span>
+                  <span className="text-[11.5px] text-faint shrink-0">{relTime(s.updated_at)}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Delete */}
+        <section className="mt-9 pt-5 border-t border-line">
+          <button
+            className="btn sm danger-btn"
+            data-testid="project-delete"
+            onClick={() => {
+              setAlsoSessions(false);
+              setDeleteError(null);
+              setConfirmDelete(true);
+            }}
+          >
+            <Icon name="trash" size={13} /> {t("Delete project")}
+          </button>
+          {deleteError && (
+            <div className="mt-2 text-[12px] text-danger" data-testid="project-delete-error">
+              {deleteError}
+            </div>
+          )}
+        </section>
 
         {confirmDelete && (
-          <div
-            className="mt-3 rounded-xl2 border border-line bg-panel p-3.5"
-            data-testid="project-delete-confirm"
+          <ConfirmDialog
+            title={`${t("Delete")} “${proj.name}”?`}
+            body={
+              proj.sessions === 0
+                ? t("This project is empty, so nothing else goes with it.")
+                : alsoSessions
+                  ? `${t("Its")} ${proj.sessions} ${proj.sessions === 1 ? t("conversation is deleted too.") : t("conversations are deleted too.")} ${t("Files they wrote to your folders stay where they are.")}`
+                  : `${t("Its")} ${proj.sessions} ${proj.sessions === 1 ? t("conversation returns") : t("conversations return")} ${t("to the main list — nothing is deleted.")}`
+            }
+            confirmLabel={alsoSessions ? t("Delete project and conversations") : t("Delete project")}
+            onCancel={() => setConfirmDelete(false)}
+            onConfirm={async () => {
+              const out = await deleteProject(props.projectId, {
+                deleteSessions: alsoSessions,
+              }).catch(() => ({ ok: false, error: "Delete failed." }));
+              setConfirmDelete(false);
+              if (!out.ok) {
+                setDeleteError(out.error || "Delete failed.");
+                return;
+              }
+              props.onDeleted?.(props.projectId);
+            }}
           >
-            <div className="text-[13px] font-medium text-ink">
-              Delete “{proj.name || proj.path}” from MimiWork?
-            </div>
-            <p className="text-[12px] text-muted mt-1.5 leading-relaxed">
-              This removes the project card, its instructions link, and what Mimi remembers
-              about it. <strong className="font-medium text-ink">Your folder and every file
-              in it stay exactly where they are</strong> — including AGENTS.md.
-            </p>
             {proj.sessions > 0 && (
               <label className="mt-2.5 flex items-center gap-2 text-[12.5px] text-ink">
                 <input
                   type="checkbox"
                   checked={alsoSessions}
-                  onChange={(e) => setAlsoSessions(e.target.checked)}
                   data-testid="project-delete-sessions"
+                  onChange={(e) => setAlsoSessions(e.target.checked)}
                 />
-                Also delete its {proj.sessions}{" "}
-                {proj.sessions === 1 ? "conversation" : "conversations"}
+                {t("Also delete its conversations")}
               </label>
             )}
-            {deleteError && (
-              <div className="mt-2 text-[12px] text-danger" data-testid="project-delete-error">
-                {deleteError}
-              </div>
-            )}
-            <div className="mt-3 flex items-center gap-2">
-              <button
-                className="btn sm danger-btn text-[12.5px]"
-                disabled={deleting}
-                data-testid="project-delete-confirm-btn"
-                onClick={async () => {
-                  setDeleting(true);
-                  setDeleteError(null);
-                  const r = await deleteProject(props.path, {
-                    deleteSessions: alsoSessions,
-                  }).catch(() => ({ ok: false, error: "could not reach the server" }));
-                  setDeleting(false);
-                  if (!r.ok) {
-                    setDeleteError(r.error || "could not delete this project");
-                    return;
-                  }
-                  setConfirmDelete(false);
-                  props.onChanged?.();
-                  props.onDeleted?.(props.path);
-                }}
-              >
-                {deleting ? "Deleting…" : "Delete project"}
-              </button>
-              <button
-                className="btn text-[12.5px]"
-                onClick={() => setConfirmDelete(false)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
+          </ConfirmDialog>
         )}
-
-        {/* Instructions — the folder's AGENTS.md. */}
-        <section className="mt-8" data-testid="project-instructions">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[14px] font-semibold">Instructions</h2>
-            <span className="text-[11.5px] text-faint" title={detail.instructions_file}>
-              AGENTS.md in this folder · applies to new conversations
-            </span>
-          </div>
-          <p className="text-[12.5px] text-muted mt-1 leading-relaxed">
-            Standing rules for everything Mimi does in this project — tone, sources to trust, files
-            never to touch, how to cite. Loaded at the start of every new conversation here.
-          </p>
-          <textarea
-            ref={textRef}
-            className="input w-full mt-2.5 min-h-[140px] font-mono text-[12.5px] leading-relaxed"
-            placeholder={"e.g.\n- Cite in APA 7.\n- Never modify anything under data/raw/.\n- Drafts go in drafts/, final versions in out/."}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            data-testid="project-instructions-text"
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              className="btn btn-primary text-[12.5px] whitespace-nowrap"
-              disabled={!dirty || saving}
-              onClick={saveInstructions}
-              data-testid="project-instructions-save"
-            >
-              {saving ? "Saving…" : "Save instructions"}
-            </button>
-            {dirty && (
-              <button className="btn text-[12.5px]" onClick={() => setText(savedText)}>
-                Discard
-              </button>
-            )}
-          </div>
-        </section>
-
-        {/* Memory — the workspace-scoped facts. */}
-        <section className="mt-8" data-testid="project-memory">
-          <h2 className="text-[14px] font-semibold">What Mimi remembers about this project</h2>
-          <p className="text-[12.5px] text-muted mt-1 leading-relaxed">
-            Facts Mimi saved while working here, plus anything you add. Edits reach new
-            conversations; the global memory screen in Settings shows everything across projects.
-          </p>
-          <div className="mt-2.5 rounded-xl border border-line bg-panel divide-y divide-line">
-            {detail.memory.length === 0 && (
-              <div className="px-3.5 py-3 text-[12.5px] text-faint">
-                Nothing yet — Mimi remembers as she works, or add a fact below.
-              </div>
-            )}
-            {detail.memory.map((m) => (
-              <div key={m.id} className="group flex items-start gap-2 px-3.5 py-2.5" data-testid="project-memory-row">
-                {editing?.id === m.id ? (
-                  <>
-                    <input
-                      className="input flex-1 text-[12.5px]"
-                      value={editing.content}
-                      autoFocus
-                      onChange={(e) => setEditing({ id: m.id, content: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void saveEdit();
-                        if (e.key === "Escape") setEditing(null);
-                      }}
-                    />
-                    <button className="btn text-[12px]" onClick={() => void saveEdit()}>
-                      Save
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1 text-[12.5px] leading-relaxed">{m.content}</span>
-                    <button
-                      className="opacity-0 group-hover:opacity-100 text-faint hover:text-ink"
-                      title="Edit"
-                      aria-label="Edit memory"
-                      onClick={() => setEditing({ id: m.id, content: m.content })}
-                    >
-                      <Icon name="pencil" size={13} />
-                    </button>
-                    <button
-                      className="opacity-0 group-hover:opacity-100 text-faint hover:text-danger"
-                      title="Forget"
-                      aria-label="Forget memory"
-                      onClick={() => void removeFact(m)}
-                    >
-                      <Icon name="trash" size={13} />
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            <div className="flex items-center gap-2 px-3.5 py-2.5">
-              <input
-                className="input flex-1 text-[12.5px]"
-                placeholder="Add a fact about this project…"
-                value={newFact}
-                onChange={(e) => setNewFact(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void addFact()}
-                data-testid="project-memory-add"
-              />
-              <button className="btn text-[12px]" disabled={!newFact.trim()} onClick={() => void addFact()}>
-                Add
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* Conversations in this project. */}
-        <section className="mt-8 mb-10" data-testid="project-sessions">
-          <h2 className="text-[14px] font-semibold">Conversations</h2>
-          <div className="mt-2.5 rounded-xl border border-line bg-panel divide-y divide-line">
-            {detail.sessions.length === 0 && (
-              <div className="px-3.5 py-3 text-[12.5px] text-faint">
-                No conversations here yet — start one with “New session here”.
-              </div>
-            )}
-            {detail.sessions.map((s) => (
-              <button
-                key={s.session_id}
-                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-paper"
-                onClick={() => props.onSelectSession(s.session_id, proj.path, s.agent || "cowork")}
-                data-testid="project-session-row"
-              >
-                <Icon name="chat" size={13} className="shrink-0 text-muted" />
-                <span className="flex-1 truncate text-[12.5px]">{s.title || "New session"}</span>
-                <span className="text-[11px] text-faint shrink-0">{relTime(s.updated_at)}</span>
-              </button>
-            ))}
-          </div>
-        </section>
       </div>
     </main>
   );
