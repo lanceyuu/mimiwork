@@ -175,3 +175,54 @@ def test_generic_account_routes(acme, secrets, tmp_path, monkeypatch):
 
     out = client.post("/v1/connectors/linear/accounts/x/default").json()
     assert not out["ok"] and "not a multi-account" in out["error"]
+
+
+def test_signing_in_again_makes_the_new_key_take_effect_now(tmp_path, monkeypatch):
+    """Signing in mints a NEW QualiTaTi key. The router caches its client — key and all —
+    at first use, and nothing rebuilt it: the app kept presenting the previous key, so
+    once that one was revoked every model call came back "Invalid or revoked API key" and
+    signing in AGAIN did not help, because the same stale client answered. Only quitting
+    the app cleared it (owner-hit 2026-08-31).
+
+    Logout matters in the other direction: the key leaves the disk, and a cached client
+    would go on spending against it.
+    """
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, data_dir=tmp_path / "state")
+    dropped: list = []
+    monkeypatch.setattr(mgr, "_refresh_provider", lambda name=None: dropped.append(name))
+
+    class _Client:
+        def login(self, u, p):
+            return {"ok": True, "signed_in": True}
+
+        def verify_mfa(self, code):
+            return {"ok": True, "signed_in": True}
+
+        def ensure_provider_key(self):
+            return {"ok": True, "provider_configured": True}
+
+        def status(self):
+            return {"signed_in": True, "provider_configured": True}
+
+        def logout(self):
+            return {"ok": True}
+
+    monkeypatch.setattr(mgr, "_qualitati", lambda: _Client())
+    monkeypatch.setattr(mgr, "_adopt_qualitati_models", lambda _s: None)
+
+    mgr.qualitati_login("Test2", "pw")
+    assert dropped == ["qualitati"], "a fresh sign-in must not leave the old key cached"
+
+    dropped.clear()
+    mgr.qualitati_verify_mfa("000000")
+    assert dropped == ["qualitati"]
+
+    dropped.clear()
+    mgr.qualitati_reconnect()
+    assert dropped == ["qualitati"], "Reconnect is the button we tell the user to press"
+
+    dropped.clear()
+    mgr.qualitati_logout()
+    assert dropped == ["qualitati"], "a signed-out app must stop spending on the old key"

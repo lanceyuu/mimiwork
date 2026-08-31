@@ -2375,8 +2375,23 @@ class SessionManager:
         if not self._provider_configured(self._model_provider(self.model)):
             self.set_default_model("qualitati:mimi-puppy")
 
+    def _qualitati_key_changed(self) -> None:
+        """Drop the cached gateway client so the next turn reads the key we just wrote.
+
+        Signing in mints a NEW key, and the router caches its client — key and all —
+        at first use. Without this, a re-signed-in app kept presenting the previous
+        key: if that one had been revoked, every model call failed with "Invalid or
+        revoked API key", and signing in again did not help, because the same stale
+        client answered. Only quitting the app cleared it (owner-hit 2026-08-31).
+
+        Logout matters just as much in the other direction: the key is deleted from
+        disk, and a cached client would happily keep spending on it.
+        """
+        self._refresh_provider("qualitati")
+
     def qualitati_login(self, username: str, password: str) -> dict[str, Any]:
         out = self._qualitati().login(username, password)
+        self._qualitati_key_changed()
         self._adopt_qualitati_models(out)
         return out
 
@@ -2387,6 +2402,7 @@ class SessionManager:
 
     def qualitati_verify_mfa(self, code: str) -> dict[str, Any]:
         out = self._qualitati().verify_mfa(code)
+        self._qualitati_key_changed()
         self._adopt_qualitati_models(out)
         return out
 
@@ -2398,6 +2414,7 @@ class SessionManager:
         state = client.status()
         if state.get("signed_in") and not state.get("provider_configured"):
             if client.ensure_provider_key().get("ok"):
+                self._qualitati_key_changed()
                 state = client.status()
         self._adopt_qualitati_models(state)
         return state
@@ -2406,10 +2423,14 @@ class SessionManager:
         """The account card's "Reconnect" — mint the gateway key without a fresh password."""
         client = self._qualitati()
         out = client.ensure_provider_key()
+        if out.get("ok"):
+            self._qualitati_key_changed()
         return {**out, **({"status": client.status()} if out.get("ok") else {})}
 
     def qualitati_logout(self) -> dict[str, Any]:
-        return self._qualitati().logout()
+        out = self._qualitati().logout()
+        self._qualitati_key_changed()
+        return out
 
     def _qualitati_get(self, path: str, *, label: str) -> dict[str, Any]:
         """GET a QualiTaTi API path with the stored credential.

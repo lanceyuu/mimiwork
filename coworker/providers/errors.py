@@ -134,3 +134,40 @@ def retry_after_seconds(exc: Exception, cap: float = 30.0) -> Optional[float]:
         return min(float(raw), cap)
     except (TypeError, ValueError):
         return None
+
+
+# -- a credential the gateway no longer accepts ------------------------------------------
+# QualiTaTi's gateway answers a key it cannot resolve with 401 {"detail": "Invalid or
+# revoked API key"}. It reaches the user as that bare sentence, which says nothing about
+# what to do — and the thing to do is not obvious, because the key on disk may well be
+# fine: signing in mints a NEW key, and a client cached with the old one keeps presenting
+# it (owner-hit 2026-08-31, "all models are not working now").
+_STALE_CREDENTIAL = (
+    "invalid or revoked api key",
+    "invalid api key",
+    "incorrect api key provided",
+    "no api key provided",
+    "authentication_error",
+    "invalid_api_key",
+)
+
+
+def is_stale_credential(exc: Exception) -> bool:
+    """True when the provider rejected the key itself, not the request."""
+    text = str(exc).lower()
+    if not any(marker in text for marker in _STALE_CREDENTIAL):
+        return False
+    # Guard against a 403 that means "this model is not yours" — that is _NO_ACCESS.
+    return not any(marker in text for marker in _NO_ACCESS)
+
+
+def friendly_credential_error(exc: Exception) -> Optional[str]:
+    """One actionable sentence for a rejected key, or None."""
+    if not is_stale_credential(exc):
+        return None
+    return (
+        "Your QualiTaTi key is no longer accepted. Open Settings → Account and press "
+        "Reconnect (or sign in again) — that mints a fresh key and MimiWork picks it up "
+        "straight away. A key can stop working because it was revoked on qualitati.com "
+        "or replaced by signing in on another computer."
+    )

@@ -27,8 +27,10 @@ from .fivea import classify_turn
 from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import (
+    friendly_credential_error,
     friendly_model_error,
     friendly_transient_error,
+    is_stale_credential,
     is_transient,
     retry_after_seconds,
 )
@@ -404,6 +406,7 @@ class TurnEngine:
     async def _loop(self) -> AsyncIterator[Event]:
         iterations = 0
         retries_used = 0
+        credential_reloaded = False  # one silent key-reload per turn, no loops
         # Fresh per turn: a stuck model re-sends near-identical iterations, and each
         # lap costs the user credits (see coworker/repetition.py, adapted from
         # FrontierAgent). Hint first, stop if it persists.
@@ -507,6 +510,21 @@ class TurnEngine:
                 # path) routes into the compaction policy instead of surfacing. The retry
                 # is progress-guarded: each pass moves the boundary forward or gives up,
                 # so a model that keeps overflowing still terminates in the error path.
+                # The key on disk may already be the right one while the cached client
+                # still carries the old: signing in mints a NEW key, and nothing rebuilt
+                # the client. Drop it, re-read the credential, and try once — silently,
+                # because from the user's side nothing went wrong (owner-hit 2026-08-31).
+                if (
+                    is_stale_credential(exc)
+                    and not streamed
+                    and not streamed_reasoning
+                    and not credential_reloaded
+                    and self._reload_credentials()
+                    and not self._cancel.is_set()
+                ):
+                    credential_reloaded = True
+                    iterations -= 1  # the retry is the same step, not a new one
+                    continue
                 if _compaction.is_context_overflow(exc) and not self._cancel.is_set():
                     yield Event(EventType.COMPACTING, {})
                     notice = await self._compact_now(force=True)
@@ -518,9 +536,11 @@ class TurnEngine:
                 # arrive survives the failure.
                 if streamed or streamed_reasoning:
                     self.messages.append(_assistant_message(_partial_turn()))
-                friendly = friendly_model_error(
-                    self.model, exc
-                ) or friendly_transient_error(exc)
+                friendly = (
+                    friendly_model_error(self.model, exc)
+                    or friendly_credential_error(exc)
+                    or friendly_transient_error(exc)
+                )
                 payload = {
                     "error": friendly or str(exc),
                     "error_type": type(exc).__name__,
@@ -1382,6 +1402,22 @@ class TurnEngine:
                 **({"standing_rule": rule} if rule else {}),
             },
         )
+
+    def _reload_credentials(self) -> bool:
+        """Ask the provider to rebuild its clients from what is on disk now.
+
+        Returns whether anything could be reloaded — a plain injected provider (tests,
+        a single hand-built client) has nothing to invalidate, and the caller must not
+        burn its one retry pretending otherwise.
+        """
+        invalidate = getattr(self.provider, "invalidate", None)
+        if not callable(invalidate):
+            return False
+        try:
+            invalidate()
+        except Exception:
+            return False
+        return True
 
     def _begin_turn(self) -> None:
         self._turn_started = time.monotonic()

@@ -186,3 +186,75 @@ def test_write_file_gets_a_self_check(tmp_path):
     tool_msgs = [m for m in engine.messages if m.get("role") == "tool"]
     assert tool_msgs and "placeholder" in str(tool_msgs[0].get("content"))
     assert "Fix these" in str(tool_msgs[0].get("content"))
+
+
+# -- a key the gateway no longer accepts (owner-hit 2026-08-31) ----------------
+class RevokedKey(Exception):
+    """The gateway's verbatim reply to a key it cannot resolve."""
+
+    def __init__(self):
+        super().__init__("Error code: 401 - {'detail': 'Invalid or revoked API key'}")
+
+
+class _RotatingProvider(FlakyProvider):
+    """Fails with a rejected key until its clients are rebuilt from disk."""
+
+    def __init__(self, turns):
+        super().__init__([], turns)
+        self.reloads = 0
+        self._stale = True
+
+    def complete(self, *, model, messages, tools=None, **settings):
+        self.calls += 1
+        if self._stale:
+            raise RevokedKey()
+        return self.turns.pop(0)
+
+    def invalidate(self, name=None):
+        self.reloads += 1
+        self._stale = False  # the key on disk was already the good one
+
+
+def test_a_rejected_key_is_reloaded_once_and_the_turn_continues(tmp_path):
+    """Signing in mints a NEW key, and the router caches its client — key and all — at
+    first use. The app then kept presenting the OLD key: every call 401'd, and signing
+    in again did not help because the same stale client answered. Re-read the key and
+    carry on; the user never asked for anything to go wrong."""
+    provider = _RotatingProvider([AssistantTurn(text="done")])
+    engine = _engine(tmp_path, provider)
+
+    events = _run(engine, "hello")
+
+    assert provider.reloads == 1, "the cached client was never rebuilt"
+    assert provider.calls == 2, "the turn did not retry after reloading the key"
+    assert not [e for e in events if e.type is EventType.ERROR]
+    assert any(e.type is EventType.ASSISTANT_MESSAGE for e in events)
+
+
+class _AlwaysRevoked(FlakyProvider):
+    def __init__(self):
+        super().__init__([], [])
+        self.reloads = 0
+
+    def complete(self, *, model, messages, tools=None, **settings):
+        self.calls += 1
+        raise RevokedKey()
+
+    def invalidate(self, name=None):
+        self.reloads += 1
+
+
+def test_a_key_that_stays_rejected_says_what_to_do_and_stops(tmp_path):
+    """Reloading is one attempt, not a loop — and the raw 401 tells the user nothing,
+    so the message has to name the fix."""
+    provider = _AlwaysRevoked()
+    engine = _engine(tmp_path, provider)
+
+    events = _run(engine, "hello")
+
+    assert provider.reloads == 1 and provider.calls == 2, "reload must not loop"
+    errors = [e for e in events if e.type is EventType.ERROR]
+    assert errors, "a permanently rejected key must surface"
+    text = errors[-1].data["error"]
+    assert "Reconnect" in text and "QualiTaTi" in text, text
+    assert "Invalid or revoked API key" not in text, "the raw 401 is not an instruction"
