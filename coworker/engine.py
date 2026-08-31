@@ -34,7 +34,6 @@ from .providers.errors import (
 )
 from .repetition import RepetitionGuard as _RepetitionGuard
 from .timesaved import TimeSaved
-from .timesaved import estimate_call as _estimate_call
 from .tools import RecoveryPolicy, ToolRegistry
 
 
@@ -170,7 +169,6 @@ class TurnEngine:
         # save. The builder turns this on when there is a store AND saving is enabled.
         self.memory_enabled = False
         self._turn_tools: set[str] = set()
-        self._turn_categories: set[str] = set()
         # Set by the surface when an automation started the turn, or a plan was approved.
         self.turn_scheduled = False
         self._turn_planned = False
@@ -1389,7 +1387,6 @@ class TurnEngine:
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
         self._turn_tools = set()
-        self._turn_categories = set()
         self._turn_planned = False
         if self.file_recovery is not None:
             self.file_recovery.begin_turn()
@@ -1403,7 +1400,6 @@ class TurnEngine:
         self.time_saved.add_turn(elapsed, approvals=self._turn_approvals)
         rung = classify_turn(
             tools=self._turn_tools,
-            categories=self._turn_categories,
             scheduled=self.turn_scheduled,
             planned=self._turn_planned,
         )
@@ -1423,11 +1419,6 @@ class TurnEngine:
                 tool_call.name, tool_call.arguments, event.get("result")
             )
             self._turn_tools.add(tool_call.name)
-            category, _minutes = _estimate_call(
-                tool_call.name, tool_call.arguments, event.get("result")
-            )
-            if category:
-                self._turn_categories.add(category)
             if tool_call.name == "propose_plan":
                 self._turn_planned = True
         elif stage == "approval_requested":

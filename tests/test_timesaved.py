@@ -190,30 +190,77 @@ def test_minutes_are_recorded_per_tool_so_novelty_can_be_judged():
 # ── the Five A's, per Chapter 7 ───────────────────────────────────────────
 
 
-def test_a_turn_is_placed_by_behaviour_not_by_branding():
-    """The chapter's own instruction: classify by behaviour, not branding — who
-    initiates, is the path fixed, what can it touch."""
+def test_a_turn_is_placed_by_the_chapter_s_four_behavioural_questions():
+    """§7.6's operational test, applied per turn: who initiates, is the path fixed,
+    what can it touch, what does failure cost."""
     from coworker.fivea import classify_turn
 
+    # The model alone. §7.1 is explicit that the modern wrapper — built-in web
+    # search, file handling — is still Access, so searching the web is not a rung up.
     assert classify_turn() == "Access"
-    assert classify_turn(tools=["load_skill"]) == "Assistants"
-    assert classify_turn(tools=["write_document"], categories=["Documents"]) == "Applications"
+    assert classify_turn(tools=["web_search"]) == "Access"
+
+    # Grounded in the user's own material: the RAG rung (§7.2). These are the REAL
+    # tool names — an earlier cut listed `search_kb`, which does not exist, so
+    # knowledge-base grounding never once counted.
+    assert classify_turn(tools=["kb_search"]) == "Assistants"
+    assert classify_turn(tools=["read_document"]) == "Assistants"
+
+    # A skill is "task-specific, single-purpose ... built through natural-language
+    # prompts" (§7.3) — one job, one fixed recipe.
+    assert classify_turn(tools=["load_skill", "write_document"]) == "Applications"
+
+    # Q1: a schedule initiated it and it followed the path it was given.
+    assert classify_turn(tools=["write_document"], scheduled=True) == "Automation"
+
+    # Q2: it chose its own next action.
     assert classify_turn(tools=["explore"]) == "Agents"
     assert classify_turn(planned=True) == "Agents"
     assert classify_turn(tools=[f"t{i}" for i in range(6)]) == "Agents"
 
 
+def test_a_fixed_recipe_is_not_promoted_by_the_length_of_the_recipe():
+    """Q2: "if the steps are predefined, it is an Automation regardless of how much
+    AI sits inside the steps". A skill that calls nine tools still did not choose
+    its own route — only an explicit plan or delegation does that."""
+    from coworker.fivea import classify_turn
+
+    long_recipe = ["load_skill"] + [f"t{i}" for i in range(9)]
+    assert classify_turn(tools=long_recipe) == "Applications"
+    assert classify_turn(tools=long_recipe, planned=True) == "Agents"
+
+
+def test_agent_territory_needs_writes_across_systems_not_one_write():
+    """Q3, and the plural in it: "read-only access to one system is Assistant
+    territory; write access ACROSS SYSTEMS is agent territory". One user-directed
+    Slack message is an action a person asked for, not a delegated goal."""
+    from coworker.fivea import classify_turn
+
+    assert classify_turn(tools=["slack_send_message"]) == "Access"
+    assert classify_turn(tools=["slack_send_message", "kb_search"]) == "Assistants"
+    # Two services written to in one turn is the line the chapter draws.
+    assert classify_turn(tools=["slack_send_message", "gmail_create_draft"]) == "Agents"
+    # Reads across many services stay read-only, so they stay below Agents.
+    assert classify_turn(tools=["slack_search", "gmail_search"]) == "Access"
+
+
+def test_a_scheduled_run_that_directs_itself_is_an_agent():
+    """Q1 and Q2 are separate questions. A schedule starting a run makes it an
+    Automation only while the path stays the one it was given; a scheduled run that
+    plans its own way is what the chapter calls an Agent acting on events."""
+    from coworker.fivea import classify_turn
+
+    assert classify_turn(tools=["write_document"], scheduled=True) == "Automation"
+    assert classify_turn(tools=["subagent"], scheduled=True) == "Agents"
+
+
 def test_a_turn_counts_once_at_the_highest_rung_it_reached():
-    """The continuum is about autonomy: a scheduled run that also wrote a document
-    is Automation. Counting it twice would blur the axis the figure is built on."""
+    """The continuum is about autonomy: a scheduled run that also ran a skill is
+    Automation. Counting it twice would blur the axis the figure is built on."""
     from coworker.fivea import classify_turn
 
     assert (
-        classify_turn(
-            tools=["write_document", "load_skill"],
-            categories=["Documents"],
-            scheduled=True,
-        )
+        classify_turn(tools=["write_document", "load_skill"], scheduled=True)
         == "Automation"
     )
 

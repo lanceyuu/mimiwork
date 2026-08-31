@@ -52,21 +52,28 @@ const D: Record<string, [string, string, string]> = {
     "Rundene dine plassert på Five A's-kontinuumet — etter hva de gjorde, ikke hva de het.",
     "Vos tours placés sur le continuum des Five A's — selon ce qu'ils ont fait, non leur nom.",
   ],
-  "The model alone, answering directly": [
-    "只有模型本身,直接作答", "Modellen alene, som svarer direkte", "Le modèle seul, qui répond directement",
+  "The model on its own, answering you directly": [
+    "只有模型本身,直接回答你", "Modellen alene, som svarer deg direkte",
+    "Le modèle seul, qui vous répond directement",
   ],
-  "Grounded in your own skills, notes and instructions": [
-    "基于你自己的技能、笔记和指令", "Forankret i dine egne ferdigheter, notater og instruksjoner",
-    "Ancré dans vos propres compétences, notes et instructions",
+  "Grounded in your own documents, notes and knowledge base": [
+    "基于你自己的文档、笔记和知识库", "Forankret i dine egne dokumenter, notater og kunnskapsbase",
+    "Ancré dans vos propres documents, notes et base de connaissances",
   ],
-  "One defined job, one finished artifact": [
-    "一个明确任务,一份成品", "Én definert jobb, ett ferdig resultat", "Une tâche définie, un livrable fini",
+  "One fixed recipe, one defined job — a skill or a command": [
+    "一份固定配方、一个明确任务——一个技能或一条命令",
+    "Én fast oppskrift, én definert jobb — en ferdighet eller en kommando",
+    "Une recette fixe, une tâche définie — une compétence ou une commande",
   ],
-  "Ran on a schedule, without you watching": [
-    "按计划运行,无需你盯着", "Kjørte etter en plan, uten at du så på", "Exécuté selon un calendrier, sans vous",
+  "A schedule started it and it followed the path it was given": [
+    "由计划触发,并按既定路径执行",
+    "En plan startet den, og den fulgte veien den fikk",
+    "Un calendrier l'a lancé et il a suivi le chemin donné",
   ],
-  "Planned and carried out a multi-step goal": [
-    "规划并完成了一个多步目标", "Planla og gjennomførte et flertrinnsmål", "A planifié et mené un objectif en plusieurs étapes",
+  "It chose its own next step, or reached across your systems": [
+    "它自己决定下一步,或跨系统动了手",
+    "Den valgte sitt eget neste steg, eller grep inn på tvers av systemene dine",
+    "Il a choisi son étape suivante, ou est intervenu à travers vos systèmes",
   ],
   "more human involvement": ["人的参与更多", "mer menneskelig involvering", "plus d'intervention humaine"],
   "more autonomy": ["自主性更高", "mer autonomi", "plus d'autonomie"],
