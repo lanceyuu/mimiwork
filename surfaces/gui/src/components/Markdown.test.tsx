@@ -61,3 +61,66 @@ describe("Markdown artifact links", () => {
     window.removeEventListener(OPEN_ARTIFACT_EVENT, listener);
   });
 });
+
+describe("right-click on a produced file (owner ask 2026-08-31)", () => {
+  afterEach(() => cleanup());
+
+  it("offers Open and Show in Finder, and asks for the right one", async () => {
+    const events: any[] = [];
+    const onReveal = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener("ocw-reveal-artifact", onReveal);
+
+    render(<Markdown text="Done — [Brief](artifact:reports/brief.docx)" />);
+    fireEvent.contextMenu(screen.getByTestId("artifact-chip"));
+
+    const menu = screen.getByTestId("artifact-menu");
+    expect(menu.textContent).toContain("Open file");
+    // jsdom's userAgent is not a Mac, so this is the generic wording; the Mac label is
+    // chosen by platformOS() at runtime.
+    expect(menu.textContent).toMatch(/Show in (Finder|File Explorer|folder)/);
+
+    fireEvent.click(screen.getByTestId("artifact-menu-reveal"));
+    expect(events).toEqual([{ path: "reports/brief.docx", mode: "reveal" }]);
+    expect(screen.queryByTestId("artifact-menu")).toBeNull();
+    window.removeEventListener("ocw-reveal-artifact", onReveal);
+  });
+
+  it("Open file asks for open, not reveal", async () => {
+    const events: any[] = [];
+    const onReveal = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener("ocw-reveal-artifact", onReveal);
+
+    render(<Markdown text="[Deck](artifact:out/deck.pptx)" />);
+    fireEvent.contextMenu(screen.getByTestId("artifact-chip"));
+    fireEvent.click(screen.getByTestId("artifact-menu-open"));
+
+    expect(events).toEqual([{ path: "out/deck.pptx", mode: "open" }]);
+    window.removeEventListener("ocw-reveal-artifact", onReveal);
+  });
+
+  it("left-click still opens the in-app preview — the menu adds, it does not replace", async () => {
+    const opens: any[] = [];
+    const onOpen = (e: Event) => opens.push((e as CustomEvent).detail);
+    window.addEventListener("ocw-open-artifact", onOpen);
+
+    render(<Markdown text="[Brief](artifact:reports/brief.docx)" />);
+    fireEvent.click(screen.getByTestId("artifact-chip"));
+
+    expect(opens).toEqual([{ path: "reports/brief.docx" }]);
+    expect(screen.queryByTestId("artifact-menu")).toBeNull();
+    window.removeEventListener("ocw-open-artifact", onOpen);
+  });
+
+  it("a path with spaces reaches the menu decoded", async () => {
+    const events: any[] = [];
+    const onReveal = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener("ocw-reveal-artifact", onReveal);
+
+    render(<Markdown text="[Debrief](<artifact:Online marketing course/Debrief Module 2.docx>)" />);
+    fireEvent.contextMenu(screen.getByTestId("artifact-chip"));
+    fireEvent.click(screen.getByTestId("artifact-menu-reveal"));
+
+    expect(events[0].path).toBe("Online marketing course/Debrief Module 2.docx");
+    window.removeEventListener("ocw-reveal-artifact", onReveal);
+  });
+});

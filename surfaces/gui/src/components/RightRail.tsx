@@ -16,7 +16,7 @@ import { clockTime } from "../time";
 import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
-import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
+import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
 
 type Panel = "progress" | "artifacts" | "recovery";
 
@@ -205,6 +205,22 @@ export function RightRail({
     window.addEventListener(OPEN_ARTIFACT_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_ARTIFACT_EVENT, onOpen);
   }, [active, sessionId, artifacts, openArtifact]);
+
+  // Right-click on a produced file: open it in the program that owns it, or show it where
+  // it lives. Its OWN effect, deliberately not gated on `active` — the effect above bails
+  // when the rail is closed, and right-clicking a file in the transcript has to work
+  // whether or not the panel happens to be open (owner ask 2026-08-31).
+  useEffect(() => {
+    const onReveal = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const path = String(detail.path || "");
+      const mode = detail.mode === "open" ? "open" : "reveal";
+      if (!path || !sessionId) return;
+      void revealArtifact(sessionId, path, mode).catch(() => undefined);
+    };
+    window.addEventListener(REVEAL_ARTIFACT_EVENT, onReveal);
+    return () => window.removeEventListener(REVEAL_ARTIFACT_EVENT, onReveal);
+  }, [sessionId]);
 
   if (!active) return null;
 
