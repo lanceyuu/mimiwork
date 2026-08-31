@@ -228,6 +228,9 @@ def build_engine(
     # A CALLABLE is read per turn (the server passes one so a Settings edit reaches
     # conversations already open); a plain string is a fixed value for CLI/tests.
     user_rules: Optional[Any] = None,
+    # Standing instructions from the session's project GROUP (2026-08-31). A group has
+    # no folder, so this arrives as text rather than being read off disk.
+    group_instructions: Optional[str] = None,
     # True when the user turned memory OFF in Settings (vs. memory simply not wired):
     # injects the honesty notice so the model says so instead of faking a save.
     memory_off: bool = False,
@@ -396,7 +399,7 @@ def build_engine(
         ws_map = build_workspace_map(ws)
         if ws_map:
             instructions = f"{instructions}\n\n{ws_map}"
-        conventions = load_agents_md(ws)
+        conventions = load_agents_md(ws, group_instructions=group_instructions or "")
         if conventions:
             instructions = f"{instructions}\n\n{conventions}"
 

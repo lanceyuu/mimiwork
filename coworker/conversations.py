@@ -93,6 +93,7 @@ class ConversationStore:
                 pinned INTEGER DEFAULT 0,
                 archived INTEGER DEFAULT 0,
                 sort_order INTEGER DEFAULT 0,
+                instructions TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS tool_runs (
@@ -134,6 +135,11 @@ class ConversationStore:
             # one without the other. project_id carries membership on its own;
             # `workspace` keeps doing only its real job.
             "ALTER TABLE sessions ADD COLUMN project_id TEXT",
+            # A group's standing instructions. They live HERE rather than in a file,
+            # because a group has no folder to put a file in — and a temp directory
+            # would have been worse than none: the OS empties it, and instructions
+            # someone typed must not evaporate.
+            "ALTER TABLE projects ADD COLUMN instructions TEXT",
         ):
             try:
                 self._conn.execute(ddl)
@@ -580,7 +586,7 @@ class ConversationStore:
         """
         with self._lock:
             rows = self._conn.execute(
-                "SELECT p.id, p.name, p.emoji, p.pinned, p.archived, p.sort_order, "
+                "SELECT p.id, p.name, p.emoji, p.pinned, p.archived, p.sort_order, p.instructions, "
                 "       COUNT(s.session_id) AS sessions, MAX(s.updated_at) AS last_activity "
                 "FROM projects p "
                 "LEFT JOIN sessions s ON s.project_id = p.id AND s.archived = 0 "
@@ -598,12 +604,23 @@ class ConversationStore:
                 "archived": bool(r["archived"]),
                 "sessions": int(r["sessions"] or 0),
                 "last_activity": r["last_activity"] or "",
+                "has_instructions": bool((r["instructions"] or "").strip()),
             }
             for r in rows
         ]
 
+    def project_instructions(self, project_id: str) -> str:
+        """The group's standing instructions, or "" — read per session build."""
+        if not project_id:
+            return ""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT instructions FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+        return (row["instructions"] or "") if row else ""
+
     def update_project(self, project_id: str, **fields) -> bool:
-        allowed = {"name", "emoji", "pinned", "archived", "sort_order"}
+        allowed = {"name", "emoji", "pinned", "archived", "sort_order", "instructions"}
         sets, values = [], []
         for key, value in fields.items():
             if key not in allowed or value is None:

@@ -30,12 +30,20 @@ def _read(path: Path) -> str:
 
 
 def load_agents_md(
-    workspace: str | Path, *, global_path: Optional[str | Path] = None
+    workspace: str | Path,
+    *,
+    global_path: Optional[str | Path] = None,
+    group_instructions: str = "",
 ) -> str:
     """Return a system-prompt block from the global and project instruction files.
 
     Global scope is the state dir (or ``global_path`` when given); project scope is the
     workspace root. Nested discovery is a fast-follow.
+
+    ``group_instructions`` is the standing text on the session's project. A project is a
+    group now, not a folder, so its instructions have no file to live in — they come
+    from the database and are injected here beside the file-based ones, last, so a
+    folder that carries its own AGENTS.md still leads.
     """
     parts: list[tuple[str, str, str]] = []  # (scope label, filename, text)
 
@@ -55,6 +63,9 @@ def load_agents_md(
             text = _read(candidate)
             if text.strip():
                 parts.append(("project", name, text))
+
+    if (group_instructions or "").strip():
+        parts.append(("project", "group instructions", group_instructions))
 
     if not parts:
         return ""

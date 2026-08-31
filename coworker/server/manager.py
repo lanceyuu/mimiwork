@@ -507,6 +507,20 @@ class SessionManager:
     def list_sessions_in_project(self, project_id: str) -> list[dict[str, Any]]:
         return [s for s in self.list_sessions() if s.get("project_id") == project_id]
 
+    def set_project_instructions(self, project_id: str, text: str) -> dict[str, Any]:
+        """The group's standing instructions — injected as "Project conventions" for
+        every conversation filed under it.
+
+        Stored on the group row, not in a file: a group has no folder to hold one, and
+        a temp directory would be worse than nowhere — the OS empties it, and text
+        somebody typed must not evaporate. Applies to NEW conversations, matching how
+        folder instructions have always behaved.
+        """
+        text = (text or "").rstrip()
+        if not self.session_store.update_project(project_id, instructions=text or ""):
+            return {"ok": False, "error": "unknown project"}
+        return {"ok": True, "instructions": text}
+
     def project_detail(self, project_id: str) -> dict[str, Any]:
         row = next(
             (p for p in self.session_store.list_projects() if p["id"] == project_id), None
@@ -518,7 +532,12 @@ class SessionManager:
             for s in self.list_sessions_in_project(project_id)
             if not s.get("archived") and not str(s.get("session_id", "")).startswith("__")
         ][:50]
-        return {"ok": True, "project": row, "sessions": sessions}
+        return {
+            "ok": True,
+            "project": row,
+            "sessions": sessions,
+            "instructions": self.session_store.project_instructions(project_id),
+        }
 
     def move_session_to_project(
         self, session_id: str, project_id: Optional[str]
@@ -1086,6 +1105,13 @@ class SessionManager:
             # Callable, not a snapshot: editing your instructions in Settings applies
             # to conversations already open (same reason as the saving switch).
             user_rules=lambda: self.memory_settings.user_rules,
+            # The group's standing instructions, if this conversation is filed under
+            # one. A group has no folder, so this comes from the database rather than
+            # an AGENTS.md — the reason it survives at all now that a project is not
+            # a directory.
+            group_instructions=self.session_store.project_instructions(
+                (record.project_id if record else None) or ""
+            ),
             on_memory_saved=self._memory_saved_notifier(session_id),
             messages=messages,
             extra_tools=extra_tools,

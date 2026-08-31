@@ -783,6 +783,13 @@ def create_app(manager: SessionManager) -> FastAPI:
     def project_detail(id: str) -> dict[str, Any]:
         return manager.project_detail(id)
 
+    @app.put("/v1/projects/instructions")
+    def project_instructions(body: dict) -> dict[str, Any]:
+        """Standing instructions for a group. Stored on the group, not in a file —
+        a group has no folder."""
+        b = body or {}
+        return manager.set_project_instructions(str(b.get("id", "")), str(b.get("text", "")))
+
     @app.post("/v1/sessions/{session_id}/project")
     def move_session_to_project(session_id: str, body: dict) -> dict[str, Any]:
         """File a session under a group (or none). Never moves files."""

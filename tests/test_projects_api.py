@@ -296,3 +296,44 @@ def test_a_sessions_own_scratch_folder_never_becomes_a_group(tmp_path):
 
     names = [g["name"] for g in ConversationStore(base).list_projects()]
     assert names == ["ETF recruiting"], names
+
+
+def test_a_group_keeps_standing_instructions_without_owning_a_folder(tmp_path):
+    """Losing the folder must not lose the feature. A group's instructions live on the
+    group row — not in a file, and emphatically not in a temp directory, which the OS
+    empties out from under text somebody typed."""
+    client, _ = _fixture(tmp_path)
+    pid = _make(client, "Interview study")
+
+    out = client.put(
+        "/v1/projects/instructions",
+        json={"id": pid, "text": "Always cite the transcript line number."},
+    ).json()
+    assert out["ok"]
+
+    detail = client.get(f"/v1/projects/detail?id={pid}").json()
+    assert detail["instructions"] == "Always cite the transcript line number."
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["has_instructions"] is True
+
+    # Cleared, not left as a blank block.
+    assert client.put("/v1/projects/instructions", json={"id": pid, "text": "  "}).json()["ok"]
+    row = next(r for r in client.get("/v1/projects").json()["projects"] if r["id"] == pid)
+    assert row["has_instructions"] is False
+
+
+def test_group_instructions_reach_the_conversations_filed_under_it(tmp_path):
+    """The point of storing them: a session in the group starts with them in its
+    system prompt, exactly as a folder's AGENTS.md always did."""
+    from coworker.project import load_agents_md
+
+    empty = tmp_path / "no-instruction-files"
+    empty.mkdir()
+
+    block = load_agents_md(empty, global_path=tmp_path / "none.md",
+                           group_instructions="Always cite the transcript line number.")
+    assert "Project conventions:" in block
+    assert "Always cite the transcript line number." in block
+
+    # No group, no folder files, nothing to say.
+    assert load_agents_md(empty, global_path=tmp_path / "none.md") == ""
