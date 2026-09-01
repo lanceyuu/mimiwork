@@ -158,6 +158,9 @@ export function MemorySection() {
                 setHighlightId(id);
                 setView("list");
               }}
+              // Forgetting from the graph must move the list too — they are two views
+              // of one set of facts, and a stale one is a lie about what Mimi knows.
+              onForgotten={refresh}
             />
           </div>
         ) : entries.length === 0 ? (

@@ -4,10 +4,13 @@
  * library dependency for a few hundred nodes. Memories are dots (colored by
  * scope), #tags and workspaces are hub nodes; [[wiki-links]] draw direct
  * memory↔memory edges. Drag a node, pan the background, wheel to zoom, hover
- * for the label, click a memory to hand it to the list view.
+ * for the label, click a memory to hand it to the list view, right-click to forget it.
  */
 import { useEffect, useRef, useState } from "react";
-import { MemoryGraphData, getMemoryGraph } from "../api";
+import { createPortal } from "react-dom";
+import { MemoryGraphData, deleteMemory, getMemoryGraph } from "../api";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { Icon } from "./Icon";
 
 type SimNode = {
   id: string;
@@ -42,18 +45,33 @@ function nodeRadius(n: SimNode): number {
   return base + Math.min(6, Math.sqrt(n.degree) * 1.6);
 }
 
-export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => void }) {
+export function MemoryGraph({
+  onOpenMemory,
+  onForgotten,
+}: {
+  onOpenMemory?: (id: number) => void;
+  /** A memory was forgotten from the graph — the list view re-reads. */
+  onForgotten?: () => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [data, setData] = useState<MemoryGraphData | null>(null);
   const [empty, setEmpty] = useState(false);
+  // Right-click a dot to forget it. The menu carries the memory's own words, because
+  // "delete this node" means nothing when the dot is one of two hundred (owner ask
+  // 2026-08-31).
+  const [menu, setMenu] = useState<{ x: number; y: number; id: number; label: string } | null>(null);
+  const [confirming, setConfirming] = useState<{ id: number; label: string } | null>(null);
 
-  useEffect(() => {
+  const reload = () =>
     getMemoryGraph()
       .then((g) => {
         setData(g);
         setEmpty(!g.nodes.length);
       })
       .catch(() => setEmpty(true));
+
+  useEffect(() => {
+    void reload();
   }, []);
 
   useEffect(() => {
@@ -68,8 +86,11 @@ export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => v
     canvas.height = H * dpr;
     canvas.style.width = `${W}px`;
     canvas.style.height = `${H}px`;
+    // No 2D context (jsdom, headless): the graph cannot be DRAWN, but layout and the
+    // pointer handlers below still work and are worth having. Bailing here meant the
+    // right-click handler was never even attached, so the feature was untestable
+    // outside a real browser.
     const ctx = canvas.getContext("2d");
-    if (!ctx) return; // jsdom / headless environments
 
     // Deterministic-ish initial ring placement so reloads look familiar.
     const nodes: SimNode[] = data.nodes.map((n, i) => {
@@ -165,6 +186,10 @@ export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => v
         alpha *= 0.985;
       }
 
+      if (!ctx) {
+        raf = requestAnimationFrame(step);
+        return;
+      }
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
       ctx.save();
@@ -235,18 +260,29 @@ export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => v
       dragging = null;
       panning = false;
     };
+    // Right-click a MEMORY dot. Hubs (#tags, projects) are not memories — they exist
+    // because something references them, so there is nothing there to delete.
+    const onContext = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const n = pick(e.clientX - rect.left, e.clientY - rect.top);
+      if (!n || n.kind !== "memory" || n.memory_id == null) return;
+      e.preventDefault();
+      setMenu({ x: e.clientX, y: e.clientY, id: n.memory_id, label: n.label || "this memory" });
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       const factor = Math.exp(-e.deltaY * 0.0015);
       zoom = Math.min(4, Math.max(0.3, zoom * factor));
     };
 
+    canvas.addEventListener("contextmenu", onContext);
     canvas.addEventListener("pointerdown", onDown);
     canvas.addEventListener("pointermove", onMove);
     canvas.addEventListener("pointerup", onUp);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       cancelAnimationFrame(raf);
+      canvas.removeEventListener("contextmenu", onContext);
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);
@@ -262,11 +298,40 @@ export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => v
       </div>
     );
 
+  const forget = async () => {
+    if (!confirming) return;
+    const { id } = confirming;
+    setConfirming(null);
+    await deleteMemory(id).catch(() => undefined);
+    await reload();
+    onForgotten?.();
+  };
+
   return (
     <div data-testid="memory-graph">
       <div className="rounded-xl border border-line bg-panel overflow-hidden">
         <canvas ref={canvasRef} data-testid="memory-graph-canvas" />
       </div>
+      {menu && (
+        <GraphMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={() => setMenu(null)}
+          onForget={() => {
+            setConfirming({ id: menu.id, label: menu.label });
+            setMenu(null);
+          }}
+        />
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title="Forget this memory?"
+          body={`“${confirming.label}” — Mimi stops using it in new conversations. Conversations that already referenced it keep what they said.`}
+          confirmLabel="Forget it"
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => void forget()}
+        />
+      )}
       <div className="flex items-center gap-4 mt-2 text-[11.5px] text-faint" data-testid="memory-graph-legend">
         <span className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS.global }} /> Global
@@ -280,8 +345,69 @@ export function MemoryGraph({ onOpenMemory }: { onOpenMemory?: (id: number) => v
         <span className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full" style={{ background: COLORS.workspaceHub }} /> Project
         </span>
-        <span className="ml-auto">drag · scroll to zoom · click a dot to open it</span>
+        <span className="ml-auto">drag · scroll to zoom · click to open · right-click to forget</span>
       </div>
     </div>
+  );
+}
+
+
+/** The graph's right-click menu. One action, because there is only one thing you can
+ *  usefully do to a dot that a click does not already do. */
+function GraphMenu({
+  x,
+  y,
+  onForget,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  onForget: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const away = (e: Event) => {
+      if ((e.target as HTMLElement)?.closest?.("[data-testid='memory-graph-menu']")) return;
+      onClose();
+    };
+    const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    // Next frame: the contextmenu that opened this is still unwinding, and a listener
+    // added synchronously would catch it and close immediately. And presses INSIDE the
+    // menu are ignored — mousedown precedes click, so a blanket handler unmounts the
+    // menu before its own button can be clicked.
+    const id = requestAnimationFrame(() => {
+      window.addEventListener("mousedown", away, true);
+      window.addEventListener("contextmenu", away, true);
+      window.addEventListener("keydown", key, true);
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("mousedown", away, true);
+      window.removeEventListener("contextmenu", away, true);
+      window.removeEventListener("keydown", key, true);
+    };
+  }, [onClose]);
+
+  const W = 170;
+  const left = Math.min(x, Math.max(8, window.innerWidth - W - 8));
+  const top = Math.min(y, Math.max(8, window.innerHeight - 52));
+  return createPortal(
+    <div
+      className="fixed z-[70] w-[170px] py-1 rounded-xl2 border border-line bg-panel shadow-xl"
+      style={{ left, top }}
+      role="menu"
+      data-testid="memory-graph-menu"
+    >
+      <button
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 text-[12.5px] text-left text-danger hover:bg-paper"
+        role="menuitem"
+        data-testid="memory-graph-forget"
+        onClick={onForget}
+      >
+        <Icon name="trash" size={13} className="shrink-0" />
+        Forget this memory
+      </button>
+    </div>,
+    document.body,
   );
 }
