@@ -1,4 +1,4 @@
-# Desktop release builds — macOS (.dmg, arm64 + Intel) and Windows (.msi + NSIS .exe).
+# Desktop release builds — macOS (.dmg, arm64 + Intel) and Windows (NSIS .exe).
 #
 # CI calls the SAME scripts developers run locally (packaging/build_dmg.sh and
 # build_windows.ps1); this file only provisions the toolchain (Node, Rust, a Python venv at
@@ -149,7 +149,7 @@ jobs:
           unset APPLE_API_KEY_CONTENT
           bash packaging/build_dmg.sh
 
-      - name: Build .msi + NSIS .exe (Windows)
+      - name: Build NSIS .exe (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -164,8 +164,6 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp "$BUNDLE"/nsis/*.exe out/
             cp "$BUNDLE"/nsis/*.exe out/MimiWork-windows-setup.exe
-            cp "$BUNDLE"/msi/*.msi out/
-            cp "$BUNDLE"/msi/*.msi out/MimiWork-windows.msi
             # Updater signature for the NSIS installer (present only when the updater key
             # secret is configured). The .sig signs CONTENT, so the stable rename is safe.
             SIG=$(ls "$BUNDLE"/nsis/*.exe.sig 2>/dev/null | head -1 || true)

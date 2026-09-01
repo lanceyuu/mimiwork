@@ -1,13 +1,20 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Build the Coworker Windows desktop app + NSIS (.exe) and MSI installers.
+  Build the Coworker Windows desktop app + its NSIS (.exe) installer.
 
 .DESCRIPTION
   The Windows counterpart to build_dmg.sh:
     1. PyInstaller-bundle the server into a standalone onedir folder (no venv at runtime).
     2. Stage it at binaries\sidecar\ for Tauri's `resources` slot.
-    3. `tauri build --bundles nsis,msi` -> Coworker NSIS setup .exe + .msi (resources copied in).
+    3. `tauri build --bundles nsis` -> Coworker NSIS setup .exe (resources copied in).
+
+  NSIS only, deliberately (v0.4.19/0.4.20). WiX v3's light.exe is a 32-bit process that
+  cabs the whole payload in one go, and the sidecar is ~380 MB across ~10k files. Past
+  roughly this size it dies with no error code at all -- two releases burned 45 min of CI
+  each producing `failed to run ...\light.exe` and nothing more, while NSIS bundled the
+  identical payload in three minutes. NSIS is also what the auto-updater ships, so the
+  MSI was a second artifact almost nobody took. Pass -Bundles "nsis,msi" to try it anyway.
 
   Prerequisites (see the toolchain notes in the PR/plan):
     - Rust (rustup) with the x86_64-pc-windows-msvc target + the MSVC C++ build tools (link.exe).
@@ -26,8 +33,8 @@
 #>
 [CmdletBinding()]
 param(
-    # Which installer bundles to produce. Both by default.
-    [string]$Bundles = "nsis,msi"
+    # Which installer bundles to produce. See the MSI note above before adding "msi".
+    [string]$Bundles = "nsis"
 )
 $ErrorActionPreference = "Stop"
 

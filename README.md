@@ -135,7 +135,7 @@ The app updates itself from then on.
 |---|---|---|
 | **Mac — Apple Silicon** (M1–M4) | [**MimiWork-macos-arm64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) | Drag to Applications, then **right-click → Open** once |
 | **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) | Drag to Applications, then **right-click → Open** once |
-| **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) · [.msi](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows.msi) | Run it; SmartScreen → **More info → Run anyway** |
+| **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) | Run it; SmartScreen → **More info → Run anyway** |
 
 Builds aren't code-signed yet — that's the one-time prompt on each OS. Every release, with
 checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
