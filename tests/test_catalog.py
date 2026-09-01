@@ -72,6 +72,10 @@ COWORK_TOOLS = {
     "kb_search",  # Mimi's offline research-methods knowledge base
     "qualitati_projects",  # list the signed-in account's QualiTaTi projects
     "qualitati_mimi",  # delegate project work to QualiTaTi's server-side Mimi agent
+    # QualiTaTi's own research services (2026-08-31). Both spend the user's credits,
+    # so both are approval-gated.
+    "qualitati_proofread",
+    "qualitati_annotate",
 }
 
 

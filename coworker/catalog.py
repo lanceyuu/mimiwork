@@ -30,6 +30,7 @@ from .tools.office.image_tools import image_tools
 from .tools.office.pdf_tools import pdf_tools
 from .tools.office.pptx_tools import pptx_tools
 from .tools.office.xlsx_tools import xlsx_tools
+from .tools.qualitati_research_tools import qualitati_research_tools
 from .tools.qualitati_tools import qualitati_tools
 from .tools.search import search_tools
 from .tools.shell import shell_tools
@@ -300,9 +301,11 @@ _CAPS: list[Capability] = [
             "Work on the signed-in QualiTaTi account's research projects: list them, and "
             "delegate analysis/edits to Mimi, QualiTaTi's own research agent (statistics on "
             "survey data, transcripts, ThemeLens, survey editing — server-side, with "
-            "QualiTaTi's own confirmation gates)."
+            "QualiTaTi's own confirmation gates). Also QualiTaTi's own research services: "
+            "proofread a manuscript into a tracked-changes copy, and code a spreadsheet of "
+            "open-ended text against categories the user defines."
         ),
-        build=lambda _c: qualitati_tools(),
+        build=lambda c: [*qualitati_tools(), *qualitati_research_tools(c)],
         # Delegation mutates state on the QualiTaTi server — that is EXTERNAL by
         # definition, so unattended runs route it through the Inbox like any other
         # off-machine side effect.
