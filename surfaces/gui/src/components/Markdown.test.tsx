@@ -124,3 +124,47 @@ describe("right-click on a produced file (owner ask 2026-08-31)", () => {
     window.removeEventListener("ocw-reveal-artifact", onReveal);
   });
 });
+
+describe("a plain link to a produced file (owner-hit 2026-08-31)", () => {
+  afterEach(() => cleanup());
+
+  it("becomes a chip, so it opens and offers the right-click menu", () => {
+    // What the model actually wrote in the owner's session — not the artifact: form the
+    // instructions ask for. These arrived as ordinary web links: nothing on click, no
+    // menu on right-click.
+    render(<Markdown text="- [Wix API Guide](Wix_API_Guide.md) — capability catalog" />);
+    const chip = screen.getByTestId("artifact-chip");
+    expect(chip.textContent).toContain("Wix API Guide");
+
+    const events: any[] = [];
+    const onReveal = (e: Event) => events.push((e as CustomEvent).detail);
+    window.addEventListener("ocw-reveal-artifact", onReveal);
+    fireEvent.contextMenu(chip);
+    fireEvent.click(screen.getByTestId("artifact-menu-reveal"));
+    expect(events).toEqual([{ path: "Wix_API_Guide.md", mode: "reveal" }]);
+    window.removeEventListener("ocw-reveal-artifact", onReveal);
+  });
+
+  it("handles a nested path and a file:// URL the same way", () => {
+    render(<Markdown text="[a](reports/out.pdf) and [b](file:///tmp/x.docx)" />);
+    const chips = screen.getAllByTestId("artifact-chip");
+    expect(chips).toHaveLength(2);
+    expect(chips[0].getAttribute("title")).toBe("reports/out.pdf");
+    expect(chips[1].getAttribute("title")).toBe("/tmp/x.docx");
+  });
+
+  it("leaves real web links alone", () => {
+    const { container } = render(
+      <Markdown text="[docs](https://example.com) [mail](mailto:a@b.com) [top](#section)" />,
+    );
+    expect(screen.queryByTestId("artifact-chip")).toBeNull();
+    const hrefs = [...container.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual(["https://example.com", "mailto:a@b.com", "#section"]);
+  });
+
+  it("a protocol-relative URL is a web link, not a path", () => {
+    const { container } = render(<Markdown text="[cdn](//cdn.example.com/x.js)" />);
+    expect(screen.queryByTestId("artifact-chip")).toBeNull();
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("//cdn.example.com/x.js");
+  });
+});

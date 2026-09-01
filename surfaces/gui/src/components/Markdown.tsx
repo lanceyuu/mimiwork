@@ -161,19 +161,41 @@ function ArtifactMenu({
 // Assistant messages rendered as GitHub-flavored markdown (headings, lists, tables, code,
 // links). Links open externally — never navigate the app shell — except artifact: links,
 // which open the session's artifact viewer.
+/** Does this link point at a file the session produced?
+ *
+ *  `artifact:` is the form the instructions ask for, but models write the obvious thing —
+ *  `[Wix API Guide](Wix_API_Guide.md)` — and those arrived as ordinary web links: they
+ *  opened nothing on click and offered no right-click menu, because the chip was the only
+ *  thing that had one (owner-hit 2026-08-31). A relative path in an assistant message is a
+ *  produced file; treat it as one rather than insisting the model phrase it our way.
+ *
+ *  Deliberately NOT files: anything with a scheme the web owns (http, https, mailto),
+ *  in-page anchors, and protocol-relative URLs.
+ */
+function filePath(href: string | undefined): string | null {
+  const raw = (href || "").trim();
+  if (!raw) return null;
+  if (raw.startsWith("artifact:")) return raw.slice("artifact:".length);
+  if (raw.startsWith("file://")) return raw.slice("file://".length);
+  if (raw.startsWith("#") || raw.startsWith("//")) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return null; // any other scheme: leave it alone
+  return raw;
+}
+
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="md" data-no-translate>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        // artifact: is ours — keep it through the sanitizer (everything else gets the default
-        // http/https/mailto policy).
-        urlTransform={(url) => (url.startsWith("artifact:") ? url : defaultUrlTransform(url))}
+        // artifact: and bare relative paths are ours — keep them through the sanitizer,
+        // which would otherwise drop what it does not recognise as a web URL.
+        urlTransform={(url) => (filePath(url) ? url : defaultUrlTransform(url))}
         components={{
           a: ({ node: _n, href, children, ...props }) => {
-            if (href?.startsWith("artifact:")) {
+            const path = filePath(href);
+            if (path) {
               const title = Array.isArray(children) ? children.join("") : String(children ?? "");
-              return <ArtifactChip path={href.slice("artifact:".length)} title={title} />;
+              return <ArtifactChip path={path} title={title} />;
             }
             return (
               <a href={href} {...props} target="_blank" rel="noreferrer">
