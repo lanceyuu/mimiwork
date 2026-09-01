@@ -175,7 +175,7 @@ const D: Record<string, [string, string, string]> = {
   "Models": ["模型", "Modeller", "Modèles"],
   "Instructions": ["指令", "Instruksjoner", "Instructions"],
   "Skills": ["技能", "Ferdigheter", "Compétences"],
-  "Workflows": ["工作流", "Arbeidsflyter", "Flux de travail"],
+  "Search your skills…": ["搜索你的技能…", "Søk i ferdighetene dine…", "Rechercher vos compétences…"],
   "Voice input": ["语音输入", "Taleinndata", "Saisie vocale"],
   "Memory": ["记忆", "Minne", "Mémoire"],
   "Personas": ["角色", "Personaer", "Personas"],

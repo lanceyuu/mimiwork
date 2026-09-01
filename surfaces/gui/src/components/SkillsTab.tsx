@@ -334,7 +334,7 @@ export function SkillsTab({
     <section>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-[16px] font-semibold">Workflows</h2>
+          <h2 className="text-[16px] font-semibold">Skills</h2>
           <p className="text-[12.5px] text-muted mt-1 leading-relaxed">
             Reusable ways Mimi handles recurring work. Turn one off here and it stays off
             everywhere.
@@ -460,8 +460,8 @@ export function SkillsTab({
         />
         <input
           className={`${INPUT} pl-9`}
-          aria-label="Search workflows"
-          placeholder="Search your workflows…"
+          aria-label="Search skills"
+          placeholder="Search your skills…"
           value={workflowQuery}
           onChange={(e) => setWorkflowQuery(e.target.value)}
         />

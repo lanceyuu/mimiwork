@@ -63,14 +63,14 @@ const openWriteForm = async () => {
 };
 
 describe("SkillsTab", () => {
-  it("presents skills as searchable workflows", async () => {
+  it("presents skills under their own name — Skills, not Workflows", async () => {
     stubFetch([{ match: "/v1/skills", method: "GET", json: LIST }]);
     render(<SkillsTab />);
-    expect(await screen.findByRole("heading", { name: "Workflows" })).toBeTruthy();
-    expect(screen.getByLabelText("Search workflows")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByLabelText("Search skills")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add workflow/ })).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Search workflows"), {
+    fireEvent.change(screen.getByLabelText("Search skills"), {
       target: { value: "Monday" },
     });
     expect(screen.getByText("weekly-report")).toBeTruthy();
@@ -107,7 +107,7 @@ describe("SkillsTab", () => {
       },
     ]);
     render(<SkillsTab />);
-    const search = screen.getByLabelText("Search workflows");
+    const search = screen.getByLabelText("Search skills");
     const disclosure = await screen.findByRole("button", {
       name: /Built-in QualiTaTi tools/,
     });

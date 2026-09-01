@@ -20,7 +20,7 @@ test("skills-session: new skill offered in '/', disabled one absent", async ({ p
   // Settings round-trip: create one skill, disable another.
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Workflows", exact: true }).click();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
   await page.getByRole("button", { name: /Add workflow/ }).click();
   await page.getByText("Write it myself").click();
   await page.getByLabel("Name").fill("fresh-skill");

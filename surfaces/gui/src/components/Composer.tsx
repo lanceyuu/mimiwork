@@ -59,7 +59,7 @@ export const APP_COMMANDS: { name: string; description: string }[] = [
   { name: "permissions", description: "Change what needs your approval" },
   { name: "model", description: "Switch the model for this conversation" },
   { name: "memory", description: "What MimiWork remembers about this work" },
-  { name: "skills", description: "Workflows, plugins and what's enabled here" },
+  { name: "skills", description: "Skills, plugins and what's enabled here" },
 ];
 
 type PaletteRow =
@@ -816,7 +816,7 @@ export function Composer(props: Props) {
               ))
             ) : slashLoading ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
-                Looking for commands and workflows…
+                Looking for commands and skills…
               </div>
             ) : slashQuery.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">

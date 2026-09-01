@@ -8,7 +8,7 @@ const openSkills = async (page: import("@playwright/test").Page) => {
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Workflows", exact: true }).click();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
 };
 
 test("skills-settings: create via the menu → name-first banner; edit persists", async ({ page }) => {
@@ -71,12 +71,12 @@ test("skills-settings: built-in QualiTaTi tools stay quiet until opened or searc
   await expect(tools).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByText("List Interviews")).toHaveCount(0);
 
-  await page.getByLabel("Search workflows").fill("interviews");
+  await page.getByLabel("Search skills").fill("interviews");
   await expect(tools).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByText("List Interviews")).toBeVisible();
   await expect(page.getByText("weekly-report")).toHaveCount(0);
 
-  await page.getByLabel("Search workflows").fill("");
+  await page.getByLabel("Search skills").fill("");
   await expect(tools).toHaveAttribute("aria-expanded", "false");
   await tools.click();
   await expect(page.getByText("List Interviews")).toBeVisible();

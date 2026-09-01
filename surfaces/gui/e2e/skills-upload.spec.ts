@@ -8,7 +8,7 @@ test("skills-upload: preview installs nothing → confirm → uploaded badge", a
   await page.goto("/");
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Workflows", exact: true }).click();
+  await page.getByRole("button", { name: "Skills", exact: true }).click();
 
   // Add workflow ▾ → Import a file → straight to the (hidden) picker.
   await page.getByRole("button", { name: /Add workflow/ }).click();
