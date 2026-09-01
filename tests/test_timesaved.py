@@ -280,3 +280,24 @@ def test_five_a_reports_every_rung_even_at_zero():
     assert got["leading"] == "Access" and got["ready"] is True
     assert sum(level["percent"] for level in got["levels"]) == 100
     assert profile({"Access": 3})["ready"] is False  # too few turns to be a habit
+
+
+def test_building_an_automation_is_itself_the_automation_rung():
+    """The owner set one up and the chart still read 100% Access. Creating an automation
+    is the moment work stops needing a person to start it — which is exactly what the
+    rung describes. Waiting for the first fire meant an account could set up ten of them
+    and still look like it had never left Access (owner-hit 2026-08-31)."""
+    from coworker.fivea import classify_turn
+
+    assert classify_turn(tools=["create_scheduled_task"]) == "Automation"
+    assert classify_turn(tools=["update_scheduled_task"]) == "Automation"
+    # And the run it later produces is Automation too, by the schedule that started it.
+    assert classify_turn(tools=["write_document"], scheduled=True) == "Automation"
+
+
+def test_creating_an_automation_does_not_read_as_reaching_across_systems():
+    """`create_scheduled_task` starts with a write verb by coincidence of naming; it
+    writes to MimiWork's own schedule, not out to two services."""
+    from coworker.fivea import classify_turn
+
+    assert classify_turn(tools=["create_scheduled_task", "update_scheduled_task"]) == "Automation"

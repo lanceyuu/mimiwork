@@ -76,7 +76,15 @@ BLURBS: dict[str, str] = {
     "Agents": "It chose its own next step, or reached across your systems",
 }
 
-# ── Q1. Who initiates? ── the `scheduled` flag answers this; nothing to list.
+# ── Q1. Who initiates? ──
+# `scheduled` answers it for a run that a schedule started. Building the automation is
+# the other half: the turn that creates one is the moment the work stops needing a
+# person to start it, which is exactly what the Automation rung describes. Without
+# this, an account could set up ten automations and still read as 100% Access until
+# the first one happened to fire (owner-hit 2026-08-31).
+_AUTOMATION_TOOLS = frozenset(
+    {"create_scheduled_task", "update_scheduled_task", "mcp__scheduled-tasks__create_scheduled_task"}
+)
 
 # ── Q2. Is the path fixed? ──
 # A skill or a saved command IS the predefined path: one job, written down in
@@ -165,8 +173,9 @@ def classify_turn(
     # Q3/Q4 — write access across systems, with a wrong action at the far end.
     if self_directed or _outward_systems(names) >= _AGENT_REACH_SYSTEMS:
         return "Agents"
-    # Q1 — nobody was watching, and the path was the one it was given.
-    if scheduled:
+    # Q1 — nobody was watching, and the path was the one it was given; or the turn built
+    # the thing that will run without anyone watching.
+    if scheduled or (names & _AUTOMATION_TOOLS):
         return "Automation"
     if recipe:
         return "Applications"

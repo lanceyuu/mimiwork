@@ -642,3 +642,42 @@ def test_a_run_still_going_is_never_retired(tmp_path):
     mgr._retire_finished_run_engines(keep="__run__r39")
 
     assert parked in mgr._engines, "a live run lost its engine mid-flight"
+
+
+async def test_a_scheduled_run_reaches_the_five_a_chart(tmp_path, monkeypatch):
+    """An automation ran and the chart still read 100% Access.
+
+    Two faults met here. `turn_scheduled` — the flag the classifier reads to place a
+    turn on the Automation rung — was initialised to False and set by NOBODY, so that
+    rung was unreachable by construction. And banking happens in the websocket turn
+    loop, which only interactive sessions go through, so a scheduled run's totals were
+    simply dropped. The one rung an automation exists to demonstrate could never
+    register (owner-hit 2026-08-31).
+    """
+    from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
+    from coworker.server import SessionManager
+
+    class ScriptedProvider(ProviderClient):
+        def __init__(self, turns):
+            self._turns = list(turns)
+
+        def complete(self, *, model, messages, tools=None, **settings):
+            return self._turns.pop(0)
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    provider = ScriptedProvider([AssistantTurn(text="All quiet.", finish_reason="stop")])
+    manager = SessionManager(data_dir=tmp_path / "data", provider=provider)
+    task = _task(workspace=str(ws), agent="cowork")
+    manager.task_store.save(task)
+
+    run = await manager._run_scheduled_task(task, trigger="schedule")
+    assert run.status == "ok"
+
+    counts = manager._prefs.get("five_a") or {}
+    assert counts.get("Automation", 0) >= 1, f"the run never reached the chart: {counts}"
+    assert not counts.get("Access"), "a scheduled run is not the model answering directly"

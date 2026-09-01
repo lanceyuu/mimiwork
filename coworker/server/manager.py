@@ -4522,6 +4522,10 @@ class SessionManager:
         # own session id, then saves the transcript. The user can reopen that session and ask a
         # follow-up — the scheduled agent is no longer fire-and-forget.
         engine = self._build_task_engine(task, session_id=run.session_id)
+        # Tell the engine this turn was started by a schedule, not a person. The
+        # classifier has always read this flag and NOTHING ever set it, so the
+        # Automation rung was unreachable by construction (owner-hit 2026-08-31).
+        engine.turn_scheduled = True
         # Register the live engine up-front: a parked approval persists the session
         # mid-run (durable suspend), and resolving from the Inbox must find this engine.
         self._engines[run.session_id] = engine
@@ -4543,6 +4547,14 @@ class SessionManager:
             run.result_text = _last_assistant_text(engine.messages)
             run.artifacts = _recent_files(task.workspace, since=run.started_at)
             run.status = "ok"
+            # Bank what the run did. Interactive turns bank from the websocket loop in
+            # app.py; a scheduled run never goes through it, so its time and its place
+            # on the Five A's continuum were both simply lost — the one rung an
+            # automation exists to demonstrate never registered.
+            try:
+                self.record_time_saved(run.session_id, engine.time_saved.as_dict() | {"five_a": dict(engine.five_a)})
+            except Exception:
+                logger.exception("could not bank the run's totals for %s", task.id)
             if task.notify_on_completion:
                 await self._notify_task_done(task, run)
         except Exception as exc:
