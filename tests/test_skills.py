@@ -102,3 +102,84 @@ def test_build_engine_code_has_agents_md_and_skills(tmp_path):
         assert engine.agent_name == "code"
     finally:
         engine.executor.close()
+
+
+# ── asset bundles (v0.4.19) ───────────────────────────────────────────────────
+# Asset-heavy skills ship their libraries as ONE archive. ppt-master alone carries
+# ~3,200 icon SVGs, and shipping those loose pushed the app past 11,800 files —
+# enough that the Windows MSI build died inside WiX's light.exe with no error.
+
+
+def _bundle(tmp_path, entries: dict[str, str], name="libraries.bundle.zip"):
+    import zipfile
+
+    src = tmp_path / "builtin" / "asset-skill"
+    (src / "templates").mkdir(parents=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: asset-skill\ndescription: a skill with a packed library\n---\n\nBody.",
+        encoding="utf-8",
+    )
+    with zipfile.ZipFile(src / "templates" / name, "w") as z:
+        for path, body in entries.items():
+            z.writestr(path, body)
+    return src.parent
+
+
+def _seeded(tmp_path, builtin_root):
+    """Seed by copying the fixture: _seed_builtin reads the package's own builtin dir,
+    so this exercises the copy-then-expand path with a skill we control."""
+    import shutil
+
+    from coworker.skills.store import SkillStore
+
+    store = SkillStore(global_dir=tmp_path / "skills")
+    target = store.global_dir / "asset-skill"
+    shutil.copytree(builtin_root / "asset-skill", target)
+    store._expand_bundles(target)
+    return target
+
+
+def test_a_packed_library_is_expanded_where_the_skill_expects_it(tmp_path):
+    root = _bundle(tmp_path, {"icons/home.svg": "<svg/>", "icons/star.svg": "<svg/>"})
+    target = _seeded(tmp_path, root)
+
+    # Exactly the layout upstream's scripts reference — nothing in the skill is patched.
+    assert (target / "templates" / "icons" / "home.svg").read_text() == "<svg/>"
+    assert (target / "templates" / "icons" / "star.svg").exists()
+    # And the archive is gone: it would otherwise ship twice on the user's disk.
+    assert not (target / "templates" / "libraries.bundle.zip").exists()
+
+
+def test_an_archive_cannot_write_outside_its_own_directory(tmp_path):
+    """A zip is data. One naming its way up the tree must not land there."""
+    root = _bundle(tmp_path, {"../../escaped.svg": "<svg/>", "icons/ok.svg": "<svg/>"})
+    target = _seeded(tmp_path, root)
+
+    assert not (target.parent / "escaped.svg").exists()
+    assert not (target / "escaped.svg").exists()
+    # Refused wholesale rather than half-extracted, and the archive stays for diagnosis.
+    assert (target / "templates" / "libraries.bundle.zip").exists()
+
+
+def test_a_corrupt_archive_leaves_the_rest_of_the_skill_usable(tmp_path):
+    """The icons are one feature of a skill, not the whole thing."""
+    from coworker.skills.store import SkillStore
+
+    src = tmp_path / "builtin" / "asset-skill"
+    (src / "templates").mkdir(parents=True)
+    (src / "SKILL.md").write_text(
+        "---\nname: asset-skill\ndescription: a skill with a broken library\n---\n\nBody.",
+        encoding="utf-8",
+    )
+    (src / "templates" / "libraries.bundle.zip").write_bytes(b"not a zip at all")
+
+    store = SkillStore(global_dir=tmp_path / "skills")
+    import shutil
+
+    target = store.global_dir / "asset-skill"
+    shutil.copytree(src, target)
+    store._expand_bundles(target)  # must not raise
+
+    assert (target / "SKILL.md").is_file()
+    rows = {r["name"]: r for r in store.rows()}
+    assert "asset-skill" in rows

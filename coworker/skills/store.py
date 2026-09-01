@@ -129,6 +129,7 @@ class SkillStore:
             if not target.exists():
                 try:
                     shutil.copytree(folder, target)
+                    self._expand_bundles(target)
                 except OSError:
                     continue  # unwritable state dir — skills UI still works without seeds
             seeded.add(name)
@@ -141,6 +142,35 @@ class SkillStore:
                 pass
 
     # -- scope dirs ---------------------------------------------------------------
+    @staticmethod
+    def _expand_bundles(skill_dir: Path) -> None:
+        """Unpack any `*.bundle.zip` in a freshly seeded skill, then delete the archive.
+
+        Asset-heavy skills ship their libraries as ONE archive rather than thousands of
+        loose files. ppt-master alone carries ~3,200 icon SVGs, and shipping those loose
+        pushed the app bundle past 11,800 files — enough that the Windows MSI build died
+        inside WiX's `light.exe` with no error at all (v0.4.19). Expanding at seed time
+        gives the user the exact directory layout upstream's scripts expect, so nothing
+        in the skill needs patching and future upstream syncs stay clean.
+
+        A corrupt or partial archive leaves the rest of the skill usable: the icons are
+        one feature of it, not the whole thing.
+        """
+        import zipfile
+
+        for archive in sorted(skill_dir.rglob("*.bundle.zip")):
+            try:
+                with zipfile.ZipFile(archive) as z:
+                    for entry in z.namelist():
+                        # Never let an archive write outside its own directory.
+                        target = (archive.parent / entry).resolve()
+                        if not target.is_relative_to(archive.parent.resolve()):
+                            raise ValueError(f"unsafe path in {archive.name}: {entry}")
+                    z.extractall(archive.parent)
+                archive.unlink()
+            except (OSError, ValueError, zipfile.BadZipFile):
+                continue
+
     def project_dir(self, workspace: str | Path) -> Path:
         return Path(workspace).expanduser().resolve() / ".coworker" / "skills"
 
