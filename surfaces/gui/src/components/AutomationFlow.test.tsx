@@ -1,6 +1,9 @@
-/** The automation flow: pipeline structure derived from task data. */
-import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+/** The automation flow: an n8n-shaped diagram of THIS automation — the chain of what
+ *  happens, and, hanging below it, what the agent is made of. */
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+
+afterEach(cleanup);
 import { AutomationFlow, flowNodes } from "./AutomationFlow";
 import type { Automation } from "../api";
 
@@ -23,66 +26,114 @@ const TASK: Automation = {
   ],
 };
 
-describe("flowNodes", () => {
-  it("builds trigger → agent → one action per grant → output", () => {
-    const { agentCol, actions, output } = flowNodes(TASK);
-    expect(agentCol[0].sub).toBe("Mondays at 09:00");
-    expect(agentCol[1].sub).toContain("sales"); // workspace basename, not the path
-    // Grants, then the permission level — a standing grant is an exception to the
-    // mode, not a replacement for it.
-    expect(actions.map((a) => a.title)).toEqual(["send_message", "run_shell", "Asks first"]);
-    expect(actions[0].sub).toBe("→ slack:C9");
-    // A send grant means the result is DELIVERED, and the diagram should say where.
-    expect(output.title).toBe("Delivered");
-    expect(output.sub).toContain("slack:C9");
+describe("flowNodes — the diagram describes THIS automation", () => {
+  it("splits the main chain from what the agent is made of", () => {
+    const { trigger, agent, subs, success, failure } = flowNodes(TASK);
+
+    // The chain: when it runs, who runs it, and the two ways it ends.
+    expect(trigger.sub).toBe("Mondays at 09:00");
+    expect(agent.title).toBe("MimiWork");
+    expect(success.title).toBe("Delivered");
+    expect(failure.title).toBe("If it fails");
+
+    // The sub-nodes are what it is BUILT from, not steps that follow — n8n draws these
+    // below on dashed wires, and conflating the two is what made every automation's
+    // diagram look the same.
+    const ids = subs.map((s) => s.id);
+    expect(ids.slice(0, 2)).toEqual(["model", "folder"]);
+    expect(subs.map((s) => s.title)).toContain("send_message");
+    expect(subs.map((s) => s.title)).toContain("run_shell");
   });
 
-  it("no grants → a single permission node, never an empty column", () => {
-    const { actions } = flowNodes({ ...TASK, always_allowed: [] });
-    expect(actions).toHaveLength(1);
-    expect(actions[0].title).toBe("Asks first");
+  it("the agent node says what it may do without asking", () => {
+    // It used to say "Approval-gated" whatever the mode was — the diagram stating the
+    // opposite of the truth for an automation set to Full access (owner-hit 2026-08-31).
+    expect(flowNodes({ ...TASK, mode: "auto" }).agent.sub).toBe("runs unattended");
+    expect(flowNodes({ ...TASK, mode: "plan" }).agent.sub).toBe("proposes only");
+    expect(flowNodes({ ...TASK, mode: "interactive" }).agent.sub).toBe("asks before acting");
   });
 
-  it("the permission node says what the automation ACTUALLY does", () => {
-    // It used to say "Approval-gated" whatever the mode was — so an automation set to
-    // Full access was drawn as one that asks, which is the diagram stating the opposite
-    // of the truth (owner-hit 2026-08-31).
-    const bare = { ...TASK, always_allowed: [] };
-    expect(flowNodes({ ...bare, mode: "auto" }).actions[0].title).toBe("Runs unattended");
-    expect(flowNodes({ ...bare, mode: "auto" }).actions[0].sub).toBe("acts without asking");
-    expect(flowNodes({ ...bare, mode: "plan" }).actions[0].title).toBe("Proposes only");
-    expect(flowNodes({ ...bare, mode: "interactive" }).actions[0].title).toBe("Asks first");
+  it("a send grant means the result is DELIVERED, and says where", () => {
+    const { success } = flowNodes(TASK);
+    expect(success.sub).toContain("slack:C9");
   });
 
-  it("an unattended run with grants does not also claim to ask", () => {
-    const { actions } = flowNodes({ ...TASK, mode: "auto" });
-    expect(actions.map((a) => a.title)).toEqual(["send_message", "run_shell"]);
+  it("with no delivery it says where the result is kept instead", () => {
+    const { success } = flowNodes({ ...TASK, always_allowed: [], notify_on_completion: false });
+    expect(success.title).toBe("Saved");
+    expect(success.sub).toBe("kept in Automations");
   });
 
   it("names the model that answers the run, without its routing prefix", () => {
-    const { agentCol } = flowNodes({ ...TASK, model: "qualitati:mimi-wolf" });
-    expect(agentCol[1].sub).toContain("mimi-wolf");
-    expect(agentCol[1].sub).not.toContain("qualitati:");
+    const { subs } = flowNodes({ ...TASK, model: "qualitati:mimi-wolf" });
+    const model = subs.find((s) => s.id === "model")!;
+    expect(model.title).toBe("mimi-wolf");
+    expect(model.title).not.toContain("qualitati:");
+  });
+
+  it("falls back to the app default rather than an empty circle", () => {
+    const { subs } = flowNodes({ ...TASK, model: null });
+    expect(subs.find((s) => s.id === "model")!.title).toBe("App default");
   });
 
   it("a task's internal __task__ folder shows its parent workspace instead", () => {
-    const { agentCol } = flowNodes({ ...TASK, workspace: "/u/MimiWork/__task__task-abc123" });
-    expect(agentCol[1].sub).toBe("MimiWork");
+    const { subs } = flowNodes({ ...TASK, workspace: "/u/MimiWork/__task__task-abc123" });
+    expect(subs.find((s) => s.id === "folder")!.title).toBe("MimiWork");
   });
 
   it("a paused schedule is visibly muted", () => {
-    const { agentCol } = flowNodes({ ...TASK, enabled: false });
-    expect(agentCol[0].title).toContain("paused");
-    expect(agentCol[0].tone).toBe("muted");
+    const { trigger } = flowNodes({ ...TASK, enabled: false });
+    expect(trigger.title).toContain("paused");
+    expect(trigger.tone).toBe("muted");
+  });
+
+  it("a failed last run tints the failure branch", () => {
+    expect(flowNodes({ ...TASK, last_status: "error" }).failure.tone).toBe("danger");
+    expect(flowNodes({ ...TASK, last_status: "ok" }).failure.tone).toBe("muted");
+  });
+
+  it("an automation with no grants still draws both outcomes", () => {
+    // Every generic flow diagram leaves the failure half out; a run that can only be
+    // shown succeeding has never met a real automation.
+    const { subs, success, failure } = flowNodes({ ...TASK, always_allowed: [] });
+    expect(subs).toHaveLength(2); // model + folder, nothing else claimed
+    expect(success).toBeTruthy();
+    expect(failure).toBeTruthy();
   });
 });
 
-describe("AutomationFlow", () => {
-  it("renders every node as SVG", () => {
+describe("AutomationFlow — rendering", () => {
+  it("draws the chain, both outcomes and every capability", () => {
     render(<AutomationFlow task={TASK} />);
     expect(screen.getByTestId("automation-flow")).toBeTruthy();
-    for (const id of ["trigger", "agent", "grant-0", "grant-1", "output"]) {
+    for (const id of ["trigger", "agent", "output", "failure"]) {
       expect(screen.getByTestId(`flow-node-${id}`)).toBeTruthy();
     }
+    for (const id of ["model", "folder", "grant-0", "grant-1"]) {
+      expect(screen.getByTestId(`flow-sub-${id}`)).toBeTruthy();
+    }
+  });
+
+  it("two different automations do not draw the same picture", () => {
+    // The complaint that started this: the diagram looked identical whatever the
+    // automation did.
+    const { container: a } = render(<AutomationFlow task={TASK} />);
+    const first = a.querySelector("svg")!.textContent;
+    cleanup();
+    const { container: b } = render(
+      <AutomationFlow
+        task={{ ...TASK, always_allowed: [], mode: "auto", model: "qualitati:mimi-wolf", enabled: false }}
+      />,
+    );
+    expect(b.querySelector("svg")!.textContent).not.toBe(first);
+  });
+
+  it("nodes are clickable when the caller wants them to be", () => {
+    const onNodeClick = vi.fn();
+    render(<AutomationFlow task={TASK} onNodeClick={onNodeClick} />);
+    fireEvent.click(screen.getByTestId("flow-node-agent"));
+    expect(onNodeClick).toHaveBeenCalledWith("agent");
+    fireEvent.click(screen.getByTestId("flow-sub-model"));
+    expect(onNodeClick).toHaveBeenCalledWith("model");
   });
 });

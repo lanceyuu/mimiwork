@@ -35,7 +35,9 @@ test("enable toggle pauses the task", async ({ page }) => {
   await expect(page.getByText(/Active · next/)).toBeVisible();
   // The checkbox is visually hidden behind a styled slider — click the label wrapper.
   await page.locator("label.switch").click();
-  await expect(page.getByText("Paused", { exact: false })).toBeVisible();
+  // The meta line specifically — the flow diagram's trigger node now says "paused" too,
+  // so a loose text match hits both.
+  await expect(page.locator(".conn-meta").filter({ hasText: "Paused" })).toBeVisible();
 });
 
 test("delete removes the task; deleting the last one shows the empty state", async ({ page }) => {
