@@ -29,7 +29,8 @@ const about = {
     { tag: "v0.4.12", name: "", published_at: ago(1) },
     { tag: "v0.4.11", name: "", published_at: ago(4) },
   ],
-  maintainer: "Shubin Yu, HEC Paris",
+  maintainer: "QualiTaTi",
+  contact: { address: "47 rue Vivienne, 75002 Paris, France", phone: "+1 619 356 2184", email: "contact@qualitati.com" },
   repo_url: "https://github.com/lanceyuu/mimiwork",
   tutorial_url: "https://github.com/lanceyuu/mimiwork#the-ten-minute-tutorial",
 };
@@ -47,8 +48,10 @@ describe("AliveCard", () => {
     // models won't fall behind
     expect(screen.getByText(/59/)).toBeTruthy();
     expect(screen.getByText(/16/)).toBeTruthy();
-    // someone real is behind it
-    expect(screen.getByText("Shubin Yu, HEC Paris")).toBeTruthy();
+    // someone real is behind it, with a way to reach them
+    expect(screen.getByText("QualiTaTi")).toBeTruthy();
+    expect(screen.getByTestId("about-contact").textContent).toContain("47 rue Vivienne");
+    expect(screen.getByText("contact@qualitati.com")).toBeTruthy();
   });
 
   it("renders nothing rather than an error when offline", async () => {

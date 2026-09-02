@@ -1392,6 +1392,7 @@ export interface AboutInfo {
   providers: number;
   releases: { tag: string; name: string; published_at: string }[];
   maintainer: string;
+  contact?: { address?: string; phone?: string; email?: string };
   repo_url: string;
   tutorial_url: string;
 }

@@ -3495,7 +3495,13 @@ class SessionManager:
             "models": len(MATRIX),
             "providers": len(providers),
             "releases": releases,
-            "maintainer": "Shubin Yu, HEC Paris",
+            # The company behind it, with a way to reach it (owner ask 2026-09-02).
+            "maintainer": "QualiTaTi",
+            "contact": {
+                "address": "47 rue Vivienne, 75002 Paris, France",
+                "phone": "+1 619 356 2184",
+                "email": "contact@qualitati.com",
+            },
             "repo_url": "https://github.com/lanceyuu/mimiwork",
             "tutorial_url": "https://github.com/lanceyuu/mimiwork#the-ten-minute-tutorial",
         }

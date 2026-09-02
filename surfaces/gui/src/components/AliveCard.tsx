@@ -95,6 +95,25 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
           {t("Tutorial")}
         </button>
       </div>
+      {about.contact && (about.contact.address || about.contact.phone || about.contact.email) && (
+        <div className="text-[11.5px] text-muted mt-1 flex flex-wrap items-center gap-x-1.5" data-testid="about-contact">
+          {about.contact.address && <span>{about.contact.address}</span>}
+          {about.contact.phone && (
+            <>
+              <span className="text-faint">·</span>
+              <span>{about.contact.phone}</span>
+            </>
+          )}
+          {about.contact.email && (
+            <>
+              <span className="text-faint">·</span>
+              <button className="text-accent hover:underline" onClick={() => openExternal(`mailto:${about.contact!.email}`)}>
+                {about.contact.email}
+              </button>
+            </>
+          )}
+        </div>
+      )}
       <div className={help}>{t("Everything above is checkable — the release dates come from the public repository.")}</div>
     </div>
   );

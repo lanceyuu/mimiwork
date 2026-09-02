@@ -1243,6 +1243,8 @@ def test_about_answers_the_is_this_alive_questions(tmp_path, monkeypatch):
     monkeypatch.setattr(request_mod, "urlopen", offline)
     body = client.get("/v1/about").json()
     assert body["models"] > 20 and body["providers"] > 5  # a real catalogue
-    assert "HEC Paris" in body["maintainer"]
+    assert body["maintainer"] == "QualiTaTi"
+    assert body["contact"]["email"] == "contact@qualitati.com"
+    assert "Vivienne" in body["contact"]["address"]
     assert body["repo_url"].startswith("https://github.com/")
     assert body["releases"] == []  # soft-failed, not an error page
