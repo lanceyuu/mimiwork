@@ -17,7 +17,7 @@ import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
-import { APPS_CHANGED, getApp, getApps, revertApp, type MimiApp } from "../api";
+import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
 import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
 
 type Panel = "progress" | "artifacts" | "recovery";
@@ -32,7 +32,9 @@ function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
 
 // Word/Excel/PowerPoint have no in-app renderer, so an artifact: link to one goes straight
 // to the app that owns it — "open the file" should open the file (owner ask 2026-08-24).
-const OPENS_ELSEWHERE = new Set(["docx", "doc", "docm", "xlsx", "xls", "xlsm", "pptx", "ppt", "pptm"]);
+// Word, PowerPoint and Excel preview in the app since 2026-09-02 (office_preview.py, SheetJS);
+// only the legacy binary formats still go straight to the OS.
+const OPENS_ELSEWHERE = new Set(["doc", "docm", "xls", "xlsm", "ppt", "pptm"]);
 
 // Fallback kind for an artifact: link whose path isn't in the list (yet) — mirrors the
 // server's extension mapping closely enough for the viewer to pick a renderer.
@@ -149,8 +151,8 @@ export function RightRail({
   }, [sessionId]);
   const builderVisible = !!builderApp && showBuilder && !selected;
 
-  // Opening an artifact is ONE decision, made here: a Word/Excel/PowerPoint file has no
-  // in-app preview, so it goes to the OS; everything else opens the viewer. This used to
+  // Opening an artifact is ONE decision, made here: a legacy Office binary has no in-app
+  // preview, so it goes to the OS; everything else opens the viewer. This used to
   // be decided in two places — the artifact: chip in the transcript knew the rule, the
   // Artifacts list did not — so clicking a .docx Mimi had just written selected a file
   // the viewer could not render and the click looked dead (owner report 2026-08-30).
@@ -543,8 +545,10 @@ function ArtifactViewer({
   const [reloadKey, setReloadKey] = useState(0);
   // A comment in progress, and the spot it is about ("page 2, top left"). Clicking the
   // preview sets the spot; the button in the header opens a comment about the whole file.
-  const [feedback, setFeedback] = useState<{ pin: string } | null>(null);
+  // A Word paragraph pin also carries its index, so the comment can go INTO the file.
+  const [feedback, setFeedback] = useState<{ pin: string; paragraph?: number } | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackNote, setFeedbackNote] = useState("");
   const sendFeedback = () => {
     const text = feedbackText.trim();
     if (!text || !onFeedback) return;
@@ -553,9 +557,20 @@ function ArtifactViewer({
     setFeedback(null);
     setFeedbackText("");
   };
+  const addWordComment = async () => {
+    const text = feedbackText.trim();
+    if (!text || feedback?.paragraph == null) return;
+    const r = await commentArtifact(sessionId, artifact.path, feedback.paragraph, text).catch(() => ({ ok: false as const }));
+    if (r.ok) {
+      setFeedbackNote(`Added to the Word file (${feedback.pin}).`);
+      setFeedback(null);
+      setFeedbackText("");
+    } else setFeedbackNote(("error" in r && r.error) || "Could not write the comment.");
+  };
   const isHtml = content?.kind === "html" && !content.error;
-  // Best viewed in a real app: spreadsheets, PDFs, and Office docs (pptx/docx can't preview inline)
-  const isApp = content?.kind === "sheet" || content?.kind === "pdf" || content?.kind === "office";
+  // Also at home in a real app: spreadsheets, PDFs and Office files (the preview is reading
+  // quality, not page layout — Word/PowerPoint stay one click away).
+  const isApp = ["sheet", "pdf", "office", "docx", "slides"].includes(content?.kind || "");
 
   return (
     <div className="artifact-viewer">
@@ -644,18 +659,37 @@ function ArtifactViewer({
             <button className="btn-primary sm" disabled={!feedbackText.trim()} onClick={sendFeedback}>
               Send to Mimi
             </button>
+            {content?.kind === "docx" && feedback.paragraph != null && (
+              <button
+                className="btn sm"
+                data-testid="artifact-word-comment"
+                disabled={!feedbackText.trim()}
+                title="Write it into the .docx as a Word comment on this paragraph"
+                onClick={() => void addWordComment()}
+              >
+                Add as Word comment
+              </button>
+            )}
             <button className="link" onClick={() => setFeedback(null)}>
               cancel
             </button>
           </div>
         </div>
       )}
+      {feedbackNote && (
+        <div className="artifact-feedback-note" data-testid="artifact-feedback-note">
+          {feedbackNote}
+          <button className="link" onClick={() => setFeedbackNote("")}>
+            dismiss
+          </button>
+        </div>
+      )}
       <div
         className="artifact-preview"
         onClick={(e) => {
           if (!onFeedback) return;
-          const pin = pinFor(e.target as Element, e.clientX, e.clientY);
-          if (pin) setFeedback({ pin });
+          const spot = pinFor(e.target as Element, e.clientX, e.clientY);
+          if (spot) setFeedback(spot);
         }}
       >
         {!content ? (
@@ -673,6 +707,14 @@ function ArtifactViewer({
           <div className="artifact-md">
             <Markdown text={content.content || ""} />
           </div>
+        ) : content.kind === "docx" || content.kind === "slides" ? (
+          // Reading-quality HTML the sidecar built from the file (office_preview.py) —
+          // its own escaping, no scripts. Paragraphs and slides are click-to-pin targets.
+          <div
+            className={"artifact-doc" + (content.kind === "slides" ? " artifact-slides" : "") + (onFeedback ? " pinnable" : "")}
+            data-testid={`artifact-${content.kind}`}
+            dangerouslySetInnerHTML={{ __html: content.content || "" }}
+          />
         ) : content.kind === "image" ? (
           <img className="artifact-image" src={content.data_url} />
         ) : content.kind === "pdf" ? (
@@ -700,7 +742,7 @@ function ArtifactViewer({
         ) : content.kind === "office" ? (
           <div className="artifact-open-prompt">
             <Icon name="panelOpen" size={28} />
-            <p>This {/\.pptx?$/i.test(artifact.name) ? "PowerPoint" : "Word"} file can’t be previewed here.</p>
+            <p>This {/\.pptm?$/i.test(artifact.name) ? "PowerPoint" : "Word"} file can’t be previewed here.</p>
             <button className="btn sm" onClick={() => revealArtifact(sessionId, artifact.path, "open")}>
               Open in default app
             </button>
@@ -716,8 +758,22 @@ function ArtifactViewer({
 const MAX_TABLE_ROWS = 500;
 
 /** Where in the preview a click landed, in words Mimi can act on: "page 2, top left",
- *  "row 4, column 2". Empty when the click is nowhere in particular (prose, code). */
-function pinFor(target: Element, clientX: number, clientY: number): string {
+ *  "row 4, column 2", "paragraph 12, starting …". Null when the click is nowhere in
+ *  particular (prose, code). A Word paragraph also carries its index for the file comment. */
+function pinFor(target: Element, clientX: number, clientY: number): { pin: string; paragraph?: number } | null {
+  const para = target.closest("[data-p]");
+  if (para) {
+    const index = parseInt(para.getAttribute("data-p") || "", 10);
+    const words = (para.textContent || "").trim().split(/\s+/).slice(0, 8).join(" ");
+    return { pin: `paragraph ${index + 1}, starting “${words}”`, paragraph: index };
+  }
+  const slide = target.closest("[data-slide]");
+  if (slide) return { pin: `slide ${slide.getAttribute("data-slide")}` };
+  const pin = pinRegion(target, clientX, clientY);
+  return pin ? { pin } : null;
+}
+
+function pinRegion(target: Element, clientX: number, clientY: number): string {
   const region = (el: Element) => {
     const r = el.getBoundingClientRect();
     if (!r.width || !r.height) return "";

@@ -849,6 +849,18 @@ def create_app(manager: SessionManager) -> FastAPI:
     def session_artifact_read(session_id: str, path: str) -> dict[str, Any]:
         return manager.read_artifact(session_id, path)
 
+    @app.post("/v1/sessions/{session_id}/artifacts/comment")
+    def session_artifact_comment(session_id: str, body: dict) -> dict[str, Any]:
+        """Write a Word comment into a .docx, anchored to one paragraph of the preview."""
+        body = body or {}
+        try:
+            paragraph = int(body.get("paragraph", -1))
+        except (TypeError, ValueError):
+            paragraph = -1
+        return manager.comment_artifact(
+            session_id, str(body.get("path", "")), paragraph, str(body.get("text", "")), str(body.get("author", ""))
+        )
+
     @app.post("/v1/sessions/{session_id}/artifacts/reveal")
     def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}

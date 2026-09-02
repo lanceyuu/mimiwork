@@ -669,7 +669,28 @@ button.btn.danger { color: var(--accent); }
 }
 .artifact-feedback-pin { font-size: 12.5px; color: var(--ink); }
 .artifact-feedback textarea { min-height: 56px; }
-.artifact-feedback-actions { display: flex; align-items: center; gap: 10px; }
+.artifact-feedback-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.artifact-feedback-note { flex: none; display: flex; gap: 10px; align-items: center; padding: 6px 18px; font-size: 12.5px; color: var(--muted); border-bottom: 1px solid var(--line); }
+/* Word and PowerPoint previews (reading quality; the sidecar's own HTML) */
+.artifact-doc { max-width: 760px; margin: 0 auto; padding: 24px 28px 48px; font-size: 14px; line-height: 1.6; color: var(--ink); }
+.artifact-doc h1 { font-size: 22px; margin: 18px 0 8px; }
+.artifact-doc h2 { font-size: 18px; margin: 16px 0 6px; }
+.artifact-doc h3, .artifact-doc h4 { font-size: 15px; margin: 14px 0 4px; }
+.artifact-doc p { margin: 0 0 10px; }
+.artifact-doc ul { margin: 0 0 10px; padding-left: 22px; }
+.artifact-doc table { border-collapse: collapse; margin: 8px 0 14px; font-size: 13px; }
+.artifact-doc th, .artifact-doc td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.artifact-doc th { background: var(--paper); font-weight: 600; }
+.artifact-doc img { max-width: 100%; display: block; margin: 8px 0; border-radius: 6px; }
+.artifact-doc .doc-img-skipped { font-size: 12px; color: var(--faint); }
+.artifact-doc.pinnable [data-p], .artifact-doc.pinnable [data-slide] { cursor: pointer; border-radius: 6px; }
+.artifact-doc.pinnable [data-p]:hover { background: var(--accent-soft, rgba(13,148,136,0.08)); box-shadow: 0 0 0 4px var(--accent-soft, rgba(13,148,136,0.08)); }
+.artifact-slides { max-width: 820px; }
+.artifact-slides .slide { border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; margin: 0 0 14px; background: var(--panel); }
+.artifact-slides .slide:hover { border-color: var(--accent); }
+.artifact-slides .slide-no { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-bottom: 6px; }
+.artifact-slides .slide h2 { margin: 0 0 8px; }
+.artifact-slides .slide-notes { display: block; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); font-size: 12.5px; color: var(--muted); }
 .artifact-frame { width: 100%; height: 100%; min-height: calc(100vh - 86px); border: 0; background: #fff; }
 /* Checkerboard backdrop so white/transparent images still read as an image, not a blank pane. */
 .artifact-image {

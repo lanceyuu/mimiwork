@@ -212,6 +212,26 @@ export interface ArtifactContent {
   truncated?: boolean;
   // kind === "folder": a directory listing (models sometimes link a whole package dir).
   entries?: { name: string; dir: boolean; size: number }[];
+  // kind === "docx" / "slides": reading-quality HTML from the sidecar; every body
+  // paragraph carries data-p, every slide data-slide, so a click can name its spot.
+  paragraphs?: number;
+  slides?: number;
+}
+
+/** A real Word comment on one paragraph (0-based) of a .docx in the session's folders. */
+export async function commentArtifact(
+  sessionId: string,
+  path: string,
+  paragraph: number,
+  text: string,
+  author = "",
+): Promise<{ ok: boolean; error?: string; comments?: number }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/comment`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, paragraph, text, author }),
+  });
+  return res.json();
 }
 
 export async function getArtifacts(sessionId: string): Promise<ArtifactInfo[]> {

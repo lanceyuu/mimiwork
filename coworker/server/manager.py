@@ -2422,8 +2422,22 @@ class SessionManager:
             return {"ok": True, "path": path, "kind": "folder", "entries": entries}
         kind = _artifact_kind(target)
         if kind == "office":
-            # PowerPoint/Word binaries can't be previewed inline; the UI offers
-            # "Open in default app" instead of trying to render them.
+            # Word and PowerPoint read back as reading-quality HTML (office_preview.py);
+            # the older binary formats still hand off to the OS.
+            suffix = target.suffix.lower()
+            try:
+                if suffix == ".docx":
+                    from ..office_preview import docx_to_html
+
+                    r = docx_to_html(target)
+                    return {"ok": True, "path": path, "kind": "docx", "content": r["html"], "paragraphs": r["paragraphs"]}
+                if suffix == ".pptx":
+                    from ..office_preview import pptx_to_html
+
+                    r = pptx_to_html(target)
+                    return {"ok": True, "path": path, "kind": "slides", "content": r["html"], "slides": r["slides"]}
+            except Exception as exc:  # a damaged file: the OS handoff still works
+                return {"ok": True, "path": path, "kind": "office", "error_note": str(exc)}
             return {"ok": True, "path": path, "kind": "office"}
         if kind in ("image", "pdf", "sheet"):
             import base64
@@ -2461,6 +2475,26 @@ class SessionManager:
             "content": text[:500000],
             "truncated": len(text) > 500000,
         }
+
+    def comment_artifact(
+        self, session_id: str, path: str, paragraph: int, text: str, author: str = ""
+    ) -> dict[str, Any]:
+        """A real Word comment on one paragraph of a .docx in this session's folders."""
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
+        if target.suffix.lower() != ".docx":
+            return {"ok": False, "error": "only Word files (.docx) take comments"}
+        text = (text or "").strip()
+        if not text:
+            return {"ok": False, "error": "empty comment"}
+        from ..office_preview import add_word_comment
+
+        try:
+            info = add_word_comment(target, int(paragraph), text, author=(author or "").strip() or "MimiWork")
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **info}
 
     def reveal_artifact(
         self, session_id: str, path: str, mode: str = "reveal"
