@@ -66,3 +66,38 @@ describe("opening a produced file", () => {
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("brief.docx"));
   });
 });
+
+describe("commenting on a produced file (owner ask 2026-09-02)", () => {
+  it("sends the comment to the conversation, naming the file", async () => {
+    const onFeedback = vi.fn();
+    render(
+      <RightRail
+        sessionId="s1"
+        active
+        workspace="/ws"
+        toolNames={[]}
+        todo={[]}
+        running={false}
+        refreshKey={0}
+        onFeedback={onFeedback}
+      />,
+    );
+    const row = await screen.findByText("notes.md");
+    row.closest("button")!.click();
+    const btn = await screen.findByTestId("artifact-comment");
+    fireEvent.click(btn);
+    const box = screen.getByPlaceholderText(/What should change/);
+    fireEvent.change(box, { target: { value: "make the headings blue" } });
+    fireEvent.click(screen.getByText("Send to Mimi"));
+    expect(onFeedback).toHaveBeenCalledWith("Feedback on `notes.md`: make the headings blue");
+    expect(screen.queryByTestId("artifact-feedback")).toBeNull();
+  });
+
+  it("offers no comment button when nowhere to send it", async () => {
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} />);
+    const row = await screen.findByText("notes.md");
+    row.closest("button")!.click();
+    await screen.findByLabelText("Copy path");
+    expect(screen.queryByTestId("artifact-comment")).toBeNull();
+  });
+});

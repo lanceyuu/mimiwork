@@ -36,8 +36,20 @@ def _workspace_label(workspace: str) -> str:
     return Path(workspace).name or workspace
 
 
-def build_graph(items: list[MemoryItem]) -> dict[str, Any]:
-    """{nodes, edges} for the GUI's graph view."""
+def build_graph(
+    items: list[MemoryItem],
+    *,
+    labels: Optional[dict[str, str]] = None,
+    project_names: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
+    """{nodes, edges} for the GUI's graph view.
+
+    ``labels`` names a workspace hub by something better than its folder name — a
+    conversation's scratch folder is called after the conversation's id, and a hub
+    reading "d338424c-827" tells nobody what it is (owner report 2026-09-02).
+    ``project_names`` does the same for project-group hubs (``p:<id>``)."""
+    labels = labels or {}
+    project_names = project_names or {}
     by_key: dict[str, MemoryItem] = {}
     by_id: dict[str, MemoryItem] = {}
     for item in items:
@@ -84,9 +96,25 @@ def build_graph(items: list[MemoryItem]) -> dict[str, Any]:
             ws_id = f"w:{item.workspace}"
             nodes.setdefault(
                 ws_id,
-                {"id": ws_id, "kind": "workspace", "label": _workspace_label(item.workspace)},
+                {
+                    "id": ws_id,
+                    "kind": "workspace",
+                    "label": labels.get(item.workspace) or _workspace_label(item.workspace),
+                },
             )
             _edge(node_id, ws_id, "workspace")
+
+        if item.project_id:
+            p_id = f"p:{item.project_id}"
+            nodes.setdefault(
+                p_id,
+                {
+                    "id": p_id,
+                    "kind": "project",
+                    "label": project_names.get(item.project_id) or "Project",
+                },
+            )
+            _edge(node_id, p_id, "project")
 
     degree: dict[str, int] = {}
     for a, b, _ in edges:

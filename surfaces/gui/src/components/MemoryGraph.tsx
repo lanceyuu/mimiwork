@@ -36,7 +36,9 @@ const COLORS: Record<string, string> = {
 
 function nodeColor(n: SimNode): string {
   if (n.kind === "tag") return COLORS.tag;
-  if (n.kind === "workspace") return COLORS.workspaceHub;
+  // Folder hubs and project-group hubs are the same idea to the reader: "where this
+  // was learned" — one colour, one legend entry.
+  if (n.kind === "workspace" || n.kind === "project") return COLORS.workspaceHub;
   return COLORS[n.scope || "workspace"] || COLORS.workspace;
 }
 

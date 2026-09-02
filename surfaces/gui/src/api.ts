@@ -2082,6 +2082,21 @@ export async function updateAutomation(id: string, changes: Record<string, any>)
   return res.json();
 }
 
+/** Feedback on one node of the flow diagram: Mimi rewrites the instructions to honour
+ *  it, and the diagram redraws from the new text. */
+export async function reviseAutomation(
+  id: string,
+  node: string,
+  comment: string,
+): Promise<{ ok: boolean; error?: string; task?: Automation }> {
+  const res = await fetch(`${httpBase()}/v1/automations/${encodeURIComponent(id)}/revise`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ node, comment }),
+  });
+  return res.json();
+}
+
 export async function deleteAutomation(id: string) {
   const res = await fetch(`${httpBase()}/v1/automations/${encodeURIComponent(id)}`, { method: "DELETE" });
   return res.json();
@@ -2548,7 +2563,7 @@ export async function qualitatiLogout(): Promise<QualitatiStatus> {
 export interface MemoryGraphData {
   nodes: {
     id: string;
-    kind: "memory" | "tag" | "workspace";
+    kind: "memory" | "tag" | "workspace" | "project";
     label: string;
     scope?: string;
     memory_id?: number;

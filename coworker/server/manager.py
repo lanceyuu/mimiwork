@@ -4986,6 +4986,54 @@ class SessionManager:
     def delete_automation(self, task_id: str) -> dict[str, Any]:
         return {"ok": self.task_store.delete(task_id), "id": task_id}
 
+    def revise_automation(
+        self, task_id: str, node: str, comment: str
+    ) -> dict[str, Any]:
+        """Fold one piece of feedback into the automation's instructions.
+
+        The user clicks a node of the flow diagram ("Saved", "Search the web", …) and
+        says what they did not like; the model rewrites the instructions so the next
+        run does it their way. One round-trip, no tools, no session — the diagram
+        redraws from the new text."""
+        task = self.task_store.get(task_id)
+        if task is None:
+            return {"ok": False, "error": "not found"}
+        comment = (comment or "").strip()
+        if not comment:
+            return {"ok": False, "error": "empty comment"}
+        node = (node or "this automation").strip()
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You maintain the instructions of a scheduled automation. The user "
+                    "gives feedback about one part of it. Rewrite the instructions so a "
+                    "future run honours the feedback. Keep everything the feedback does "
+                    "not touch — wording, order, numbering, file names, commands. Do not "
+                    "add commentary. Reply with the complete new instructions only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Automation: {task.title}\n\nCurrent instructions:\n{task.instructions}"
+                    f"\n\nFeedback about \u201c{node}\u201d:\n{comment}"
+                ),
+            },
+        ]
+        try:
+            turn = self.provider.complete(
+                model=task.model or self.model, messages=messages, tools=None, max_tokens=4000
+            )
+        except Exception as e:  # provider down, bad key, …: the text is untouched
+            return {"ok": False, "error": str(e) or "the model did not answer"}
+        text = (getattr(turn, "text", None) or "").strip()
+        if not text:
+            return {"ok": False, "error": "the model returned nothing"}
+        task.instructions = text
+        self.task_store.save(task)
+        return {"ok": True, "task": task.public()}
+
     def prepare_manual_run(self, task_id: str) -> dict[str, Any]:
         """Create a 'running' manual run and return its session, so the GUI can open it and
         drive the task LIVE over the normal session WS (you watch the agent + follow up). The
@@ -6053,7 +6101,29 @@ class SessionManager:
         """Obsidian-style graph over all memories: [[links]], #tags, workspace hubs."""
         from ..memory.graph import build_graph
 
-        return build_graph(self.memory_store.list())
+        return build_graph(
+            self.memory_store.list(),
+            labels=self._workspace_labels(),
+            project_names={
+                str(p.get("id")): str(p.get("name") or "")
+                for p in self.session_store.list_projects()
+            },
+        )
+
+    def _workspace_labels(self) -> dict[str, str]:
+        """A readable name for the folders that only exist because something ran in
+        them: a conversation's scratch folder (named after the conversation id) reads
+        as the conversation's title, an automation's ``__task__`` folder as the
+        automation's. Real folders the user handed over keep their own name."""
+        labels: dict[str, str] = {}
+        for task in self.task_store.list():
+            if task.workspace and Path(task.workspace).name.startswith("__task__"):
+                labels[task.workspace] = task.title
+        for r in self.session_store.list():
+            ws = r.workspace or ""
+            if ws and Path(ws).name == r.session_id and r.title:
+                labels.setdefault(ws, r.title)
+        return labels
 
     def list_memory(
         self, workspace: Optional[str] = None, project_id: Optional[str] = None

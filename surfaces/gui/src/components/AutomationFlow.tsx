@@ -17,6 +17,7 @@
  * grants, the delivery target. Nothing is a placeholder: a diagram that says the same
  * thing about every automation is decoration.
  */
+import { useEffect, useRef, useState } from "react";
 import { Automation } from "../api";
 
 const NODE_W = 170;
@@ -248,7 +249,8 @@ function Card({
     <g
       transform={`translate(${x}, ${y})`}
       onClick={onClick ? () => onClick(n.id) : undefined}
-      style={onClick ? { cursor: "pointer" } : undefined}
+      style={{ cursor: onClick ? "pointer" : "grab" }}
+      data-node={n.id}
       data-testid={`flow-node-${n.id}`}
     >
       <rect
@@ -298,7 +300,8 @@ function SubNode({
     <g
       transform={`translate(${cx}, ${cy})`}
       onClick={onClick ? () => onClick(n.id) : undefined}
-      style={onClick ? { cursor: "pointer" } : undefined}
+      style={{ cursor: onClick ? "pointer" : "grab" }}
+      data-node={n.id}
       data-testid={`flow-sub-${n.id}`}
     >
       <circle r={SUB_R} fill="var(--panel)" stroke={tone.border} strokeWidth={1.4} />
@@ -331,6 +334,10 @@ function drop(x1: number, y1: number, x2: number, y2: number): string {
   return `M ${x1} ${y1} C ${x1} ${y1 + dy}, ${x2} ${y2 - dy}, ${x2} ${y2}`;
 }
 
+type XY = { x: number; y: number };
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 3;
+
 export function AutomationFlow({
   task,
   running,
@@ -347,11 +354,9 @@ export function AutomationFlow({
   const chain = [trigger, agent, ...steps];
   const colX = (i: number) => 14 + (NODE_W + GAP_X) * i;
   const outCol = chain.length; // the outcomes' column, after the last step
-  const lastX = colX(outCol - 1) + NODE_W; // right edge of the last chain card
   // The main line sits low enough that the branch rising above it is not clipped —
   // the success node lives at mainY - BRANCH_RISE.
   const mainY = 14 + BRANCH_RISE;
-  const midY = mainY + NODE_H / 2;
   // The branch splits above and below the main line, the way an n8n If node does.
   const successY = mainY - BRANCH_RISE;
   const failureY = mainY + BRANCH_RISE;
@@ -362,12 +367,107 @@ export function AutomationFlow({
   const subStart = subCentre - ((subs.length - 1) * SUB_GAP) / 2;
   const subX = (i: number) => subStart + i * SUB_GAP;
 
-  const W = Math.max(
-    colX(outCol) + NODE_W + 14,
-    subX(subs.length - 1) + SUB_R + 40,
-  );
+  const W = Math.max(colX(outCol) + NODE_W + 14, subX(subs.length - 1) + SUB_R + 40);
   const leftPad = Math.min(0, subX(0) - SUB_R - 14);
   const height = subY + SUB_R + 46;
+
+  // Where the layout puts each node (cards by top-left corner, sub-nodes by centre) —
+  // plus wherever the user has dragged it since. Wires read positions from here, so a
+  // moved node takes its connections with it.
+  const laid: Record<string, XY> = {};
+  chain.forEach((n, i) => (laid[n.id] = { x: colX(i), y: mainY }));
+  laid[success.id] = { x: colX(outCol), y: successY };
+  laid[failure.id] = { x: colX(outCol), y: failureY };
+  subs.forEach((n, i) => (laid[n.id] = { x: subX(i), y: subY }));
+  const [moved, setMoved] = useState<Record<string, XY>>({});
+  const at = (id: string): XY => {
+    const b = laid[id];
+    const m = moved[id];
+    return m ? { x: b.x + m.x, y: b.y + m.y } : b;
+  };
+  const outPort = (id: string): XY => ({ x: at(id).x + NODE_W, y: at(id).y + NODE_H / 2 });
+  const inPort = (id: string): XY => ({ x: at(id).x, y: at(id).y + NODE_H / 2 });
+
+  // Pan and zoom of the whole picture (owner ask 2026-09-02: a long chain needs both).
+  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  // One pointer gesture: a node being dragged, or the picture being panned. `dragged`
+  // turns true once the pointer has really travelled, so the click that ends a drag
+  // does not also open the node's comment box.
+  const gesture = useRef<{ id: string | null; sx: number; sy: number; ox: number; oy: number; dragged: boolean } | null>(null);
+  const swallowClick = useRef(false);
+  // Screen pixels → diagram units: the viewBox scales the picture to the panel width.
+  const unitsPerPx = () => (W - leftPad) / Math.max(1, svgRef.current?.clientWidth || W - leftPad);
+
+  const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    const id = (e.target as Element).closest?.("[data-node]")?.getAttribute("data-node") ?? null;
+    const o = id ? moved[id] || { x: 0, y: 0 } : { x: view.x, y: view.y };
+    gesture.current = { id, sx: e.clientX, sy: e.clientY, ox: o.x, oy: o.y, dragged: false };
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    const g = gesture.current;
+    if (!g) return;
+    const dx = e.clientX - g.sx;
+    const dy = e.clientY - g.sy;
+    if (!g.dragged && Math.abs(dx) + Math.abs(dy) < 4) return;
+    g.dragged = true;
+    const u = unitsPerPx();
+    if (g.id) {
+      const id = g.id;
+      setMoved((m) => ({ ...m, [id]: { x: g.ox + (dx * u) / view.k, y: g.oy + (dy * u) / view.k } }));
+    } else {
+      setView((v) => ({ ...v, x: g.ox + dx * u, y: g.oy + dy * u }));
+    }
+  };
+  const onPointerUp = () => {
+    if (gesture.current?.dragged) swallowClick.current = true;
+    gesture.current = null;
+  };
+  const click = onNodeClick
+    ? (id: string) => {
+        if (swallowClick.current) {
+          swallowClick.current = false;
+          return;
+        }
+        onNodeClick(id);
+      }
+    : undefined;
+
+  const zoomBy = (factor: number, centre?: XY) => {
+    setView((v) => {
+      const k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v.k * factor));
+      if (k === v.k) return v;
+      // Keep the point under the cursor (or the picture's middle) where it is.
+      const c = centre ?? { x: (W - leftPad) / 2 + leftPad, y: height / 2 };
+      const r = k / v.k;
+      return { k, x: c.x - (c.x - v.x) * r, y: c.y - (c.y - v.y) * r };
+    });
+  };
+  // The wheel listener must be non-passive to stop the page scrolling under the
+  // diagram; React attaches onWheel passively, so it is wired by hand.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const u = unitsPerPx();
+      zoomBy(Math.exp(-e.deltaY * 0.0015), {
+        x: leftPad + (e.clientX - rect.left) * u,
+        y: (e.clientY - rect.top) * u,
+      });
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [W, leftPad, height]);
+  const reset = () => {
+    setView({ x: 0, y: 0, k: 1 });
+    setMoved({});
+  };
+  const untouched = view.k === 1 && view.x === 0 && view.y === 0 && Object.keys(moved).length === 0;
 
   const errored = task.last_status === "error";
   const wireStyle = {
@@ -385,87 +485,104 @@ export function AutomationFlow({
     strokeDasharray: "4 4",
   } as const;
 
+  const last = chain[chain.length - 1].id;
+  const agentBottom: XY = { x: at(agent.id).x + NODE_W / 2, y: at(agent.id).y + NODE_H };
+
   return (
     <div className="autoflow" data-testid="automation-flow">
-      <svg
-        viewBox={`${leftPad} 0 ${W - leftPad} ${height}`}
-        width="100%"
-        style={{ maxWidth: W - leftPad, display: "block" }}
-      >
-        <defs>
-          <pattern id="flow-dots" width={16} height={16} patternUnits="userSpaceOnUse">
-            <circle cx={1.2} cy={1.2} r={1.2} fill="var(--line)" />
-          </pattern>
-          {running && (
-            <style>{`.autoflow-wire { animation: autoflow-dash 0.9s linear infinite; } @keyframes autoflow-dash { to { stroke-dashoffset: -11; } }`}</style>
-          )}
-        </defs>
-        <rect x={leftPad} width={W - leftPad} height={height} rx={14} fill="url(#flow-dots)" opacity={0.55} />
-
-        {/* Main chain */}
-        {chain.slice(1).map((_, i) => (
-          <path
-            key={`wire-${i}`}
-            className="autoflow-wire"
-            d={wire(colX(i) + NODE_W, midY, colX(i + 1), midY)}
-            {...wireStyle}
-          />
-        ))}
-        <path
-          className="autoflow-wire"
-          d={wire(lastX, midY, colX(outCol), successY + NODE_H / 2)}
-          {...wireStyle}
-        />
-        <path
-          className="autoflow-wire"
-          d={wire(lastX, midY, colX(outCol), failureY + NODE_H / 2)}
-          {...wireStyle}
-        />
-        {/* Branch labels, as n8n puts true/false on the wire. */}
-        <text
-          x={lastX + GAP_X / 2}
-          y={successY + NODE_H / 2 - 6}
-          textAnchor="middle"
-          fontSize={9.5}
-          fill="var(--faint)"
+      <div className="autoflow-stage">
+        <svg
+          ref={svgRef}
+          viewBox={`${leftPad} 0 ${W - leftPad} ${height}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
         >
-          done
-        </text>
-        <text
-          x={lastX + GAP_X / 2}
-          y={failureY + NODE_H / 2 + 16}
-          textAnchor="middle"
-          fontSize={9.5}
-          fill="var(--faint)"
-        >
-          error
-        </text>
+          <defs>
+            <pattern id="flow-dots" width={16} height={16} patternUnits="userSpaceOnUse">
+              <circle cx={1.2} cy={1.2} r={1.2} fill="var(--line)" />
+            </pattern>
+            {running && (
+              <style>{`.autoflow-wire { animation: autoflow-dash 0.9s linear infinite; } @keyframes autoflow-dash { to { stroke-dashoffset: -11; } }`}</style>
+            )}
+          </defs>
+          <rect x={leftPad} width={W - leftPad} height={height} rx={14} fill="url(#flow-dots)" opacity={0.55} />
 
-        {/* What the agent is made of */}
-        {subs.map((n, i) => (
-          <path
-            key={`sub-${n.id}`}
-            d={drop(subCentre, mainY + NODE_H, subX(i), subY - SUB_R - 6)}
-            {...subWire}
-          />
-        ))}
+          <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`} data-testid="flow-canvas">
+            {/* Main chain */}
+            {chain.slice(1).map((n, i) => {
+              const a = outPort(chain[i].id);
+              const b = inPort(n.id);
+              return <path key={`wire-${i}`} className="autoflow-wire" d={wire(a.x, a.y, b.x, b.y)} {...wireStyle} />;
+            })}
+            <path
+              className="autoflow-wire"
+              d={wire(outPort(last).x, outPort(last).y, inPort(success.id).x, inPort(success.id).y)}
+              {...wireStyle}
+            />
+            <path
+              className="autoflow-wire"
+              d={wire(outPort(last).x, outPort(last).y, inPort(failure.id).x, inPort(failure.id).y)}
+              {...wireStyle}
+            />
+            {/* Branch labels, as n8n puts true/false on the wire. */}
+            <text
+              x={(outPort(last).x + inPort(success.id).x) / 2}
+              y={inPort(success.id).y - 6}
+              textAnchor="middle"
+              fontSize={9.5}
+              fill="var(--faint)"
+            >
+              done
+            </text>
+            <text
+              x={(outPort(last).x + inPort(failure.id).x) / 2}
+              y={inPort(failure.id).y + 16}
+              textAnchor="middle"
+              fontSize={9.5}
+              fill="var(--faint)"
+            >
+              error
+            </text>
 
-        {chain.map((n, i) => (
-          <Card key={n.id} n={n} x={colX(i)} y={mainY} onClick={onNodeClick} noted={notedNodes?.has(n.id)} />
-        ))}
-        <Card n={success} x={colX(outCol)} y={successY} onClick={onNodeClick} noted={notedNodes?.has(success.id)} />
-        <Card n={failure} x={colX(outCol)} y={failureY} onClick={onNodeClick} noted={notedNodes?.has(failure.id)} />
-        {subs.map((n, i) => (
-          <SubNode
-            key={n.id}
-            n={n}
-            cx={subX(i)}
-            cy={subY}
-            onClick={onNodeClick}
-            noted={notedNodes?.has(n.id)}
-          />
-        ))}
-      </svg>
+            {/* What the agent is made of */}
+            {subs.map((n) => (
+              <path
+                key={`sub-${n.id}`}
+                d={drop(agentBottom.x, agentBottom.y, at(n.id).x, at(n.id).y - SUB_R - 6)}
+                {...subWire}
+              />
+            ))}
+
+            {chain.map((n) => (
+              <Card key={n.id} n={n} x={at(n.id).x} y={at(n.id).y} onClick={click} noted={notedNodes?.has(n.id)} />
+            ))}
+            <Card n={success} x={at(success.id).x} y={at(success.id).y} onClick={click} noted={notedNodes?.has(success.id)} />
+            <Card n={failure} x={at(failure.id).x} y={at(failure.id).y} onClick={click} noted={notedNodes?.has(failure.id)} />
+            {subs.map((n) => (
+              <SubNode key={n.id} n={n} cx={at(n.id).x} cy={at(n.id).y} onClick={click} noted={notedNodes?.has(n.id)} />
+            ))}
+          </g>
+        </svg>
+      </div>
+      <div className="autoflow-tools">
+        <button type="button" onClick={() => zoomBy(1.25)} aria-label="Zoom in" title="Zoom in">
+          +
+        </button>
+        <button type="button" onClick={() => zoomBy(0.8)} aria-label="Zoom out" title="Zoom out">
+          −
+        </button>
+        {!untouched && (
+          <button type="button" onClick={reset} aria-label="Reset view" title="Reset view" data-testid="flow-reset">
+            ⟲
+          </button>
+        )}
+      </div>
+      <div className="autoflow-hint">
+        drag a step to move it · drag the background to pan · scroll to zoom
+        {onNodeClick ? " · click a step to say what should change" : ""}
+      </div>
     </div>
   );
 }

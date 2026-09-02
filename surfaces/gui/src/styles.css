@@ -653,6 +653,14 @@ button.btn.danger { color: var(--accent); }
 .artifact-sep { color: var(--faint); font-weight: 400; }
 .artifact-path { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
 .artifact-preview { min-height: 0; flex: 1; overflow: auto; background: var(--panel); }
+/* A comment on the produced file, pinned to where the user clicked */
+.artifact-feedback {
+  flex: none; border-bottom: 1px solid var(--line); padding: 10px 18px; background: var(--paper);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.artifact-feedback-pin { font-size: 12.5px; color: var(--ink); }
+.artifact-feedback textarea { min-height: 56px; }
+.artifact-feedback-actions { display: flex; align-items: center; gap: 10px; }
 .artifact-frame { width: 100%; height: 100%; min-height: calc(100vh - 86px); border: 0; background: #fff; }
 /* Checkerboard backdrop so white/transparent images still read as an image, not a blank pane. */
 .artifact-image {
@@ -1708,7 +1716,24 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
 
 /* n8n-style automation flow (Automations → detail) — the SVG supplies its own
    dotted canvas; this just gives it breathing room within the detail column. */
-.autoflow { margin: 14px 0 6px; overflow-x: auto; }
+.autoflow { margin: 14px 0 6px; position: relative; }
+.autoflow-stage { overflow: hidden; border-radius: 14px; touch-action: none; }
+.autoflow-stage svg { display: block; width: 100%; user-select: none; -webkit-user-select: none; }
+.autoflow-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.autoflow-tools button {
+  width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.autoflow-tools button:hover { color: var(--ink); }
+.autoflow-hint { font-size: 11.5px; color: var(--faint); margin: 6px 2px 0; }
+/* A comment on one node of the diagram */
+.flow-note {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 8px 0 12px;
+  background: var(--paper); display: flex; flex-direction: column; gap: 8px;
+}
+.flow-note-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+.flow-note-text { min-height: 64px; }
+.flow-note-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
 /* ================================================================
    Apple-design polish layer (emilkowalski/skills · apple-design)

@@ -1515,6 +1515,14 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    @app.post("/v1/automations/{task_id}/revise")
+    def automation_revise(task_id: str, body: dict) -> dict[str, Any]:
+        """Feedback on one node of the flow diagram, folded into the instructions."""
+        body = body or {}
+        return manager.revise_automation(
+            task_id, str(body.get("node") or ""), str(body.get("comment") or "")
+        )
+
     @app.get("/v1/blueprints/builtin")
     def builtin_blueprint_list() -> list[dict[str, Any]]:
         """Starter blueprints bundled with the app (importable like a shared file)."""

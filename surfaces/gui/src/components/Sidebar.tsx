@@ -1395,30 +1395,6 @@ export function Sidebar(props: Props) {
             </>
           )}
 
-          {/* All-time hours saved (owner ask 2026-08-30). It sits with the account row
-              rather than in a session, because the point of the number is cumulative:
-              one afternoon is unremarkable, three months of afternoons is the product.
-              Hidden until it clears half an hour — see timesaved.ts. */}
-          {worthShowing(props.timeSaved) && (
-            <div
-              className="px-2.5 pb-1 flex items-center gap-1.5 text-[11.5px] text-muted"
-              data-testid="time-saved-total"
-              title={
-                `MimiWork has saved you about ${formatSaved(props.timeSaved!.saved_minutes)} ` +
-                `across ${props.timeSaved!.turns} turns.\n` +
-                `By hand ≈${Math.round(props.timeSaved!.human_minutes / 60)} h · ` +
-                `with Mimi ≈${Math.round(props.timeSaved!.collab_minutes / 60)} h\n\n` +
-                "An estimate from what was produced, not a measurement."
-              }
-            >
-              <Icon name="clock" size={12} className="text-faint" />
-              <span className="tabular-nums text-ink font-medium">
-                {formatSaved(props.timeSaved!.saved_minutes)}
-              </span>
-              <span>{t("saved so far")}</span>
-            </div>
-          )}
-
           <button
             className={
               "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] text-left " +
@@ -1486,6 +1462,30 @@ export function Sidebar(props: Props) {
               className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
             />
           </button>
+          {/* All-time hours saved (owner ask 2026-08-30). It sits under the account name
+              (owner ask 2026-09-02) rather than in a session, because the point of the number is cumulative:
+              one afternoon is unremarkable, three months of afternoons is the product.
+              Hidden until it clears half an hour — see timesaved.ts. */}
+          {worthShowing(props.timeSaved) && (
+            <div
+              className="pl-[42px] pr-2.5 -mt-1 pb-1.5 flex items-center gap-1.5 text-[11.5px] text-muted"
+              data-testid="time-saved-total"
+              title={
+                `MimiWork has saved you about ${formatSaved(props.timeSaved!.saved_minutes)} ` +
+                `across ${props.timeSaved!.turns} turns.\n` +
+                `By hand ≈${Math.round(props.timeSaved!.human_minutes / 60)} h · ` +
+                `with Mimi ≈${Math.round(props.timeSaved!.collab_minutes / 60)} h\n\n` +
+                "An estimate from what was produced, not a measurement."
+              }
+            >
+              <Icon name="clock" size={12} className="text-faint" />
+              <span className="tabular-nums text-ink font-medium">
+                {formatSaved(props.timeSaved!.saved_minutes)}
+              </span>
+              <span>{t("saved so far")}</span>
+            </div>
+          )}
+
         </div>
       </div>
 

@@ -113,3 +113,27 @@ def test_label_prefers_summary_then_key_then_first_line():
 def test_scope_rides_along_for_coloring():
     g = build_graph([_mem(1, "x", scope=Scope.GLOBAL)])
     assert g["nodes"][0]["scope"] == "global"
+
+
+def test_a_scratch_folder_hub_reads_as_the_conversation_not_its_id():
+    # The graph showed "d338424c-827" — a conversation's scratch folder is named after
+    # its id, and the folder name is all the graph had (owner report 2026-09-02).
+    ws = "/scratch/d338424c-827"
+    g = build_graph([_mem(1, "uses Stata", workspace=ws)], labels={ws: "Survey cleaning"})
+    hub = next(n for n in g["nodes"] if n["id"] == f"w:{ws}")
+    assert hub["label"] == "Survey cleaning"
+
+
+def test_a_real_folder_keeps_its_own_name_without_a_label():
+    g = build_graph([_mem(1, "x", workspace="/u/projects/MimiWork")])
+    hub = next(n for n in g["nodes"] if n["kind"] == "workspace")
+    assert hub["label"] == "MimiWork"
+
+
+def test_project_group_memories_hang_off_a_named_project_hub():
+    item = MemoryItem(1, Scope.PROJECT, "deadline is May", project_id="grp_abc")
+    g = build_graph([item], project_names={"grp_abc": "GenAI course"})
+    assert "p:grp_abc" in _ids(g)
+    hub = next(n for n in g["nodes"] if n["id"] == "p:grp_abc")
+    assert hub["kind"] == "project" and hub["label"] == "GenAI course"
+    assert ("m:1", "p:grp_abc", "project") in _edges(g)

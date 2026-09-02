@@ -204,3 +204,47 @@ describe("flowSteps — the chain is read off the instructions", () => {
     }
   });
 });
+
+describe("AutomationFlow — the picture can be moved (owner ask 2026-09-02)", () => {
+  // jsdom has no PointerEvent: without this, fireEvent.pointerDown carries no button
+  // or coordinates and the gesture never starts.
+  if (!("PointerEvent" in window)) (window as any).PointerEvent = MouseEvent;
+
+  const canvas = () => screen.getByTestId("flow-canvas").getAttribute("transform")!;
+
+  it("zoom buttons scale the picture and reset brings it back", () => {
+    render(<AutomationFlow task={TASK} />);
+    expect(canvas()).toBe("translate(0 0) scale(1)");
+    fireEvent.click(screen.getByLabelText("Zoom in"));
+    expect(canvas()).toContain("scale(1.25)");
+    fireEvent.click(screen.getByTestId("flow-reset"));
+    expect(canvas()).toBe("translate(0 0) scale(1)");
+  });
+
+  it("dragging a node moves it, and the click that ends the drag is not a comment", () => {
+    const onNodeClick = vi.fn();
+    render(<AutomationFlow task={TASK} onNodeClick={onNodeClick} />);
+    const node = screen.getByTestId("flow-node-agent");
+    const before = node.getAttribute("transform");
+    const svg = node.closest("svg")!;
+    fireEvent.pointerDown(node, { button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(svg, { clientX: 60, clientY: 40 });
+    fireEvent.pointerUp(svg);
+    expect(node.getAttribute("transform")).not.toBe(before);
+    fireEvent.click(node);
+    expect(onNodeClick).not.toHaveBeenCalled();
+    // The next click, with no drag before it, is a real click.
+    fireEvent.click(node);
+    expect(onNodeClick).toHaveBeenCalledWith("agent");
+  });
+
+  it("dragging the background pans instead of moving a node", () => {
+    render(<AutomationFlow task={TASK} />);
+    const svg = screen.getByTestId("automation-flow").querySelector("svg")!;
+    fireEvent.pointerDown(svg, { button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(svg, { clientX: 30, clientY: 20 });
+    fireEvent.pointerUp(svg);
+    expect(canvas()).not.toBe("translate(0 0) scale(1)");
+    expect(canvas()).toContain("scale(1)");
+  });
+});

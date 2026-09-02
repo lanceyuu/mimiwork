@@ -66,6 +66,9 @@ interface Props {
   scratchPrimary?: boolean;
   openAccessKey?: number;
   onOpenIntegrations?: () => void;
+  // Feedback on a produced file goes to the conversation as a message — Mimi already
+  // knows the file, so "make the background white" is all it takes (owner ask 2026-09-02).
+  onFeedback?: (text: string) => void;
 }
 
 export function RightRail({
@@ -84,6 +87,7 @@ export function RightRail({
   scratchPrimary,
   openAccessKey = 0,
   onOpenIntegrations,
+  onFeedback,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState<Record<Panel, boolean>>({
@@ -233,6 +237,7 @@ export function RightRail({
           content={content}
           onReload={reloadSelected}
           onBack={() => setSelected(null)}
+          onFeedback={onFeedback}
           onOpenEntry={(path) =>
             setSelected({
               path,
@@ -420,6 +425,7 @@ function ArtifactViewer({
   onReload,
   onBack,
   onOpenEntry,
+  onFeedback,
 }: {
   sessionId: string;
   artifact: ArtifactInfo;
@@ -428,8 +434,21 @@ function ArtifactViewer({
   onBack: () => void;
   // Folder listings: open a child entry in the viewer (files and subfolders alike).
   onOpenEntry?: (path: string) => void;
+  onFeedback?: (text: string) => void;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
+  // A comment in progress, and the spot it is about ("page 2, top left"). Clicking the
+  // preview sets the spot; the button in the header opens a comment about the whole file.
+  const [feedback, setFeedback] = useState<{ pin: string } | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const sendFeedback = () => {
+    const text = feedbackText.trim();
+    if (!text || !onFeedback) return;
+    const where = feedback?.pin ? ` (${feedback.pin})` : "";
+    onFeedback(`Feedback on \`${artifact.path}\`${where}: ${text}`);
+    setFeedback(null);
+    setFeedbackText("");
+  };
   const isHtml = content?.kind === "html" && !content.error;
   // Best viewed in a real app: spreadsheets, PDFs, and Office docs (pptx/docx can't preview inline)
   const isApp = content?.kind === "sheet" || content?.kind === "pdf" || content?.kind === "office";
@@ -456,6 +475,17 @@ function ArtifactViewer({
               title="Reload"
             >
               <Icon name="refresh" size={16} />
+            </button>
+          )}
+          {onFeedback && (
+            <button
+              className="artifact-icon-btn"
+              data-testid="artifact-comment"
+              onClick={() => setFeedback((f) => (f ? null : { pin: "" }))}
+              aria-label="Comment on this file"
+              title="Comment on this file"
+            >
+              <Icon name="chat" size={16} />
             </button>
           )}
           {isApp && (
@@ -488,7 +518,42 @@ function ArtifactViewer({
           </button>
         </div>
       </div>
-      <div className="artifact-preview">
+      {feedback && (
+        <div className="artifact-feedback" data-testid="artifact-feedback">
+          <div className="artifact-feedback-pin">
+            {feedback.pin ? `About ${feedback.pin}` : "About this file"}
+            {content && content.kind !== "office" && content.kind !== "html" && (
+              <span className="dim"> · click the preview to point at a spot</span>
+            )}
+          </div>
+          <textarea
+            autoFocus
+            className="tmpl-input tmpl-textarea"
+            placeholder="What should change? e.g. “make the background white”"
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendFeedback();
+            }}
+          />
+          <div className="artifact-feedback-actions">
+            <button className="btn-primary sm" disabled={!feedbackText.trim()} onClick={sendFeedback}>
+              Send to Mimi
+            </button>
+            <button className="link" onClick={() => setFeedback(null)}>
+              cancel
+            </button>
+          </div>
+        </div>
+      )}
+      <div
+        className="artifact-preview"
+        onClick={(e) => {
+          if (!onFeedback) return;
+          const pin = pinFor(e.target as Element, e.clientX, e.clientY);
+          if (pin) setFeedback({ pin });
+        }}
+      >
         {!content ? (
           <div className="rail-muted">Loading...</div>
         ) : content.error ? (
@@ -545,6 +610,35 @@ function ArtifactViewer({
 }
 
 const MAX_TABLE_ROWS = 500;
+
+/** Where in the preview a click landed, in words Mimi can act on: "page 2, top left",
+ *  "row 4, column 2". Empty when the click is nowhere in particular (prose, code). */
+function pinFor(target: Element, clientX: number, clientY: number): string {
+  const region = (el: Element) => {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return "";
+    const rx = (clientX - r.left) / r.width;
+    const ry = (clientY - r.top) / r.height;
+    const v = ry < 0.33 ? "top" : ry > 0.66 ? "bottom" : "middle";
+    const h = rx < 0.33 ? "left" : rx > 0.66 ? "right" : "centre";
+    return `${v} ${h}`;
+  };
+  const page = target.closest("canvas.artifact-pdf-page");
+  if (page) {
+    const n = Array.from(page.parentElement?.children ?? []).indexOf(page) + 1;
+    return `page ${n}, ${region(page)}`;
+  }
+  const img = target.closest("img.artifact-image");
+  if (img) return `${region(img)} of the image`;
+  const cell = target.closest("td, th");
+  const row = cell?.closest("tr");
+  if (cell && row) {
+    const table = row.closest("table");
+    const rows = Array.from(table?.querySelectorAll("tr") ?? []);
+    return `row ${rows.indexOf(row) + 1}, column ${Array.from(row.children).indexOf(cell) + 1}`;
+  }
+  return "";
+}
 
 function GridTable({ rows, note }: { rows: unknown[][]; note?: string }) {
   const [head, ...body] = rows;

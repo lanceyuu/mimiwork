@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AutomationFlow } from "./AutomationFlow";
+import { AutomationFlow, flowNodes } from "./AutomationFlow";
 import {
   createAutomation,
   getSettings,
@@ -10,6 +10,7 @@ import {
   getAutomations,
   markAutomationSeen,
   announceAutomationsChanged,
+  reviseAutomation,
   updateAutomation,
   type Automation,
   type AutomationRun,
@@ -616,6 +617,14 @@ function TaskDetail({
   // below it runs conditionally, which crashes the whole detail page on the render
   // where the task has not arrived yet.
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // A comment on one node of the flow diagram. Submitting it has Mimi rewrite the
+  // instructions; the node keeps an amber dot for the rest of the visit so the user
+  // can see which parts they have already spoken to.
+  const [note, setNote] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [noted, setNoted] = useState<Set<string>>(() => new Set());
+  const [revising, setRevising] = useState(false);
+  const [reviseError, setReviseError] = useState("");
 
   const refresh = () =>
     getAutomation(id)
@@ -651,6 +660,94 @@ function TaskDetail({
         <div className="text-[13px] text-muted">Loading…</div>
       </Shell>
     );
+
+  // Which node the comment is about, and the box to write it in — a render helper, not
+  // a component, so the textarea survives each keystroke. Settings (schedule,
+  // model, folder, grants) are not steps — feedback there points at Edit instead of
+  // asking the model to rewrite instructions that cannot change them.
+  const flowNote = () => {
+    const f = flowNodes(task);
+    const all = [f.trigger, f.agent, ...f.steps, ...f.subs, f.success, f.failure];
+    const n = all.find((x) => x.id === note);
+    if (!n) return null;
+    const isSetting = ["trigger", "model", "folder"].includes(n.id) || n.id.startsWith("grant-");
+    const submit = async () => {
+      const text = noteText.trim();
+      if (!text) return;
+      setRevising(true);
+      setReviseError("");
+      const res = await reviseAutomation(id, n.title, text).catch(() => ({
+        ok: false,
+        error: "Could not reach Mimi.",
+      }));
+      setRevising(false);
+      if (!res.ok) {
+        setReviseError(res.error || "The automation could not be updated.");
+        return;
+      }
+      setNoted((s) => new Set(s).add(n.id));
+      setNote(null);
+      setNoteText("");
+      refresh();
+      announceAutomationsChanged();
+    };
+    return (
+      <div className="flow-note" data-testid="flow-note">
+        <div className="flow-note-head">
+          <span>
+            {n.icon} <b>{n.title}</b>
+            {n.sub ? <span className="dim"> · {n.sub}</span> : null}
+          </span>
+          <button className="link" onClick={() => setNote(null)}>
+            close
+          </button>
+        </div>
+        {isSetting ? (
+          <div className="dim" style={{ fontSize: 12.5 }}>
+            This is a setting, not a step — change it with{" "}
+            <button
+              className="link"
+              onClick={() => {
+                setNote(null);
+                startEdit();
+              }}
+            >
+              Edit
+            </button>
+            {n.id.startsWith("grant-") ? ", or revoke it below." : "."}
+          </div>
+        ) : (
+          <>
+            <textarea
+              autoFocus
+              className="tmpl-input tmpl-textarea flow-note-text"
+              data-testid="flow-note-text"
+              placeholder="What should be different here? e.g. “save it as a PDF, not markdown”"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
+              }}
+            />
+            <div className="flow-note-actions">
+              <button
+                className="btn-primary sm"
+                data-testid="flow-note-submit"
+                disabled={revising || !noteText.trim()}
+                onClick={() => void submit()}
+              >
+                {revising ? "Updating…" : "Update the automation"}
+              </button>
+              <span className="dim" style={{ fontSize: 12 }}>
+                Mimi rewrites the instructions; the diagram redraws from them.
+              </span>
+            </div>
+            {reviseError && <div className="mcp-error">{reviseError}</div>}
+          </>
+        )}
+      </div>
+    );
+  };
 
   const startEdit = () => {
     setTitle(task.title);
@@ -787,7 +884,17 @@ function TaskDetail({
         {!editing && (
           <>
             <div className="sa-sub">What it does</div>
-            <AutomationFlow task={task} running={task.last_status === "running"} />
+            <AutomationFlow
+              task={task}
+              running={task.last_status === "running"}
+              notedNodes={noted}
+              onNodeClick={(nid) => {
+                setNote((cur) => (cur === nid ? null : nid));
+                setNoteText("");
+                setReviseError("");
+              }}
+            />
+            {note && flowNote()}
           </>
         )}
 

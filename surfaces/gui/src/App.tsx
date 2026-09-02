@@ -2007,6 +2007,7 @@ export function App() {
             scratchPrimary={agent === "cowork"}
             openAccessKey={accessKey}
             onOpenIntegrations={() => setSurface("integrations")}
+            onFeedback={(text) => send(text)}
           />
         </div>
       </div>
