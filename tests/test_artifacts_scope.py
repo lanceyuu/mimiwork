@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from coworker.conversations import SessionRecord
@@ -248,7 +249,8 @@ def test_the_deliverable_outranks_the_scratch_file_that_made_it(tmp_path):
     order = [r["name"] for r in rows]
     assert order[:2] == ["deck.pptx", "Report.docx"]  # tier 0, newest first
     assert order.index("chart.png") < order.index("rows.csv")  # figure over data
-    assert order[-2:] == ["notes.md", "analysis.py"]  # working files last
+    assert order[-1] == "notes.md"  # working files last
+    assert "analysis.py" not in order  # machinery is not a deliverable (2026-09-02)
     assert [r["tier"] for r in rows] == sorted(r["tier"] for r in rows)
 
 
@@ -260,7 +262,7 @@ def test_a_full_folder_never_drops_a_deliverable_to_stay_under_the_cap(tmp_path)
     from coworker.server import SessionManager
 
     for i in range(120):
-        p = tmp_path / f"step_{i:03d}.py"
+        p = tmp_path / f"step_{i:03d}.txt"  # working material, but not machinery
         p.write_text("x")
         os.utime(p, (9_000 + i, 9_000 + i))  # all newer than the report
     (tmp_path / "Final report.pdf").write_text("x")
@@ -269,3 +271,169 @@ def test_a_full_folder_never_drops_a_deliverable_to_stay_under_the_cap(tmp_path)
     rows = SessionManager(workspace=tmp_path).list_artifacts("no-session")
     assert rows[0]["name"] == "Final report.pdf"
     assert len(rows) == 80
+
+
+def test_a_file_written_by_running_code_still_shows_up(tmp_path, monkeypatch):
+    """The deliverable a script PRODUCES is the point; the script is the leftover.
+
+    Artifacts are harvested from the paths named in tool calls, so `write_file` put
+    `extract_roster.py` on the list while the workbook that script went on to create was
+    named by nobody and vanished from the rail (owner report 2026-09-02: "i only see all
+    those python file in the artifact, but not the generated valuable new file").
+
+    Inside a per-conversation scratch folder every file belongs to this conversation by
+    construction — the same reasoning that already lets the empty case walk it.
+    """
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-run"))
+
+    script = workspace / "extract_roster.py"
+    script.write_text("# writes the workbook", encoding="utf-8")
+    produced = workspace / "GE_MM_2026_student_emails.xlsx"
+    produced.write_bytes(b"the 496 students")
+
+    _session(
+        manager,
+        "s-run",
+        workspace,
+        _turn("write_file", {"path": "extract_roster.py"}, {"path": "extract_roster.py"}),
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-run")]
+    assert "GE_MM_2026_student_emails.xlsx" in names, "the workbook is what the user wanted"
+    assert "extract_roster.py" not in names, "the script that made it is machinery"
+
+
+def test_walking_scratch_never_reaches_a_granted_folder(tmp_path, monkeypatch):
+    """The union is scoped to scratch. A granted folder full of the user's own work
+    must stay out — that is the 2026-08-24 report this module exists for."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-mix"))
+    (workspace / "made-here.csv").write_bytes(b"produced")
+
+    granted = tmp_path / "Course"
+    granted.mkdir()
+    (granted / "the-users-own-thesis.docx").write_bytes(b"not Mimi's")
+
+    _session(
+        manager,
+        "s-mix",
+        workspace,
+        _turn("write_file", {"path": "made-here.csv"}, {"path": "made-here.csv"}),
+        extra=[{"path": str(granted), "writable": False, "label": "Course"}],
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-mix")]
+    assert "made-here.csv" in names
+    assert "the-users-own-thesis.docx" not in names
+
+
+def test_the_script_that_made_the_deliverable_is_not_a_deliverable(tmp_path, monkeypatch):
+    """Machinery is means, not end (owner ask 2026-09-02: "we would not put all those
+    medium python file artifact, instead only meaningful output as artifacts")."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-quiet"))
+    for name in ("extract_roster.py", "clean.sh", "notes.log", "report.md"):
+        (workspace / name).write_text("x", encoding="utf-8")
+    (workspace / "students.xlsx").write_bytes(b"the point")
+
+    _session(
+        manager,
+        "s-quiet",
+        workspace,
+        _turn("write_file", {"path": "extract_roster.py"}, {"path": "extract_roster.py"}),
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-quiet")]
+    assert "students.xlsx" in names
+    assert "report.md" in names, "prose the user reads is output, not machinery"
+    assert "extract_roster.py" not in names
+    assert "clean.sh" not in names
+    assert "notes.log" not in names
+
+
+def test_a_coding_session_still_shows_its_code(tmp_path, monkeypatch):
+    """When the script IS the deliverable, hiding machinery would empty the panel."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-code"))
+    (workspace / "solver.py").write_text("print(1)", encoding="utf-8")
+    (workspace / "helper.py").write_text("pass", encoding="utf-8")
+
+    _session(
+        manager,
+        "s-code",
+        workspace,
+        _turn("write_file", {"path": "solver.py"}, {"path": "solver.py"}),
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-code")]
+    assert "solver.py" in names, "nothing else was produced — the code is the output"
+
+
+def test_an_automations_uploaded_reference_files_are_inputs_not_outputs(tmp_path, monkeypatch):
+    """create_automation drops the creator's uploads in <workspace>/attachments. The scratch
+    walk must not present them as something the run produced (review catch 2026-09-02)."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-auto"))
+    (workspace / "attachments").mkdir()
+    (workspace / "attachments" / "brief.pdf").write_bytes(b"the user's upload")
+    (workspace / "digest.docx").write_bytes(b"what the run wrote")
+
+    _session(
+        manager,
+        "s-auto",
+        workspace,
+        _turn("write_document", {"path": "digest.docx"}, {"path": "digest.docx"}),
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-auto")]
+    assert names == ["digest.docx"]
+
+
+def test_r_markdown_is_a_document_not_machinery(tmp_path, monkeypatch):
+    """An academic's standard deliverable — a report with R chunks — must not vanish
+    beside its plain-markdown sibling (review catch 2026-09-02)."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-rmd"))
+    (workspace / "analysis.Rmd").write_text("---\ntitle: x\n---", encoding="utf-8")
+    (workspace / "helper.R").write_text("x <- 1", encoding="utf-8")
+    (workspace / "figure.png").write_bytes(b"png")
+
+    _session(
+        manager,
+        "s-rmd",
+        workspace,
+        _turn("write_file", {"path": "analysis.Rmd"}, {"path": "analysis.Rmd"}),
+    )
+
+    names = [row["name"] for row in manager.list_artifacts("s-rmd")]
+    assert "analysis.Rmd" in names
+    assert "helper.R" not in names
+
+
+def test_a_differently_cased_tool_argument_does_not_list_one_file_twice(tmp_path, monkeypatch):
+    """The transcript may name `Students.xlsx` while disk holds `students.xlsx`; on a
+    case-insensitive volume those are one file and must be one row."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-case"))
+    (workspace / "students.xlsx").write_bytes(b"rows")
+    if not (workspace / "STUDENTS.XLSX").exists():
+        pytest.skip("case-sensitive filesystem: the alias cannot exist here")
+
+    _session(
+        manager,
+        "s-case",
+        workspace,
+        _turn("write_workbook", {"path": "STUDENTS.XLSX"}, {"path": "STUDENTS.XLSX"}),
+    )
+
+    rows = manager.list_artifacts("s-case")
+    assert len(rows) == 1, [r["name"] for r in rows]
+    assert rows[0]["name"].lower() == "students.xlsx"

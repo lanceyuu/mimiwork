@@ -11,6 +11,7 @@ import {
   setOnboarded,
   setPdfSettings,
   setScratchBase,
+  setDefaultFolder,
   setSessionsPeek,
   setWorkspaceTrusted,
   type CompactionSettings,
@@ -993,6 +994,7 @@ function FilesCard() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [scratchDraft, setScratchDraft] = useState("");
   const [scratchMsg, setScratchMsg] = useState<string | null>(null);
+  const [folderMsg, setFolderMsg] = useState<string | null>(null);
   const desktop = isTauri();
 
   const refresh = () =>
@@ -1019,6 +1021,24 @@ function FilesCard() {
   const browseScratch = async () => {
     const picked = await pickFolder();
     if (picked) setScratchDraft(picked);
+  };
+
+  // The folder every NEW conversation starts with. Folder access is otherwise per
+  // conversation, so before this the folder picked at setup reached exactly one of them
+  // and every later one opened blind (owner report 2026-09-02).
+  const saveDefaultFolder = async (path: string, writable: boolean) => {
+    setFolderMsg(null);
+    const res = await setDefaultFolder(path, writable);
+    if (res.ok) {
+      setFolderMsg(
+        path ? "Saved. New conversations start with this folder." : "Cleared.",
+      );
+      refresh();
+    } else setFolderMsg(res.error || "Could not use that folder.");
+  };
+  const browseDefaultFolder = async () => {
+    const picked = await pickFolder();
+    if (picked) await saveDefaultFolder(picked, settings?.default_folder?.writable ?? true);
   };
 
   if (!settings) return null;
@@ -1051,6 +1071,51 @@ function FilesCard() {
         folder; you can grant access to more folders inside any conversation.
       </div>
       {scratchMsg && <div className="text-[12.5px] text-muted mt-2.5">{scratchMsg}</div>}
+
+      <div className={FIELD_LABEL + " mt-5"}>Your folder</div>
+      <div className="flex items-center gap-2 mt-2.5" data-testid="default-folder-row">
+        <div
+          className="flex-1 text-[13px] truncate"
+          title={settings.default_folder?.path || ""}
+          data-testid="default-folder-path"
+        >
+          {settings.default_folder?.path || (
+            <span className="text-muted">No folder yet — new conversations start empty.</span>
+          )}
+        </div>
+        {desktop && (
+          <button className={BTN_BORDERED} onClick={browseDefaultFolder}>
+            {settings.default_folder ? "Change" : "Choose"}
+          </button>
+        )}
+        {settings.default_folder && (
+          <button
+            className={BTN_BORDERED}
+            data-testid="default-folder-clear"
+            onClick={() => void saveDefaultFolder("", true)}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {settings.default_folder && (
+        <label className="flex items-center gap-2 mt-2.5 text-[13px]">
+          <input
+            type="checkbox"
+            data-testid="default-folder-writable"
+            checked={settings.default_folder.writable}
+            onChange={(e) =>
+              void saveDefaultFolder(settings.default_folder!.path, e.target.checked)
+            }
+          />
+          Let Mimi save files here (read-write)
+        </label>
+      )}
+      <div className={FIELD_HELP}>
+        Mimi starts every new conversation with this folder, so you only hand it over once.
+        Conversations already open keep the folders they have.
+      </div>
+      {folderMsg && <div className="text-[12.5px] text-muted mt-2.5">{folderMsg}</div>}
     </div>
   );
 }

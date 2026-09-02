@@ -420,7 +420,13 @@ export function Onboarding({
               <span className="text-faint">·</span>
               <button
                 className="text-[12.5px] text-muted hover:text-ink"
-                onClick={() => finish("work")}
+                // A picked folder must survive THIS exit too, not only the starter
+                // cards — otherwise "choose a folder, then open a blank session" quietly
+                // threw the choice away (review catch 2026-09-02). No prompt: blank means
+                // blank.
+                onClick={() =>
+                  finish("work", folder ? { workspace: folder, writable, prompt: "" } : undefined)
+                }
                 data-testid="ob-start"
               >
                 Just open a blank session

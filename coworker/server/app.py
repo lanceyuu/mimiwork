@@ -1393,6 +1393,14 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_set_onboarded(body: dict) -> dict[str, Any]:
         return manager.set_onboarded(bool((body or {}).get("value", True)))
 
+    @app.post("/v1/settings/default-folder")
+    def settings_set_default_folder(body: dict) -> dict[str, Any]:
+        """The folder new conversations start with. Empty path clears it."""
+        body = body or {}
+        return manager.set_default_folder(
+            str(body.get("path", "")), bool(body.get("writable", True))
+        )
+
     @app.post("/v1/settings/experimental-connectors")
     def settings_set_experimental(body: dict) -> dict[str, Any]:
         return manager.set_experimental_connectors(bool((body or {}).get("value")))

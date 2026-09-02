@@ -21,6 +21,10 @@ Den ene vanen som betyr mest: **be om resultatet, ikke stegene.** MimiWorks jobb
 
 Klikk på mappe-startkortet (eller bare si «jobb i mappen Projects/interviews»). **Ingenting utenfor mappene du gir tilgang til, kan leses** — det er hele personvernmodellen, så gi tilgang til mappen der de virkelige filene ligger. Klikk på et mappenavn under Access når som helst for å åpne den i Finder/Utforsker.
 
+**Du gir den fra deg én gang.** Mappen du velger under oppsettet blir husket, og hver ny samtale starter med den allerede tildelt — du slipper å gi tilgang på nytt fra Access-panelet hver gang. Endre eller fjern den under Innstillinger ▸ Filer ▸ *Mappen din*, der en avkrysningsboks avgjør om Mimi får **lagre** i den (lese/skrive) eller bare lese. La den stå som lese/skrive hvis du vil at ferdige filer skal havne der.
+
+Mapper du gir tilgang til inne i en samtale, blir værende i den samtalen — et engangsunntak forblir et engangsunntak.
+
 ## 3 · Den første ordentlige oppgaven
 
 Med en mappe på plass, prøv en av disse (bytt ut filnavnene med dine egne):
@@ -36,7 +40,7 @@ Dette skjer mens den jobber:
 - **Alt med konsekvenser spør først.** Sending, skriving utenfor mappen, kommandoer, datahenting fra en server — du får et godkjenningskort, hver gang.
 - **Du kan styre uten å stoppe.** Ser du at den er på feil spor? Bare skriv — «bruk desember-runden, ikke november» — så lander det ved neste trygge steg. Arbeidet fortsetter; instruksjonen din går ikke tapt og starter ingenting på nytt.
 - **Slipp filer rett i samtalen.** En fil fra en tildelt mappe blir en `@-referanse` (behandles der den ligger). En fil fra hvor som helst ellers kopieres synlig inn i øktens mappe — ved siden av de andre filene dine — og åpnes med riktig verktøy.
-- Ferdige filer lander **i mappen din**, og **Files**-siden samler alle leveranser fra alle økter på ett sted.
+- Ferdige filer lander **i mappen din** — aldri i samtalens midlertidige område, så snart du har gitt tilgang til en mappe Mimi får skrive i. **Artifacts**-panelet viser det du ba om — rapporten, regnearket, diagrammet — og holder skriptet som laget det unna. **Files**-siden samler alle leveranser fra alle økter på ett sted.
 
 ## 4 · Tre taster å lære
 
@@ -72,7 +76,7 @@ Det blir en **Automation** (sidefeltet) — kjører lokalt, full logg, og alt so
 
 ## 8 · Den flytende Mimi
 
-Den lille hunden på skrivebordet er en statuslampe: den viser når Mimi jobber, eller når noe venter på deg. Dra den dit du vil — den blir der. Klikk på ikonet for å åpne appen; klikk på en boble for å lukke den.
+Den lille hunden på skrivebordet er en statuslampe: den viser når Mimi jobber, eller når noe venter på deg. Dra den dit du vil — den blir der. Klikk på ikonet for å åpne appen — det teller som «sett», så en ferdig oppgave du allerede har sett på blir ikke meldt om igjen og igjen. Klikk på en boble for å lukke bare den meldingen.
 
 ---
 

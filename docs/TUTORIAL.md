@@ -35,6 +35,15 @@ Click the folder starter card (or just ask "work in my Projects/interviews folde
 so grant the folder where the real files live. Click a folder's name under Access any
 time to open it in Finder/Explorer.
 
+**You hand it over once.** The folder you pick during setup is remembered, and every new
+conversation starts with it already granted — no re-granting from the Access panel each
+time. Change or clear it under Settings ▸ Files ▸ *Your folder*, where a checkbox decides
+whether Mimi may **save** into it (read-write) or only read. Leave it read-write if you
+want finished files to land there.
+
+Folders you grant inside a conversation stay with that conversation — a one-off is a
+one-off.
+
 ## 3 · The first real task
 
 With a folder granted, try one of these, changing the filenames to yours:
@@ -57,8 +66,11 @@ What to expect while it runs:
 - **Drop files straight into the chat.** A file from a granted folder becomes an
   `@mention` (worked on in place). A file from anywhere else is copied into the session's
   folder — visibly, next to your other files — and opened with the right tool.
-- The finished file lands **in your folder**, and the **Files** page keeps every
-  deliverable from every session in one place.
+- The finished file lands **in your folder** — never in the conversation's temporary
+  space, once you've granted a folder Mimi may write to. The **Artifacts** panel lists
+  what you asked for — the report, the workbook, the chart — and keeps the script that
+  produced it out of the way. The **Files** page keeps every deliverable from every
+  session in one place.
 
 ## 4 · Three keys to learn
 
@@ -115,7 +127,8 @@ channel, refresh a weekly deck, chase a dataset — same pattern.
 
 The little companion on your desktop is a status light: it shows when Mimi is working, or
 when something is waiting on you. Drag it anywhere — it stays where you put it. Click the
-icon to open the app; click a bubble to dismiss it.
+icon to open the app — that counts as "seen", so a finished-task cheer you've already
+looked at won't keep repeating. Click a bubble to dismiss just that message.
 
 ---
 

@@ -281,3 +281,136 @@ describe("MimiCompanion", () => {
     }
   });
 });
+
+describe("MimiCompanion — a finish you have already seen", () => {
+  beforeEach(() => {
+    activityHandler = null;
+    getActivity.mockReset();
+  });
+  afterEach(() => {
+    cleanup();
+    delete (globalThis as any).__TAURI__;
+  });
+
+  const finish = async () => {
+    getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
+    render(<MimiCompanion />);
+    await waitFor(() =>
+      expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep"),
+    );
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: false } });
+    });
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
+  };
+
+  it("stops celebrating once you open the app to look", async () => {
+    // Clicking Mimi restores the window — that IS "I have seen it". She kept cheering
+    // anyway, so a finish the user had already reviewed and closed was still being
+    // announced (owner report 2026-09-02).
+    const restore = vi.fn();
+    (globalThis as any).__TAURI__ = { core: { invoke: restore } };
+    await finish();
+
+    fireEvent.click(screen.getByTestId("companion-pet-zone"));
+
+    expect(restore).toHaveBeenCalledWith("companion_restore");
+    await waitFor(() =>
+      expect(screen.queryByTestId("companion-bubble")).toBeNull(),
+    );
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle");
+  });
+
+  it("does not start cheering again on the next activity frame", async () => {
+    (globalThis as any).__TAURI__ = { core: { invoke: vi.fn() } };
+    await finish();
+    fireEvent.click(screen.getByTestId("companion-pet-zone"));
+    await waitFor(() => expect(screen.queryByTestId("companion-bubble")).toBeNull());
+
+    // The 15s poll and the socket both re-assert "not busy" forever after.
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: false } });
+      activityHandler?.({ type: "activity", data: { busy: false } });
+    });
+
+    expect(screen.queryByTestId("companion-bubble")).toBeNull();
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle");
+  });
+
+  it("still celebrates the NEXT finish", async () => {
+    // "wake" used to be a one-way door, so acknowledging one finish must not cost the
+    // user the next one.
+    (globalThis as any).__TAURI__ = { core: { invoke: vi.fn() } };
+    await finish();
+    fireEvent.click(screen.getByTestId("companion-pet-zone"));
+    await waitFor(() => expect(screen.queryByTestId("companion-bubble")).toBeNull());
+
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: true } });
+    });
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep");
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: false } });
+    });
+
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("wake");
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
+  });
+});
+
+describe("MimiCompanion — the done bubble's own lifetime", () => {
+  beforeEach(() => {
+    activityHandler = null;
+    getActivity.mockReset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+    delete (globalThis as any).__TAURI__;
+  });
+
+  const finishWithFakeTimers = async () => {
+    getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
+    render(<MimiCompanion />);
+    // Let the initial getActivity promise settle under fake timers.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep");
+    act(() => {
+      activityHandler?.({ type: "activity", data: { busy: false } });
+    });
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
+  };
+
+  it("expires on its own after 45s, even though the wake animation ends in 1.6s", async () => {
+    // Before: the timer was keyed on phase; the Sprite's onDone flipped phase to idle
+    // ~1.6s in, the effect cleanup cancelled the timer, and "All done!" never expired.
+    await finishWithFakeTimers();
+
+    act(() => {
+      vi.advanceTimersByTime(3000); // past the wake sheet — phase may now be idle
+    });
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("All done");
+
+    act(() => {
+      vi.advanceTimersByTime(45000);
+    });
+    expect(screen.queryByTestId("companion-bubble")).toBeNull();
+  });
+
+  it("stays dismissed across the wake→idle animation flip", async () => {
+    // Clicking the bubble away in its first second used to be undone: the phase flip
+    // reset the dismissal and the same bubble popped straight back.
+    await finishWithFakeTimers();
+    fireEvent.click(screen.getByTestId("companion-bubble"));
+    expect(screen.queryByTestId("companion-bubble")).toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(screen.queryByTestId("companion-bubble")).toBeNull();
+  });
+});

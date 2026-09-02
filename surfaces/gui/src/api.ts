@@ -658,6 +658,10 @@ export interface ModelSettings {
   time_saved?: import("./timesaved").TimeSaved;
   surfaces: SurfaceVisibility;
   scratch_base: string;
+  /** The folder new conversations start with — null until the user hands one over.
+   *  Folder access is otherwise per-conversation, so without this the folder picked at
+   *  setup reached exactly one session (owner report 2026-09-02). */
+  default_folder?: { path: string; writable: boolean } | null;
   secrets_path: string;  // OS-native on-disk location the server reports (not hardcoded)
   // Sidebar layout preference (§7): "flat" = the persona accordions / today's list; "grouped" =
   // bounded per-persona cards. Defaults to "flat" (absent → flat) so the GUI is robust to an older
@@ -754,6 +758,18 @@ export async function setSessionsPeek(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sessions_peek: n }),
+  });
+  return res.json();
+}
+
+export async function setDefaultFolder(
+  path: string,
+  writable = true,
+): Promise<{ ok: boolean; error?: string; default_folder?: { path: string; writable: boolean } | null }> {
+  const res = await fetch(`${httpBase()}/v1/settings/default-folder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, writable }),
   });
   return res.json();
 }

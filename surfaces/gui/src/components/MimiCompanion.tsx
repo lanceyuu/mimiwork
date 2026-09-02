@@ -144,17 +144,19 @@ export function MimiCompanion() {
     const id = window.setInterval(() => setLineIdx((i) => (i + 1) % BUSY_LINES.length), 9000);
     return () => window.clearInterval(id);
   }, [busy]);
-  // A dismissal only silences the message that was on screen: once Mimi moves on
-  // to something else, the same line may come round again and should be heard.
+  // The wake-up moment raises the done bubble…
   useEffect(() => {
-    setDismissedBubble("");
-  }, [phase, busy, lineIdx, showDone]);
+    if (phase === "wake") setShowDone(true);
+  }, [phase]);
+  // …and the bubble times itself out. Keyed on showDone, NOT on phase: the Sprite's
+  // wake sheet ends ~1.6s in and flips phase back to idle, and a timer keyed on phase
+  // was cancelled by that cleanup every time — so "All done!" never expired at all
+  // (review catch 2026-09-02).
   useEffect(() => {
-    if (phase !== "wake") return;
-    setShowDone(true);
+    if (!showDone) return;
     const id = window.setTimeout(() => setShowDone(false), 45000);
     return () => window.clearTimeout(id);
-  }, [phase]);
+  }, [showDone]);
 
   useEffect(() => {
     // Only the pet may paint: the window is transparent and frameless.
@@ -202,6 +204,13 @@ export function MimiCompanion() {
 
   const restore = () => {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_restore");
+    // Opening the app IS reading the news. Without this she kept cheering over a finish
+    // the user had already reviewed and closed (owner report 2026-09-02: "i have checked
+    // the work, and close the window, but mimi still give a note that my task is
+    // finished"). Only the celebration is cleared — an approval still parked is an
+    // "alert", which the next activity frame re-asserts.
+    setShowDone(false);
+    setPhase((p) => (p === "wake" ? "idle" : p));
   };
   const dismiss = (e: React.MouseEvent) => {
     e.stopPropagation(); // the ✕ must not ALSO restore the app
@@ -291,6 +300,13 @@ export function MimiCompanion() {
   // has a different key, so it speaks up again.
   const bubbleKey = phase === "alert" ? "alert" : busy ? `busy:${lineIdx}` : showDone ? "done" : "";
   const bubble = said && bubbleKey !== dismissedBubble ? said : null;
+  // A dismissal only silences the message that was on screen: when Mimi moves on to a
+  // DIFFERENT message the same line may come round again and should be heard. Keyed on
+  // the message's identity — the phase flip wake→idle 1.6s after a finish is not a new
+  // message, and resetting on it brought back a bubble just clicked away.
+  useEffect(() => {
+    setDismissedBubble("");
+  }, [bubbleKey]);
 
   // Tell the shell which part of this transparent window is actually alive, so it can let
   // the mouse through everywhere else (owner ask 2026-08-24: "just on the icon, not the

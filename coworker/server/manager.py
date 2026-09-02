@@ -1117,6 +1117,7 @@ class SessionManager:
         agent_name = (record.agent if record else agent) or "cowork"
         ag = get_agent(agent_name)
 
+        seed_default = False  # only a brand-new conversation inherits the remembered folder
         if record:
             ws = record.workspace or None
             model, mode, messages = record.model, Mode(record.mode), record.messages
@@ -1134,6 +1135,10 @@ class SessionManager:
             if owner is not None:
                 model = owner.model or model
                 mode = Mode(owner.mode)
+            # An automation's own run is not "a new conversation the user just opened":
+            # unattended runs get exactly the folders their task was given, never a
+            # default picked up from the desktop.
+            seed_default = owner is None
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
             # Knowledge surfaces (Cowork, Ops, …) start "orphan": no folder picked →
@@ -1155,6 +1160,8 @@ class SessionManager:
                 for r in ((record.extra_roots if record else []) or [])
                 if Path(str(r.get("path", ""))).is_dir()
             ]
+            if seed_default:
+                extra = self._with_default_folder(extra)
             roots = [{"path": ws, "writable": True, "label": "scratch"}, *extra]
         engine = build_engine(
             agent=ag,
@@ -2087,6 +2094,34 @@ class SessionManager:
     # below the deliverables it produced.
     _WORKING_TIER = 3
 
+    # Machinery: the means, never the end. A turn that builds a workbook also leaves the
+    # script that built it, and listing both put the throwaway beside the thing the user
+    # waited for (owner ask 2026-09-02: "we would not put all those medium python file
+    # artifact, instead only meaningful output as artifacts"). Prose (.md, .txt, .Rmd) is
+    # NOT here — a written report is exactly what someone asked for, R chunks or not.
+    _MACHINERY_SUFFIXES = frozenset(
+        {
+            ".py", ".pyc", ".pyo", ".r", ".js", ".mjs", ".cjs", ".ts", ".tsx",
+            ".jsx", ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd", ".rb", ".pl", ".lua",
+            ".sql", ".css", ".scss", ".less", ".log", ".lock", ".toml", ".ini", ".cfg",
+            ".yaml", ".yml", ".env",
+        }
+    )
+
+    @classmethod
+    def _meaningful(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop machinery — unless machinery is all there is.
+
+        A coding session whose deliverable IS the script would otherwise get an empty
+        panel, which is worse than a noisy one.
+        """
+        kept = [
+            r
+            for r in rows
+            if Path(str(r.get("name", ""))).suffix.lower() not in cls._MACHINERY_SUFFIXES
+        ]
+        return kept or rows
+
     @classmethod
     def _artifact_tier(cls, name: str) -> int:
         suffix = Path(name).suffix.lower()
@@ -2133,6 +2168,7 @@ class SessionManager:
         # What the conversation produced — not what happens to sit in the folder it was
         # given (owner report 2026-08-24). A granted project folder can hold hundreds of
         # files nobody here wrote; listing them as "artifacts" buries the two that matter.
+        seeded: list[dict[str, Any]] = []  # what the transcript named, before any walk
         if record is not None:
             roots = [root] + [
                 p
@@ -2144,17 +2180,36 @@ class SessionManager:
                 if p.is_dir()
             ]
             touched = self._touched_paths(record, roots)
-            if touched:
-                rows = [
-                    row for row in (self._artifact_row(p, root) for p in touched) if row
-                ]
-                rows.sort(key=self._artifact_order)
-                return rows[:80]
-            # Nothing recorded: only a per-conversation scratch folder is safe to walk —
-            # everything in it belongs to this conversation by construction.
+            seeded = [
+                row for row in (self._artifact_row(p, root) for p in touched) if row
+            ]
+            # Outside a scratch folder the transcript is the ONLY safe signal: a granted
+            # course folder holds hundreds of files nobody here wrote (2026-08-24).
             if not self._is_scratch_path(str(root)):
+                if seeded:
+                    seeded.sort(key=self._artifact_order)
+                    return self._meaningful(seeded)[:80]
                 return []
-        out: list[dict[str, Any]] = []
+            # Inside a per-conversation scratch folder every file is this conversation's by
+            # construction, so the walk runs even when the transcript already named things.
+            # It has to: a file a SCRIPT creates is named by no tool call, so the workbook a
+            # run_python produced went missing while the script that wrote it was listed
+            # (owner report 2026-09-02: "i only see all those python file in the artifact,
+            # but not the generated valuable new file").
+        out: list[dict[str, Any]] = list(seeded)
+
+        def _key(p: Any) -> Any:
+            # File IDENTITY, not spelling: a tool argument may differ in case from what
+            # sits on disk, and APFS treats those as one file — while `normcase` is a
+            # no-op on macOS and `realpath` keeps the caller's case. The inode does not
+            # care how the path was written.
+            try:
+                st = os.stat(str(p))
+                return (st.st_dev, st.st_ino)
+            except OSError:
+                return os.path.realpath(str(p))
+
+        already = {_key(row["abs_path"]) for row in out}
         suffixes = {
             ".md",
             ".markdown",
@@ -2190,7 +2245,9 @@ class SessionManager:
         # Pruning here means those directories are never entered at all.
         from ..tools.search import OS_DATA_DIRS
 
-        skip = {"node_modules", "target", "dist", "__pycache__"} | OS_DATA_DIRS
+        # `attachments` holds the reference files a user uploaded when creating an
+        # automation (see create_automation) — inputs, never something this run produced.
+        skip = {"node_modules", "target", "dist", "__pycache__", "attachments"} | OS_DATA_DIRS
         for dirpath, dirs, files in os.walk(root):
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in skip]
             for name in files:
@@ -2199,6 +2256,8 @@ class SessionManager:
                 path = Path(dirpath) / name
                 if path.suffix.lower() not in suffixes:
                     continue
+                if _key(path) in already:
+                    continue  # the transcript already placed it, with its own tier
                 try:
                     st = path.stat()
                     if not path.is_file():
@@ -2220,7 +2279,7 @@ class SessionManager:
                 except OSError:
                     continue
         out.sort(key=self._artifact_order)
-        return out[:80]
+        return self._meaningful(out)[:80]
 
     MAX_BINARY_PREVIEW = 25 * 1024 * 1024  # base64-over-JSON gets heavy past this
 
@@ -3059,6 +3118,8 @@ class SessionManager:
             "context_bar": self.context_bar(),
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
+            # The folder new conversations start with — None until the user hands one over.
+            "default_folder": self.default_folder(),
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
             # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
             "secrets_path": str(self.secrets.path),
@@ -3470,6 +3531,71 @@ class SessionManager:
         self._prefs["scratch_base"] = path
         self._save_prefs()
         return {"ok": True, **self.get_settings()}
+
+    # -- the default working folder ---------------------------------------------
+    # Folder access is per session (`sessions.extra_roots`), so onboarding's pick reached
+    # exactly the conversation it created and every later one started blind — 139
+    # conversations in the owner's store, 3 of which had ever been granted a folder
+    # (2026-09-02: "even i have already set the folder at the beginning"). One remembered
+    # folder closes that without widening Mimi's reach: seeded into NEW conversations only,
+    # never back-filled, and one-off grants stay one-off.
+    def default_folder(self) -> Optional[dict[str, Any]]:
+        """The folder handed over for good, or None. Absent path = never set."""
+        raw = self._prefs.get("default_folder")
+        if not isinstance(raw, dict):
+            return None
+        path = str(raw.get("path") or "").strip()
+        if not path:
+            return None
+        return {"path": path, "writable": bool(raw.get("writable", True))}
+
+    def set_default_folder(self, path: str, writable: bool = True) -> dict[str, Any]:
+        """Remember this folder for new conversations. An empty path clears it."""
+        path = (path or "").strip()
+        if not path:
+            return self.clear_default_folder()
+        p = Path(path).expanduser()
+        if not p.is_dir():
+            return {"ok": False, "error": f"not a directory: {path}"}
+        resolved = p.resolve()
+        self._prefs["default_folder"] = {
+            "path": str(resolved),
+            "writable": bool(writable),
+        }
+        self._save_prefs()
+        self.session_store.touch_workspace(str(resolved))
+        return {"ok": True, **self.get_settings()}
+
+    def clear_default_folder(self) -> dict[str, Any]:
+        self._prefs.pop("default_folder", None)
+        self._save_prefs()
+        return {"ok": True, **self.get_settings()}
+
+    def _default_root_seed(self) -> list[dict[str, Any]]:
+        """The remembered folder as an extra-root row — empty when unset or since deleted.
+        A folder that moved between launches must be skipped, never fatal."""
+        folder = self.default_folder()
+        if not folder:
+            return []
+        p = Path(folder["path"]).expanduser()
+        if not p.is_dir():
+            return []
+        return [
+            {"path": str(p), "writable": bool(folder["writable"]), "label": p.name}
+        ]
+
+    def _with_default_folder(self, extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Seed a NEW conversation's folders. An explicit grant of the same folder wins,
+        so the remembered one is dropped rather than duplicated."""
+        have = set()
+        for r in extra:
+            try:
+                have.add(Path(str(r.get("path", ""))).expanduser().resolve())
+            except OSError:
+                continue
+        return [
+            s for s in self._default_root_seed() if Path(s["path"]) not in have
+        ] + list(extra)
 
     # -- gateway + connector allow-list (inbound messaging) ---------------------
     def allow_user(
@@ -5179,6 +5305,10 @@ class SessionManager:
             else self._provision_scratch(session_id)
         )
         extra = (record.extra_roots if record else []) or []
+        if record is None:
+            # Brand-new conversation: show what the engine will be built with, so the
+            # Access rail is never a promise the agent does not keep.
+            extra = self._with_default_folder(list(extra))
         out = [
             {
                 "path": primary,
@@ -5222,6 +5352,11 @@ class SessionManager:
                 engine.roots.append(RootDir(path=resolved, writable=bool(writable)))
             self.session_store.set_extra_roots(session_id, self._extra_roots_of(engine))
         else:
+            # Read the folders FIRST: for a brand-new conversation get_roots seeds the
+            # remembered default folder, and it can only tell "brand-new" by the record
+            # not existing yet. Saving first and reading second dropped the default from
+            # any conversation whose first act was a grant from the rail (2026-09-02).
+            extra = [r for r in self.get_roots(session_id) if not r["primary"]]
             # A brand-new conversation has no record yet (it's only saved after the first turn) —
             # create one now so set_extra_roots has a row to update and the folder survives.
             if self.session_store.load(session_id) is None:
@@ -5235,7 +5370,6 @@ class SessionManager:
                         agent="cowork",  # folder access is a Cowork affordance
                     )
                 )
-            extra = [r for r in self.get_roots(session_id) if not r["primary"]]
             extra = [r for r in extra if Path(r["path"]).resolve() != resolved]
             extra.append(
                 {

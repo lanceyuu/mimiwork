@@ -320,3 +320,43 @@ def test_request_directory_without_requester_is_safe_noop():
         next(e for e in events if e.type == EventType.TOOL_FINISHED).data["status"]
         == "denied"
     )
+
+
+def test_a_granted_writable_folder_becomes_the_home_for_deliverables(tmp_path):
+    """Scratch is for working files; the folder the user handed over is for finished work.
+
+    The context used to say "primary scratch, the default place to save files", so a
+    workbook a user waited for landed in /Users/…/MimiWork/<uuid>/ and they never found it
+    (owner report 2026-09-02: "if we have designate a folder, we do not use temp folder
+    anymore!").
+    """
+    scratch, ro, rw = _roots(tmp_path)
+    text = render_context(
+        normalize_roots(
+            [
+                RootDir(path=scratch, writable=True),
+                RootDir(path=ro, writable=False),
+                RootDir(path=rw, writable=True),
+            ]
+        )
+    )
+
+    assert str(rw.resolve()) in text
+    home_line = next(line for line in text.splitlines() if str(rw.resolve()) in line)
+    assert "save finished work here" in home_line
+    scratch_line = next(line for line in text.splitlines() if str(scratch.resolve()) in line)
+    assert "default place to save files" not in scratch_line
+    assert f"Save deliverables the user asked for in {rw.resolve()}" in text
+
+
+def test_without_a_granted_folder_scratch_is_still_the_default(tmp_path):
+    """No folder handed over → nothing changes; scratch remains the only place to write."""
+    scratch, ro, _ = _roots(tmp_path)
+    text = render_context(
+        normalize_roots(
+            [RootDir(path=scratch, writable=True), RootDir(path=ro, writable=False)]
+        )
+    )
+
+    assert "the default place to save files" in text
+    assert "Save deliverables the user asked for in" not in text

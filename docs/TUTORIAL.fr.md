@@ -21,6 +21,10 @@ Ouvrez **Settings ▸ Models** (Réglages ▸ Modèles). Deux chemins :
 
 Cliquez sur la carte de démarrage « dossier » (ou dites simplement « travaille dans mon dossier Projects/interviews »). **Rien en dehors des dossiers que vous accordez n'est lisible** — c'est tout le modèle de confidentialité, alors accordez le dossier où vivent les vrais fichiers. Cliquez sur le nom d'un dossier sous Access pour l'ouvrir dans le Finder ou l'Explorateur.
 
+**Vous ne l'accordez qu'une fois.** Le dossier choisi pendant la configuration est mémorisé, et chaque nouvelle conversation démarre avec ce dossier déjà accordé — plus besoin de le ré-accorder depuis le panneau Access à chaque fois. Modifiez-le ou effacez-le dans Réglages ▸ Fichiers ▸ *Votre dossier*, où une case décide si Mimi peut y **enregistrer** (lecture-écriture) ou seulement lire. Laissez-le en lecture-écriture si vous voulez que les fichiers finis y atterrissent.
+
+Les dossiers accordés au cours d'une conversation restent propres à cette conversation — un accès ponctuel reste ponctuel.
+
 ## 3 · La première vraie tâche
 
 Une fois le dossier accordé, essayez (en remplaçant les noms de fichiers par les vôtres) :
@@ -36,7 +40,7 @@ Pendant que ça tourne :
 - **Toute action à conséquences demande d'abord.** Envoi, écriture hors du dossier, commandes shell, récupération de données sur un serveur — une carte d'approbation apparaît, à chaque fois.
 - **Vous pouvez corriger le cap sans arrêter.** Vous la voyez partir du mauvais côté ? Tapez simplement — « utilise la vague de décembre, pas novembre » — et l'instruction atterrit à la prochaine étape sûre. Le travail continue ; rien n'est perdu, rien ne redémarre.
 - **Déposez des fichiers directement dans la conversation.** Un fichier d'un dossier accordé devient une `@mention` (travaillé sur place). Un fichier d'ailleurs est copié, visiblement, dans le dossier de la session — à côté de vos autres fichiers — puis ouvert avec le bon outil.
-- Les fichiers terminés atterrissent **dans votre dossier**, et la page **Files** rassemble chaque livrable de chaque session.
+- Les fichiers terminés atterrissent **dans votre dossier** — jamais dans l'espace temporaire de la conversation, dès lors que vous avez accordé un dossier où Mimi peut écrire. Le panneau **Artifacts** liste ce que vous avez demandé — le rapport, le classeur, le graphique — et laisse de côté le script qui l'a produit. La page **Files** rassemble chaque livrable de chaque session.
 
 ## 4 · Trois touches à connaître
 
@@ -72,7 +76,7 @@ Cela devient une **Automation** (barre latérale) — exécutée localement, tra
 
 ## 8 · La petite Mimi flottante
 
-Le petit chien sur votre bureau est un témoin d'état : il montre quand Mimi travaille, ou quand quelque chose vous attend. Glissez-le où vous voulez — il y reste. Cliquez sur l'icône pour ouvrir l'app ; cliquez sur une bulle pour la fermer.
+Le petit chien sur votre bureau est un témoin d'état : il montre quand Mimi travaille, ou quand quelque chose vous attend. Glissez-le où vous voulez — il y reste. Cliquez sur l'icône pour ouvrir l'app — cela vaut pour « vu », donc une tâche terminée que vous avez déjà regardée ne sera plus annoncée en boucle. Cliquez sur une bulle pour fermer ce message-là seulement.
 
 ---
 

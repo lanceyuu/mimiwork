@@ -63,13 +63,38 @@ def render_context(roots: list[RootDir]) -> str:
     if not roots:
         return ""
     lines = ["Available directories (you may use file/shell tools within these):"]
+    # The first writable folder the user actually handed over. Once one exists it — not the
+    # scratch — is where finished work belongs: a scratch path is a per-conversation temp
+    # directory the user has no reason to look in, so a deliverable saved there is a
+    # deliverable lost (owner report 2026-09-02, a student roster they never found).
+    home = next((r for r in roots[1:] if r.writable), None)
     for i, r in enumerate(roots):
         access = "read-write" if r.writable else "read-only"
-        tag = " — primary scratch, the default place to save files" if i == 0 else ""
+        if home is not None and r is home:
+            tag = " — the folder you were given, save finished work here"
+        elif i == 0:
+            tag = (
+                " — working space for scratch files"
+                if home is not None
+                else " — primary scratch, the default place to save files"
+            )
+        else:
+            tag = ""
         lines.append(f"- {r.path} [{access}]{tag}")
-    lines.append(
+    tail = (
         "Relative paths resolve against the primary directory; pass an absolute path to use "
-        "another directory. Writes are only allowed in read-write directories. If the user "
-        "cares where a deliverable lands, ask; otherwise save it in the primary scratch."
+        "another directory. Writes are only allowed in read-write directories. "
     )
+    if home is not None:
+        tail += (
+            f"Save deliverables the user asked for in {home.path} — the primary directory is "
+            "a temporary scratch space they will not think to open. Intermediate files "
+            "(scripts, downloads, working notes) may stay in scratch."
+        )
+    else:
+        tail += (
+            "If the user cares where a deliverable lands, ask; otherwise save it in the "
+            "primary scratch."
+        )
+    lines.append(tail)
     return "\n".join(lines)

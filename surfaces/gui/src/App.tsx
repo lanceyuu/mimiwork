@@ -21,6 +21,7 @@ import {
   revealArtifact,
   forkSession,
   addRoot,
+  setDefaultFolder,
   deleteSession,
   renameSession,
   runAutomation,
@@ -1542,11 +1543,16 @@ export function App() {
               // until the server has the session), then PREFILL the prompt — the user
               // presses Enter themselves, so the first action stays theirs.
               if (starter) {
+                // Remember it, not just grant it. Folder access lives on the session, so
+                // granting alone reached this one conversation and every later one opened
+                // blind — the whole point of picking a folder at setup (owner report
+                // 2026-09-02: "even i have already set the folder at the beginning").
+                void setDefaultFolder(starter.workspace, starter.writable).catch(() => {});
                 let tries = 0;
                 const attach = () => {
                   addRoot(id, starter.workspace, starter.writable)
                     .then((r) => {
-                      if (r.ok) prefillComposer(starter.prompt);
+                      if (r.ok && starter.prompt) prefillComposer(starter.prompt);
                       else if (++tries < 15) setTimeout(attach, 400);
                     })
                     .catch(() => {
