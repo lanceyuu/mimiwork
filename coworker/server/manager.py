@@ -149,6 +149,14 @@ def _os_reveal(target: Path, mode: str = "reveal") -> dict[str, Any]:
     return {"ok": True}
 
 
+def _same_dir(a: str, b: str) -> bool:
+    """Two paths naming one directory (after ~ and symlinks) — or both empty."""
+    try:
+        return Path(a).expanduser().resolve() == Path(b).expanduser().resolve()
+    except OSError:
+        return a == b
+
+
 class SessionManager:
     def __init__(
         self,
@@ -1074,6 +1082,23 @@ class SessionManager:
         d.mkdir(parents=True, exist_ok=True)
         return str(d.resolve())
 
+    def _new_session_workspace(self, session_id: str) -> str:
+        """Where a brand-new Cowork conversation works: the folder the user handed over
+        for good, else a fresh scratch dir. A designated folder means no temp folder at
+        all (owner ask 2026-09-02: "do not create a temp folder if we already have one")."""
+        folder = self.default_folder()
+        if folder:
+            p = Path(folder["path"]).expanduser()
+            if p.is_dir():
+                return str(p.resolve())
+        return self._provision_scratch(session_id)
+
+    def _primary_root(self, ws: str) -> dict[str, Any]:
+        """The primary root row: a scratch dir is labelled as such (the context rendering
+        and the rail key on it); a real folder carries its own name."""
+        label = "scratch" if self._is_scratch_path(ws) else (Path(ws).name or ws)
+        return {"path": ws, "writable": True, "label": label}
+
     def resolve_workspace(self, requested: Optional[str]) -> Optional[str]:
         if requested:
             p = Path(requested).expanduser()
@@ -1143,13 +1168,24 @@ class SessionManager:
             # unattended runs get exactly the folders their task was given, never a
             # default picked up from the desktop.
             seed_default = owner is None
+            # The folder handed over for good IS a new Cowork conversation's workspace —
+            # no temp dir beside it (owner ask 2026-09-02). A folder the GUI names
+            # explicitly still wins; the manager's generic default workspace does not.
+            if seed_default and not workspace and ag.family == "knowledge":
+                folder = self.default_folder()
+                if folder and Path(folder["path"]).is_dir():
+                    ws = str(Path(folder["path"]).resolve())
 
         if ag.needs_workspace and (not ws or not Path(ws).is_dir()):
             # Knowledge surfaces (Cowork, Ops, …) start "orphan": no folder picked →
             # auto-provision a per-conversation scratch directory (generalizes MyHelper's
             # auto-workspace). Code-family surfaces still require a real repo; Chat needs none.
             if ag.family == "knowledge":
-                ws = self._provision_scratch(session_id)
+                ws = (
+                    self._new_session_workspace(session_id)
+                    if seed_default
+                    else self._provision_scratch(session_id)
+                )
             else:
                 return None
 
@@ -1166,7 +1202,9 @@ class SessionManager:
             ]
             if seed_default:
                 extra = self._with_default_folder(extra)
-            roots = [{"path": ws, "writable": True, "label": "scratch"}, *extra]
+            primary = self._primary_root(ws)
+            extra = [r for r in extra if not _same_dir(str(r.get("path", "")), ws)]
+            roots = [primary, *extra]
         engine = build_engine(
             agent=ag,
             workspace=ws,
@@ -3552,7 +3590,9 @@ class SessionManager:
         path = str(raw.get("path") or "").strip()
         if not path:
             return None
-        return {"path": path, "writable": bool(raw.get("writable", True))}
+        # Always read-write (owner ask 2026-09-02): the folder you hand Mimi for good is
+        # where her work goes, and a read-only home is a temp dir by another name.
+        return {"path": path, "writable": True}
 
     def set_default_folder(self, path: str, writable: bool = True) -> dict[str, Any]:
         """Remember this folder for new conversations. An empty path clears it."""
@@ -5355,18 +5395,17 @@ class SessionManager:
         primary = (
             record.workspace
             if record and record.workspace
-            else self._provision_scratch(session_id)
+            else self._new_session_workspace(session_id)
         )
         extra = (record.extra_roots if record else []) or []
         if record is None:
             # Brand-new conversation: show what the engine will be built with, so the
             # Access rail is never a promise the agent does not keep.
             extra = self._with_default_folder(list(extra))
+        extra = [r for r in extra if not _same_dir(str(r.get("path", "")), primary)]
         out = [
             {
-                "path": primary,
-                "writable": True,
-                "label": "scratch",
+                **self._primary_root(primary),
                 "primary": True,
                 "exists": Path(primary).is_dir(),
             }
@@ -5394,6 +5433,20 @@ class SessionManager:
         if not p.is_dir():
             return {"ok": False, "error": f"not a directory: {path}"}
         resolved = p.resolve()
+        # A read-write folder handed to a conversation that has not started yet becomes
+        # ITS folder — the empty temp dir beside it goes (owner ask 2026-09-02). A
+        # conversation with history keeps its folder: relative paths in the transcript
+        # and file recovery point at it.
+        if writable and not self.is_running(session_id):
+            record = self.session_store.load(session_id)
+            fresh = record is None or not record.messages
+            primary = (
+                record.workspace
+                if record and record.workspace
+                else self._new_session_workspace(session_id)
+            )
+            if fresh and self._is_scratch_path(primary) and Path(primary).resolve() != resolved:
+                return self._adopt_folder(session_id, resolved, primary)
         engine = self._engines.get(session_id)
         if engine is not None and getattr(engine, "roots", None) is not None:
             if any(r.path == resolved for r in engine.roots):
@@ -5416,7 +5469,7 @@ class SessionManager:
                 self.session_store.save(
                     SessionRecord(
                         session_id=session_id,
-                        workspace=self._provision_scratch(session_id),
+                        workspace=self._new_session_workspace(session_id),
                         model=self.model,
                         mode=self.mode.value,
                         messages=[],
@@ -5444,6 +5497,41 @@ class SessionManager:
             )
         self.session_store.touch_workspace(str(resolved))
         return {"ok": True, "roots": self.get_roots(session_id)}
+
+    def _adopt_folder(self, session_id: str, folder: Path, scratch: str) -> dict[str, Any]:
+        """Make `folder` a not-yet-started conversation's own workspace, dropping the empty
+        scratch dir it was provisioned with. The live engine (if any) is evicted; the GUI
+        reconnects on the returned `workspace` and the next build lands on the folder."""
+        extra = [
+            r
+            for r in self.get_roots(session_id)
+            if not r["primary"] and not _same_dir(r["path"], str(folder))
+        ]
+        record = self.session_store.load(session_id)
+        if record is None:
+            self.session_store.save(
+                SessionRecord(
+                    session_id=session_id,
+                    workspace=str(folder),
+                    model=self.model,
+                    mode=self.mode.value,
+                    messages=[],
+                    agent="cowork",
+                )
+            )
+        else:
+            self.session_store.set_workspace(session_id, str(folder))
+        self.session_store.set_extra_roots(
+            session_id,
+            [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra],
+        )
+        self.session_store.touch_workspace(str(folder))
+        self._engines.pop(session_id, None)
+        try:
+            Path(scratch).rmdir()  # only an EMPTY temp dir goes; anything inside stays
+        except OSError:
+            pass
+        return {"ok": True, "roots": self.get_roots(session_id), "workspace": str(folder)}
 
     def remove_root(self, session_id: str, path: str) -> dict[str, Any]:
         """Revoke a previously-added folder. The primary scratch cannot be removed."""

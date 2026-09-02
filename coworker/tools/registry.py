@@ -85,7 +85,22 @@ class ToolRegistry:
         spec = self._tools.get(name)
         if spec is None:
             raise KeyError(f"Tool not registered: {name}")
-        return spec.func(**(arguments or {}))
+        try:
+            return spec.func(**(arguments or {}))
+        except TypeError as exc:
+            # A call that does not fit the signature ("unexpected keyword argument
+            # 'timeout'") gets the parameter list back, so the model corrects the call
+            # instead of guessing again. A TypeError from inside the tool is left alone.
+            text = str(exc)
+            if "argument" in text and ("unexpected" in text or "required" in text):
+                import inspect
+
+                params = ", ".join(inspect.signature(spec.func).parameters)
+                raise TypeError(
+                    f"{name} was called with the wrong arguments ({text}). "
+                    f"Its parameters are: {params}"
+                ) from exc
+            raise
 
 
 def _schema_for(func: Callable[..., Any]) -> dict[str, Any]:

@@ -64,6 +64,28 @@ _WRAP_UP_TEXT = (
     "is still missing. Do not start new research."
 )
 
+# Every CHECKPOINT_EVERY tool steps, one quiet question: is the work already done? The
+# hard cap is 150 and the wrap-up nudge used to be the only one, on the last step — so a
+# weak model that had saved its deliverables re-verified them for an hour, calling tools
+# that do not exist, while the user watched "Waiting for agent" (owner-hit 2026-09-02:
+# 92 steps, the last dozen re-checking finished files).
+CHECKPOINT_EVERY = 40
+_CHECKPOINT_TEXT = (
+    "You have used {n} tool steps in this turn. If the deliverables the user asked for are "
+    "already saved, stop now and reply with where they are and what, if anything, is left. "
+    "If not, finish the smallest remaining piece and then stop. Do not re-verify work that "
+    "already succeeded."
+)
+# Tool calls that keep failing (a tool that does not exist, arguments that do not fit, a
+# grant the user refused) are the other shape of the same stall. Three in a row earns
+# the model a pointer at the tools it actually has; six ends the turn.
+FAIL_HINT_AT = 3
+FAIL_STOP_AT = 6
+_FAILURE_HINT = (
+    "Your last {n} tool calls failed. Use only these tools, with their exact parameter "
+    "names: {tools}. If the work is already done, stop and report where it is."
+)
+
 
 @dataclass
 class ToolHooks:
@@ -144,6 +166,8 @@ class TurnEngine:
         # user never sees duplicated text. Tests shrink the delays to zero.
         self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0, 15.0, 30.0, 30.0)
         self._wrap_up_sent = False
+        # Consecutive failed tool calls in the current turn (see FAIL_HINT_AT).
+        self._fail_streak = 0
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
         # constructor footprint stays put. `compaction_settings` is a live getter (Settings
         # changes apply without a rebuild); `is_attended` gates the failure prompt (None →
@@ -414,6 +438,7 @@ class TurnEngine:
         # args): "read_file {'path': 'a.txt'}" repeated six times is a loop even
         # though it's short. The class default (40) targets plain prose.
         rep_guard = _RepetitionGuard(min_chars=16)
+        self._fail_streak = 0
         while True:
             if iterations >= self.max_iterations:
                 yield Event(
@@ -441,6 +466,22 @@ class TurnEngine:
                 yield Event(
                     EventType.NOTICE,
                     {"kind": "wrap_up", "text": "Almost out of steps — asking Mimi to wrap up."},
+                )
+            elif iterations % CHECKPOINT_EVERY == 0 and iterations < self.max_iterations:
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": _CHECKPOINT_TEXT.format(n=iterations),
+                        "ts": time.time(),
+                        "steering": "checkpoint",
+                    }
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {
+                        "kind": "checkpoint",
+                        "text": f"{iterations} steps in — asking Mimi whether the work is done.",
+                    },
                 )
 
             # Auto-compaction checkpoint (OPE-27): between tool turns and before a new
@@ -649,6 +690,41 @@ class TurnEngine:
 
             async for event in self._handle_tool_calls(turn.tool_calls):
                 yield event
+
+            if self._fail_streak >= FAIL_STOP_AT:
+                self._append_notice(
+                    "error", f"Stopped: {FAIL_STOP_AT} tool calls in a row failed."
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {
+                        "kind": "tool_failures",
+                        "text": f"Mimi's last {FAIL_STOP_AT} tool calls all failed — stopping this turn.",
+                    },
+                )
+                yield Event(
+                    EventType.TURN_END,
+                    {**{"status": "tool_failure_stop", "iterations": iterations}, "time_saved": self._close_turn()},
+                )
+                return
+            if self._fail_streak == FAIL_HINT_AT:
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": _FAILURE_HINT.format(
+                            n=FAIL_HINT_AT, tools=", ".join(self.registry.names())
+                        ),
+                        "ts": time.time(),
+                        "steering": "tool_failures",
+                    }
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {
+                        "kind": "tool_failures",
+                        "text": "Mimi's last three tool calls failed — pointing it at the tools it has.",
+                    },
+                )
 
             yield Event(EventType.ITERATION_END, {"iteration": iterations})
 
@@ -1222,6 +1298,7 @@ class TurnEngine:
                 reason = f"unknown tool: {tool_call.name}"
             self._cancel_tool_recovery(tool_call, reason=reason, status="denied")
             self.messages.append(_tool_error_message(tool_call, reason))
+            self._fail_streak += 1
             yield Event(
                 EventType.TOOL_FINISHED,
                 {"name": tool_call.name, "status": "denied", "reason": reason},
@@ -1231,12 +1308,15 @@ class TurnEngine:
             return
 
         if spec is None:
-            self._cancel_tool_recovery(
-                tool_call, reason=f"unknown tool: {tool_call.name}", status="error"
+            # Name the tools that DO exist: a model that guessed "bash_tool" guesses
+            # "shell_command" next unless told what to call instead.
+            reason = (
+                f"unknown tool: {tool_call.name}. The tools available are: "
+                + ", ".join(self.registry.names())
             )
-            self.messages.append(
-                _tool_error_message(tool_call, f"unknown tool: {tool_call.name}")
-            )
+            self._cancel_tool_recovery(tool_call, reason=reason, status="error")
+            self.messages.append(_tool_error_message(tool_call, reason))
+            self._fail_streak += 1
             yield Event(
                 EventType.TOOL_FINISHED,
                 {"name": tool_call.name, "status": "error", "reason": "unknown tool"},
@@ -1369,6 +1449,7 @@ class TurnEngine:
         if display:
             message["_display"] = display
         self.messages.append(message)
+        self._fail_streak = 0 if status == "ok" else self._fail_streak + 1
         hidden = int((display or {}).get("hidden_by_filters") or 0)
         stripped = int((display or {}).get("hidden_fields") or 0)
         if hidden or stripped:

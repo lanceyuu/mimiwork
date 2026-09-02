@@ -1098,22 +1098,9 @@ function FilesCard() {
           </button>
         )}
       </div>
-      {settings.default_folder && (
-        <label className="flex items-center gap-2 mt-2.5 text-[13px]">
-          <input
-            type="checkbox"
-            data-testid="default-folder-writable"
-            checked={settings.default_folder.writable}
-            onChange={(e) =>
-              void saveDefaultFolder(settings.default_folder!.path, e.target.checked)
-            }
-          />
-          Let Mimi save files here (read-write)
-        </label>
-      )}
       <div className={FIELD_HELP}>
-        Mimi starts every new conversation with this folder, so you only hand it over once.
-        Conversations already open keep the folders they have.
+        Mimi starts every new conversation in this folder and saves her work there — no
+        temporary folder beside it. Conversations already open keep the folders they have.
       </div>
       {folderMsg && <div className="text-[12.5px] text-muted mt-2.5">{folderMsg}</div>}
     </div>

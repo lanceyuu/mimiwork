@@ -201,6 +201,10 @@ def test_add_and_remove_roots_live_and_persisted(tmp_path):
     sid = "sessC"
     engine = mgr.get_engine(sid, agent="cowork")
     assert engine is not None
+    # A conversation that has started keeps its scratch as primary — a read-write grant
+    # only replaces the temp dir before the first message (test_default_folder.py).
+    engine.messages.append({"role": "user", "content": "hi"})
+    mgr.persist_session(sid)
 
     # only the primary scratch to start
     roots = mgr.get_roots(sid)

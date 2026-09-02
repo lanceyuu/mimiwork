@@ -28,11 +28,18 @@ export function useRoots(sessionId: string, reloadKey?: number) {
     return () => window.removeEventListener("coworker:roots-changed", onChanged);
   }, [sessionId, reload]);
 
-  const apply = (res: { ok: boolean; error?: string; roots?: RootInfo[] }): boolean => {
+  const apply = (res: { ok: boolean; error?: string; roots?: RootInfo[]; workspace?: string }): boolean => {
     if (res.ok && res.roots) {
       setRoots(res.roots);
       setError("");
       window.dispatchEvent(new CustomEvent("coworker:roots-changed", { detail: sessionId }));
+      // A read-write folder handed to a conversation that has not started became ITS
+      // folder (no temp dir beside it): the app adopts it and reconnects on it.
+      if (res.workspace) {
+        window.dispatchEvent(
+          new CustomEvent("coworker:workspace-adopted", { detail: { sessionId, workspace: res.workspace } }),
+        );
+      }
       return true;
     }
     setError(res.error || "could not update directories");

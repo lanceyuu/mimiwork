@@ -27,7 +27,19 @@ class _Provider:
 
 @pytest.fixture()
 def mgr(tmp_path):
-    return SessionManager(workspace=tmp_path / "seed", provider=_Provider())
+    m = SessionManager(workspace=tmp_path / "seed", provider=_Provider())
+    m.set_scratch_base(str(tmp_path / "scratch"))
+    return m
+
+
+@pytest.fixture()
+def orphan(tmp_path, monkeypatch):
+    """The desktop app's manager: no default workspace, so a new Cowork conversation
+    gets a scratch dir unless a folder was handed over."""
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    m = SessionManager(data_dir=tmp_path / "data", provider=_Provider())
+    m.set_scratch_base(str(tmp_path / "scratch"))
+    return m
 
 
 def _paths(roots):
@@ -41,17 +53,19 @@ def _extra(roots):
 # -- the bug -----------------------------------------------------------------------
 
 
-def test_new_conversation_gets_the_default_folder(mgr, tmp_path):
+def test_new_conversation_works_in_the_default_folder_with_no_temp_dir(mgr, tmp_path):
+    # The designated folder IS the workspace (owner ask 2026-09-02: "do not create a temp
+    # folder if we already have one") — not a second root beside a scratch dir.
     folder = tmp_path / "Thesis"
     folder.mkdir()
     assert mgr.set_default_folder(str(folder), writable=True)["ok"]
 
     roots = mgr.get_roots("brand-new-session")
 
-    extra = _extra(roots)
-    assert len(extra) == 1, "the remembered folder must be there before the first turn"
-    assert Path(extra[0]["path"]) == folder.resolve()
-    assert extra[0]["writable"] is True
+    assert len(roots) == 1 and roots[0]["primary"]
+    assert Path(roots[0]["path"]) == folder.resolve()
+    assert roots[0]["writable"] is True and roots[0]["label"] == "Thesis"
+    assert not (mgr.scratch_base() / "brand-new-session").exists()
 
 
 def test_the_engine_the_agent_actually_runs_sees_it(mgr, tmp_path):
@@ -63,17 +77,19 @@ def test_the_engine_the_agent_actually_runs_sees_it(mgr, tmp_path):
     engine = mgr.get_engine("fresh-session")
 
     assert engine is not None
-    granted = [Path(r.path) for r in engine.roots]
-    assert folder.resolve() in granted
-    assert next(r for r in engine.roots if Path(r.path) == folder.resolve()).writable is False
+    assert [Path(r.path) for r in engine.roots] == [folder.resolve()]
+    assert engine.roots[0].writable is True
+    assert not (mgr.scratch_base() / "fresh-session").exists()
 
 
-def test_read_only_default_stays_read_only(mgr, tmp_path):
+def test_the_designated_folder_is_always_read_write(mgr, tmp_path):
+    # A read-only home is a temp dir by another name (owner ask 2026-09-02).
     folder = tmp_path / "Reference"
     folder.mkdir()
     mgr.set_default_folder(str(folder), writable=False)
 
-    assert _extra(mgr.get_roots("s1"))[0]["writable"] is False
+    assert mgr.default_folder()["writable"] is True
+    assert mgr.get_roots("s1")[0]["writable"] is True
 
 
 # -- the blast radius --------------------------------------------------------------
@@ -131,9 +147,9 @@ def test_default_is_not_duplicated_when_already_granted(mgr, tmp_path):
     mgr.set_default_folder(str(folder), writable=False)
     mgr.add_root("s5", str(folder), writable=True)
 
-    extra = _extra(mgr.get_roots("s5"))
-    assert len(extra) == 1, "the same folder must appear once"
-    assert extra[0]["writable"] is True, "an explicit grant wins over the default"
+    roots = mgr.get_roots("s5")
+    assert [Path(r["path"]) for r in roots] == [folder.resolve()], "the same folder appears once"
+    assert roots[0]["primary"] and roots[0]["writable"] is True
 
 
 def test_granting_a_folder_before_the_first_turn_keeps_the_default(mgr, tmp_path):
@@ -148,10 +164,82 @@ def test_granting_a_folder_before_the_first_turn_keeps_the_default(mgr, tmp_path
 
     assert mgr.add_root("first-act", str(other), writable=False)["ok"]
 
-    granted = {Path(r["path"]) for r in _extra(mgr.get_roots("first-act"))}
-    assert granted == {default.resolve(), other.resolve()}
+    roots = mgr.get_roots("first-act")
+    assert Path(roots[0]["path"]) == default.resolve() and roots[0]["primary"]
+    assert [Path(r["path"]) for r in _extra(roots)] == [other.resolve()]
     engine = mgr.get_engine("first-act")
-    assert {Path(r.path) for r in engine.roots[1:]} == {default.resolve(), other.resolve()}
+    assert [Path(r.path) for r in engine.roots] == [default.resolve(), other.resolve()]
+
+
+# -- a folder handed over before the first message becomes the folder -----------------
+
+
+def test_a_writable_grant_on_a_fresh_conversation_replaces_the_temp_dir(orphan, tmp_path):
+    mgr = orphan
+    """The owner's case (2026-09-02): open a conversation, hand it a folder from the rail,
+    and find the deliverable in ~/MimiWork/<id> anyway. Now the folder IS the workspace and
+    the empty temp dir is gone — including when the engine was already built at connect."""
+    folder = tmp_path / "Liege workshop"
+    folder.mkdir()
+    engine = mgr.get_engine("fresh")  # the WS connect builds one before any message
+    scratch = Path(engine.roots[0].path)
+    assert scratch.is_dir() and mgr._is_scratch_path(str(scratch))
+
+    res = mgr.add_root("fresh", str(folder), writable=True)
+
+    assert res["ok"] and Path(res["workspace"]) == folder.resolve()
+    assert [Path(r["path"]) for r in res["roots"]] == [folder.resolve()]
+    assert res["roots"][0]["primary"] and res["roots"][0]["label"] == "Liege workshop"
+    assert not scratch.exists(), "the empty temp dir is dropped"
+    rebuilt = mgr.get_engine("fresh")
+    assert rebuilt is not engine and [Path(r.path) for r in rebuilt.roots] == [folder.resolve()]
+
+
+def test_a_conversation_with_history_keeps_its_folder_and_gains_the_grant(orphan, tmp_path):
+    mgr = orphan
+    from coworker.conversations import SessionRecord
+
+    folder = tmp_path / "Later"
+    folder.mkdir()
+    ws = mgr._provision_scratch("started")
+    mgr.session_store.save(
+        SessionRecord(
+            session_id="started",
+            workspace=ws,
+            model=mgr.model,
+            mode=mgr.mode.value,
+            messages=[{"role": "user", "content": "hi"}],
+            agent="cowork",
+        )
+    )
+
+    res = mgr.add_root("started", str(folder), writable=True)
+
+    assert res["ok"] and "workspace" not in res
+    assert Path(res["roots"][0]["path"]) == Path(ws) and Path(ws).is_dir()
+    assert [Path(r["path"]) for r in _extra(res["roots"])] == [folder.resolve()]
+
+
+def test_a_read_only_grant_never_replaces_the_temp_dir(orphan, tmp_path):
+    mgr = orphan
+    folder = tmp_path / "Reference"
+    folder.mkdir()
+    res = mgr.add_root("ro", str(folder), writable=False)
+    assert "workspace" not in res and mgr._is_scratch_path(res["roots"][0]["path"])
+
+
+def test_a_temp_dir_with_files_in_it_stays(orphan, tmp_path):
+    mgr = orphan
+    folder = tmp_path / "Home"
+    folder.mkdir()
+    engine = mgr.get_engine("kept")
+    scratch = Path(engine.roots[0].path)
+    (scratch / "notes.txt").write_text("keep me")
+
+    res = mgr.add_root("kept", str(folder), writable=True)
+
+    assert Path(res["workspace"]) == folder.resolve()
+    assert (scratch / "notes.txt").exists()
 
 
 # -- durability --------------------------------------------------------------------
@@ -164,7 +252,7 @@ def test_a_deleted_default_is_skipped_not_fatal(mgr, tmp_path):
     folder.rmdir()  # user moved or deleted it between launches
 
     roots = mgr.get_roots("s6")  # must not raise
-    assert _extra(roots) == []
+    assert _extra(roots) == [] and mgr._is_scratch_path(roots[0]["path"])
 
 
 def test_setting_a_missing_folder_is_refused(mgr, tmp_path):

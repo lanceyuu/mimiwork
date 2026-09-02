@@ -263,11 +263,17 @@ export function MimiCompanion() {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_drag_begin");
     (globalThis as any).__TAURI__?.window?.getCurrentWindow?.()?.startDragging?.();
   };
+  // The release tells the shell the drag is over, so click-through can resume — it
+  // stands down for the whole drag (see companion_drag_begin in lib.rs).
+  const endDrag = () => {
+    (globalThis as any).__TAURI__?.core?.invoke?.("companion_drag_end");
+  };
   const maybeRestore = (e: React.MouseEvent) => {
     const down = dragStartRef.current;
     const moved = movedRef.current;
     dragStartRef.current = null;
     pressedRef.current = false;
+    endDrag();
     if (moved) return; // the shell moved the window: that was a drag
     if (down) {
       const travelled = Math.max(
@@ -427,6 +433,7 @@ export function MimiCompanion() {
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
         onPointerDown={startDrag}
+        onPointerUp={endDrag}
         onClick={maybeRestore}
         title="Open MimiWork (drag to move)"
         style={{ position: "relative", width: SIZE + 84, height: SIZE, cursor: "pointer" }}

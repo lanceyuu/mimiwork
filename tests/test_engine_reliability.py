@@ -258,3 +258,75 @@ def test_a_key_that_stays_rejected_says_what_to_do_and_stops(tmp_path):
     text = errors[-1].data["error"]
     assert "Reconnect" in text and "QualiTaTi" in text, text
     assert "Invalid or revoked API key" not in text, "the raw 401 is not an instruction"
+
+
+# -- a long turn is asked whether it is done; failing calls get a pointer, then a stop --
+# (owner-hit 2026-09-02: 92 steps, the last dozen re-verifying finished files and calling
+# tools that do not exist, under "Waiting for agent" for an hour)
+
+
+def _tool_turn_n(i, name="list_files", args=None):
+    # Each step narrates differently, so the repetition guard (identical laps) stays out
+    # of these tests — they are about long turns and failing calls, not loops.
+    return AssistantTurn(
+        text=f"step {i}",
+        tool_calls=[ToolCall(id=f"c{i}", name=name, arguments=args or {"path": "."})],
+        finish_reason="tool_calls",
+    )
+
+
+def test_every_forty_steps_the_model_is_asked_whether_the_work_is_done(tmp_path):
+    from coworker.engine import CHECKPOINT_EVERY
+
+    turns = [_tool_turn_n(i) for i in range(CHECKPOINT_EVERY + 2)] + [AssistantTurn(text="done")]
+    engine = _engine(tmp_path, FlakyProvider([], turns), max_iterations=CHECKPOINT_EVERY + 10)
+    events = _run(engine, "go")
+    checkpoints = [m for m in engine.messages if m.get("steering") == "checkpoint"]
+    assert len(checkpoints) == 1 and f"{CHECKPOINT_EVERY} tool steps" in checkpoints[0]["content"]
+    assert [e for e in events if e.type == EventType.NOTICE and e.data["kind"] == "checkpoint"]
+    assert events[-1].data["status"] == "completed"
+
+
+def test_unknown_tools_are_named_back_and_three_in_a_row_earn_a_pointer(tmp_path):
+    turns = [_tool_turn_n(i, name="bash_tool", args={"cmd": "ls"}) for i in range(3)]
+    turns.append(AssistantTurn(text="ok"))
+    engine = _engine(tmp_path, FlakyProvider([], turns))
+    _run(engine, "go")
+    tool_msgs = [m for m in engine.messages if m.get("role") == "tool"]
+    assert "unknown tool: bash_tool" in tool_msgs[0]["content"]
+    assert "list_files" in tool_msgs[0]["content"], "the error names the tools that exist"
+    hints = [m for m in engine.messages if m.get("steering") == "tool_failures"]
+    assert len(hints) == 1 and "list_files" in hints[0]["content"]
+
+
+def test_six_failed_calls_in_a_row_end_the_turn(tmp_path):
+    turns = [_tool_turn_n(i, name="exec_command", args={}) for i in range(6)]
+    provider = FlakyProvider([], turns)
+    engine = _engine(tmp_path, provider)
+    events = _run(engine, "go")
+    assert events[-1].data["status"] == "tool_failure_stop"
+    assert provider.calls == 6, "no seventh model call — the turn is over"
+
+
+def test_a_success_resets_the_failure_streak(tmp_path):
+    turns = [_tool_turn_n(0, name="nope"), _tool_turn_n(1, name="nope"), _tool_turn_n(2)]
+    turns += [_tool_turn_n(3, name="nope"), _tool_turn_n(4, name="nope"), AssistantTurn(text="ok")]
+    engine = _engine(tmp_path, FlakyProvider([], turns))
+    events = _run(engine, "go")
+    assert not [m for m in engine.messages if m.get("steering") == "tool_failures"]
+    assert events[-1].data["status"] == "completed"
+
+
+def test_wrong_arguments_get_the_parameter_list_back():
+    registry = ToolRegistry()
+
+    def greet(name: str, loud: bool = False) -> str:
+        return name.upper() if loud else name
+
+    registry.register(greet)
+    import pytest
+
+    with pytest.raises(TypeError) as exc:
+        registry.execute("greet", {"nam": "x"})
+    assert "Its parameters are: name, loud" in str(exc.value)
+    assert registry.execute("greet", {"name": "x"}) == "x"

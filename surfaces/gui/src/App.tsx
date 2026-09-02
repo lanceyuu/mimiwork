@@ -459,6 +459,8 @@ export function App() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A prompt to auto-send once the next session connects (used by "Run now").
   const pendingPromptRef = useRef<string | { text: string; skill?: string } | null>(null);
+  // Bumped to rebuild the session socket without a session change (folder adoption).
+  const [socketKey, setSocketKey] = useState(0);
   // The in-flight manual run to finalize after its first turn ({taskId, runId, sessionId}).
   const activeRunRef = useRef<{ taskId: string; runId: string; sessionId: string } | null>(null);
 
@@ -931,7 +933,21 @@ export function App() {
     // first connect, dropping the user's first message (the "send twice" bug). The scratch
     // dir is deterministic from `sessionId` server-side, so skipping that reconnect is safe.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booting, sessionId, agent, refreshSessions]);
+  }, [booting, sessionId, agent, refreshSessions, socketKey]);
+
+  // A folder granted before the first message became the conversation's own folder
+  // server-side (no temp dir). Adopt it and reconnect so the engine rebuilds on it —
+  // the socket effect above deliberately ignores `workspace`, hence the key.
+  useEffect(() => {
+    const onAdopted = (e: Event) => {
+      const d = (e as CustomEvent).detail as { sessionId: string; workspace: string };
+      if (!d || d.sessionId !== sessionId) return;
+      setWorkspace(d.workspace);
+      setSocketKey((k) => k + 1);
+    };
+    window.addEventListener("coworker:workspace-adopted", onAdopted);
+    return () => window.removeEventListener("coworker:workspace-adopted", onAdopted);
+  }, [sessionId]);
 
   // Stream-following (FB-004): auto-scroll only while the user is AT the bottom, so scrolling
   // up to read during a streaming turn sticks. `atBottomRef` is the live truth (per scroll
@@ -1569,10 +1585,10 @@ export function App() {
                 // granting alone reached this one conversation and every later one opened
                 // blind — the whole point of picking a folder at setup (owner report
                 // 2026-09-02: "even i have already set the folder at the beginning").
-                void setDefaultFolder(starter.workspace, starter.writable).catch(() => {});
+                void setDefaultFolder(starter.workspace, true).catch(() => {});
                 let tries = 0;
                 const attach = () => {
-                  addRoot(id, starter.workspace, starter.writable)
+                  addRoot(id, starter.workspace, true)
                     .then((r) => {
                       if (r.ok && starter.prompt) prefillComposer(starter.prompt);
                       else if (++tries < 15) setTimeout(attach, 400);

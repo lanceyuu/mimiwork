@@ -67,7 +67,12 @@ def render_context(roots: list[RootDir]) -> str:
     # scratch — is where finished work belongs: a scratch path is a per-conversation temp
     # directory the user has no reason to look in, so a deliverable saved there is a
     # deliverable lost (owner report 2026-09-02, a student roster they never found).
-    home = next((r for r in roots[1:] if r.writable), None)
+    # When the primary directory IS a folder the user handed over (a designated folder
+    # means no temp dir at all — owner ask 2026-09-02), it is the home for finished work.
+    primary_is_scratch = roots[0].label == "scratch"
+    home = (
+        next((r for r in roots[1:] if r.writable), None) if primary_is_scratch else roots[0]
+    )
     for i, r in enumerate(roots):
         access = "read-write" if r.writable else "read-only"
         if home is not None and r is home:
@@ -85,7 +90,9 @@ def render_context(roots: list[RootDir]) -> str:
         "Relative paths resolve against the primary directory; pass an absolute path to use "
         "another directory. Writes are only allowed in read-write directories. "
     )
-    if home is not None:
+    if home is not None and not primary_is_scratch:
+        tail += f"Save everything you produce in {home.path}, the user's own folder."
+    elif home is not None:
         tail += (
             f"Save deliverables the user asked for in {home.path} — the primary directory is "
             "a temporary scratch space they will not think to open. Intermediate files "

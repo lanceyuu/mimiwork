@@ -760,6 +760,34 @@ fn queue_companion_pos_save(x: i32, y: i32) {
 #[tauri::command]
 fn companion_drag_begin() {
     COMPANION_MOVING.store(false, std::sync::atomic::Ordering::Release);
+    // While she is being dragged the click-through poller must stand down: the window
+    // travels with the cursor and the two are read a beat apart, so the cursor reads as
+    // "off the pet" mid-drag, the window is told to ignore the mouse, and the OS drag
+    // dies under the user's hand (owner report 2026-09-02: "cannot be dragged anymore").
+    // The webview reports the release; the deadline is the fail-safe for a lost mouse-up.
+    if let Ok(mut until) = COMPANION_DRAG_UNTIL.lock() {
+        *until = Some(std::time::Instant::now() + std::time::Duration::from_secs(20));
+    }
+}
+
+/// The drag ended (mouse released in the webview): click-through may resume.
+#[tauri::command]
+fn companion_drag_end() {
+    if let Ok(mut until) = COMPANION_DRAG_UNTIL.lock() {
+        *until = None;
+    }
+}
+
+static COMPANION_DRAG_UNTIL: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+fn companion_dragging() -> bool {
+    COMPANION_DRAG_UNTIL
+        .lock()
+        .ok()
+        .and_then(|u| *u)
+        .map(|until| std::time::Instant::now() < until)
+        .unwrap_or(false)
 }
 
 // --- Click-through: only the dog answers the mouse ---------------------------------
@@ -839,8 +867,9 @@ fn start_companion_click_through(app: &tauri::AppHandle) {
             let Some(w) = app.get_webview_window("companion") else {
                 continue;
             };
-            // Hidden pet: nothing to ignore, and nothing to poll for.
-            if !w.is_visible().unwrap_or(false) {
+            // Hidden pet: nothing to ignore, and nothing to poll for. A pet mid-drag:
+            // she must keep the mouse whatever the cursor reading says.
+            if !w.is_visible().unwrap_or(false) || companion_dragging() {
                 set_companion_ignoring(&w, false);
                 continue;
             }
@@ -1014,6 +1043,7 @@ pub fn run() {
             companion_restore,
             companion_dismiss,
             companion_drag_begin,
+            companion_drag_end,
             companion_hot_rect,
             get_companion_enabled,
             set_companion_enabled

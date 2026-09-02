@@ -22,7 +22,9 @@ export function AddFolderForm({
 }) {
   const [open, setOpen] = useState(!!startOpen);
   const [path, setPath] = useState("");
-  const [writable, setWritable] = useState(false);
+  // Read-write by default (owner ask 2026-09-02): a folder you hand Mimi is where her
+  // work goes. Untick for reference material she must only read.
+  const [writable, setWritable] = useState(true);
 
   const reset = () => {
     setOpen(false);
