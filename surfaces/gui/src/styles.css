@@ -668,7 +668,7 @@ button.btn.danger { color: var(--accent); }
    nowhere and the variable fill as a pale disc. */
 .artifact-pin {
   position: absolute; z-index: 5; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 999px;
-  background: #0d9488; color: #fff; font-size: 11.5px; font-weight: 700; line-height: 18px; text-align: center;
+  background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 700; line-height: 18px; text-align: center;
   border: 2px solid #fff; box-sizing: border-box; pointer-events: none;
 }
 .artifact-pin-new { background: #f59e0b; }
@@ -679,10 +679,16 @@ button.btn.danger { color: var(--accent); }
 }
 .artifact-pin-draft textarea { min-height: 56px; }
 .artifact-pin-draft-inline { display: flex; flex-direction: column; gap: 8px; }
-.artifact-pin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.artifact-pin-list li { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; }
+.artifact-feedback-head { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.artifact-feedback-count { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--accentSoft, rgba(13,148,136,0.12)); color: var(--accent); text-align: center; letter-spacing: 0; }
+.artifact-pin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 168px; overflow: auto; }
+.artifact-pin-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px; line-height: 1.45; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.artifact-pin-list li:last-child { border-bottom: 0; }
 .artifact-pin-badge { flex: none; width: 18px; height: 18px; border-radius: 999px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; margin-top: 1px; }
 .artifact-pin-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.artifact-pin-text .dim { font-size: 11.5px; }
+.artifact-pin-remove { opacity: 0; transition: opacity .12s; margin: -2px 0; }
+.artifact-pin-list li:hover .artifact-pin-remove, .artifact-pin-remove:focus-visible { opacity: 1; }
 /* A comment on the produced file, pinned to where the user clicked */
 .artifact-feedback {
   flex: none; border-bottom: 1px solid var(--line); padding: 10px 18px; background: var(--paper);

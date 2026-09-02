@@ -673,6 +673,12 @@ function ArtifactViewer({
       {(pins.length > 0 || (draft && draft.x < 0)) && (
         <div className="artifact-feedback" data-testid="artifact-feedback">
           {pins.length > 0 && (
+            <div className="artifact-feedback-head">
+              <span>Comments</span>
+              <span className="artifact-feedback-count">{pins.length}</span>
+            </div>
+          )}
+          {pins.length > 0 && (
             <ol className="artifact-pin-list">
               {pins.map((p) => (
                 <li key={p.n} data-testid="artifact-pin-row">
@@ -682,7 +688,7 @@ function ArtifactViewer({
                     {p.text}
                   </span>
                   <button
-                    className="artifact-icon-btn"
+                    className="artifact-icon-btn artifact-pin-remove"
                     aria-label={`Remove comment ${p.n}`}
                     onClick={() => setPins((cur) => cur.filter((q) => q !== p).map((q, i) => ({ ...q, n: i + 1 })))}
                   >
@@ -922,7 +928,7 @@ async function screenshotPreview(el: HTMLDivElement | null, pins: Pin[]): Promis
       const r = 12 * Math.max(0.6, ratio);
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = "#0d9488";
+      ctx.fillStyle = "#2563eb"; // the app accent, literal: canvas has no CSS variables
       ctx.fill();
       ctx.lineWidth = 2.5;
       ctx.strokeStyle = "#ffffff";
