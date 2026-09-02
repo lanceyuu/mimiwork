@@ -2073,7 +2073,7 @@ export function App() {
             scratchPrimary={agent === "cowork"}
             openAccessKey={accessKey}
             onOpenIntegrations={() => setSurface("integrations")}
-            onFeedback={(text) => send(text)}
+            onFeedback={(text, attachments) => send(text, attachments)}
             onOpenApp={(id) => {
               setAppsOpenId(id);
               setSurface("apps");

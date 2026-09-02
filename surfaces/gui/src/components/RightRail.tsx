@@ -18,6 +18,7 @@ import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
+import type { Attachment } from "../types";
 import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
 
 type Panel = "progress" | "artifacts" | "recovery";
@@ -72,7 +73,9 @@ interface Props {
   onOpenIntegrations?: () => void;
   // Feedback on a produced file goes to the conversation as a message — Mimi already
   // knows the file, so "make the background white" is all it takes (owner ask 2026-09-02).
-  onFeedback?: (text: string) => void;
+  // Several pinned comments go together, with a screenshot of the preview and its
+  // numbered markers, so a vision-capable model sees where each one points.
+  onFeedback?: (text: string, attachments?: Attachment[]) => void;
   // Building an app in this conversation: the rail shows it running beside the chat,
   // Coze-style, and reloads whenever Mimi saves. Open the app's own page from here.
   onOpenApp?: (id: string) => void;
@@ -540,32 +543,62 @@ function ArtifactViewer({
   onBack: () => void;
   // Folder listings: open a child entry in the viewer (files and subfolders alike).
   onOpenEntry?: (path: string) => void;
-  onFeedback?: (text: string) => void;
+  onFeedback?: (text: string, attachments?: Attachment[]) => void;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
-  // A comment in progress, and the spot it is about ("page 2, top left"). Clicking the
-  // preview sets the spot; the button in the header opens a comment about the whole file.
+  // Comments are PINS: a click drops a numbered marker where you pointed, the note is
+  // written beside it, and they all go at once (owner ask 2026-09-02). Coordinates are
+  // in the preview's content space (scroll included), so markers scroll with the page.
   // A Word paragraph pin also carries its index, so the comment can go INTO the file.
-  const [feedback, setFeedback] = useState<{ pin: string; paragraph?: number } | null>(null);
-  const [feedbackText, setFeedbackText] = useState("");
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const [pins, setPins] = useState<Pin[]>([]);
+  const [draft, setDraft] = useState<Omit<Pin, "n" | "text"> | null>(null);
+  const [draftText, setDraftText] = useState("");
   const [feedbackNote, setFeedbackNote] = useState("");
-  const sendFeedback = () => {
-    const text = feedbackText.trim();
-    if (!text || !onFeedback) return;
-    const where = feedback?.pin ? ` (${feedback.pin})` : "";
-    onFeedback(`Feedback on \`${artifact.path}\`${where}: ${text}`);
-    setFeedback(null);
-    setFeedbackText("");
+  const [sending, setSending] = useState(false);
+  const clearPins = () => {
+    setPins([]);
+    setDraft(null);
+    setDraftText("");
   };
-  const addWordComment = async () => {
-    const text = feedbackText.trim();
-    if (!text || feedback?.paragraph == null) return;
-    const r = await commentArtifact(sessionId, artifact.path, feedback.paragraph, text).catch(() => ({ ok: false as const }));
-    if (r.ok) {
-      setFeedbackNote(`Added to the Word file (${feedback.pin}).`);
-      setFeedback(null);
-      setFeedbackText("");
-    } else setFeedbackNote(("error" in r && r.error) || "Could not write the comment.");
+  const addPin = () => {
+    const text = draftText.trim();
+    if (!text || !draft) return;
+    setPins((cur) => [...cur, { ...draft, n: cur.length + 1, text }]);
+    setDraft(null);
+    setDraftText("");
+  };
+  const sendAll = async () => {
+    if (!onFeedback || !pins.length) return;
+    setSending(true);
+    const shot = await screenshotPreview(previewRef.current, pins);
+    setSending(false);
+    const lines = pins.map((p) => `${p.n}. ${p.pin ? `(${p.pin}) ` : ""}${p.text}`).join("\n");
+    const head =
+      pins.length === 1
+        ? `Feedback on \`${artifact.path}\`${shot ? " (marker 1 in the attached screenshot)" : ""}:`
+        : `Feedback on \`${artifact.path}\` — ${pins.length} comments${shot ? "; the numbers match the markers in the attached screenshot" : ""}:`;
+    onFeedback(`${head}\n${lines}`, shot ? [{ kind: "image", name: "preview-with-comments.jpg", mime: "image/jpeg", data_url: shot }] : undefined);
+    clearPins();
+  };
+  const addWordComments = async () => {
+    const targets = pins.filter((p) => p.paragraph != null);
+    if (!targets.length) return;
+    setSending(true);
+    let done = 0;
+    let lastError = "";
+    for (const p of targets) {
+      const r = await commentArtifact(sessionId, artifact.path, p.paragraph!, p.text).catch(() => ({ ok: false as const }));
+      if (r.ok) done += 1;
+      else lastError = ("error" in r && r.error) || "could not write";
+    }
+    setSending(false);
+    setFeedbackNote(
+      done === targets.length
+        ? `Added ${done} comment${done === 1 ? "" : "s"} to the Word file.`
+        : `Added ${done} of ${targets.length} — ${lastError}.`,
+    );
+    if (done === targets.length) clearPins();
   };
   const isHtml = content?.kind === "html" && !content.error;
   // Also at home in a real app: spreadsheets, PDFs and Office files (the preview is reading
@@ -600,7 +633,7 @@ function ArtifactViewer({
             <button
               className="artifact-icon-btn"
               data-testid="artifact-comment"
-              onClick={() => setFeedback((f) => (f ? null : { pin: "" }))}
+              onClick={() => setDraft((d) => (d ? null : { pin: "", x: -1, y: -1 }))}
               aria-label="Comment on this file"
               title="Comment on this file"
             >
@@ -637,43 +670,73 @@ function ArtifactViewer({
           </button>
         </div>
       </div>
-      {feedback && (
+      {(pins.length > 0 || (draft && draft.x < 0)) && (
         <div className="artifact-feedback" data-testid="artifact-feedback">
-          <div className="artifact-feedback-pin">
-            {feedback.pin ? `About ${feedback.pin}` : "About this file"}
-            {content && content.kind !== "office" && content.kind !== "html" && (
-              <span className="dim"> · click the preview to point at a spot</span>
-            )}
-          </div>
-          <textarea
-            autoFocus
-            className="tmpl-input tmpl-textarea"
-            placeholder="What should change? e.g. “make the background white”"
-            value={feedbackText}
-            onChange={(e) => setFeedbackText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendFeedback();
-            }}
-          />
-          <div className="artifact-feedback-actions">
-            <button className="btn-primary sm" disabled={!feedbackText.trim()} onClick={sendFeedback}>
-              Send to Mimi
-            </button>
-            {content?.kind === "docx" && feedback.paragraph != null && (
-              <button
-                className="btn sm"
-                data-testid="artifact-word-comment"
-                disabled={!feedbackText.trim()}
-                title="Write it into the .docx as a Word comment on this paragraph"
-                onClick={() => void addWordComment()}
-              >
-                Add as Word comment
+          {pins.length > 0 && (
+            <ol className="artifact-pin-list">
+              {pins.map((p) => (
+                <li key={p.n} data-testid="artifact-pin-row">
+                  <span className="artifact-pin-badge">{p.n}</span>
+                  <span className="artifact-pin-text">
+                    {p.pin && <span className="dim">{p.pin} · </span>}
+                    {p.text}
+                  </span>
+                  <button
+                    className="artifact-icon-btn"
+                    aria-label={`Remove comment ${p.n}`}
+                    onClick={() => setPins((cur) => cur.filter((q) => q !== p).map((q, i) => ({ ...q, n: i + 1 })))}
+                  >
+                    <Icon name="x" size={13} />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          {draft && draft.x < 0 && (
+            <div className="artifact-pin-draft-inline">
+              <textarea
+                autoFocus
+                className="tmpl-input tmpl-textarea"
+                data-testid="artifact-draft-text"
+                placeholder="About the whole file, e.g. “make the background white”"
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addPin();
+                }}
+              />
+              <div className="artifact-feedback-actions">
+                <button className="btn sm" data-testid="artifact-draft-add" disabled={!draftText.trim()} onClick={addPin}>
+                  Add
+                </button>
+                <button className="link" onClick={() => setDraft(null)}>
+                  cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {pins.length > 0 && (
+            <div className="artifact-feedback-actions">
+              <button className="btn-primary sm" data-testid="artifact-send-all" disabled={sending} onClick={() => void sendAll()}>
+                {sending ? "Preparing…" : `Send ${pins.length === 1 ? "to Mimi" : `all ${pins.length} to Mimi`}`}
               </button>
-            )}
-            <button className="link" onClick={() => setFeedback(null)}>
-              cancel
-            </button>
-          </div>
+              {content?.kind === "docx" && pins.some((p) => p.paragraph != null) && (
+                <button
+                  className="btn sm"
+                  data-testid="artifact-word-comment"
+                  disabled={sending}
+                  title="Write them into the .docx as Word comments on their paragraphs"
+                  onClick={() => void addWordComments()}
+                >
+                  Add {pins.filter((p) => p.paragraph != null).length === 1 ? "as a Word comment" : "all as Word comments"}
+                </button>
+              )}
+              <span className="dim text-[12px]">click the preview to add another</span>
+              <button className="link" onClick={clearPins}>
+                clear
+              </button>
+            </div>
+          )}
         </div>
       )}
       {feedbackNote && (
@@ -686,12 +749,52 @@ function ArtifactViewer({
       )}
       <div
         className="artifact-preview"
+        ref={previewRef}
         onClick={(e) => {
-          if (!onFeedback) return;
-          const spot = pinFor(e.target as Element, e.clientX, e.clientY);
-          if (spot) setFeedback(spot);
+          if (!onFeedback || !content || content.kind === "html" || content.kind === "office" || content.kind === "folder") return;
+          const el = e.currentTarget;
+          const r = el.getBoundingClientRect();
+          const spot = pinFor(e.target as Element, e.clientX, e.clientY) || { pin: "" };
+          setDraft({ ...spot, x: e.clientX - r.left + el.scrollLeft, y: e.clientY - r.top + el.scrollTop });
+          setDraftText("");
         }}
       >
+        {draft && draft.x >= 0 && (
+          <>
+            <div className="artifact-pin artifact-pin-new" style={{ left: draft.x, top: draft.y }}>
+              {pins.length + 1}
+            </div>
+            <div
+              className="artifact-pin-draft"
+              data-html2canvas-ignore
+              data-testid="artifact-draft"
+              style={{ left: draft.x + 16, top: draft.y - 8 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {draft.pin && <div className="dim text-[11.5px] mb-1">{draft.pin}</div>}
+              <textarea
+                autoFocus
+                className="tmpl-input tmpl-textarea"
+                data-testid="artifact-draft-text"
+                placeholder="What should change here?"
+                value={draftText}
+                onChange={(e) => setDraftText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addPin();
+                  if (e.key === "Escape") setDraft(null);
+                }}
+              />
+              <div className="artifact-feedback-actions">
+                <button className="btn-primary sm" data-testid="artifact-draft-add" disabled={!draftText.trim()} onClick={addPin}>
+                  Add
+                </button>
+                <button className="link" onClick={() => setDraft(null)}>
+                  cancel
+                </button>
+              </div>
+            </div>
+          </>
+        )}
         {!content ? (
           <div className="rail-muted">Loading...</div>
         ) : content.error ? (
@@ -750,12 +853,92 @@ function ArtifactViewer({
         ) : (
           <pre className="artifact-code">{content.content}</pre>
         )}
+        {/* Markers last, so they paint above the content in the browser AND in the
+            html2canvas capture (which follows DOM order more than z-index). */}
+        {pins.map((p) =>
+          p.x >= 0 ? (
+            <div key={p.n} className="artifact-pin" style={{ left: p.x, top: p.y }} data-testid="artifact-pin" title={p.text} data-html2canvas-ignore>
+              {p.n}
+            </div>
+          ) : null,
+        )}
       </div>
     </div>
   );
 }
 
 const MAX_TABLE_ROWS = 500;
+
+/** One pinned comment: where (content coordinates + the spot in words) and what. */
+interface Pin {
+  n: number;
+  pin: string;
+  paragraph?: number;
+  x: number;
+  y: number;
+  text: string;
+}
+
+/** The preview with its markers, as one JPEG for the model to look at. html2canvas is a
+ *  lazy chunk (like pdfjs and SheetJS); the scroll container is opened up in the clone so
+ *  the whole page is captured, then capped at a size the message channel accepts. The
+ *  numbered discs are drawn by hand afterwards: html2canvas rendered the DOM markers as
+ *  pale rings with no digit, and a marker the model cannot read is no marker. */
+async function screenshotPreview(el: HTMLDivElement | null, pins: Pin[]): Promise<string | null> {
+  if (!el) return null;
+  try {
+    const { default: html2canvas } = await import("html2canvas");
+    // Capture at the on-screen width: any other width reflows the text and the markers,
+    // placed in content coordinates, land on the wrong lines.
+    const height = Math.min(el.scrollHeight, 6000);
+    const canvas = await html2canvas(el, {
+      scale: 1,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      width: el.clientWidth,
+      height,
+      scrollX: 0,
+      scrollY: 0,
+      onclone: (_doc, cloned) => {
+        (cloned as HTMLElement).style.overflow = "visible";
+        (cloned as HTMLElement).style.height = "auto";
+        (cloned as HTMLElement).style.width = `${el.clientWidth}px`;
+      },
+    });
+    // A fresh canvas: html2canvas hands back a context still carrying its last clip,
+    // and anything drawn there outside that region silently vanishes.
+    const maxW = 1400;
+    const ratio = Math.min(1, maxW / Math.max(1, canvas.width));
+    const out = document.createElement("canvas");
+    out.width = Math.round(canvas.width * ratio);
+    out.height = Math.round(canvas.height * ratio);
+    const ctx = out.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(canvas, 0, 0, out.width, out.height);
+    for (const p of pins) {
+      if (p.x < 0 || p.y > canvas.height) continue;
+      const x = p.x * ratio;
+      const y = p.y * ratio;
+      const r = 12 * Math.max(0.6, ratio);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#0d9488";
+      ctx.fill();
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+      ctx.fillStyle = "#ffffff";
+      ctx.font = `bold ${Math.round(13 * Math.max(0.6, ratio))}px -apple-system, 'Segoe UI', sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(p.n), x, y + 0.5);
+    }
+    const url = out.toDataURL("image/jpeg", 0.85);
+    return url && url.startsWith("data:image") ? url : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Where in the preview a click landed, in words Mimi can act on: "page 2, top left",
  *  "row 4, column 2", "paragraph 12, starting …". Null when the click is nowhere in

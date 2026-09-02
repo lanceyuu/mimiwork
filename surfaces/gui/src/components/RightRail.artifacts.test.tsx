@@ -17,6 +17,7 @@ const artifacts = [
 ];
 const DOCX_HTML = '<h1 data-p="0">Findings</h1><p data-p="1">The sample consisted of twenty four interviews and two groups.</p>';
 
+vi.mock("html2canvas", () => ({ default: async () => document.createElement("canvas") }));
 vi.mock("../api", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("../api");
   return {
@@ -63,15 +64,46 @@ describe("opening a produced file", () => {
     const doc = await screen.findByTestId("artifact-docx");
     expect(reveal).not.toHaveBeenCalled();
     expect(doc.querySelector("h1")!.textContent).toBe("Findings");
+    // First pin: a paragraph.
     fireEvent.click(doc.querySelector('[data-p="1"]')!);
-    const bar = await screen.findByTestId("artifact-feedback");
-    expect(bar.textContent).toContain("paragraph 2, starting “The sample consisted of twenty four interviews and”");
-    fireEvent.change(screen.getByPlaceholderText(/What should change/), { target: { value: "say how they were recruited" } });
-    // Into the file itself, as a Word comment on that paragraph.
+    const draft = await screen.findByTestId("artifact-draft");
+    expect(draft.textContent).toContain("paragraph 2, starting “The sample consisted of twenty four interviews and”");
+    fireEvent.change(screen.getByTestId("artifact-draft-text"), { target: { value: "say how they were recruited" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    // Second pin: the heading.
+    fireEvent.click(doc.querySelector('[data-p="0"]')!);
+    fireEvent.change(await screen.findByTestId("artifact-draft-text"), { target: { value: "add the date" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    expect(screen.getAllByTestId("artifact-pin")).toHaveLength(2);
+    expect(screen.getAllByTestId("artifact-pin-row")).toHaveLength(2);
+    // Into the file itself, as Word comments on those paragraphs — both at once.
     fireEvent.click(screen.getByTestId("artifact-word-comment"));
-    await waitFor(() => expect(comment).toHaveBeenCalledWith("s1", "brief.docx", 1, "say how they were recruited"));
-    expect((await screen.findByTestId("artifact-feedback-note")).textContent).toContain("Added to the Word file");
+    await waitFor(() => expect(comment).toHaveBeenCalledTimes(2));
+    expect(comment.mock.calls[0]).toEqual(["s1", "brief.docx", 1, "say how they were recruited"]);
+    expect(comment.mock.calls[1]).toEqual(["s1", "brief.docx", 0, "add the date"]);
+    expect((await screen.findByTestId("artifact-feedback-note")).textContent).toContain("Added 2 comments to the Word file");
     expect(onFeedback).not.toHaveBeenCalled();
+  });
+
+  it("several pins go to Mimi as one numbered message", async () => {
+    const onFeedback = vi.fn();
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} onFeedback={onFeedback} />);
+    const [row] = await screen.findAllByText("brief.docx");
+    row.closest("button")!.click();
+    const doc = await screen.findByTestId("artifact-docx");
+    fireEvent.click(doc.querySelector('[data-p="1"]')!);
+    fireEvent.change(await screen.findByTestId("artifact-draft-text"), { target: { value: "shorter" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    fireEvent.click(doc.querySelector('[data-p="0"]')!);
+    fireEvent.change(await screen.findByTestId("artifact-draft-text"), { target: { value: "bolder" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    fireEvent.click(screen.getByTestId("artifact-send-all"));
+    await waitFor(() => expect(onFeedback).toHaveBeenCalled());
+    const [text] = onFeedback.mock.calls[0];
+    expect(text).toContain("Feedback on `brief.docx` — 2 comments");
+    expect(text).toContain("1. (paragraph 2, starting “The sample consisted of twenty four interviews and”) shorter");
+    expect(text).toContain("2. (paragraph 1, starting “Findings”) bolder");
+    expect(screen.queryByTestId("artifact-pin")).toBeNull(); // sent = cleared
   });
 
   it("still previews what it can, in the app", async () => {
@@ -113,10 +145,11 @@ describe("commenting on a produced file (owner ask 2026-09-02)", () => {
     row.closest("button")!.click();
     const btn = await screen.findByTestId("artifact-comment");
     fireEvent.click(btn);
-    const box = screen.getByPlaceholderText(/What should change/);
-    fireEvent.change(box, { target: { value: "make the headings blue" } });
-    fireEvent.click(screen.getByText("Send to Mimi"));
-    expect(onFeedback).toHaveBeenCalledWith("Feedback on `notes.md`: make the headings blue");
+    fireEvent.change(screen.getByTestId("artifact-draft-text"), { target: { value: "make the headings blue" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    fireEvent.click(screen.getByTestId("artifact-send-all"));
+    await waitFor(() => expect(onFeedback).toHaveBeenCalled());
+    expect(onFeedback.mock.calls[0][0]).toBe("Feedback on `notes.md`:\n1. make the headings blue");
     expect(screen.queryByTestId("artifact-feedback")).toBeNull();
   });
 
