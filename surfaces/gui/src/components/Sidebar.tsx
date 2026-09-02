@@ -228,7 +228,9 @@ export function Sidebar(props: Props) {
   const openRowMenu = (id: string, anchor: HTMLElement) => {
     const r = anchor.getBoundingClientRect();
     const MENU_W = 160; // w-40
-    const MENU_H = 150; // ~4 items + divider; only used to flip upward near the window bottom
+    // Five items + a divider. Guessing low (150 for four) let the Delete item open below
+    // the window edge on a short screen, unreachable (CI catch 2026-09-02).
+    const MENU_H = 200;
     setRowMenu({
       id,
       top: r.bottom + 4 + MENU_H > window.innerHeight ? r.top - MENU_H : r.bottom + 4,
