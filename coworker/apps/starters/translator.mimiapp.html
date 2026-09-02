@@ -1,0 +1,101 @@
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Translator", "icon": "🌐", "description": "Paste text, pick a language, get a faithful translation. Keeps your last five."}</script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Translator</title>
+<style>
+  :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 18px; margin: 0 0 14px; }
+  textarea { width: 100%; min-height: 130px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; resize: vertical; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; }
+  button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  button.ghost { background: transparent; color: var(--muted); font-weight: 500; padding: 8px 6px; }
+  .out { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 60px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .hist { margin-top: 22px; }
+  .hist h2 { font-size: 13px; color: var(--muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .06em; }
+  .hist button { display: block; width: 100%; text-align: left; background: transparent; color: var(--ink); font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Translator</h1>
+  <textarea id="src" placeholder="Paste or type the text to translate…"></textarea>
+  <div class="row">
+    <label>Into
+      <select id="lang">
+        <option>English</option><option>French</option><option>Simplified Chinese</option>
+        <option>Norwegian</option><option>Spanish</option><option>German</option>
+        <option>Italian</option><option>Portuguese</option><option>Japanese</option><option>Korean</option>
+      </select>
+    </label>
+    <button id="go">Translate</button>
+    <button id="copy" class="ghost" hidden>Copy</button>
+    <span id="status" class="muted"></span>
+  </div>
+  <div id="out" class="out muted">The translation appears here.</div>
+  <div class="hist" id="histwrap" hidden>
+    <h2>Recent</h2>
+    <div id="hist"></div>
+  </div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let history = [];
+  async function load() {
+    const s = await Mimi.state.get().catch(() => ({}));
+    history = Array.isArray(s.history) ? s.history : [];
+    renderHistory();
+  }
+  function renderHistory() {
+    $("histwrap").hidden = history.length === 0;
+    $("hist").innerHTML = "";
+    history.forEach((h) => {
+      const b = document.createElement("button");
+      b.textContent = `${h.lang} · ${h.src.slice(0, 60)}`;
+      b.onclick = () => { $("src").value = h.src; $("lang").value = h.lang; show(h.out); };
+      $("hist").appendChild(b);
+    });
+  }
+  function show(text) {
+    $("out").textContent = text;
+    $("out").classList.remove("muted");
+    $("copy").hidden = !text;
+  }
+  $("go").onclick = async () => {
+    const src = $("src").value.trim();
+    const lang = $("lang").value;
+    if (!src) return;
+    $("go").disabled = true;
+    $("status").textContent = "Translating…";
+    try {
+      const out = await Mimi.ask(
+        `Translate the following text into ${lang}. Keep the meaning, tone and formatting. Reply with the translation only.\n\n${src}`
+      );
+      show(out.trim());
+      history = [{ src, lang, out: out.trim() }, ...history.filter((h) => h.src !== src || h.lang !== lang)].slice(0, 5);
+      renderHistory();
+      Mimi.state.set({ history }).catch(() => {});
+      $("status").textContent = "";
+    } catch (e) {
+      $("status").textContent = "Could not translate: " + (e.message || e);
+    } finally {
+      $("go").disabled = false;
+    }
+  };
+  $("copy").onclick = () => {
+    const t = $("out").textContent;
+    const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); $("status").textContent = "Copied."; } catch {}
+    ta.remove();
+  };
+  load();
+</script>
+</body>
+</html>

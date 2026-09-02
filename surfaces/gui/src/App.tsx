@@ -71,6 +71,7 @@ import { setLang, type Lang } from "./i18n";
 import { emptyTimeSaved, type TimeSaved } from "./timesaved";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
+import { AppsView } from "./components/AppsView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { SettingsView } from "./components/SettingsView";
@@ -173,6 +174,7 @@ function fallbackWorkspace(current: string | null, projects: RecentWorkspace[]):
 type Surface =
   | "session"
   | "scheduled"
+  | "apps"
   | "integrations"
   | "audit"
   | "inbox"
@@ -254,6 +256,8 @@ export function App() {
   // id going stale (e.g. the automation was deleted) reopened a dead detail —
   // "Loading…" forever (owner-hit 2026-07-20). Nav re-entry should land on the list.
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
+  // Which app the Apps surface opens on (sidebar row click); same lifetime rule as above.
+  const [appsOpenId, setAppsOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
@@ -297,6 +301,7 @@ export function App() {
   // possibly-deleted automation's dead detail.
   useEffect(() => {
     if (surface !== "scheduled") setScheduledOpenId(null);
+    if (surface !== "apps") setAppsOpenId(null);
   }, [surface]);
   // The persona whose detail page is showing (surface === "persona"); empty falls back to the
   // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
@@ -453,7 +458,7 @@ export function App() {
   const sessionRef = useRef<Session | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A prompt to auto-send once the next session connects (used by "Run now").
-  const pendingPromptRef = useRef<string | null>(null);
+  const pendingPromptRef = useRef<string | { text: string; skill?: string } | null>(null);
   // The in-flight manual run to finalize after its first turn ({taskId, runId, sessionId}).
   const activeRunRef = useRef<{ taskId: string; runId: string; sessionId: string } | null>(null);
 
@@ -903,12 +908,15 @@ export function App() {
       onEvent: handleEvent,
       onOpen: () => {
         setConnected(true);
-        // Auto-send the task prompt once a "Run now" session connects.
+        // Auto-send the task prompt once a "Run now" session connects — or an app
+        // build/improve request, which rides under the mimi-apps skill.
         const p = pendingPromptRef.current;
         if (p) {
           pendingPromptRef.current = null;
-          setItems((prev) => [...prev, { kind: "user", text: p, ts: Date.now() / 1000 }]);
-          sessionRef.current?.userMessage(p);
+          const { text, skill } = typeof p === "string" ? { text: p, skill: undefined } : p;
+          const shown = skill ? `/${skill} ${text}` : text;
+          setItems((prev) => [...prev, { kind: "user", text: shown, ts: Date.now() / 1000 }]);
+          sessionRef.current?.userMessage(text, undefined, undefined, skill);
         }
       },
       onClose: () => setConnected(false),
@@ -1355,6 +1363,20 @@ export function App() {
     setShowGate(false);
     selectSession(sessionId, ws, ag);
   };
+  // Apps (spec 2026-09-03): build or improve one in a conversation under the mimi-apps
+  // skill. The session that built an app is reopened when it still exists, so Mimi has
+  // the context; otherwise a fresh one starts and the prompt carries the current HTML.
+  const buildApp = (text: string, builderSession?: string) => {
+    const known = builderSession ? sessions.find((s) => s.session_id === builderSession) : undefined;
+    if (known && known.session_id === sessionId) {
+      setSurface("session");
+      send(text, undefined, "mimi-apps");
+      return;
+    }
+    pendingPromptRef.current = { text, skill: "mimi-apps" };
+    if (known) void selectSession(known.session_id, known.workspace || "", known.agent || "cowork");
+    else startNewSession("cowork");
+  };
   const runTaskNow = async (taskId: string, title?: string) => {
     const r = await runAutomation(taskId);
     if (!r || !r.ok) return;
@@ -1595,6 +1617,12 @@ export function App() {
           setScheduledOpenId(id);
           setSurface("scheduled");
         }}
+        onOpenApps={() => setSurface("apps")}
+        onOpenApp={(id) => {
+          setAppsOpenId(id);
+          setSurface("apps");
+        }}
+        appsActive={surface === "apps"}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
@@ -1612,6 +1640,7 @@ export function App() {
       const surfaceTitles: Record<Surface, string> = {
         session: "",
         scheduled: "Automations",
+        apps: "Apps",
         integrations: "Connectors",
         audit: "Activity",
         inbox: "Inbox",
@@ -1620,7 +1649,9 @@ export function App() {
         project: projects.find((p) => p.id === projectId)?.name || "Project",
         files: "Files",
       };
-      const view = surface === "scheduled" ? (
+      const view = surface === "apps" ? (
+        <AppsView onBuild={buildApp} initialOpenId={appsOpenId} />
+      ) : surface === "scheduled" ? (
         <ScheduledView
           onOpenRun={openRunSession}
           onRunNow={runTaskNow}

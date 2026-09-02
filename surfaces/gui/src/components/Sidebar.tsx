@@ -3,6 +3,7 @@ import { useT } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
 import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
+import { APPS_CHANGED, getApps, type MimiApp } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import { openExternal } from "../tauri";
 import {
@@ -125,6 +126,10 @@ interface Props {
   onOpenScheduled: () => void;
   // Scheduled-band row click: open the Automations surface ON that automation (UX-023).
   onOpenAutomation: (id: string) => void;
+  // Apps (spec 2026-09-03): the section, one app's page, and "+" = build a new one.
+  onOpenApps: () => void;
+  onOpenApp: (id: string) => void;
+  appsActive: boolean;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
@@ -187,6 +192,18 @@ export function Sidebar(props: Props) {
     return () => {
       clearInterval(t);
       window.removeEventListener(AUTOMATIONS_CHANGED, load);
+    };
+  }, []);
+  // Apps band: same poll-plus-announce pattern as automations.
+  const [apps, setApps] = useState<MimiApp[]>([]);
+  useEffect(() => {
+    const load = () => getApps().then(setApps).catch(() => {});
+    load();
+    const t = setInterval(load, 15_000);
+    window.addEventListener(APPS_CHANGED, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(APPS_CHANGED, load);
     };
   }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -653,6 +670,40 @@ export function Sidebar(props: Props) {
   // UX-023: the Scheduled band — ONE entry per automation (never per run): name +
   // cadence, with the unseen-runs badge. Runs themselves never enter Recent (run
   // sessions are __run__-prefixed and hidden from the sessions list).
+  const appsBand = () =>
+    apps.length > 0 ? (
+      <div data-testid="apps-band">
+        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1 flex items-center">
+          <span className="flex-1">Apps</span>
+          <button
+            className="text-faint hover:text-ink normal-case tracking-normal"
+            aria-label="Build a new app"
+            title="Build a new app"
+            data-testid="apps-band-new"
+            onClick={props.onOpenApps}
+          >
+            <Icon name="plus" size={13} />
+          </button>
+        </div>
+        <div className="space-y-0.5">
+          {apps.map((a) => (
+            <button
+              key={a.id}
+              className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left hover:bg-paper"
+              data-testid={`app-row-${a.id}`}
+              title={a.description || a.title}
+              onClick={() => props.onOpenApp(a.id)}
+            >
+              <span className="text-[14px] w-5 text-center shrink-0" aria-hidden>
+                {a.icon}
+              </span>
+              <div className="text-[13px] text-ink truncate flex-1">{a.title}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
   const scheduledBand = () =>
     automations.length > 0 ? (
       <div data-testid="scheduled-band">
@@ -1228,6 +1279,17 @@ export function Sidebar(props: Props) {
           <Icon name="clock" size={15} className="shrink-0" />
           <span className="flex-1">Automations</span>
         </button>
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.appsActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-apps"
+          onClick={props.onOpenApps}
+        >
+          <Icon name="sparkle" size={15} className="shrink-0" />
+          <span className="flex-1">Apps</span>
+        </button>
       </div>
 
       {/* Scroll area: Pinned band + the RECENT header (with group/filter control), then the body —
@@ -1242,6 +1304,7 @@ export function Sidebar(props: Props) {
           />
           {pinnedBand()}
           {scheduledBand()}
+          {appsBand()}
           <div>
             {recentHeader()}
             {layout === "grouped" ? (

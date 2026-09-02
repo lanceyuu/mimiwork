@@ -563,6 +563,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const providers: any[] = PROVIDERS.map((p) => ({ ...p }));
   // Automations — mutable so Run now appends a run, enable/disable toggles, and delete removes.
   const automations: any[] = [{ ...AUTOMATION }, { ...AUTOMATION_CLEAN }];
+  // Apps (spec 2026-09-03) — mutable so Add-starter / rename / delete round-trip.
+  const apps: any[] = [];
+  const APP_HTML = "<!doctype html><html><head></head><body><h1>Hello</h1><script>Mimi.ask('x')</script></body></html>";
   // MCP servers (empty by default; the granola OAuth quick-add test populates it).
   const mcpServers: any[] = [];
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
@@ -1724,6 +1727,45 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({ ok: true });
     }
 
+    // apps
+    if (p.endsWith("/v1/apps/builtin")) {
+      return json([
+        { name: "translator", title: "Translator", icon: "🌐", description: "Translates what you paste.", html: APP_HTML },
+      ]);
+    }
+    if (p.endsWith("/v1/apps") && m === "GET") return json({ apps });
+    if (p.endsWith("/v1/apps") && m === "POST") {
+      const b = req.postDataJSON();
+      const app = {
+        id: `app-${(apps.length + 1).toString(16).padStart(8, "0")}`,
+        title: b.title, icon: b.icon || "✨", description: b.description || "", model: null,
+        builder_session: "", asks: 0, created_at: 1, updated_at: 1, html: b.html,
+      };
+      apps.push(app);
+      const { html: _h, ...pub } = app;
+      return json({ ok: true, app: pub });
+    }
+    {
+      const am = p.match(/\/v1\/apps\/([^/]+)(?:\/(ask|state|export))?$/);
+      if (am) {
+        const app = apps.find((a) => a.id === am[1]);
+        if (!app) return json({ ok: false, error: "not found" });
+        const { html, ...pub } = app;
+        if (am[2] === "ask") return json({ ok: true, text: "Bonjour" });
+        if (am[2] === "state") return json({ ok: true, state: {} });
+        if (am[2] === "export") return json({ ok: true, path: "/tmp/x.mimiapp.html" });
+        if (m === "GET") return json({ ok: true, app: pub, html });
+        if (m === "PATCH") {
+          Object.assign(app, req.postDataJSON());
+          const { html: _h2, ...pub2 } = app;
+          return json({ ok: true, app: pub2 });
+        }
+        if (m === "DELETE") {
+          apps.splice(apps.indexOf(app), 1);
+          return json({ ok: true });
+        }
+      }
+    }
     // Anything else: an empty-but-valid body. GET list endpoints read `?? []`/`?? {}` fallbacks.
     return json({});
   });

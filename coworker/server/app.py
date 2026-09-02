@@ -1515,6 +1515,50 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    # -- apps (Mimi-written HTML tools) -------------------------------------------
+    @app.get("/v1/apps")
+    def apps_list() -> dict[str, Any]:
+        return manager.list_apps()
+
+    @app.get("/v1/apps/builtin")
+    def apps_builtin() -> list[dict[str, Any]]:
+        from ..apps.store import builtin_starters
+
+        return builtin_starters()
+
+    @app.post("/v1/apps")
+    def apps_import(body: dict) -> dict[str, Any]:
+        return manager.import_app(body or {})
+
+    @app.get("/v1/apps/{app_id}")
+    def app_get(app_id: str) -> dict[str, Any]:
+        return manager.get_app(app_id)
+
+    @app.patch("/v1/apps/{app_id}")
+    def app_update(app_id: str, body: dict) -> dict[str, Any]:
+        return manager.update_app(app_id, body or {})
+
+    @app.delete("/v1/apps/{app_id}")
+    def app_delete(app_id: str) -> dict[str, Any]:
+        return manager.delete_app(app_id)
+
+    @app.post("/v1/apps/{app_id}/ask")
+    def app_ask(app_id: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.app_ask(app_id, str(body.get("prompt") or ""), str(body.get("system") or ""))
+
+    @app.get("/v1/apps/{app_id}/state")
+    def app_state(app_id: str) -> dict[str, Any]:
+        return manager.app_state(app_id)
+
+    @app.put("/v1/apps/{app_id}/state")
+    def app_state_put(app_id: str, body: dict) -> dict[str, Any]:
+        return manager.set_app_state(app_id, (body or {}).get("state"))
+
+    @app.post("/v1/apps/{app_id}/export")
+    def app_export(app_id: str) -> dict[str, Any]:
+        return manager.export_app(app_id)
+
     @app.post("/v1/automations/{task_id}/revise")
     def automation_revise(task_id: str, body: dict) -> dict[str, Any]:
         """Feedback on one node of the flow diagram, folded into the instructions."""

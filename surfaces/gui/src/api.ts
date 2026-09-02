@@ -2684,3 +2684,106 @@ export async function compactSession(
   );
   return await res.json();
 }
+
+// -- apps (Mimi-written HTML tools; spec 2026-09-03) ---------------------------
+export interface MimiApp {
+  id: string;
+  title: string;
+  icon: string;
+  description: string;
+  model?: string | null;
+  builder_session: string;
+  asks: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AppStarter {
+  name: string;
+  title: string;
+  icon: string;
+  description: string;
+  html: string;
+}
+
+export const APPS_CHANGED = "coworker:apps-changed";
+export function announceAppsChanged() {
+  window.dispatchEvent(new CustomEvent(APPS_CHANGED));
+}
+
+export async function getApps(): Promise<MimiApp[]> {
+  const res = await fetch(`${httpBase()}/v1/apps`);
+  return (await res.json()).apps ?? [];
+}
+
+export async function getApp(id: string): Promise<{ ok: boolean; app?: MimiApp; html?: string }> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}`);
+  return res.json();
+}
+
+export async function listAppStarters(): Promise<AppStarter[]> {
+  const res = await fetch(`${httpBase()}/v1/apps/builtin`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function importApp(payload: {
+  title: string;
+  icon?: string;
+  description?: string;
+  html: string;
+}): Promise<{ ok: boolean; error?: string; app?: MimiApp }> {
+  const res = await fetch(`${httpBase()}/v1/apps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return res.json();
+}
+
+export async function updateApp(id: string, changes: Record<string, unknown>) {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  return res.json() as Promise<{ ok: boolean; error?: string; app?: MimiApp }>;
+}
+
+export async function deleteApp(id: string) {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return res.json();
+}
+
+/** The bridge's model call — what `Mimi.ask` inside an app turns into. */
+export async function askApp(
+  id: string,
+  prompt: string,
+  system = "",
+): Promise<{ ok: boolean; text?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt, system }),
+  });
+  return res.json();
+}
+
+export async function getAppState(id: string): Promise<Record<string, unknown>> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/state`);
+  return (await res.json()).state ?? {};
+}
+
+export async function setAppState(id: string, state: Record<string, unknown>) {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/state`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  });
+  return res.json() as Promise<{ ok: boolean; error?: string }>;
+}
+
+export async function exportApp(id: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/export`, { method: "POST" });
+  return res.json();
+}

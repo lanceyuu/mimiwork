@@ -1,0 +1,67 @@
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Rewrite in my voice", "icon": "✍️", "description": "Paste a draft, pick a tone, get it rewritten. Remembers the tone you use most."}</script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rewrite in my voice</title>
+<style>
+  :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 18px; margin: 0 0 14px; }
+  textarea { width: 100%; min-height: 140px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; resize: vertical; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  select, input { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; }
+  input { flex: 1; min-width: 200px; }
+  button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  .out { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 60px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rewrite in my voice</h1>
+  <textarea id="src" placeholder="Paste the draft…"></textarea>
+  <div class="row">
+    <label>Tone
+      <select id="tone">
+        <option>plain and direct</option><option>warm and friendly</option><option>formal</option>
+        <option>academic</option><option>short and punchy</option>
+      </select>
+    </label>
+    <input id="notes" placeholder="Anything to keep in mind? (optional)">
+    <button id="go">Rewrite</button>
+    <span id="status" class="muted"></span>
+  </div>
+  <div id="out" class="out muted">The rewrite appears here.</div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  Mimi.state.get().then((s) => { if (s.tone) $("tone").value = s.tone; }).catch(() => {});
+  $("go").onclick = async () => {
+    const src = $("src").value.trim();
+    if (!src) return;
+    const tone = $("tone").value;
+    const notes = $("notes").value.trim();
+    $("go").disabled = true;
+    $("status").textContent = "Rewriting…";
+    try {
+      const out = await Mimi.ask(
+        `Rewrite the text below in a ${tone} tone. Keep every fact and the author's meaning; do not add new claims.` +
+        (notes ? ` Also: ${notes}.` : "") + ` Reply with the rewritten text only.\n\n${src}`
+      );
+      $("out").textContent = out.trim();
+      $("out").classList.remove("muted");
+      Mimi.state.set({ tone }).catch(() => {});
+      $("status").textContent = "";
+    } catch (e) {
+      $("status").textContent = "Could not rewrite: " + (e.message || e);
+    } finally {
+      $("go").disabled = false;
+    }
+  };
+</script>
+</body>
+</html>

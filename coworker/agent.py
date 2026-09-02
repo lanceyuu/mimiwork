@@ -245,6 +245,7 @@ def build_engine(
     extra_tools: Optional[list[Any]] = None,
     secrets: Optional[SecretStore] = None,
     task_store: Optional[Any] = None,
+    app_store: Optional[Any] = None,
     wake_store: Optional[Any] = None,
     session_id: Optional[str] = None,
     audit_sink: Optional[Any] = None,
@@ -365,6 +366,12 @@ def build_engine(
         registry.register_all(
             scheduling_tools(task_store, origin=origin, default_workspace=str(ws))
         )
+    # Apps: the same knowledge surfaces can write a small HTML tool the user runs inside
+    # MimiWork (Apps section). The writing session is remembered so "Improve" reopens it.
+    if app_store is not None and agent.family == "knowledge":
+        from .apps import app_tools
+
+        registry.register_all(app_tools(app_store, session_id=session_id or ""))
     # The signed-in QualiTaTi account's own research data (projects, interviews, surveys).
     # Registered only while signed in — an unusable tool in the catalog is a lie to the
     # model — and every one of them is approval-gated: pulling personal research data off

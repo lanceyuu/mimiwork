@@ -271,6 +271,10 @@ class SessionManager:
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
+        # Apps: Mimi-written HTML tools, one folder each (Apps section).
+        from ..apps import AppStore
+
+        self.app_store = AppStore(base / "apps")
         self.scheduler = Scheduler(
             self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
         )
@@ -1177,6 +1181,7 @@ class SessionManager:
             # LIVE, not a snapshot: turning saving off mid-conversation must take
             # effect at once (owner-hit 2026-07-28 — a running session kept saving).
             memory_saving_enabled=lambda: self.memory_settings.enabled,
+            app_store=self.app_store,
             # Callable, not a snapshot: editing your instructions in Settings applies
             # to conversations already open (same reason as the saving switch).
             user_rules=lambda: self.memory_settings.user_rules,
@@ -5589,6 +5594,109 @@ class SessionManager:
     # -- provider proxy ---------------------------------------------------------
     def provider_complete(self, model, messages, tools=None):
         return self.provider.complete(model=model, messages=messages, tools=tools)
+
+    # -- apps (Mimi-written HTML tools) -------------------------------------------
+    def list_apps(self) -> dict[str, Any]:
+        return {"apps": [a.public() for a in self.app_store.list()]}
+
+    def get_app(self, app_id: str) -> dict[str, Any]:
+        app = self.app_store.get(app_id)
+        if app is None:
+            return {"ok": False, "error": "not found"}
+        return {"ok": True, "app": app.public(), "html": self.app_store.html(app_id)}
+
+    def import_app(self, body: dict[str, Any]) -> dict[str, Any]:
+        """A share file or a starter, saved as the user's own app."""
+        try:
+            app = self.app_store.create(
+                title=str(body.get("title") or ""),
+                html=str(body.get("html") or ""),
+                icon=str(body.get("icon") or "✨"),
+                description=str(body.get("description") or ""),
+            )
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "app": app.public()}
+
+    def update_app(self, app_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        try:
+            if changes.get("html") is not None:
+                self.app_store.set_html(app_id, str(changes["html"]))
+            app = self.app_store.update(
+                app_id,
+                **{k: changes[k] for k in ("title", "icon", "description", "model", "builder_session") if k in changes},
+            )
+        except KeyError:
+            return {"ok": False, "error": "not found"}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "app": app.public()}
+
+    def delete_app(self, app_id: str) -> dict[str, Any]:
+        return {"ok": self.app_store.delete(app_id), "id": app_id}
+
+    def app_ask(self, app_id: str, prompt: str, system: str = "") -> dict[str, Any]:
+        """The bridge's one model call. Spends credits exactly like a chat turn, on the
+        app's pinned model or the app default; no tools, no session."""
+        from ..apps.store import MAX_PROMPT
+
+        app = self.app_store.get(app_id)
+        if app is None:
+            return {"ok": False, "error": "not found"}
+        prompt = (prompt or "").strip()
+        if not prompt:
+            return {"ok": False, "error": "empty prompt"}
+        if len(prompt) > MAX_PROMPT or len(system or "") > MAX_PROMPT:
+            return {"ok": False, "error": "the prompt is too long (32 KB max)"}
+        messages: list[dict[str, Any]] = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        try:
+            turn = self.provider.complete(
+                model=app.model or self.model, messages=messages, tools=None
+            )
+        except Exception as e:
+            return {"ok": False, "error": str(e) or "the model did not answer"}
+        self.app_store.note_ask(app_id)
+        return {"ok": True, "text": (getattr(turn, "text", None) or "").strip()}
+
+    def app_state(self, app_id: str) -> dict[str, Any]:
+        if self.app_store.get(app_id) is None:
+            return {"ok": False, "error": "not found"}
+        return {"ok": True, "state": self.app_store.state(app_id)}
+
+    def set_app_state(self, app_id: str, value: Any) -> dict[str, Any]:
+        if self.app_store.get(app_id) is None:
+            return {"ok": False, "error": "not found"}
+        try:
+            self.app_store.set_state(app_id, value)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True}
+
+    def export_app(self, app_id: str) -> dict[str, Any]:
+        """One .mimiapp.html in ~/Downloads — the sharing story for this version."""
+        import re as _re
+
+        from ..apps.store import pack
+
+        app = self.app_store.get(app_id)
+        if app is None:
+            return {"ok": False, "error": "not found"}
+        slug = _re.sub(r"[^a-z0-9]+", "-", app.title.lower()).strip("-") or app.id
+        out_dir = Path.home() / "Downloads"
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / f"{slug}.mimiapp.html"
+            n = 2
+            while path.exists():
+                path = out_dir / f"{slug}-{n}.mimiapp.html"
+                n += 1
+            path.write_text(pack(app, self.app_store.html(app_id)), encoding="utf-8")
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
 
     # -- manuscript workbench ----------------------------------------------------
     # Proofread + version history for the Files pane's editor. Containment is the
