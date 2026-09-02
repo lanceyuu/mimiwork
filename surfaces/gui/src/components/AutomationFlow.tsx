@@ -69,9 +69,83 @@ function toolIcon(tool: string): string {
   return "🔧";
 }
 
+// ── Steps: what THIS automation does, read off its own instructions ─────────────
+// Three automations with the same agent, model, folder and grants drew one picture
+// (owner report 2026-09-02): the only field that made them different was never read.
+// ponytail: keyword heuristic over the instruction text. Upgrade path: have the model
+// emit the step list once at creation and store it on the task, if the guesses miss.
+const VERB =
+  "search|scout|find|browse|research|translat|publish|post|deploy|upload|send|email|mail|notif|" +
+  "run|execut|writ|draft|compos|summar|digest|sav|overwrit|export|updat|read|open|fetch|inspect|" +
+  "profil|extract|pars|check|compar|judg|review|verif|validat|generat|creat|prepar|prep|list|flag";
+const ACTION = new RegExp(`\\b(?:${VERB})\\w*\\b`, "i");
+const STEP_ICONS: [RegExp, string][] = [
+  [/\b(?:search|scout|find|browse|research)\w*/i, "🔎"],
+  [/\btranslat\w*/i, "🌐"],
+  [/\b(?:publish|deploy|upload|wix)\w*/i, "📤"],
+  [/\b(?:send|email|e-mail|mail|slack|telegram|notif|message)\w*/i, "📨"],
+  [/\b(?:run|execut|python|script|shell|command)\w*/i, "⌘"],
+  [/\b(?:writ|draft|compos|report|briefing|summar|digest)\w*/i, "✍️"],
+  [/\b(?:sav|overwrit|export|markdown|file|folder|json)\w*/i, "📄"],
+  [/\b(?:read|open|fetch|inspect|profil|extract|pars)\w*/i, "📖"],
+  [/\b(?:check|compar|judg|review|verif|validat|license|test)\w*/i, "✅"],
+];
+const MAX_STEPS = 5;
+
+function stepNode(clause: string, i: number): FlowNode {
+  const words = clause
+    .replace(/[`*_"“”()]/g, "")
+    .replace(/^(?:then|also|and|next|first|finally|in short:?)\s+/i, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  // The verb leads: "run the translation script" is a run, not a translation.
+  const pick = (s: string) => STEP_ICONS.find(([re]) => re.test(s))?.[1];
+  const icon = pick(words[0] ?? "") ?? pick(clause) ?? "🔧";
+  const head = words.slice(0, 3).join(" ");
+  return {
+    id: `step-${i}`,
+    icon,
+    title: head.charAt(0).toUpperCase() + head.slice(1),
+    sub: words.slice(3, 9).join(" ") || `step ${i + 1}`,
+    tone: "action",
+  };
+}
+
+/** The steps an automation's instructions describe, in order. A numbered list is taken
+ *  as written; prose is split on its clauses and only clauses that DO something stay. */
+export function flowSteps(instructions: string | null | undefined): FlowNode[] {
+  const text = (instructions || "").trim();
+  if (!text) return [];
+  const numbered = text
+    .split(/\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^\d+[.)]\s+/.test(l))
+    .map((l) => l.replace(/^\d+[.)]\s+/, ""));
+  const clauses =
+    numbered.length >= 2
+      ? numbered
+      : text
+          .replace(/\s+/g, " ")
+          .split(/(?:[.;:]\s+|,\s+(?:then\s+|and\s+)?|\s+(?:and then|then|and)\s+)/i)
+          .map((s) => s.trim())
+          .filter((s) => ACTION.test(s));
+  if (clauses.length <= MAX_STEPS) return clauses.map(stepNode);
+  const shown = clauses.slice(0, MAX_STEPS - 1).map(stepNode);
+  shown.push({
+    id: `step-${MAX_STEPS - 1}`,
+    icon: "⋯",
+    title: `${clauses.length - (MAX_STEPS - 1)} more steps`,
+    sub: "in the instructions",
+    tone: "muted",
+  });
+  return shown;
+}
+
 export type FlowModel = {
   trigger: FlowNode;
   agent: FlowNode;
+  /** What it does, in order — read off the instructions. May be empty. */
+  steps: FlowNode[];
   /** What the agent is MADE of — model, folder, standing grants. Dashed, below. */
   subs: FlowNode[];
   /** The two ways a run ends. Both are always drawn: an automation that can only be
@@ -153,7 +227,7 @@ export function flowNodes(task: Automation): FlowModel {
     tone: task.last_status === "error" ? "danger" : "muted",
   };
 
-  return { trigger, agent, subs, success, failure };
+  return { trigger, agent, steps: flowSteps(task.instructions), subs, success, failure };
 }
 
 function Card({
@@ -268,9 +342,12 @@ export function AutomationFlow({
   onNodeClick?: (id: string) => void;
   notedNodes?: Set<string>;
 }) {
-  const { trigger, agent, subs, success, failure } = flowNodes(task);
+  const { trigger, agent, steps, subs, success, failure } = flowNodes(task);
 
-  const colX = [14, 14 + NODE_W + GAP_X, 14 + (NODE_W + GAP_X) * 2];
+  const chain = [trigger, agent, ...steps];
+  const colX = (i: number) => 14 + (NODE_W + GAP_X) * i;
+  const outCol = chain.length; // the outcomes' column, after the last step
+  const lastX = colX(outCol - 1) + NODE_W; // right edge of the last chain card
   // The main line sits low enough that the branch rising above it is not clipped —
   // the success node lives at mainY - BRANCH_RISE.
   const mainY = 14 + BRANCH_RISE;
@@ -281,12 +358,12 @@ export function AutomationFlow({
   const subY = mainY + NODE_H + 96;
 
   // Sub-nodes hang under the agent, centred on it and spreading out as they multiply.
-  const subCentre = colX[1] + NODE_W / 2;
+  const subCentre = colX(1) + NODE_W / 2;
   const subStart = subCentre - ((subs.length - 1) * SUB_GAP) / 2;
   const subX = (i: number) => subStart + i * SUB_GAP;
 
   const W = Math.max(
-    colX[2] + NODE_W + 14,
+    colX(outCol) + NODE_W + 14,
     subX(subs.length - 1) + SUB_R + 40,
   );
   const leftPad = Math.min(0, subX(0) - SUB_R - 14);
@@ -326,20 +403,27 @@ export function AutomationFlow({
         <rect x={leftPad} width={W - leftPad} height={height} rx={14} fill="url(#flow-dots)" opacity={0.55} />
 
         {/* Main chain */}
-        <path className="autoflow-wire" d={wire(colX[0] + NODE_W, midY, colX[1], midY)} {...wireStyle} />
+        {chain.slice(1).map((_, i) => (
+          <path
+            key={`wire-${i}`}
+            className="autoflow-wire"
+            d={wire(colX(i) + NODE_W, midY, colX(i + 1), midY)}
+            {...wireStyle}
+          />
+        ))}
         <path
           className="autoflow-wire"
-          d={wire(colX[1] + NODE_W, midY, colX[2], successY + NODE_H / 2)}
+          d={wire(lastX, midY, colX(outCol), successY + NODE_H / 2)}
           {...wireStyle}
         />
         <path
           className="autoflow-wire"
-          d={wire(colX[1] + NODE_W, midY, colX[2], failureY + NODE_H / 2)}
+          d={wire(lastX, midY, colX(outCol), failureY + NODE_H / 2)}
           {...wireStyle}
         />
         {/* Branch labels, as n8n puts true/false on the wire. */}
         <text
-          x={colX[1] + NODE_W + GAP_X / 2}
+          x={lastX + GAP_X / 2}
           y={successY + NODE_H / 2 - 6}
           textAnchor="middle"
           fontSize={9.5}
@@ -348,7 +432,7 @@ export function AutomationFlow({
           done
         </text>
         <text
-          x={colX[1] + NODE_W + GAP_X / 2}
+          x={lastX + GAP_X / 2}
           y={failureY + NODE_H / 2 + 16}
           textAnchor="middle"
           fontSize={9.5}
@@ -366,10 +450,11 @@ export function AutomationFlow({
           />
         ))}
 
-        <Card n={trigger} x={colX[0]} y={mainY} onClick={onNodeClick} noted={notedNodes?.has(trigger.id)} />
-        <Card n={agent} x={colX[1]} y={mainY} onClick={onNodeClick} noted={notedNodes?.has(agent.id)} />
-        <Card n={success} x={colX[2]} y={successY} onClick={onNodeClick} noted={notedNodes?.has(success.id)} />
-        <Card n={failure} x={colX[2]} y={failureY} onClick={onNodeClick} noted={notedNodes?.has(failure.id)} />
+        {chain.map((n, i) => (
+          <Card key={n.id} n={n} x={colX(i)} y={mainY} onClick={onNodeClick} noted={notedNodes?.has(n.id)} />
+        ))}
+        <Card n={success} x={colX(outCol)} y={successY} onClick={onNodeClick} noted={notedNodes?.has(success.id)} />
+        <Card n={failure} x={colX(outCol)} y={failureY} onClick={onNodeClick} noted={notedNodes?.has(failure.id)} />
         {subs.map((n, i) => (
           <SubNode
             key={n.id}

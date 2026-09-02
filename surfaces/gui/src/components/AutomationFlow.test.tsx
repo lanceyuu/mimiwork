@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 afterEach(cleanup);
-import { AutomationFlow, flowNodes } from "./AutomationFlow";
+import { AutomationFlow, flowNodes, flowSteps } from "./AutomationFlow";
 import type { Automation } from "../api";
 
 const TASK: Automation = {
@@ -135,5 +135,72 @@ describe("AutomationFlow — rendering", () => {
     expect(onNodeClick).toHaveBeenCalledWith("agent");
     fireEvent.click(screen.getByTestId("flow-sub-model"));
     expect(onNodeClick).toHaveBeenCalledWith("model");
+  });
+});
+
+
+// The owner's three real automations, verbatim (2026-09-02). Same agent, model, folder
+// and grants — they drew ONE picture, because instructions were never read.
+const NEWS =
+  "Search the web for the most important technology and world news from the last 24 hours and " +
+  "write a concise 5-bullet briefing, saved as a markdown file.";
+const SCOUT =
+  "Scout for new skills worth adding to my MimiWork, and prepare them for my review.\n\n" +
+  "1. Search the web for Claude/agent skills published or trending in the LAST 7 DAYS.\n" +
+  "2. For each candidate, open the repository and judge it on substance.\n" +
+  "3. CHECK THE LICENSE before recommending anything.\n" +
+  "4. Compare against the skills I already have.\n" +
+  "5. Write a report saved as the deliverable.\n" +
+  "6. For the single best MIT/Apache-licensed pick, ALSO save a ready-to-review copy.";
+const BLOG =
+  "Run the blog translation and publishing job for gaiforresearch.com. In short: run " +
+  "`python3 translate_post.py --limit 3` to prep up to 3 pending posts, translate each source " +
+  "file into Simplified Chinese and Norwegian, self-review translations against the source, run " +
+  "`python3 post_drafts_to_wix.py --publish` to publish the translated posts to Wix.";
+
+describe("flowSteps — the chain is read off the instructions", () => {
+  const same = { ...TASK, always_allowed: [], model: null };
+
+  it("three real automations with identical settings draw three different chains", () => {
+    const chains = [NEWS, SCOUT, BLOG].map((instructions) =>
+      flowNodes({ ...same, instructions }).steps.map((n) => `${n.icon} ${n.title}`).join(" → "),
+    );
+    expect(new Set(chains).size).toBe(3);
+    chains.forEach((c) => expect(c.length).toBeGreaterThan(0));
+  });
+
+  it("prose is split on its clauses and only clauses that DO something survive", () => {
+    const steps = flowSteps(NEWS);
+    expect(steps.map((n) => n.icon)).toEqual(["🔎", "✍️", "📄"]);
+    expect(steps[0].title).toBe("Search the web");
+    expect(steps.map((n) => n.id)).toEqual(["step-0", "step-1", "step-2"]);
+  });
+
+  it("a numbered list is taken as written, capped with a 'more' node", () => {
+    const steps = flowSteps(SCOUT);
+    expect(steps).toHaveLength(5);
+    expect(steps[0].icon).toBe("🔎");
+    expect(steps[2].icon).toBe("✅"); // CHECK THE LICENSE
+    expect(steps[4].title).toBe("2 more steps");
+  });
+
+  it("a script-driven job shows its runs, translation and publish", () => {
+    const icons = flowSteps(BLOG).map((n) => n.icon);
+    expect(icons).toContain("⌘");
+    expect(icons).toContain("🌐");
+    expect(icons).toContain("📤");
+  });
+
+  it("no instructions means no steps — the chain is what it was", () => {
+    expect(flowSteps("")).toEqual([]);
+    expect(flowSteps(undefined)).toEqual([]);
+    expect(flowNodes({ ...same, instructions: "" }).steps).toEqual([]);
+  });
+
+  it("renders every step on the main line between the agent and the outcomes", () => {
+    render(<AutomationFlow task={{ ...same, instructions: NEWS }} />);
+    for (const id of ["trigger", "agent", "step-0", "step-1", "step-2", "output", "failure"]) {
+      expect(screen.getByTestId(`flow-node-${id}`)).toBeTruthy();
+    }
   });
 });
