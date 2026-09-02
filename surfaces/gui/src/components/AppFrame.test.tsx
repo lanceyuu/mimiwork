@@ -74,3 +74,27 @@ describe("AppFrame", () => {
     expect(reply.mock.calls[1][0]).toEqual({ mimi: 1, id: 4, result: { tone: "warm" } });
   });
 });
+
+
+describe("AppFrame — the creator's log and suggestion chips", () => {
+  it("reports every ask the app makes, with timing and the reply", async () => {
+    const onAsk = vi.fn();
+    render(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" onAsk={onAsk} />);
+    const win = (screen.getByTestId("app-frame") as HTMLIFrameElement).contentWindow!;
+    post(win, { mimi: 1, id: 9, kind: "ask", payload: { prompt: "hello", system: "be brief" } });
+    await waitFor(() => expect(onAsk).toHaveBeenCalled());
+    const entry = onAsk.mock.calls[0][0];
+    expect(entry).toMatchObject({ prompt: "hello", system: "be brief", reply: "Bonjour" });
+    expect(typeof entry.ms).toBe("number");
+  });
+
+  it("delivers a clicked suggestion into the page", () => {
+    const { rerender } = render(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" suggestion={null} />);
+    const win = (screen.getByTestId("app-frame") as HTMLIFrameElement).contentWindow!;
+    const into = vi.spyOn(win, "postMessage");
+    rerender(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" suggestion={{ text: "Into French", nonce: 1 }} />);
+    expect(into).toHaveBeenCalledWith({ mimi: 1, kind: "suggestion", text: "Into French" }, "*");
+    // The bridge inside the page knows the shape and offers Mimi.onSuggestion.
+    expect(frameDocument(APP, "<html><head></head></html>")).toContain("onSuggestion");
+  });
+});

@@ -125,3 +125,50 @@ def test_rest_shapes(tmp_path, monkeypatch):
     assert m.delete_app(created["id"])["ok"]
     assert m.get_app(created["id"]) == {"ok": False, "error": "not found"}
     assert json.dumps(m.list_apps()) == '{"apps": []}'
+
+
+# -- versions, opening line, the gallery (Coze-inspired, owner ask 2026-09-02) ----------
+
+
+def test_an_update_keeps_the_previous_file_and_undo_swaps_them(tmp_path):
+    store = AppStore(tmp_path / "apps")
+    app = store.create(title="T", html=HTML)
+    assert store.get(app.id).has_previous is False
+    with pytest.raises(ValueError):
+        store.revert(app.id)  # nothing to go back to yet
+    store.set_html(app.id, HTML.replace("Hi", "Second"))
+    assert store.get(app.id).has_previous is True
+    store.revert(app.id)
+    assert "<h1>Hi</h1>" in store.html(app.id), "undo brings the first version back"
+    store.revert(app.id)
+    assert "<h1>Second</h1>" in store.html(app.id), "undo again is redo"
+
+
+def test_the_opening_line_and_suggestions_round_trip_and_are_capped(tmp_path, monkeypatch):
+    m = _manager(tmp_path, monkeypatch)
+    res = m.import_app(
+        {"title": "T", "html": HTML, "intro": "Paste a paragraph to start.", "suggestions": ["a", "", "b"] + ["x"] * 9}
+    )
+    app = res["app"]
+    assert app["intro"] == "Paste a paragraph to start."
+    assert app["suggestions"] == ["a", "b", "x", "x", "x", "x"], "blanks dropped, six at most"
+    got = m.update_app(app["id"], {"suggestions": "nope"})["app"]
+    assert got["suggestions"] == []
+    pack_text = pack(m.app_store.get(app["id"]), HTML)
+    manifest, _ = unpack(pack_text)
+    assert manifest["intro"] == "Paste a paragraph to start." and manifest["suggestions"] == []
+    assert m.revert_app(app["id"]) == {"ok": False, "error": "there is no earlier version to go back to"}
+    m.update_app(app["id"], {"html": HTML.replace("Hi", "v2")})
+    assert "<h1>Hi</h1>" in m.revert_app(app["id"])["html"]
+
+
+def test_the_gallery_has_categorised_working_templates():
+    starters = builtin_starters()
+    assert len(starters) >= 8
+    assert {s["category"] for s in starters} >= {"Writing", "Research", "Teaching", "Meetings"}
+    for s in starters:
+        assert validate_html(s["html"]) is None, s["name"]
+        assert "Mimi.ask(" in s["html"], s["name"]
+        assert s["intro"] and 2 <= len(s["suggestions"]) <= 6, s["name"]
+        assert "Mimi.onSuggestion" in s["html"], s["name"]
+    assert [s["category"] for s in starters] == sorted(s["category"] for s in starters)

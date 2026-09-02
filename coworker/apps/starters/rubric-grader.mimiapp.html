@@ -1,0 +1,63 @@
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Rubric grader", "icon": "🎓", "category": "Teaching", "description": "Paste your rubric and a student's text; get a score per criterion with a sentence of feedback each, and a short note to the student.", "intro": "Paste the rubric on the left and the work on the right, then press Grade.", "suggestions": ["Grade strictly", "Be generous on style, strict on argument", "Write the feedback to the student"]}</script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rubric grader</title>
+<style>
+  :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 780px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  textarea, input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; }
+  button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  button.ghost { background: transparent; color: var(--muted); font-weight: 500; padding: 8px 6px; }
+  .out { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 60px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--paper); min-height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 16px; cursor: pointer; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e6f4f2; color: var(--accent); font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Rubric grader</h1>
+  <p class="lead">Paste the rubric on the left and the work on the right, then press Grade.</p>
+  <div class="grid">
+    <div><div class="muted">Rubric (criteria with points)</div><textarea id="rubric" placeholder="e.g. Argument (10): clear thesis, supported claims&#10;Evidence (10): …"></textarea></div>
+    <div><div class="muted">Student work</div><textarea id="work" placeholder="Paste the essay, report or answer…"></textarea></div>
+  </div>
+  <div class="row"><input id="stance" type="text" style="flex:1;min-width:200px" placeholder="Grading stance (optional), e.g. strict on argument"><button id="go">Grade</button><button id="copy" class="ghost" hidden>Copy feedback</button><span id="status" class="muted"></span></div>
+  <div id="out"></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  function setStatus(t) { $("status").textContent = t || ""; }
+  function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
+  async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
+
+  let result = null;
+  Mimi.state.get().then((s) => { if (s.rubric) $("rubric").value = s.rubric; }).catch(() => {});
+  $("go").onclick = () => run($("go"), async () => {
+    const rubric = $("rubric").value.trim(), work = $("work").value.trim(); if (!rubric || !work) return; Mimi.state.set({ rubric }).catch(() => {});
+    result = await Mimi.ask("Grade the student work against the rubric" + ($("stance").value.trim() ? " (" + $("stance").value.trim() + ")" : "") + ". Reply with JSON only: {\"rows\": [{\"criterion\": string, \"score\": number, \"max\": number, \"feedback\": string}], \"total\": number, \"max\": number, \"note\": string (three sentences to the student, specific and kind)}.\n\nRubric:\n" + rubric + "\n\nWork:\n" + work, { json: true });
+    if (!result || !Array.isArray(result.rows)) throw new Error("no grade came back");
+    $("out").innerHTML = "<table><thead><tr><th>Criterion</th><th>Score</th><th>Feedback</th></tr></thead><tbody>" + result.rows.map((r) => "<tr><td>" + esc(r.criterion) + "</td><td><span class='pill'>" + esc(r.score) + " / " + esc(r.max) + "</span></td><td>" + esc(r.feedback) + "</td></tr>").join("") + "</tbody></table><p><b>Total: " + esc(result.total) + " / " + esc(result.max) + "</b></p><div class='out'>" + esc(result.note) + "</div>";
+    $("copy").hidden = false;
+  });
+  function esc(s) { return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+  $("copy").onclick = () => result && copyText(result.rows.map((r) => r.criterion + ": " + r.score + "/" + r.max + " — " + r.feedback).join("\n") + "\n\n" + result.note);
+  Mimi.onSuggestion((text) => { if (/feedback to the student/i.test(text)) { if (result) copyText(result.note); return; } $("stance").value = text; if ($("work").value.trim()) $("go").click(); });
+</script>
+</body>
+</html>

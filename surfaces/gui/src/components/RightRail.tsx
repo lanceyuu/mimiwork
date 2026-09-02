@@ -16,6 +16,8 @@ import { clockTime } from "../time";
 import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
 import { Icon } from "./Icon";
+import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
+import { APPS_CHANGED, getApp, getApps, revertApp, type MimiApp } from "../api";
 import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
 
 type Panel = "progress" | "artifacts" | "recovery";
@@ -69,6 +71,9 @@ interface Props {
   // Feedback on a produced file goes to the conversation as a message — Mimi already
   // knows the file, so "make the background white" is all it takes (owner ask 2026-09-02).
   onFeedback?: (text: string) => void;
+  // Building an app in this conversation: the rail shows it running beside the chat,
+  // Coze-style, and reloads whenever Mimi saves. Open the app's own page from here.
+  onOpenApp?: (id: string) => void;
 }
 
 export function RightRail({
@@ -88,6 +93,7 @@ export function RightRail({
   openAccessKey = 0,
   onOpenIntegrations,
   onFeedback,
+  onOpenApp,
 }: Props) {
   const t = useT();
   const [open, setOpen] = useState<Record<Panel, boolean>>({
@@ -100,6 +106,48 @@ export function RightRail({
   const [recoveryError, setRecoveryError] = useState("");
   const [restoring, setRestoring] = useState(false);
   const [selected, setSelected] = useState<ArtifactInfo | null>(null);
+
+  // The app this conversation is building, if any: the one whose builder_session is us.
+  // Polled like the artifacts list (Mimi saves from a tool call the GUI never sees) and
+  // nudged by APPS_CHANGED; the frame reloads when the file's updated_at moves.
+  const [builderApp, setBuilderApp] = useState<MimiApp | null>(null);
+  const [builderHtml, setBuilderHtml] = useState("");
+  const [showBuilder, setShowBuilder] = useState(true);
+  const [builderAsks, setBuilderAsks] = useState<AskEntry[]>([]);
+  useEffect(() => {
+    if (!active || !sessionId) return;
+    let dead = false;
+    const load = () =>
+      getApps()
+        .then((list) => {
+          if (dead) return;
+          const mine = list.find((a) => a.builder_session === sessionId) || null;
+          setBuilderApp((cur) => (cur && mine && cur.updated_at === mine.updated_at && cur.id === mine.id ? cur : mine));
+        })
+        .catch(() => {});
+    load();
+    const t = setInterval(load, 4000);
+    window.addEventListener(APPS_CHANGED, load);
+    return () => {
+      dead = true;
+      clearInterval(t);
+      window.removeEventListener(APPS_CHANGED, load);
+    };
+  }, [active, sessionId, refreshKey]);
+  useEffect(() => {
+    if (!builderApp) {
+      setBuilderHtml("");
+      return;
+    }
+    getApp(builderApp.id)
+      .then((d) => setBuilderHtml(d.ok ? d.html ?? "" : ""))
+      .catch(() => {});
+  }, [builderApp?.id, builderApp?.updated_at]);
+  useEffect(() => {
+    setShowBuilder(true);
+    setBuilderAsks([]);
+  }, [sessionId]);
+  const builderVisible = !!builderApp && showBuilder && !selected;
 
   // Opening an artifact is ONE decision, made here: a Word/Excel/PowerPoint file has no
   // in-app preview, so it goes to the OS; everything else opens the viewer. This used to
@@ -167,9 +215,10 @@ export function RightRail({
   }, [selected?.path, sessionId]);
 
   // Notify the app when a preview opens/closes (drives the left-nav auto-collapse).
+  // The builder's app preview is a preview too: it wants the width.
   useEffect(() => {
-    onPreviewChange?.(!!selected);
-  }, [!!selected, onPreviewChange]);
+    onPreviewChange?.(!!selected || builderVisible);
+  }, [!!selected, builderVisible, onPreviewChange]);
 
   const reloadSelected = () => {
     if (!selected) return Promise.resolve();
@@ -229,8 +278,58 @@ export function RightRail({
   if (!active) return null;
 
   return (
-    <aside className={"right-rail" + (selected ? " artifact-mode" : "")}>
-      {selected ? (
+    <aside className={"right-rail" + (selected ? " artifact-mode" : builderVisible ? " app-mode" : "")}>
+      {builderVisible && builderApp ? (
+        <div className="app-builder" data-testid="app-builder">
+          <div className="app-builder-head">
+            <span className="app-icon" aria-hidden>
+              {builderApp.icon}
+            </span>
+            <div className="app-head-text">
+              <div className="app-builder-title">{builderApp.title}</div>
+              <div className="app-desc">Running here as you build it — it reloads each time Mimi saves.</div>
+            </div>
+            {builderApp.has_previous && (
+              <button
+                className="btn sm"
+                data-testid="app-builder-undo"
+                title="Swap back to the version before the last change (press again to redo)"
+                onClick={async () => {
+                  const r = await revertApp(builderApp.id).catch(() => ({ ok: false as const }));
+                  if (r.ok && r.app) {
+                    setBuilderApp(r.app);
+                    setBuilderHtml(r.html ?? "");
+                  }
+                }}
+              >
+                Undo last change
+              </button>
+            )}
+            {onOpenApp && (
+              <button className="btn sm" data-testid="app-builder-open" onClick={() => onOpenApp(builderApp.id)}>
+                Open page
+              </button>
+            )}
+            <button
+              className="artifact-icon-btn"
+              aria-label="Show the side panels instead"
+              title="Show the side panels instead"
+              onClick={() => setShowBuilder(false)}
+            >
+              <Icon name="panelClose" size={16} />
+            </button>
+          </div>
+          <div className="app-builder-stage">
+            <AppFrame
+              key={builderApp.updated_at}
+              app={{ id: builderApp.id, title: builderApp.title }}
+              html={builderHtml}
+              onAsk={(e) => setBuilderAsks((cur) => [...cur.slice(-49), e])}
+            />
+          </div>
+          <AskLog entries={builderAsks} />
+        </div>
+      ) : selected ? (
         <ArtifactViewer
           sessionId={sessionId}
           artifact={selected}
@@ -250,6 +349,11 @@ export function RightRail({
         />
       ) : (
         <>
+          {builderApp && !showBuilder && (
+            <button className="app-builder-return" data-testid="app-builder-return" onClick={() => setShowBuilder(true)}>
+              <span aria-hidden>{builderApp.icon}</span> Show {builderApp.title} here
+            </button>
+          )}
           <RailSection title="Progress" open={open.progress} onToggle={() => setOpen({ ...open, progress: !open.progress })}>
             <ProgressSummary running={running} toolNames={toolNames} todo={todo} />
           </RailSection>

@@ -5701,6 +5701,8 @@ class SessionManager:
                 html=str(body.get("html") or ""),
                 icon=str(body.get("icon") or "✨"),
                 description=str(body.get("description") or ""),
+                intro=str(body.get("intro") or ""),
+                suggestions=body.get("suggestions"),
             )
         except ValueError as e:
             return {"ok": False, "error": str(e)}
@@ -5712,7 +5714,11 @@ class SessionManager:
                 self.app_store.set_html(app_id, str(changes["html"]))
             app = self.app_store.update(
                 app_id,
-                **{k: changes[k] for k in ("title", "icon", "description", "model", "builder_session") if k in changes},
+                **{
+                    k: changes[k]
+                    for k in ("title", "icon", "description", "model", "builder_session", "intro", "suggestions")
+                    if k in changes
+                },
             )
         except KeyError:
             return {"ok": False, "error": "not found"}
@@ -5722,6 +5728,16 @@ class SessionManager:
 
     def delete_app(self, app_id: str) -> dict[str, Any]:
         return {"ok": self.app_store.delete(app_id), "id": app_id}
+
+    def revert_app(self, app_id: str) -> dict[str, Any]:
+        """Undo the last change (and undo the undo: the two files swap)."""
+        try:
+            app = self.app_store.revert(app_id)
+        except KeyError:
+            return {"ok": False, "error": "not found"}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "app": app.public(), "html": self.app_store.html(app_id)}
 
     def app_ask(self, app_id: str, prompt: str, system: str = "") -> dict[str, Any]:
         """The bridge's one model call. Spends credits exactly like a chat turn, on the

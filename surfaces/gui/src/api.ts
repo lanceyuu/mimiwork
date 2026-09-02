@@ -2694,6 +2694,11 @@ export interface MimiApp {
   model?: string | null;
   builder_session: string;
   asks: number;
+  // What the app says when opened and up to six chips to try (Coze-style opening line).
+  intro?: string;
+  suggestions?: string[];
+  // An update kept the previous index.html beside it — "Undo last change" is possible.
+  has_previous?: boolean;
   created_at: number;
   updated_at: number;
 }
@@ -2702,7 +2707,10 @@ export interface AppStarter {
   name: string;
   title: string;
   icon: string;
+  category: string;
   description: string;
+  intro?: string;
+  suggestions?: string[];
   html: string;
 }
 
@@ -2731,6 +2739,8 @@ export async function importApp(payload: {
   title: string;
   icon?: string;
   description?: string;
+  intro?: string;
+  suggestions?: string[];
   html: string;
 }): Promise<{ ok: boolean; error?: string; app?: MimiApp }> {
   const res = await fetch(`${httpBase()}/v1/apps`, {
@@ -2781,6 +2791,12 @@ export async function setAppState(id: string, state: Record<string, unknown>) {
     body: JSON.stringify({ state }),
   });
   return res.json() as Promise<{ ok: boolean; error?: string }>;
+}
+
+/** Undo the last change — and, called again, undo the undo (the two files swap). */
+export async function revertApp(id: string): Promise<{ ok: boolean; app?: MimiApp; html?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/revert`, { method: "POST" });
+  return res.json();
 }
 
 export async function exportApp(id: string): Promise<{ ok: boolean; path?: string; error?: string }> {

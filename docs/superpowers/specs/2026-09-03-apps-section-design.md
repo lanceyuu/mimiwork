@@ -111,6 +111,25 @@ GET    /v1/apps/builtin            starters
 `AppStore` in `coworker/apps/store.py`: manifests on disk, no database — a dozen apps do
 not need one. Ids are `app-<8 hex>`; the folder name is the id.
 
+## Borrowed from Coze Studio (added 2026-09-03, owner ask)
+
+After the first version shipped, five patterns from Coze Studio's agent builder were
+adopted; the platform itself (Go microservices, four databases) was not.
+
+- **Build and preview side by side.** The conversation that builds an app shows the app
+  running in the right rail (`app-mode`, the artifact-preview width), reloading each
+  time Mimi saves. The rail finds it by `builder_session`; "Open page" goes to the full
+  page; the panels are one click away.
+- **Versions and rollback.** `set_html` keeps `index.prev.html`; `POST /v1/apps/{id}/revert`
+  swaps the two, so undo has a redo. "Undo last change" appears once there is a past.
+- **A template gallery.** Eight starters in four categories (Writing, Research, Teaching,
+  Meetings), each with a one-line "what you get". Sorted by category, then title.
+- **Opening line and suggested actions.** Manifest fields `intro` and `suggestions`
+  (six at most). Shown above the frame; a chip is delivered into the page through
+  `Mimi.onSuggestion(fn)`. The skill asks Mimi to fill both.
+- **A log of model calls.** The host records every `Mimi.ask` (prompt, system, reply or
+  error, duration) and shows them folded under the frame, newest first, in memory only.
+
 ## Not in this version
 
 - **Hosting on qualitati.com.** Feasible, and the sandbox above is designed for it, but it

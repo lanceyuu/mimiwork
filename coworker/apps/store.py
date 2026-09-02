@@ -46,6 +46,14 @@ class App:
     model: Optional[str] = None
     builder_session: str = ""
     asks: int = 0
+    # What the app says when opened, and up to six things to try (shown as chips; a
+    # click reaches the page through Mimi.onSuggestion). Borrowed from Coze's opening
+    # line + suggested actions (owner ask 2026-09-02).
+    intro: str = ""
+    suggestions: list[str] = field(default_factory=list)
+    # True once an update has replaced index.html: the previous file is kept beside it,
+    # so "Undo last change" can swap them back.
+    has_previous: bool = False
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -110,6 +118,8 @@ class AppStore:
         description: str = "",
         builder_session: str = "",
         model: Optional[str] = None,
+        intro: str = "",
+        suggestions: Optional[list[Any]] = None,
     ) -> App:
         problem = validate_html(html)
         if problem:
@@ -121,6 +131,8 @@ class AppStore:
             description=(description or "").strip()[:300],
             model=(model or "").strip() or None,
             builder_session=builder_session or "",
+            intro=(intro or "").strip()[:300],
+            suggestions=_clean_suggestions(suggestions),
         )
         d = self._dir(app.id)
         d.mkdir(parents=True, exist_ok=False)
@@ -135,7 +147,32 @@ class AppStore:
         problem = validate_html(html)
         if problem:
             raise ValueError(problem)
-        (self._dir(app_id) / "index.html").write_text(html, encoding="utf-8")
+        d = self._dir(app_id)
+        current = d / "index.html"
+        if current.is_file():
+            # One step back is enough: the change that made it worse is the last one.
+            shutil.copyfile(current, d / "index.prev.html")
+            app.has_previous = True
+        current.write_text(html, encoding="utf-8")
+        app.updated_at = time.time()
+        self._save(app)
+        return app
+
+    def revert(self, app_id: str) -> App:
+        """Swap index.html with the kept previous version — so undo has a redo."""
+        app = self.get(app_id)
+        if app is None:
+            raise KeyError(app_id)
+        d = self._dir(app_id)
+        prev = d / "index.prev.html"
+        if not prev.is_file():
+            raise ValueError("there is no earlier version to go back to")
+        current = d / "index.html"
+        tmp = d / "index.swap.html"
+        current.replace(tmp)
+        prev.replace(current)
+        tmp.replace(prev)
+        app.has_previous = True
         app.updated_at = time.time()
         self._save(app)
         return app
@@ -155,6 +192,10 @@ class AppStore:
             app.model = (str(changes["model"] or "")).strip() or None
         if changes.get("builder_session") is not None:
             app.builder_session = str(changes["builder_session"])
+        if changes.get("intro") is not None:
+            app.intro = str(changes["intro"]).strip()[:300]
+        if changes.get("suggestions") is not None:
+            app.suggestions = _clean_suggestions(changes["suggestions"])
         app.updated_at = time.time()
         self._save(app)
         return app
@@ -189,6 +230,13 @@ class AppStore:
         )
 
 
+def _clean_suggestions(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out = [str(s).strip()[:80] for s in raw if str(s).strip()]
+    return out[:6]
+
+
 # -- export / import: one .mimiapp.html file ------------------------------------
 _MANIFEST_RE = re.compile(
     r'<script type="application/json" id="mimi-app">(.*?)</script>\s*', re.S
@@ -202,6 +250,8 @@ def pack(app: App, html: str) -> str:
         "title": app.title,
         "icon": app.icon,
         "description": app.description,
+        "intro": app.intro,
+        "suggestions": list(app.suggestions),
     }
     return (
         f'<script type="application/json" id="mimi-app">{json.dumps(manifest)}</script>\n'
@@ -222,7 +272,8 @@ def unpack(text: str) -> tuple[dict[str, Any], str]:
 
 
 def builtin_starters() -> list[dict[str, Any]]:
-    """Bundled starter apps, as {name, title, icon, description, html}."""
+    """Bundled starter apps — the template gallery. {name, title, icon, category,
+    description, intro, suggestions, html}, in gallery order (category, then title)."""
     out: list[dict[str, Any]] = []
     for path in sorted((Path(__file__).parent / "starters").glob("*.mimiapp.html")):
         try:
@@ -236,8 +287,11 @@ def builtin_starters() -> list[dict[str, Any]]:
                 "name": path.name.removesuffix(".mimiapp.html"),
                 "title": manifest["title"],
                 "icon": manifest.get("icon") or "✨",
+                "category": manifest.get("category") or "Tools",
                 "description": manifest.get("description") or "",
+                "intro": manifest.get("intro") or "",
+                "suggestions": _clean_suggestions(manifest.get("suggestions")),
                 "html": html,
             }
         )
-    return out
+    return sorted(out, key=lambda s: (s["category"], s["title"].lower()))

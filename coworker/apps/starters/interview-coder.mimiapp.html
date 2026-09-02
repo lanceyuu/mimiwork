@@ -1,0 +1,64 @@
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Interview coding helper", "icon": "🗂️", "category": "Research", "description": "Paste an interview excerpt and, if you have one, your codebook; get first-pass codes with the quotes that support them, as a table you can copy.", "intro": "Paste an excerpt (and your codebook, if any), then press Code it.", "suggestions": ["Code this with my codebook", "Open coding, no codebook", "Only codes about trust"]}</script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Interview coding helper</title>
+<style>
+  :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 780px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  textarea, input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; }
+  button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: default; }
+  button.ghost { background: transparent; color: var(--muted); font-weight: 500; padding: 8px 6px; }
+  .out { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 60px; }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--paper); min-height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 16px; cursor: pointer; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e6f4f2; color: var(--accent); font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Interview coding helper</h1>
+  <p class="lead">Paste an excerpt (and your codebook, if any), then press Code it.</p>
+  <div class="grid">
+    <div><div class="muted">Interview excerpt</div><textarea id="src" placeholder="Paste a passage of transcript…"></textarea></div>
+    <div><div class="muted">Codebook (optional, one code per line)</div><textarea id="book" placeholder="e.g. Trust in institutions — mentions of relying on official sources"></textarea></div>
+  </div>
+  <div class="row"><input id="focus" type="text" style="flex:1;min-width:200px" placeholder="Focus on… (optional)"><button id="go">Code it</button><button id="copy" class="ghost" hidden>Copy as CSV</button><span id="status" class="muted"></span></div>
+  <div id="out"></div>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  function setStatus(t) { $("status").textContent = t || ""; }
+  function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
+  async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
+
+  let rows = [];
+  Mimi.state.get().then((s) => { if (s.book) $("book").value = s.book; }).catch(() => {});
+  $("go").onclick = () => run($("go"), async () => {
+    const src = $("src").value.trim(); if (!src) return; const book = $("book").value.trim(); const focus = $("focus").value.trim();
+    Mimi.state.set({ book }).catch(() => {});
+    rows = await Mimi.ask("You are a qualitative researcher doing first-pass coding. " + (book ? "Apply THIS codebook (add a new code only when nothing fits, marked new):\n" + book + "\n\n" : "Do open coding: short descriptive codes. ") + (focus ? "Only code material about: " + focus + ". " : "") + "Reply with JSON only: an array of objects with keys code, quote (verbatim, under 30 words), note (why this code, one clause).\n\nExcerpt:\n" + src, { json: true });
+    if (!Array.isArray(rows)) throw new Error("no codes came back");
+    $("out").innerHTML = "<table><thead><tr><th>Code</th><th>Quote</th><th>Why</th></tr></thead><tbody>" + rows.map((r) => "<tr><td><span class='pill'>" + esc(r.code) + "</span></td><td>“" + esc(r.quote) + "”</td><td class='muted'>" + esc(r.note || "") + "</td></tr>").join("") + "</tbody></table>";
+    $("copy").hidden = false;
+  });
+  function esc(s) { return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+  $("copy").onclick = () => copyText("code,quote,note\n" + rows.map((r) => [r.code, r.quote, r.note || ""].map((v) => '"' + String(v).replace(/"/g, '""') + '"').join(",")).join("\n"));
+  Mimi.onSuggestion((text) => { if (/no codebook|open coding/i.test(text)) $("book").value = ""; const m = /about (.+)$/i.exec(text); if (m) $("focus").value = m[1]; $("src").focus(); });
+</script>
+</body>
+</html>

@@ -2070,6 +2070,10 @@ export function App() {
             openAccessKey={accessKey}
             onOpenIntegrations={() => setSurface("integrations")}
             onFeedback={(text) => send(text)}
+            onOpenApp={(id) => {
+              setAppsOpenId(id);
+              setSurface("apps");
+            }}
           />
         </div>
       </div>

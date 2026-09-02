@@ -1,9 +1,9 @@
-<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Rewrite in my voice", "icon": "✍️", "category": "Writing", "description": "Paste a draft, pick a tone, get it rewritten with every fact intact. Remembers your usual tone.", "intro": "Paste a draft, choose the tone, press Rewrite.", "suggestions": ["Make this email warmer", "Formal, for a dean", "Cut it to half the length"]}</script>
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Reference formatter", "icon": "📚", "category": "Writing", "description": "Paste messy references in any shape; get them back in APA 7, Chicago or Harvard, alphabetised, with anything uncertain flagged.", "intro": "Paste the references, pick a style, press Format.", "suggestions": ["APA 7, alphabetise", "Chicago author-date", "Which of these are incomplete?"]}</script>
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Rewrite in my voice</title>
+<title>Reference formatter</title>
 <style>
   :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
   * { box-sizing: border-box; }
@@ -31,15 +31,12 @@
 </head>
 <body>
 <main>
-  <h1>Rewrite in my voice</h1>
-  <p class="lead">Paste a draft, choose the tone, press Rewrite.</p>
-  <textarea id="src" placeholder="Paste the draft…"></textarea>
-  <div class="row">
-    <label>Tone <select id="tone"><option>plain and direct</option><option>warm and friendly</option><option>formal</option><option>academic</option><option>short and punchy</option></select></label>
-    <input id="notes" type="text" style="flex:1;min-width:200px" placeholder="Anything to keep in mind? (optional)">
-    <button id="go">Rewrite</button><button id="copy" class="ghost" hidden>Copy</button><span id="status" class="muted"></span>
-  </div>
-  <div id="out" class="out muted">The rewrite appears here.</div>
+  <h1>Reference formatter</h1>
+  <p class="lead">Paste the references, pick a style, press Format.</p>
+  <textarea id="src" placeholder="Paste references, DOIs, or half-remembered citations…"></textarea>
+  <div class="row"><label>Style <select id="style"><option>APA 7</option><option>Chicago author-date</option><option>Harvard</option><option>Vancouver</option></select></label>
+    <button id="go">Format</button><button id="copy" class="ghost" hidden>Copy</button><span id="status" class="muted"></span></div>
+  <div id="out" class="out muted">The formatted list appears here.</div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -47,14 +44,15 @@
   function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
   async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
 
-  Mimi.state.get().then((s) => { if (s.tone) $("tone").value = s.tone; }).catch(() => {});
+  let check = false;
+  Mimi.state.get().then((s) => { if (s.style) $("style").value = s.style; }).catch(() => {});
   $("go").onclick = () => run($("go"), async () => {
-    const src = $("src").value.trim(); if (!src) return; const tone = $("tone").value; const notes = $("notes").value.trim();
-    const out = await Mimi.ask("Rewrite the text below in a " + tone + " tone. Keep every fact and the author's meaning; do not add new claims." + (notes ? " Also: " + notes + "." : "") + " Reply with the rewritten text only.\n\n" + src);
-    $("out").textContent = out.trim(); $("out").classList.remove("muted"); $("copy").hidden = false; Mimi.state.set({ tone }).catch(() => {});
+    const src = $("src").value.trim(); if (!src) return; const style = $("style").value; Mimi.state.set({ style }).catch(() => {});
+    const out = await Mimi.ask((check ? "For each reference below, say whether it is complete enough to cite; list what is missing (year, pages, DOI, publisher…). Do not invent details." : "Format every reference below in " + style + " style, alphabetised. Never invent a missing detail: mark it [missing: year] and so on. Reply with the list only.") + "\n\n" + src);
+    $("out").textContent = out.trim(); $("out").classList.remove("muted"); $("copy").hidden = false; check = false;
   });
   $("copy").onclick = () => copyText($("out").textContent);
-  Mimi.onSuggestion((text) => { if (/warm/i.test(text)) $("tone").value = "warm and friendly"; if (/formal/i.test(text)) $("tone").value = "formal"; if (/half|cut|short/i.test(text)) { $("tone").value = "short and punchy"; $("notes").value = "about half the length"; } $("src").focus(); });
+  Mimi.onSuggestion((text) => { check = /incomplete|missing/i.test(text); if (/apa/i.test(text)) $("style").value = "APA 7"; if (/chicago/i.test(text)) $("style").value = "Chicago author-date"; if ($("src").value.trim()) $("go").click(); else $("src").focus(); });
 </script>
 </body>
 </html>

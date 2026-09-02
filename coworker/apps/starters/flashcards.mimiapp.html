@@ -1,9 +1,9 @@
-<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Rewrite in my voice", "icon": "✍️", "category": "Writing", "description": "Paste a draft, pick a tone, get it rewritten with every fact intact. Remembers your usual tone.", "intro": "Paste a draft, choose the tone, press Rewrite.", "suggestions": ["Make this email warmer", "Formal, for a dean", "Cut it to half the length"]}</script>
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Flashcard drill", "icon": "🃏", "category": "Teaching", "description": "Paste notes or a reading; Mimi turns them into question cards you flip through. Your deck is kept.", "intro": "Paste the notes, press Make cards, then click a card to flip it.", "suggestions": ["Ten cards from these lecture notes", "Harder questions, no definitions", "Start the drill again"]}</script>
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Rewrite in my voice</title>
+<title>Flashcard drill</title>
 <style>
   :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
   * { box-sizing: border-box; }
@@ -31,15 +31,16 @@
 </head>
 <body>
 <main>
-  <h1>Rewrite in my voice</h1>
-  <p class="lead">Paste a draft, choose the tone, press Rewrite.</p>
-  <textarea id="src" placeholder="Paste the draft…"></textarea>
-  <div class="row">
-    <label>Tone <select id="tone"><option>plain and direct</option><option>warm and friendly</option><option>formal</option><option>academic</option><option>short and punchy</option></select></label>
-    <input id="notes" type="text" style="flex:1;min-width:200px" placeholder="Anything to keep in mind? (optional)">
-    <button id="go">Rewrite</button><button id="copy" class="ghost" hidden>Copy</button><span id="status" class="muted"></span>
+  <h1>Flashcard drill</h1>
+  <p class="lead">Paste the notes, press Make cards, then click a card to flip it.</p>
+  <textarea id="src" placeholder="Paste notes, a chapter summary, a reading…"></textarea>
+  <div class="row"><label>Cards <select id="n"><option>6</option><option selected>10</option><option>15</option></select></label>
+    <button id="go">Make cards</button><span id="status" class="muted"></span></div>
+  <div id="drill" hidden>
+    <div class="row"><span id="pos" class="pill"></span><span class="muted">click the card to flip</span></div>
+    <div id="card" class="card"></div>
+    <div class="row"><button id="prev" class="ghost">Previous</button><button id="next">Next</button><button id="reset" class="ghost">New deck</button></div>
   </div>
-  <div id="out" class="out muted">The rewrite appears here.</div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -47,14 +48,21 @@
   function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
   async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
 
-  Mimi.state.get().then((s) => { if (s.tone) $("tone").value = s.tone; }).catch(() => {});
+  let deck = [], i = 0, flipped = false, hard = false;
+  Mimi.state.get().then((s) => { if (Array.isArray(s.deck) && s.deck.length) { deck = s.deck; showDrill(); } }).catch(() => {});
+  function showDrill() { $("drill").hidden = false; i = 0; flipped = false; render(); }
+  function render() { const c = deck[i]; $("pos").textContent = (i + 1) + " / " + deck.length; $("card").textContent = flipped ? c.a : c.q; $("card").style.background = flipped ? "#e6f4f2" : ""; }
+  $("card").onclick = () => { flipped = !flipped; render(); };
+  $("next").onclick = () => { i = (i + 1) % deck.length; flipped = false; render(); };
+  $("prev").onclick = () => { i = (i - 1 + deck.length) % deck.length; flipped = false; render(); };
+  $("reset").onclick = () => { $("drill").hidden = true; deck = []; Mimi.state.set({ deck: [] }).catch(() => {}); };
   $("go").onclick = () => run($("go"), async () => {
-    const src = $("src").value.trim(); if (!src) return; const tone = $("tone").value; const notes = $("notes").value.trim();
-    const out = await Mimi.ask("Rewrite the text below in a " + tone + " tone. Keep every fact and the author's meaning; do not add new claims." + (notes ? " Also: " + notes + "." : "") + " Reply with the rewritten text only.\n\n" + src);
-    $("out").textContent = out.trim(); $("out").classList.remove("muted"); $("copy").hidden = false; Mimi.state.set({ tone }).catch(() => {});
+    const src = $("src").value.trim(); if (!src) return;
+    const cards = await Mimi.ask("Write " + $("n").value + " flashcards from the material below" + (hard ? ", favouring application and comparison questions over definitions" : "") + ". Reply with JSON only: an array of objects with keys q (question) and a (answer, one or two sentences).\n\n" + src, { json: true });
+    deck = (Array.isArray(cards) ? cards : []).filter((c) => c && c.q && c.a); if (!deck.length) throw new Error("no cards came back");
+    Mimi.state.set({ deck }).catch(() => {}); showDrill();
   });
-  $("copy").onclick = () => copyText($("out").textContent);
-  Mimi.onSuggestion((text) => { if (/warm/i.test(text)) $("tone").value = "warm and friendly"; if (/formal/i.test(text)) $("tone").value = "formal"; if (/half|cut|short/i.test(text)) { $("tone").value = "short and punchy"; $("notes").value = "about half the length"; } $("src").focus(); });
+  Mimi.onSuggestion((text) => { hard = /harder|application|no definitions/i.test(text); if (/again|restart/i.test(text)) { i = 0; flipped = false; if (deck.length) render(); } else { if (/ten/i.test(text)) $("n").value = "10"; $("src").focus(); } });
 </script>
 </body>
 </html>

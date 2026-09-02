@@ -1730,7 +1730,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
     // apps
     if (p.endsWith("/v1/apps/builtin")) {
       return json([
-        { name: "translator", title: "Translator", icon: "🌐", description: "Translates what you paste.", html: APP_HTML },
+        { name: "translator", title: "Translator", icon: "🌐", category: "Writing", description: "Translates what you paste.", intro: "Paste the text, choose the language, press Translate.", suggestions: ["Into French"], html: APP_HTML },
+        { name: "flashcards", title: "Flashcard drill", icon: "🃏", category: "Teaching", description: "Cards from your notes.", intro: "Paste notes.", suggestions: ["Ten cards"], html: APP_HTML },
       ]);
     }
     if (p.endsWith("/v1/apps") && m === "GET") return json({ apps });
@@ -1739,14 +1740,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const app = {
         id: `app-${(apps.length + 1).toString(16).padStart(8, "0")}`,
         title: b.title, icon: b.icon || "✨", description: b.description || "", model: null,
-        builder_session: "", asks: 0, created_at: 1, updated_at: 1, html: b.html,
+        builder_session: "", asks: 0, intro: b.intro || "", suggestions: b.suggestions || [],
+        has_previous: false, created_at: 1, updated_at: 1, html: b.html,
       };
       apps.push(app);
       const { html: _h, ...pub } = app;
       return json({ ok: true, app: pub });
     }
     {
-      const am = p.match(/\/v1\/apps\/([^/]+)(?:\/(ask|state|export))?$/);
+      const am = p.match(/\/v1\/apps\/([^/]+)(?:\/(ask|state|export|revert))?$/);
       if (am) {
         const app = apps.find((a) => a.id === am[1]);
         if (!app) return json({ ok: false, error: "not found" });
@@ -1754,6 +1756,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
         if (am[2] === "ask") return json({ ok: true, text: "Bonjour" });
         if (am[2] === "state") return json({ ok: true, state: {} });
         if (am[2] === "export") return json({ ok: true, path: "/tmp/x.mimiapp.html" });
+        if (am[2] === "revert") return json({ ok: true, app: pub, html });
         if (m === "GET") return json({ ok: true, app: pub, html });
         if (m === "PATCH") {
           Object.assign(app, req.postDataJSON());

@@ -1,4 +1,4 @@
-<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Translator", "icon": "🌐", "description": "Paste text, pick a language, get a faithful translation. Keeps your last five."}</script>
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Translator", "icon": "🌐", "category": "Writing", "description": "Paste text, pick a language, get a faithful translation with a copy button. Keeps your last five.", "intro": "Paste the text, choose the language, press Translate.", "suggestions": ["Translate this abstract into French", "Into Simplified Chinese, keep the headings", "Norwegian, informal tone"]}</script>
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,9 +8,11 @@
   :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
   * { box-sizing: border-box; }
   body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
-  main { max-width: 760px; margin: 0 auto; padding: 24px 20px 40px; }
-  h1 { font-size: 18px; margin: 0 0 14px; }
-  textarea { width: 100%; min-height: 130px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; resize: vertical; }
+  main { max-width: 780px; margin: 0 auto; padding: 24px 20px 40px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  textarea, input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+  textarea { min-height: 120px; resize: vertical; }
   .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
   select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; background: #fff; }
   button { padding: 8px 16px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
@@ -18,14 +20,19 @@
   button.ghost { background: transparent; color: var(--muted); font-weight: 500; padding: 8px 6px; }
   .out { white-space: pre-wrap; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); min-height: 60px; }
   .muted { color: var(--muted); font-size: 12.5px; }
-  .hist { margin-top: 22px; }
-  .hist h2 { font-size: 13px; color: var(--muted); margin: 0 0 6px; text-transform: uppercase; letter-spacing: .06em; }
-  .hist button { display: block; width: 100%; text-align: left; background: transparent; color: var(--ink); font-weight: 400; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .card { border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--paper); min-height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 16px; cursor: pointer; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e6f4f2; color: var(--accent); font-size: 12px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <main>
   <h1>Translator</h1>
+  <p class="lead">Paste the text, choose the language, press Translate.</p>
   <textarea id="src" placeholder="Paste or type the text to translate…"></textarea>
   <div class="row">
     <label>Into
@@ -40,62 +47,32 @@
     <span id="status" class="muted"></span>
   </div>
   <div id="out" class="out muted">The translation appears here.</div>
-  <div class="hist" id="histwrap" hidden>
-    <h2>Recent</h2>
-    <div id="hist"></div>
-  </div>
+  <div id="histwrap" hidden style="margin-top:22px"><div class="muted" style="text-transform:uppercase;letter-spacing:.06em;font-size:11.5px;margin-bottom:6px">Recent</div><div id="hist"></div></div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
+  function setStatus(t) { $("status").textContent = t || ""; }
+  function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
+  async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
+
   let history = [];
-  async function load() {
-    const s = await Mimi.state.get().catch(() => ({}));
-    history = Array.isArray(s.history) ? s.history : [];
-    renderHistory();
-  }
+  Mimi.state.get().then((s) => { history = Array.isArray(s.history) ? s.history : []; renderHistory(); }).catch(() => {});
   function renderHistory() {
-    $("histwrap").hidden = history.length === 0;
-    $("hist").innerHTML = "";
-    history.forEach((h) => {
-      const b = document.createElement("button");
-      b.textContent = `${h.lang} · ${h.src.slice(0, 60)}`;
-      b.onclick = () => { $("src").value = h.src; $("lang").value = h.lang; show(h.out); };
-      $("hist").appendChild(b);
-    });
+    $("histwrap").hidden = history.length === 0; $("hist").innerHTML = "";
+    history.forEach((h) => { const b = document.createElement("button"); b.className = "ghost"; b.style.display = "block"; b.textContent = h.lang + " · " + h.src.slice(0, 60);
+      b.onclick = () => { $("src").value = h.src; $("lang").value = h.lang; show(h.out); }; $("hist").appendChild(b); });
   }
-  function show(text) {
-    $("out").textContent = text;
-    $("out").classList.remove("muted");
-    $("copy").hidden = !text;
-  }
-  $("go").onclick = async () => {
-    const src = $("src").value.trim();
-    const lang = $("lang").value;
-    if (!src) return;
-    $("go").disabled = true;
-    $("status").textContent = "Translating…";
-    try {
-      const out = await Mimi.ask(
-        `Translate the following text into ${lang}. Keep the meaning, tone and formatting. Reply with the translation only.\n\n${src}`
-      );
-      show(out.trim());
-      history = [{ src, lang, out: out.trim() }, ...history.filter((h) => h.src !== src || h.lang !== lang)].slice(0, 5);
-      renderHistory();
-      Mimi.state.set({ history }).catch(() => {});
-      $("status").textContent = "";
-    } catch (e) {
-      $("status").textContent = "Could not translate: " + (e.message || e);
-    } finally {
-      $("go").disabled = false;
-    }
-  };
-  $("copy").onclick = () => {
-    const t = $("out").textContent;
-    const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select();
-    try { document.execCommand("copy"); $("status").textContent = "Copied."; } catch {}
-    ta.remove();
-  };
-  load();
+  function show(t) { $("out").textContent = t; $("out").classList.remove("muted"); $("copy").hidden = !t; }
+  const pick = (name) => { for (const o of $("lang").options) if (o.text.toLowerCase() === name.toLowerCase()) $("lang").value = o.text; };
+  $("go").onclick = () => run($("go"), async () => {
+    const src = $("src").value.trim(); const lang = $("lang").value; if (!src) return;
+    const out = (await Mimi.ask("Translate the following text into " + lang + ". Keep the meaning, tone and formatting. Reply with the translation only.\n\n" + src)).trim();
+    show(out);
+    history = [{ src, lang, out }, ...history.filter((h) => h.src !== src || h.lang !== lang)].slice(0, 5);
+    renderHistory(); Mimi.state.set({ history }).catch(() => {});
+  });
+  $("copy").onclick = () => copyText($("out").textContent);
+  Mimi.onSuggestion((text) => { const m = /into ([a-z ]+?)(?:,|$)/i.exec(text); if (m) pick(m[1].trim()); if (/norwegian/i.test(text)) pick("Norwegian"); $("src").focus(); setStatus("Paste the text, then Translate."); });
 </script>
 </body>
 </html>

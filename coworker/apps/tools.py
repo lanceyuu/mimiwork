@@ -40,6 +40,18 @@ _CREATE = {
                         "user's build request names; omit for the app default."
                     ),
                 },
+                "intro": {
+                    "type": "string",
+                    "description": "One sentence the app shows when opened: what to do first.",
+                },
+                "suggestions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Up to six short things to try, shown as chips. A click reaches the "
+                        "page through Mimi.onSuggestion(fn) if the page registers one."
+                    ),
+                },
             },
             "required": ["title", "html"],
         },
@@ -62,6 +74,8 @@ _UPDATE = {
                 "title": {"type": "string"},
                 "icon": {"type": "string"},
                 "description": {"type": "string"},
+                "intro": {"type": "string"},
+                "suggestions": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["id", "html"],
         },
@@ -93,7 +107,9 @@ def _tool(func: Callable, schema: dict) -> Callable:
 
 
 def app_tools(store: AppStore, *, session_id: str = "") -> list[Callable[..., Any]]:
-    def create_app(title, html, icon="✨", description="", model=None):
+    def create_app(
+        title, html, icon="✨", description="", model=None, intro="", suggestions=None
+    ):
         try:
             app = store.create(
                 title=title,
@@ -102,15 +118,26 @@ def app_tools(store: AppStore, *, session_id: str = "") -> list[Callable[..., An
                 description=description,
                 builder_session=session_id,
                 model=model,
+                intro=intro,
+                suggestions=suggestions,
             )
         except ValueError as e:
             return {"error": str(e)}
         return {"ok": True, "id": app.id, "title": app.title}
 
-    def update_app(id, html, title=None, icon=None, description=None):
+    def update_app(
+        id, html, title=None, icon=None, description=None, intro=None, suggestions=None
+    ):
         try:
             store.set_html(id, html)
-            app = store.update(id, title=title, icon=icon, description=description)
+            app = store.update(
+                id,
+                title=title,
+                icon=icon,
+                description=description,
+                intro=intro,
+                suggestions=suggestions,
+            )
         except KeyError:
             return {"error": f"no app with id {id!r}"}
         except ValueError as e:

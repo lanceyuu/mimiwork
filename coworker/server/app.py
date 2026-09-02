@@ -1555,6 +1555,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def app_state_put(app_id: str, body: dict) -> dict[str, Any]:
         return manager.set_app_state(app_id, (body or {}).get("state"))
 
+    @app.post("/v1/apps/{app_id}/revert")
+    def app_revert(app_id: str) -> dict[str, Any]:
+        return manager.revert_app(app_id)
+
     @app.post("/v1/apps/{app_id}/export")
     def app_export(app_id: str) -> dict[str, Any]:
         return manager.export_app(app_id)

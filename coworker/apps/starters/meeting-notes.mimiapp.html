@@ -1,9 +1,9 @@
-<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Rewrite in my voice", "icon": "✍️", "category": "Writing", "description": "Paste a draft, pick a tone, get it rewritten with every fact intact. Remembers your usual tone.", "intro": "Paste a draft, choose the tone, press Rewrite.", "suggestions": ["Make this email warmer", "Formal, for a dean", "Cut it to half the length"]}</script>
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Meeting-notes summariser", "icon": "📝", "category": "Meetings", "description": "Paste raw notes or a transcript; get decisions, action items with owners, and open questions you can paste into an email.", "intro": "Paste the notes, press Summarise, copy what you need.", "suggestions": ["Just the action items", "Write it as an email to the team", "What did we decide about the budget?"]}</script>
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Rewrite in my voice</title>
+<title>Meeting-notes summariser</title>
 <style>
   :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; }
   * { box-sizing: border-box; }
@@ -31,15 +31,11 @@
 </head>
 <body>
 <main>
-  <h1>Rewrite in my voice</h1>
-  <p class="lead">Paste a draft, choose the tone, press Rewrite.</p>
-  <textarea id="src" placeholder="Paste the draft…"></textarea>
-  <div class="row">
-    <label>Tone <select id="tone"><option>plain and direct</option><option>warm and friendly</option><option>formal</option><option>academic</option><option>short and punchy</option></select></label>
-    <input id="notes" type="text" style="flex:1;min-width:200px" placeholder="Anything to keep in mind? (optional)">
-    <button id="go">Rewrite</button><button id="copy" class="ghost" hidden>Copy</button><span id="status" class="muted"></span>
-  </div>
-  <div id="out" class="out muted">The rewrite appears here.</div>
+  <h1>Meeting-notes summariser</h1>
+  <p class="lead">Paste the notes, press Summarise, copy what you need.</p>
+  <textarea id="src" placeholder="Paste meeting notes or a transcript…"></textarea>
+  <div class="row"><button id="go">Summarise</button><button id="copy" class="ghost" hidden>Copy</button><span id="status" class="muted"></span></div>
+  <div id="out" class="out muted">Decisions, actions and open questions appear here.</div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -47,14 +43,14 @@
   function copyText(t) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); setStatus("Copied."); } catch {} ta.remove(); }
   async function run(btn, fn) { btn.disabled = true; setStatus("Asking Mimi…"); try { await fn(); setStatus(""); } catch (e) { setStatus("Could not do that: " + (e.message || e)); } finally { btn.disabled = false; } }
 
-  Mimi.state.get().then((s) => { if (s.tone) $("tone").value = s.tone; }).catch(() => {});
+  let ask = "";
   $("go").onclick = () => run($("go"), async () => {
-    const src = $("src").value.trim(); if (!src) return; const tone = $("tone").value; const notes = $("notes").value.trim();
-    const out = await Mimi.ask("Rewrite the text below in a " + tone + " tone. Keep every fact and the author's meaning; do not add new claims." + (notes ? " Also: " + notes + "." : "") + " Reply with the rewritten text only.\n\n" + src);
-    $("out").textContent = out.trim(); $("out").classList.remove("muted"); $("copy").hidden = false; Mimi.state.set({ tone }).catch(() => {});
+    const src = $("src").value.trim(); if (!src) return;
+    const out = await Mimi.ask((ask || "Summarise these meeting notes under three headings: Decisions, Action items (one per line: what — who — by when, or 'no date'), Open questions. Plain text, no preamble.") + "\n\nNotes:\n" + src);
+    $("out").textContent = out.trim(); $("out").classList.remove("muted"); $("copy").hidden = false; ask = "";
   });
   $("copy").onclick = () => copyText($("out").textContent);
-  Mimi.onSuggestion((text) => { if (/warm/i.test(text)) $("tone").value = "warm and friendly"; if (/formal/i.test(text)) $("tone").value = "formal"; if (/half|cut|short/i.test(text)) { $("tone").value = "short and punchy"; $("notes").value = "about half the length"; } $("src").focus(); });
+  Mimi.onSuggestion((text) => { if (/action items/i.test(text)) ask = "List only the action items from these notes, one per line: what — who — by when."; else if (/email/i.test(text)) ask = "Write a short email to the team summarising these notes: what was decided, who does what by when, what is still open. Plain text."; else ask = "From these notes, answer: " + text + ". Quote the relevant line."; if ($("src").value.trim()) $("go").click(); else $("src").focus(); });
 </script>
 </body>
 </html>

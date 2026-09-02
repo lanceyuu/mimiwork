@@ -24,6 +24,8 @@ wants a change. Never write the file anywhere else.
   - `await Mimi.state.get()` / `await Mimi.state.set(object)` → one small JSON object
     that survives reopening (last inputs, preferences, a short history). Under 256 KB.
   - `Mimi.app` → `{ id, title }`.
+  - `Mimi.onSuggestion(fn)` → `fn(text)` runs when the user clicks one of the app's
+    suggestion chips (see below). Use it to fill the main input and run.
 - Keep the file under 100 KB. If a feature needs a library, it needs a different design.
 
 ## How to build one
@@ -36,9 +38,11 @@ wants a change. Never write the file anywhere else.
    10px radii, system font.
 4. Put the whole prompt for `Mimi.ask` in one template string; tell the model to reply
    with the result only.
-5. Call `create_app(title, html, icon, description)` — an emoji icon, a short title.
-   Then tell the user it is in the Apps section, in one line. Do not paste the HTML in
-   the chat.
+5. Call `create_app(title, html, icon, description, intro, suggestions)` — an emoji
+   icon, a short title, an `intro` (one sentence: what to do first, shown when the app
+   opens) and two to four `suggestions` (short things to try, shown as chips; wire
+   `Mimi.onSuggestion` so a click fills the input and runs). Then tell the user it is in
+   the Apps section, in one line. Do not paste the HTML in the chat.
 
 ## Changing an app
 

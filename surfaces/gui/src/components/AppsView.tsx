@@ -15,11 +15,12 @@ import {
   getSettings,
   importApp,
   listAppStarters,
+  revertApp,
   updateApp,
   type AppStarter,
   type MimiApp,
 } from "../api";
-import { AppFrame } from "./AppFrame";
+import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
@@ -150,33 +151,50 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
       </div>
 
       {starters.length > 0 && (
-        <>
-          <div className="sa-sub">Starters</div>
-          <div className="grid gap-2.5 mb-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
-            {starters.map((s) => (
-              <div className={CARD + " p-3.5 flex flex-col gap-1.5"} key={s.name} data-testid={`app-starter-${s.name}`}>
-                <div className="flex items-center gap-2 text-[13.5px] font-medium">
-                  <span aria-hidden>{s.icon}</span>
-                  {s.title}
-                </div>
-                <div className="text-[12.5px] text-muted flex-1">{s.description}</div>
-                <button
-                  className="btn sm self-start"
-                  onClick={async () => {
-                    const r = await importApp({ title: s.title, icon: s.icon, description: s.description, html: s.html });
-                    if (r.ok && r.app) {
-                      announceAppsChanged();
-                      await refresh();
-                      setOpenId(r.app.id);
-                    } else alert(r.error || "Could not add the starter.");
-                  }}
-                >
-                  Add
-                </button>
-              </div>
-            ))}
+        <div className="apps-gallery" data-testid="apps-gallery">
+          <div className="sa-sub">Templates</div>
+          <div className="dim" style={{ marginBottom: 10, fontSize: 12.5 }}>
+            Ready-made apps to add as your own, then change however you like.
           </div>
-        </>
+          {Array.from(new Set(starters.map((s) => s.category))).map((cat) => (
+            <div key={cat} className="apps-gallery-group">
+              <div className="apps-gallery-cat">{cat}</div>
+              <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))" }}>
+                {starters
+                  .filter((s) => s.category === cat)
+                  .map((s) => (
+                    <div className={CARD + " p-3.5 flex flex-col gap-1.5"} key={s.name} data-testid={`app-starter-${s.name}`}>
+                      <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                        <span aria-hidden>{s.icon}</span>
+                        {s.title}
+                      </div>
+                      <div className="text-[12.5px] text-muted flex-1">{s.description}</div>
+                      <button
+                        className="btn sm self-start"
+                        onClick={async () => {
+                          const r = await importApp({
+                            title: s.title,
+                            icon: s.icon,
+                            description: s.description,
+                            intro: s.intro,
+                            suggestions: s.suggestions,
+                            html: s.html,
+                          });
+                          if (r.ok && r.app) {
+                            announceAppsChanged();
+                            await refresh();
+                            setOpenId(r.app.id);
+                          } else alert(r.error || "Could not add the template.");
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       <div className="sa-sub">Your apps</div>
@@ -266,6 +284,9 @@ function AppDetail({
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
+  const [asks, setAsks] = useState<AskEntry[]>([]);
+  const [suggestion, setSuggestion] = useState<{ text: string; nonce: number } | null>(null);
+  const [undoing, setUndoing] = useState(false);
 
   const load = () =>
     getApp(id)
@@ -379,6 +400,26 @@ function AppDetail({
           </select>
         </label>
         <div className="app-head-actions">
+          {app.has_previous && (
+            <button
+              className="btn sm"
+              data-testid="app-undo"
+              title="Swap back to the version before the last change (press again to redo)"
+              disabled={undoing}
+              onClick={async () => {
+                setUndoing(true);
+                const r = await revertApp(app.id).catch(() => ({ ok: false as const }));
+                setUndoing(false);
+                if (r.ok && r.app) {
+                  setApp(r.app);
+                  setHtml(r.html ?? "");
+                  announceAppsChanged();
+                } else alert(("error" in r && r.error) || "Could not undo.");
+              }}
+            >
+              Undo last change
+            </button>
+          )}
           <button className="btn-primary sm" data-testid="app-improve" onClick={() => setNote((v) => !v)}>
             Improve
           </button>
@@ -426,9 +467,32 @@ function AppDetail({
           </div>
         </div>
       )}
+      {(app.intro || (app.suggestions && app.suggestions.length > 0)) && (
+        <div className="app-intro" data-testid="app-intro">
+          {app.intro && <span className="app-intro-text">{app.intro}</span>}
+          {(app.suggestions || []).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="app-chip"
+              data-testid="app-chip"
+              onClick={() => setSuggestion({ text: s, nonce: Date.now() })}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="app-stage">
-        <AppFrame key={app.updated_at} app={{ id: app.id, title: app.title }} html={html} />
+        <AppFrame
+          key={app.updated_at}
+          app={{ id: app.id, title: app.title }}
+          html={html}
+          suggestion={suggestion}
+          onAsk={(e) => setAsks((cur) => [...cur.slice(-49), e])}
+        />
       </div>
+      <AskLog entries={asks} />
       {confirmDel && (
         <ConfirmDialog
           title="Delete this app?"

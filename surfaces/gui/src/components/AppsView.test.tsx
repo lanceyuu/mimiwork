@@ -7,6 +7,7 @@ afterEach(cleanup);
 const APP = {
   id: "app-0000aaaa", title: "Translator", icon: "🌐", description: "Translates.", model: null,
   builder_session: "sess-9", asks: 3, created_at: 1, updated_at: 1,
+  intro: "Paste the text to start.", suggestions: ["Into French", "Into Chinese"], has_previous: false,
 };
 vi.mock("../api", () => ({
   getApps: async () => [APP],
@@ -17,6 +18,7 @@ vi.mock("../api", () => ({
   updateApp: vi.fn(),
   deleteApp: vi.fn(),
   exportApp: vi.fn(),
+  revertApp: vi.fn(async () => ({ ok: true, app: { ...APP, has_previous: true }, html: "<p>old</p>" })),
   announceAppsChanged: vi.fn(),
   askApp: vi.fn(),
   getAppState: async () => ({}),
@@ -44,6 +46,16 @@ describe("AppsView", () => {
     const [prompt, opts] = onBuild.mock.calls[0];
     expect(prompt).toContain('pass model="a:b"');
     expect(opts).toEqual({ model: "a:b", mode: "auto" });
+  });
+
+  it("an opened app explains itself, offers chips, keeps a log, and can undo only once there is a past", async () => {
+    render(<AppsView onBuild={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("app-card-app-0000aaaa"));
+    await screen.findByTestId("app-frame");
+    expect(screen.getByTestId("app-intro").textContent).toContain("Paste the text to start.");
+    expect(screen.getAllByTestId("app-chip").map((c) => c.textContent)).toEqual(["Into French", "Into Chinese"]);
+    expect(screen.getByTestId("ask-log").textContent).toContain("Model calls");
+    expect(screen.queryByTestId("app-undo")).toBeNull(); // nothing to go back to yet
   });
 
   it("opening an app runs it, and a comment goes back to the session that built it", async () => {
