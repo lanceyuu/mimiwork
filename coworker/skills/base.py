@@ -69,17 +69,13 @@ def _parse_skill(md: Path) -> Skill:
         if end != -1:
             frontmatter = text[3:end]
             body = text[end + 4 :].lstrip("\n")
-            for line in frontmatter.splitlines():
-                if ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                key, value = key.strip().lower(), value.strip()
-                if key == "name" and value:
-                    name = value
-                elif key == "description":
-                    description = value
-                elif key in ("allowed-tools", "allowed_tools"):
-                    allowed = [t.strip() for t in value.split(",") if t.strip()]
+            meta = _frontmatter(frontmatter)
+            name = str(meta.get("name") or "").strip() or name
+            description = " ".join(str(meta.get("description") or "").split())
+            raw_tools = meta.get("allowed-tools", meta.get("allowed_tools")) or []
+            if isinstance(raw_tools, str):
+                raw_tools = raw_tools.split(",")
+            allowed = [str(t).strip() for t in raw_tools if str(t).strip()]
     return Skill(
         name=name,
         description=description,
@@ -87,6 +83,27 @@ def _parse_skill(md: Path) -> Skill:
         path=str(md.parent),
         allowed_tools=allowed,
     )
+
+
+def _frontmatter(raw: str) -> dict:
+    """Real YAML first — a folded `description: >` block is how Claude Code skills are
+    written, and the old line-by-line reader kept the literal `>` as the description, so
+    the skill could never match a task (ponytail, 2026-09-02). Uploaded skills with sloppy
+    frontmatter still get the lenient reader rather than vanishing from the catalog."""
+    import yaml
+
+    try:
+        meta = yaml.safe_load(raw)
+        if isinstance(meta, dict):
+            return {str(k).lower(): v for k, v in meta.items()}
+    except yaml.YAMLError:
+        pass
+    meta = {}
+    for line in raw.splitlines():
+        if ":" in line:
+            key, value = line.split(":", 1)
+            meta[key.strip().lower()] = value.strip()
+    return meta
 
 
 def skill_catalog_text(

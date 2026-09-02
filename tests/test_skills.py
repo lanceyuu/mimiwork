@@ -183,3 +183,38 @@ def test_a_corrupt_archive_leaves_the_rest_of_the_skill_usable(tmp_path):
     assert (target / "SKILL.md").is_file()
     rows = {r["name"]: r for r in store.rows()}
     assert "asset-skill" in rows
+
+
+def test_frontmatter_is_real_yaml_so_folded_descriptions_survive(tmp_path):
+    """Claude Code skills write `description: >` blocks. The line reader kept the literal
+    `>`, so ponytail's catalog line was `- ponytail: >` and it never matched a task."""
+    from coworker.skills.base import _parse_skill
+
+    d = tmp_path / "folded"
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        "---\nname: folded\ndescription: >\n  Forces the laziest\n  solution that works.\n"
+        "allowed-tools:\n  - run_shell\n  - write_file\n---\nBody here.\n",
+        encoding="utf-8",
+    )
+    skill = _parse_skill(d / "SKILL.md")
+    assert skill.description == "Forces the laziest solution that works."
+    assert skill.allowed_tools == ["run_shell", "write_file"]
+    assert skill.instructions == "Body here."
+
+
+def test_broken_frontmatter_still_yields_a_skill(tmp_path):
+    """An uploaded skill with sloppy YAML must degrade to the lenient reader, not vanish."""
+    from coworker.skills.base import _parse_skill
+
+    d = tmp_path / "sloppy"
+    d.mkdir()
+    (d / "SKILL.md").write_text(
+        "---\nname: sloppy\ndescription: has: a colon: in it {and braces\n"
+        "allowed-tools: a, b\n---\nBody.\n",
+        encoding="utf-8",
+    )
+    skill = _parse_skill(d / "SKILL.md")
+    assert skill.name == "sloppy"
+    assert skill.description.startswith("has: a colon")
+    assert skill.allowed_tools == ["a", "b"]
