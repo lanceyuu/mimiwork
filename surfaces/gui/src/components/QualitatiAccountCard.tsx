@@ -203,6 +203,15 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
                 {state.profile.credits ?? 0} credits
               </span>
               {state.profile.plan && <span className="text-faint">{state.profile.plan} plan</span>}
+              <button
+                type="button"
+                className="text-accent hover:underline text-[12px]"
+                data-testid="qualitati-topup"
+                title="Buy credits on qualitati.com"
+                onClick={() => openExternal("https://qualitati.com/recharge")}
+              >
+                Top up
+              </button>
             </>
           ) : (
             <span className="text-faint">{state.error ?? "balance unavailable"}</span>

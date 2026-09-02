@@ -458,7 +458,9 @@ export function App() {
   const sessionRef = useRef<Session | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A prompt to auto-send once the next session connects (used by "Run now").
-  const pendingPromptRef = useRef<string | { text: string; skill?: string } | null>(null);
+  const pendingPromptRef = useRef<
+    string | { text: string; skill?: string; model?: string; mode?: string } | null
+  >(null);
   // Bumped to rebuild the session socket without a session change (folder adoption).
   const [socketKey, setSocketKey] = useState(0);
   // The in-flight manual run to finalize after its first turn ({taskId, runId, sessionId}).
@@ -915,10 +917,20 @@ export function App() {
         const p = pendingPromptRef.current;
         if (p) {
           pendingPromptRef.current = null;
-          const { text, skill } = typeof p === "string" ? { text: p, skill: undefined } : p;
-          const shown = skill ? `/${skill} ${text}` : text;
+          const req = typeof p === "string" ? { text: p } : p;
+          // A build request names its model and permission level; bind them before the
+          // first message so the whole conversation runs under them.
+          if (req.model) {
+            setModel(req.model);
+            sessionRef.current?.setModel(req.model);
+          }
+          if (req.mode) {
+            setMode(req.mode);
+            sessionRef.current?.setMode(req.mode);
+          }
+          const shown = req.skill ? `/${req.skill} ${req.text}` : req.text;
           setItems((prev) => [...prev, { kind: "user", text: shown, ts: Date.now() / 1000 }]);
-          sessionRef.current?.userMessage(text, undefined, undefined, skill);
+          sessionRef.current?.userMessage(req.text, undefined, req.model, req.skill);
         }
       },
       onClose: () => setConnected(false),
@@ -1382,14 +1394,17 @@ export function App() {
   // Apps (spec 2026-09-03): build or improve one in a conversation under the mimi-apps
   // skill. The session that built an app is reopened when it still exists, so Mimi has
   // the context; otherwise a fresh one starts and the prompt carries the current HTML.
-  const buildApp = (text: string, builderSession?: string) => {
+  const buildApp = (text: string, opts?: { builderSession?: string; model?: string; mode?: string }) => {
+    const builderSession = opts?.builderSession;
     const known = builderSession ? sessions.find((s) => s.session_id === builderSession) : undefined;
     if (known && known.session_id === sessionId) {
       setSurface("session");
+      if (opts?.model && !running) changeModel(opts.model);
+      if (opts?.mode) changeMode(opts.mode);
       send(text, undefined, "mimi-apps");
       return;
     }
-    pendingPromptRef.current = { text, skill: "mimi-apps" };
+    pendingPromptRef.current = { text, skill: "mimi-apps", model: opts?.model, mode: opts?.mode };
     if (known) void selectSession(known.session_id, known.workspace || "", known.agent || "cowork");
     else startNewSession("cowork");
   };

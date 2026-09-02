@@ -31,7 +31,19 @@ describe("AppsView", () => {
     render(<AppsView onBuild={onBuild} />);
     fireEvent.change(await screen.findByTestId("apps-wish"), { target: { value: "a word counter" } });
     fireEvent.click(screen.getByTestId("apps-build-go"));
-    expect(onBuild).toHaveBeenCalledWith("Build me an app: a word counter");
+    expect(onBuild).toHaveBeenCalledWith("Build me an app: a word counter", { model: undefined, mode: "interactive" });
+  });
+
+  it("a chosen model is pinned on the app and drives the build conversation", async () => {
+    const onBuild = vi.fn();
+    render(<AppsView onBuild={onBuild} />);
+    fireEvent.change(await screen.findByTestId("apps-wish"), { target: { value: "a word counter" } });
+    fireEvent.change(screen.getByTestId("auto-model"), { target: { value: "a:b" } });
+    fireEvent.change(screen.getByTestId("auto-mode"), { target: { value: "auto" } });
+    fireEvent.click(screen.getByTestId("apps-build-go"));
+    const [prompt, opts] = onBuild.mock.calls[0];
+    expect(prompt).toContain('pass model="a:b"');
+    expect(opts).toEqual({ model: "a:b", mode: "auto" });
   });
 
   it("opening an app runs it, and a comment goes back to the session that built it", async () => {
@@ -44,9 +56,9 @@ describe("AppsView", () => {
     fireEvent.change(screen.getByTestId("app-note-text"), { target: { value: "add a copy button" } });
     fireEvent.click(screen.getByTestId("app-note-submit"));
     await waitFor(() => expect(onBuild).toHaveBeenCalled());
-    const [prompt, session] = onBuild.mock.calls[0];
+    const [prompt, opts] = onBuild.mock.calls[0];
     expect(prompt).toContain("Change the app Translator (id app-0000aaaa): add a copy button");
     expect(prompt).toContain("<body>hi</body>"); // the current file rides along
-    expect(session).toBe("sess-9");
+    expect(opts.builderSession).toBe("sess-9");
   });
 });

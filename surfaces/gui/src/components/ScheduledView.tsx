@@ -63,7 +63,7 @@ export function modeLabel(mode?: string): string {
 
 /** The model + permission pair, as two selects. Shared by the create form and the
  * detail's edit mode so an automation reads the same way in both. */
-function RunSettings({
+export function RunSettings({
   model,
   mode,
   models,

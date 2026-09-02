@@ -66,10 +66,10 @@ def test_state_is_a_small_object_or_nothing(tmp_path):
 def test_the_tools_write_only_under_apps_and_remember_who_built_it(tmp_path):
     store = AppStore(tmp_path / "apps")
     create, update, listing = app_tools(store, session_id="sess-1")
-    res = create(title="Cards", html=HTML, icon="🃏", description="Flashcards")
+    res = create(title="Cards", html=HTML, icon="🃏", description="Flashcards", model="a:b")
     assert res["ok"]
     app = store.get(res["id"])
-    assert app.builder_session == "sess-1" and app.icon == "🃏"
+    assert app.builder_session == "sess-1" and app.icon == "🃏" and app.model == "a:b"
     assert update(id=res["id"], html=HTML.replace("Hi", "Hello"), title="Cards 2")["ok"]
     assert "Hello" in store.html(res["id"]) and store.get(res["id"]).title == "Cards 2"
     assert "error" in update(id="app-00000000", html=HTML)

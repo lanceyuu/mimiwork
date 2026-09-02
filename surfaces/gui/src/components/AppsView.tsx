@@ -23,13 +23,28 @@ import { AppFrame } from "./AppFrame";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
+import { RunSettings } from "./ScheduledView";
+
+/** What the build conversation should run with, and what the app should be pinned to. */
+export interface BuildOptions {
+  builderSession?: string;
+  model?: string;
+  mode?: string;
+}
+
+/** The short display name for a model id ("Mimi Hound", not "qualitati:mimi-hound"). */
+function shortLabel(labels: Record<string, string>, id: string): string {
+  const raw = labels[id]?.split(" · ")[0];
+  if (raw) return raw;
+  return id.includes(":") ? id.slice(id.indexOf(":") + 1) : id;
+}
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 
 interface Props {
   // Open a conversation with Mimi and send `prompt` under the mimi-apps skill. When the
   // app remembers the session that built it, that one is reopened so Mimi has context.
-  onBuild: (prompt: string, builderSession?: string) => void;
+  onBuild: (prompt: string, opts?: BuildOptions) => void;
   initialOpenId?: string | null;
 }
 
@@ -39,6 +54,20 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
   const [starters, setStarters] = useState<AppStarter[]>([]);
   const [wish, setWish] = useState("");
   const [confirmDel, setConfirmDel] = useState<MimiApp | null>(null);
+  // The build conversation's model and permission level, and the model the app is pinned
+  // to — the same two controls an automation has (owner ask 2026-09-02).
+  const [model, setModel] = useState("");
+  const [mode, setMode] = useState("interactive");
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  useEffect(() => {
+    getSettings()
+      .then((s) => {
+        setModels(s.models || []);
+        setDefaultModel(s.model || "");
+      })
+      .catch(() => setModels([]));
+  }, []);
 
   const refresh = () => getApps().then(setApps).catch(() => setApps([]));
   useEffect(() => {
@@ -68,7 +97,8 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
   const build = () => {
     const text = wish.trim();
     if (!text) return;
-    onBuild(`Build me an app: ${text}`);
+    const pin = model ? `\n\nWhen you save it with create_app, pass model="${model}" so the app asks that model.` : "";
+    onBuild(`Build me an app: ${text}${pin}`, { model: model || undefined, mode });
     setWish("");
   };
 
@@ -79,25 +109,43 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
         sub="Small tools Mimi builds for you — a form, a button, a result. They run right here and ask Mimi when they need to."
       />
 
-      <div className={CARD + " p-4 mb-5"} data-testid="apps-build">
-        <div className="text-[13px] font-medium mb-2">What should the app do?</div>
-        <div className="flex gap-2">
-          <input
-            className="tmpl-input flex-1"
-            data-testid="apps-wish"
-            placeholder="e.g. translate what I paste into Norwegian and keep the last five"
-            value={wish}
-            onChange={(e) => setWish(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") build();
-            }}
+      <div className={CARD + " p-4 mb-5 apps-build"} data-testid="apps-build">
+        <div className="text-[13px] font-medium mb-1">What should the app do?</div>
+        <div className="text-[12px] text-faint mb-2">
+          Describe it the way you would to a colleague: what goes in, what comes out, what it
+          should remember. Mimi writes one small page and it appears below.
+        </div>
+        <textarea
+          className="tmpl-input tmpl-textarea apps-wish"
+          data-testid="apps-wish"
+          rows={4}
+          placeholder={
+            "e.g. A translator: I paste text or drop a .txt/.md file, pick a language, and get the " +
+            "translation with a copy button. Keep my last five."
+          }
+          value={wish}
+          onChange={(e) => setWish(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) build();
+          }}
+        />
+        <div className="apps-build-settings">
+          <RunSettings
+            model={model}
+            mode={mode}
+            models={models}
+            defaultModel={defaultModel}
+            onModel={setModel}
+            onMode={setMode}
           />
+        </div>
+        <div className="apps-build-actions">
           <button className="btn-primary sm" data-testid="apps-build-go" disabled={!wish.trim()} onClick={build}>
             Build with Mimi
           </button>
-        </div>
-        <div className="text-[12px] text-faint mt-2">
-          Mimi writes one small page and it appears below. Everything stays on this computer.
+          <span className="text-[12px] text-faint">
+            The model answers the app's questions too. Everything stays on this computer.
+          </span>
         </div>
       </div>
 
@@ -206,11 +254,12 @@ function AppDetail({
 }: {
   id: string;
   onBack: () => void;
-  onBuild: (prompt: string, builderSession?: string) => void;
+  onBuild: (prompt: string, opts?: BuildOptions) => void;
 }) {
   const [app, setApp] = useState<MimiApp | null>(null);
   const [html, setHtml] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [labels, setLabels] = useState<Record<string, string>>({});
   const [defaultModel, setDefaultModel] = useState("");
   const [note, setNote] = useState(false);
   const [noteText, setNoteText] = useState("");
@@ -241,6 +290,7 @@ function AppDetail({
     getSettings()
       .then((s) => {
         setModels(s.models || []);
+        setLabels(s.model_labels || {});
         setDefaultModel(s.model || "");
       })
       .catch(() => setModels([]));
@@ -259,7 +309,7 @@ function AppDetail({
     if (!text) return;
     onBuild(
       `Change the app ${app.title} (id ${app.id}): ${text}\n\nHere is its current index.html — make exactly that change, keep the rest, and save it with update_app:\n\n\`\`\`html\n${html}\n\`\`\``,
-      app.builder_session || undefined,
+      { builderSession: app.builder_session || undefined, model: app.model || undefined },
     );
     setNote(false);
     setNoteText("");
@@ -271,74 +321,81 @@ function AppDetail({
         <button className="artifact-icon-btn" onClick={onBack} aria-label="Back to apps" title="Back">
           <Icon name="arrowLeft" size={16} />
         </button>
-        <span className="text-[18px]" aria-hidden>
+        <span className="app-icon" aria-hidden>
           {app.icon}
         </span>
-        {renaming ? (
-          <input
-            className="tmpl-input app-title-input"
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={async (e) => {
-              if (e.key === "Escape") setRenaming(false);
-              if (e.key === "Enter") {
-                const r = await updateApp(app.id, { title: title.trim() });
-                if (r.ok && r.app) setApp(r.app);
-                announceAppsChanged();
-                setRenaming(false);
-              }
-            }}
-            onBlur={() => setRenaming(false)}
-          />
-        ) : (
-          <button
-            className="app-title"
-            title="Rename"
-            data-testid="app-title"
-            onClick={() => {
-              setTitle(app.title);
-              setRenaming(true);
+        <div className="app-head-text">
+          {renaming ? (
+            <input
+              className="tmpl-input app-title-input"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Escape") setRenaming(false);
+                if (e.key === "Enter") {
+                  const r = await updateApp(app.id, { title: title.trim() });
+                  if (r.ok && r.app) setApp(r.app);
+                  announceAppsChanged();
+                  setRenaming(false);
+                }
+              }}
+              onBlur={() => setRenaming(false)}
+            />
+          ) : (
+            <button
+              className="app-title"
+              title="Rename"
+              data-testid="app-title"
+              onClick={() => {
+                setTitle(app.title);
+                setRenaming(true);
+              }}
+            >
+              {app.title}
+            </button>
+          )}
+          <div className="app-desc" title={app.description}>
+            {app.description || "No description yet — Improve can add one."}
+          </div>
+        </div>
+        <label className="app-model-field" title="Which model answers this app's questions">
+          <span>Model</span>
+          <select
+            className="tmpl-input tmpl-select app-model"
+            value={app.model || ""}
+            data-testid="app-model"
+            onChange={async (e) => {
+              const r = await updateApp(app.id, { model: e.target.value });
+              if (r.ok && r.app) setApp(r.app);
             }}
           >
-            {app.title}
+            <option value="">Default{defaultModel ? ` · ${shortLabel(labels, defaultModel)}` : ""}</option>
+            {models.map((m) => (
+              <option value={m} key={m}>
+                {shortLabel(labels, m)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="app-head-actions">
+          <button className="btn-primary sm" data-testid="app-improve" onClick={() => setNote((v) => !v)}>
+            Improve
           </button>
-        )}
-        <span className="text-[12px] text-faint truncate">{app.description}</span>
-        <span className="flex-1" />
-        <select
-          className="tmpl-input tmpl-select app-model"
-          value={app.model || ""}
-          title="Which model answers this app"
-          data-testid="app-model"
-          onChange={async (e) => {
-            const r = await updateApp(app.id, { model: e.target.value });
-            if (r.ok && r.app) setApp(r.app);
-          }}
-        >
-          <option value="">Default{defaultModel ? ` (${defaultModel})` : ""}</option>
-          {models.map((m) => (
-            <option value={m} key={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-        <button className="btn-primary sm" data-testid="app-improve" onClick={() => setNote((v) => !v)}>
-          Improve
-        </button>
-        <button
-          className="btn sm"
-          title="Save a shareable .mimiapp.html file"
-          onClick={async () => {
-            const r = await exportApp(app.id);
-            alert(r.ok ? `Saved to ${r.path}\n\nSend the file — anyone can import it from Apps.` : r.error || "Export failed.");
-          }}
-        >
-          Export
-        </button>
-        <button className="btn sm danger-btn" data-testid="app-delete" onClick={() => setConfirmDel(true)}>
-          <Icon name="trash" size={14} /> Delete
-        </button>
+          <button
+            className="btn sm"
+            title="Save a shareable .mimiapp.html file"
+            onClick={async () => {
+              const r = await exportApp(app.id);
+              alert(r.ok ? `Saved to ${r.path}\n\nSend the file — anyone can import it from Apps.` : r.error || "Export failed.");
+            }}
+          >
+            Export
+          </button>
+          <button className="btn sm danger-btn" data-testid="app-delete" onClick={() => setConfirmDel(true)}>
+            <Icon name="trash" size={14} /> Delete
+          </button>
+        </div>
       </div>
       {note && (
         <div className="flow-note app-note" data-testid="app-note">

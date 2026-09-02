@@ -1450,6 +1450,11 @@ export function Sidebar(props: Props) {
                 {qtSignedIn && (
                   <>
                     <div className="h-px bg-line my-1 mx-2" />
+                    {/* Credits are bought on qualitati.com; the app only opens the page
+                        (owner ask 2026-09-02). */}
+                    {appMenuItem("sparkle", t("Top up credits"), () =>
+                      openExternal("https://qualitati.com/recharge"),
+                    )}
                     {appMenuItem("signOut", t("Sign out of QualiTaTi"), async () => {
                       await qualitatiLogout().catch(() => {});
                       refreshQt();

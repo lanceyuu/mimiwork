@@ -33,6 +33,13 @@ _CREATE = {
                     "description": "One sentence: what it does, for the overview card.",
                 },
                 "html": {"type": "string", "description": "The complete index.html."},
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Which model answers the app's Mimi.ask calls. Pass exactly what the "
+                        "user's build request names; omit for the app default."
+                    ),
+                },
             },
             "required": ["title", "html"],
         },
@@ -86,7 +93,7 @@ def _tool(func: Callable, schema: dict) -> Callable:
 
 
 def app_tools(store: AppStore, *, session_id: str = "") -> list[Callable[..., Any]]:
-    def create_app(title, html, icon="✨", description=""):
+    def create_app(title, html, icon="✨", description="", model=None):
         try:
             app = store.create(
                 title=title,
@@ -94,6 +101,7 @@ def app_tools(store: AppStore, *, session_id: str = "") -> list[Callable[..., An
                 icon=icon,
                 description=description,
                 builder_session=session_id,
+                model=model,
             )
         except ValueError as e:
             return {"error": str(e)}
