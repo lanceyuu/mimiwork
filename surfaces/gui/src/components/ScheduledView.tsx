@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { AutomationFlow, flowNodes } from "./AutomationFlow";
+import { AutomationFlow } from "./AutomationFlow";
+import { FlowNodePanel } from "./FlowNodePanel";
+import { RunSettings, fromCron, modeLabel, toCron } from "./RunSettings";
+export { RunSettings, modeLabel };
 import {
   createAutomation,
   getSettings,
@@ -25,99 +28,14 @@ import { AutomationQuickstart } from "./AutomationQuickstart";
 // Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
 
-// Parse a simple "min hour * * dow" cron back into the time + frequency the editor uses.
-// Falls back to 09:00 / daily for anything it doesn't recognize (e.g. agent-written crons).
-function fromCron(cron?: string | null): { time: string; freq: string } {
-  const parts = (cron || "").trim().split(/\s+/);
-  if (parts.length !== 5) return { time: "09:00", freq: "daily" };
-  const [m, h, , , dow] = parts;
-  const hh = String(Math.min(23, Math.max(0, parseInt(h, 10) || 9))).padStart(2, "0");
-  const mm = String(Math.min(59, Math.max(0, parseInt(m, 10) || 0))).padStart(2, "0");
-  const freq = dow === "1-5" ? "weekdays" : dow === "0,6" || dow === "6,0" ? "weekends" : "daily";
-  return { time: `${hh}:${mm}`, freq };
-}
-
 const fmt = (t: number | null) =>
   t ? new Date(t * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 
-// Map a simple time-of-day + frequency selection to a 5-field cron string.
-function toCron(time: string, freq: string): string {
-  const [h, m] = (time || "09:00").split(":").map((x) => parseInt(x, 10) || 0);
-  const dow = freq === "weekdays" ? "1-5" : freq === "weekends" ? "0,6" : "*";
-  return `${m} ${h} * * ${dow}`;
-}
 
 // The §28 page shell: full-bleed main, centered ≤4xl column — same as Connectors/Activity/Inbox.
-// The three permission levels, in the composer's own words — what you learned in
-// a session is what an automation means. The difference: nobody is watching at
-// 7am, so "ask" parks its question in the Inbox and the run waits there.
-const MODES: { value: string; label: string; hint: string }[] = [
-  { value: "interactive", label: "Ask for approval", hint: "Parks the question in your Inbox and waits." },
-  { value: "auto", label: "Full access", hint: "Runs everything without asking." },
-  { value: "plan", label: "Plan only", hint: "Proposes what it would do; never acts." },
-];
-
-export function modeLabel(mode?: string): string {
-  return MODES.find((m) => m.value === (mode || "interactive"))?.label ?? "Ask for approval";
-}
 
 /** The model + permission pair, as two selects. Shared by the create form and the
  * detail's edit mode so an automation reads the same way in both. */
-export function RunSettings({
-  model,
-  mode,
-  models,
-  defaultModel,
-  onModel,
-  onMode,
-}: {
-  model: string;
-  mode: string;
-  models: string[];
-  defaultModel?: string;
-  onModel: (v: string) => void;
-  onMode: (v: string) => void;
-}) {
-  return (
-    <div className="tmpl-sched">
-      <label className="tmpl-field">
-        <span>Model</span>
-        <select
-          className="tmpl-input tmpl-select"
-          value={model}
-          onChange={(e) => onModel(e.target.value)}
-          data-testid="auto-model"
-        >
-          <option value="">Default{defaultModel ? ` (${defaultModel})` : ""}</option>
-          {models.map((m) => (
-            <option value={m} key={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="tmpl-field">
-        <span>Permission</span>
-        <select
-          className="tmpl-input tmpl-select"
-          value={mode}
-          onChange={(e) => onMode(e.target.value)}
-          data-testid="auto-mode"
-        >
-          {MODES.map((m) => (
-            <option value={m.value} key={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <span className="text-[11.5px] text-faint self-center">
-        {MODES.find((m) => m.value === mode)?.hint}
-      </span>
-    </div>
-  );
-}
-
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex-1 min-w-0 flex bg-paper">
@@ -139,9 +57,11 @@ interface Props {
   onRunNow: (taskId: string, title?: string) => void;
   // Open directly on a task's detail (set by the run banner's "Back to runs").
   initialOpenId?: string | null;
+  // "Discuss with Mimi" from a flow node: open a conversation with this prompt.
+  onDiscuss?: (prompt: string) => void;
 }
 
-export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
+export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }: Props) {
   const [tasks, setTasks] = useState<Automation[]>([]);
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [showForm, setShowForm] = useState(false);
@@ -212,6 +132,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId }: Props) {
   if (openId) {
     return (
       <TaskDetail
+        onDiscuss={onDiscuss}
         id={openId}
         onBack={() => { setOpenId(null); refresh(); }}
         onOpenRun={onOpenRun}
@@ -584,12 +505,14 @@ function TaskDetail({
   onBack,
   onOpenRun,
   onRunNow,
+  onDiscuss,
   models,
   defaultModel,
 }: {
   id: string;
   models: string[];
   defaultModel?: string;
+  onDiscuss?: (prompt: string) => void;
   onBack: () => void;
   onOpenRun: (
     sessionId: string,
@@ -621,10 +544,7 @@ function TaskDetail({
   // instructions; the node keeps an amber dot for the rest of the visit so the user
   // can see which parts they have already spoken to.
   const [note, setNote] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState("");
   const [noted, setNoted] = useState<Set<string>>(() => new Set());
-  const [revising, setRevising] = useState(false);
-  const [reviseError, setReviseError] = useState("");
 
   const refresh = () =>
     getAutomation(id)
@@ -660,94 +580,6 @@ function TaskDetail({
         <div className="text-[13px] text-muted">Loading…</div>
       </Shell>
     );
-
-  // Which node the comment is about, and the box to write it in — a render helper, not
-  // a component, so the textarea survives each keystroke. Settings (schedule,
-  // model, folder, grants) are not steps — feedback there points at Edit instead of
-  // asking the model to rewrite instructions that cannot change them.
-  const flowNote = () => {
-    const f = flowNodes(task);
-    const all = [f.trigger, f.agent, ...f.steps, ...f.subs, f.success, f.failure];
-    const n = all.find((x) => x.id === note);
-    if (!n) return null;
-    const isSetting = ["trigger", "model", "folder"].includes(n.id) || n.id.startsWith("grant-");
-    const submit = async () => {
-      const text = noteText.trim();
-      if (!text) return;
-      setRevising(true);
-      setReviseError("");
-      const res = await reviseAutomation(id, n.title, text).catch(() => ({
-        ok: false,
-        error: "Could not reach Mimi.",
-      }));
-      setRevising(false);
-      if (!res.ok) {
-        setReviseError(res.error || "The automation could not be updated.");
-        return;
-      }
-      setNoted((s) => new Set(s).add(n.id));
-      setNote(null);
-      setNoteText("");
-      refresh();
-      announceAutomationsChanged();
-    };
-    return (
-      <div className="flow-note" data-testid="flow-note">
-        <div className="flow-note-head">
-          <span>
-            {n.icon} <b>{n.title}</b>
-            {n.sub ? <span className="dim"> · {n.sub}</span> : null}
-          </span>
-          <button className="link" onClick={() => setNote(null)}>
-            close
-          </button>
-        </div>
-        {isSetting ? (
-          <div className="dim" style={{ fontSize: 12.5 }}>
-            This is a setting, not a step — change it with{" "}
-            <button
-              className="link"
-              onClick={() => {
-                setNote(null);
-                startEdit();
-              }}
-            >
-              Edit
-            </button>
-            {n.id.startsWith("grant-") ? ", or revoke it below." : "."}
-          </div>
-        ) : (
-          <>
-            <textarea
-              autoFocus
-              className="tmpl-input tmpl-textarea flow-note-text"
-              data-testid="flow-note-text"
-              placeholder="What should be different here? e.g. “save it as a PDF, not markdown”"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void submit();
-              }}
-            />
-            <div className="flow-note-actions">
-              <button
-                className="btn-primary sm"
-                data-testid="flow-note-submit"
-                disabled={revising || !noteText.trim()}
-                onClick={() => void submit()}
-              >
-                {revising ? "Updating…" : "Update the automation"}
-              </button>
-              <span className="dim" style={{ fontSize: 12 }}>
-                Mimi rewrites the instructions; the diagram redraws from them.
-              </span>
-            </div>
-            {reviseError && <div className="mcp-error">{reviseError}</div>}
-          </>
-        )}
-      </div>
-    );
-  };
 
   const startEdit = () => {
     setTitle(task.title);
@@ -888,13 +720,40 @@ function TaskDetail({
               task={task}
               running={task.last_status === "running"}
               notedNodes={noted}
-              onNodeClick={(nid) => {
-                setNote((cur) => (cur === nid ? null : nid));
-                setNoteText("");
-                setReviseError("");
-              }}
+              onNodeClick={(nid) => setNote((cur) => (cur === nid ? null : nid))}
             />
-            {note && flowNote()}
+            {note && (
+              <FlowNodePanel
+                task={task}
+                nodeId={note}
+                models={models}
+                defaultModel={defaultModel}
+                onClose={() => setNote(null)}
+                onRevise={async (nodeTitle, comment) => {
+                  const res = await reviseAutomation(id, nodeTitle, comment).catch(() => ({
+                    ok: false,
+                    error: "Could not reach Mimi.",
+                  }));
+                  if (res.ok) {
+                    setNoted((s) => new Set(s).add(note));
+                    setNote(null);
+                    refresh();
+                    announceAutomationsChanged();
+                  }
+                  return res;
+                }}
+                onPatch={async (changes) => {
+                  await updateAutomation(id, changes);
+                  await refresh();
+                  announceAutomationsChanged();
+                }}
+                onRevoke={async (entry) => {
+                  await updateAutomation(id, { revoke: entry });
+                  await refresh();
+                }}
+                onDiscuss={onDiscuss}
+              />
+            )}
           </>
         )}
 

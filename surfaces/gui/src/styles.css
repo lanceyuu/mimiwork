@@ -1728,7 +1728,8 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
 .autoflow { margin: 14px 0 6px; position: relative; }
 .autoflow-stage { overflow: hidden; border-radius: 14px; touch-action: none; }
 .autoflow-stage svg { display: block; width: 100%; user-select: none; -webkit-user-select: none; }
-.autoflow-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+/* Bottom-right: the top-right corner is where the outcome nodes sit (they overlapped). */
+.autoflow-tools { position: absolute; bottom: 30px; right: 8px; display: flex; gap: 4px; }
 .autoflow-tools button {
   width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--panel); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
@@ -1743,6 +1744,10 @@ html[data-platform="linux"] ::-webkit-scrollbar-thumb:hover { background-color: 
 .flow-note-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
 .flow-note-text { min-height: 64px; }
 .flow-note-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.flow-fields { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+/* button.btn-primary pins itself to flex-start; in a field row it sits on the baseline. */
+.flow-fields > .btn-primary { align-self: flex-end; }
+.flow-quick { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ================================================================
    Apple-design polish layer (emilkowalski/skills · apple-design)

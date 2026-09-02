@@ -399,31 +399,43 @@ export function AutomationFlow({
   // Screen pixels → diagram units: the viewBox scales the picture to the panel width.
   const unitsPerPx = () => (W - leftPad) / Math.max(1, svgRef.current?.clientWidth || W - leftPad);
 
+  // The gesture is tracked on the window, NOT with setPointerCapture on the svg: capture
+  // retargets the pointer-up (and so the click) to the svg itself, and the node under
+  // the cursor never hears its click — in a real browser; jsdom has no capture, which is
+  // how the unit tests stayed green while every node click in the app was dead
+  // (found 2026-09-02). Window listeners keep the drag alive past the svg's edge too.
+  const viewRef = useRef(view);
+  viewRef.current = view;
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
     const id = (e.target as Element).closest?.("[data-node]")?.getAttribute("data-node") ?? null;
     const o = id ? moved[id] || { x: 0, y: 0 } : { x: view.x, y: view.y };
-    gesture.current = { id, sx: e.clientX, sy: e.clientY, ox: o.x, oy: o.y, dragged: false };
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-  };
-  const onPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    const g = gesture.current;
-    if (!g) return;
-    const dx = e.clientX - g.sx;
-    const dy = e.clientY - g.sy;
-    if (!g.dragged && Math.abs(dx) + Math.abs(dy) < 4) return;
-    g.dragged = true;
-    const u = unitsPerPx();
-    if (g.id) {
-      const id = g.id;
-      setMoved((m) => ({ ...m, [id]: { x: g.ox + (dx * u) / view.k, y: g.oy + (dy * u) / view.k } }));
-    } else {
-      setView((v) => ({ ...v, x: g.ox + dx * u, y: g.oy + dy * u }));
-    }
-  };
-  const onPointerUp = () => {
-    if (gesture.current?.dragged) swallowClick.current = true;
-    gesture.current = null;
+    const g = { id, sx: e.clientX, sy: e.clientY, ox: o.x, oy: o.y, dragged: false };
+    gesture.current = g;
+    const move = (ev: PointerEvent) => {
+      if (gesture.current !== g) return;
+      const dx = ev.clientX - g.sx;
+      const dy = ev.clientY - g.sy;
+      if (!g.dragged && Math.abs(dx) + Math.abs(dy) < 4) return;
+      g.dragged = true;
+      const u = unitsPerPx();
+      if (g.id) {
+        const nid = g.id;
+        setMoved((m) => ({ ...m, [nid]: { x: g.ox + (dx * u) / viewRef.current.k, y: g.oy + (dy * u) / viewRef.current.k } }));
+      } else {
+        setView((v) => ({ ...v, x: g.ox + dx * u, y: g.oy + dy * u }));
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      if (gesture.current === g && g.dragged) swallowClick.current = true;
+      if (gesture.current === g) gesture.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
   const click = onNodeClick
     ? (id: string) => {
@@ -495,9 +507,6 @@ export function AutomationFlow({
           ref={svgRef}
           viewBox={`${leftPad} 0 ${W - leftPad} ${height}`}
           onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
         >
           <defs>
             <pattern id="flow-dots" width={16} height={16} patternUnits="userSpaceOnUse">

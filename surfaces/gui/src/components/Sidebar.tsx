@@ -1490,17 +1490,39 @@ export function Sidebar(props: Props) {
             >
               {qtSignedIn ? qtName.slice(0, 1).toUpperCase() : "?"}
             </span>
-            <span className={"truncate " + (qtSignedIn ? "" : "text-muted")}>
-              {qtSignedIn ? qtName : "Not signed in"}
+            {/* Name on the first line, the all-time hours saved under it (owner ask
+                2026-09-02: it belongs with the account, and as one tidy block). The number
+                is cumulative — one afternoon is unremarkable, three months of afternoons is
+                the product — and hidden until it clears half an hour (timesaved.ts). */}
+            <span className="min-w-0 flex-1 flex flex-col leading-tight">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className={"truncate " + (qtSignedIn ? "" : "text-muted")}>
+                  {qtSignedIn ? qtName : "Not signed in"}
+                </span>
+                {qtSignedIn && (
+                  <span
+                    className="w-[7px] h-[7px] rounded-full bg-ok shrink-0"
+                    title="Signed in to QualiTaTi"
+                    aria-hidden
+                  />
+                )}
+              </span>
+              {worthShowing(props.timeSaved) && (
+                <span
+                  className="text-[11px] text-faint truncate tabular-nums"
+                  data-testid="time-saved-total"
+                  title={
+                    `MimiWork has saved you about ${formatSaved(props.timeSaved!.saved_minutes)} ` +
+                    `across ${props.timeSaved!.turns} turns.\n` +
+                    `By hand ≈${Math.round(props.timeSaved!.human_minutes / 60)} h · ` +
+                    `with Mimi ≈${Math.round(props.timeSaved!.collab_minutes / 60)} h\n\n` +
+                    "An estimate from what was produced, not a measurement."
+                  }
+                >
+                  {formatSaved(props.timeSaved!.saved_minutes)} {t("saved so far")}
+                </span>
+              )}
             </span>
-            {qtSignedIn && (
-              <span
-                className="w-[7px] h-[7px] rounded-full bg-ok shrink-0"
-                title="Signed in to QualiTaTi"
-                aria-hidden
-              />
-            )}
-            <span className="flex-1" />
             {inboxUnlocked && (
               <span
                 className={
@@ -1532,30 +1554,6 @@ export function Sidebar(props: Props) {
               className={"text-faint shrink-0 transition-transform " + (appMenuOpen ? "" : "rotate-180")}
             />
           </button>
-          {/* All-time hours saved (owner ask 2026-08-30). It sits under the account name
-              (owner ask 2026-09-02) rather than in a session, because the point of the number is cumulative:
-              one afternoon is unremarkable, three months of afternoons is the product.
-              Hidden until it clears half an hour — see timesaved.ts. */}
-          {worthShowing(props.timeSaved) && (
-            <div
-              className="pl-[42px] pr-2.5 -mt-1 pb-1.5 flex items-center gap-1.5 text-[11.5px] text-muted"
-              data-testid="time-saved-total"
-              title={
-                `MimiWork has saved you about ${formatSaved(props.timeSaved!.saved_minutes)} ` +
-                `across ${props.timeSaved!.turns} turns.\n` +
-                `By hand ≈${Math.round(props.timeSaved!.human_minutes / 60)} h · ` +
-                `with Mimi ≈${Math.round(props.timeSaved!.collab_minutes / 60)} h\n\n` +
-                "An estimate from what was produced, not a measurement."
-              }
-            >
-              <Icon name="clock" size={12} className="text-faint" />
-              <span className="tabular-nums text-ink font-medium">
-                {formatSaved(props.timeSaved!.saved_minutes)}
-              </span>
-              <span>{t("saved so far")}</span>
-            </div>
-          )}
-
         </div>
       </div>
 

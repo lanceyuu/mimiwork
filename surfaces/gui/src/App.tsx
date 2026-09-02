@@ -1687,6 +1687,10 @@ export function App() {
           onOpenRun={openRunSession}
           onRunNow={runTaskNow}
           initialOpenId={scheduledOpenId}
+          onDiscuss={(text) => {
+            pendingPromptRef.current = { text };
+            startNewSession("cowork");
+          }}
         />
       ) : surface === "integrations" ? (
         <IntegrationsView />

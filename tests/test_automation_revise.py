@@ -54,3 +54,11 @@ def test_an_empty_comment_is_not_a_revision(tmp_path, monkeypatch):
     task = _task(m)
     assert not m.revise_automation(task["id"], "Saved", "   ")["ok"]
     assert not m.revise_automation("nope", "Saved", "x")["ok"]
+
+
+def test_the_finish_note_can_be_switched_from_the_flow_diagram(tmp_path, monkeypatch):
+    m = _manager(tmp_path, monkeypatch, ScriptedProvider([]))
+    task = _task(m)
+    assert task["notify_on_completion"] is True
+    assert m.update_automation(task["id"], {"notify_on_completion": False})["task"]["notify_on_completion"] is False
+    assert m.update_automation(task["id"], {"notify_on_completion": 1})["task"]["notify_on_completion"] is True

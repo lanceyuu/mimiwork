@@ -64,14 +64,15 @@ export function emptyTimeSaved(): TimeSaved {
   };
 }
 
-/** "≈2.5 h" / "≈45 min" / "≈3 days" — short enough for a chip. */
+/** "≈45 min" / "≈2.5 h" / "≈15 h" / "≈1.3 d" — short enough for a chip. Past a full
+ *  day the unit turns into days of 24 hours (owner ask 2026-09-02), so "≈30 h" reads
+ *  as "≈1.3 d" rather than a number nobody converts in their head. */
 export function formatSaved(minutes: number): string {
   if (minutes < 60) return `≈${Math.round(minutes)} min`;
   const hours = minutes / 60;
   if (hours < 10) return `≈${(Math.round(hours * 10) / 10).toFixed(1)} h`;
-  if (hours < 40) return `≈${Math.round(hours)} h`;
-  // Past a working week, days read better than a three-digit hour count.
-  return `≈${(Math.round((hours / 8) * 10) / 10).toFixed(1)} days`;
+  if (hours < 24) return `≈${Math.round(hours)} h`;
+  return `≈${(Math.round((hours / 24) * 10) / 10).toFixed(1)} d`;
 }
 
 /** Whether the estimate is worth showing at all. */

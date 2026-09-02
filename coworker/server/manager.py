@@ -3452,6 +3452,13 @@ class SessionManager:
         self._prefs["time_saved"] = stored
         self._save_prefs()
 
+    def _bank_five_a(self, level: str, n: int = 1) -> None:
+        """One more turn on a rung, outside any session — an app asking the model."""
+        running = dict(self._prefs.get("five_a") or {})
+        running[level] = int(running.get(level, 0)) + n
+        self._prefs["five_a"] = running
+        self._save_prefs()
+
     _RELEASES_CACHE: dict[str, Any] = {}
 
     def about(self) -> dict[str, Any]:
@@ -5015,6 +5022,8 @@ class SessionManager:
             from ..automation.models import normalize_mode
 
             task.mode = normalize_mode(changes["mode"], fallback=task.mode)
+        if "notify_on_completion" in changes:
+            task.notify_on_completion = bool(changes["notify_on_completion"])
         if changes.get("revoke"):
             # Revocation from the task detail page ("Allowed without asking … · Revoke").
             # Human-only, like minting; the agent-facing update tool has no such field.
@@ -5763,6 +5772,8 @@ class SessionManager:
         except Exception as e:
             return {"ok": False, "error": str(e) or "the model did not answer"}
         self.app_store.note_ask(app_id)
+        # Using an app is the Applications rung of the Five A's (owner ask 2026-09-02).
+        self._bank_five_a("Applications")
         return {"ok": True, "text": (getattr(turn, "text", None) or "").strip()}
 
     def app_state(self, app_id: str) -> dict[str, Any]:

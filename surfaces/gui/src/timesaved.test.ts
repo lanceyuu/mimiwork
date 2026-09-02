@@ -6,7 +6,8 @@ describe("time saved", () => {
     expect(formatSaved(45)).toBe("≈45 min");
     expect(formatSaved(150)).toBe("≈2.5 h");
     expect(formatSaved(900)).toBe("≈15 h");
-    expect(formatSaved(4800)).toBe("≈10.0 days");
+    expect(formatSaved(1800)).toBe("≈1.3 d"); // past a day, days of 24 h
+    expect(formatSaved(4800)).toBe("≈3.3 d");
   });
 
   it("always marks itself as an estimate", () => {

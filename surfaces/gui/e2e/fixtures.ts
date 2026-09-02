@@ -28,6 +28,8 @@ const HEALTH = { status: "ok", default_workspace: null, model: "anthropic:claude
 const SETTINGS = {
   provider: "openai",
   model: "anthropic:claude-opus-4-8",
+  // The all-time estimate under the account name (past a day it reads in days).
+  time_saved: { saved_minutes: 1800, human_minutes: 2400, collab_minutes: 600, turns: 40, approvals: 2, by_category: {} },
   models: ["anthropic:claude-opus-4-8", "gpt-5.5", "gpt-4o", "gpt-4o-mini", "o3-mini"],
   has_key: true,
   model_ready: true,

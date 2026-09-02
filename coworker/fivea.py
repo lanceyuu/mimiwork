@@ -50,6 +50,23 @@ One turn counts once, at the HIGHEST rung it reached, because the continuum is
 about autonomy: a scheduled run that also wrote a document is Automation, not
 Applications. Counting it twice would flatter the total and blur the axis.
 
+Two readings the owner fixed on 2026-09-02, after the chart came out lopsided:
+
+    A turn grounded in the user's own material — RAG over the knowledge base, a
+    question put to a long PDF — is Assistants even when it took many tool calls
+    to get there. Reading a big document IS many calls (open, page through,
+    search, read again); that is the Assistant doing its job, not the model
+    choosing its own route. The tool-count reading of "self-directed" therefore
+    applies only to turns that neither ground themselves nor follow a recipe, and
+    a grounded turn still climbs to Agents only for the chapter's own reasons: it
+    delegated, planned, or wrote across systems.
+
+    Building an app, or using one, is Applications: "task-specific, single-purpose,
+    built through natural-language prompts" is the definition of a MimiWork app to
+    the letter. Building counts through the tool that saves it; every question an
+    app asks the model counts as one Applications turn (manager.app_ask), since a
+    person using an app is on that rung whether or not a conversation was open.
+
 Why counts and not minutes (the EDGE profile's weighting): this answers "how much
 autonomy do I actually hand over", and that is a choice made once per turn. Time
 is the right unit for value landed; frequency is the right unit for habit.
@@ -71,7 +88,7 @@ LEVELS: tuple[str, ...] = (
 BLURBS: dict[str, str] = {
     "Access": "The model on its own, answering you directly",
     "Assistants": "Grounded in your own documents, notes and knowledge base",
-    "Applications": "One fixed recipe, one defined job — a skill or a command",
+    "Applications": "One fixed recipe, one defined job — a skill, a command, or an app",
     "Automation": "A schedule started it and it followed the path it was given",
     "Agents": "It chose its own next step, or reached across your systems",
 }
@@ -89,8 +106,9 @@ _AUTOMATION_TOOLS = frozenset(
 # ── Q2. Is the path fixed? ──
 # A skill or a saved command IS the predefined path: one job, written down in
 # advance. Running one is the Applications rung, and it also means the turn did
-# NOT choose its own way, however many tools the recipe called for.
-_RECIPE_TOOLS = frozenset({"load_skill", "expand_command", "list_commands"})
+# NOT choose its own way, however many tools the recipe called for. Writing an
+# app is building exactly such a recipe (owner ask 2026-09-02).
+_RECIPE_TOOLS = frozenset({"load_skill", "expand_command", "list_commands", "create_app", "update_app"})
 # The opposite: tools that exist only because the model is deciding what to do
 # next — delegating, exploring, or proposing a plan to carry out.
 _SELF_DIRECTION_TOOLS = frozenset({"explore", "subagent", "run_agent", "propose_plan"})
@@ -162,12 +180,15 @@ def classify_turn(
     """
     names = {str(t) for t in (tools or ())}
     recipe = bool(names & _RECIPE_TOOLS)
+    grounded = bool(names & _GROUNDING_TOOLS)
 
     # Q2 — did it choose its own next action? A recipe means the path was given,
     # so tool COUNT alone cannot promote a skill run to Agents; an explicit
-    # delegation or plan still can, because that is the model deciding.
+    # delegation or plan still can, because that is the model deciding. Nor can
+    # count promote a grounded turn: reading a long document is many calls by
+    # nature (owner ask 2026-09-02) — see the module docstring.
     self_directed = bool(planned or (names & _SELF_DIRECTION_TOOLS))
-    if not recipe and len(names) >= _SELF_DIRECTED_TOOL_COUNT:
+    if not recipe and not grounded and len(names) >= _SELF_DIRECTED_TOOL_COUNT:
         self_directed = True
 
     # Q3/Q4 — write access across systems, with a wrong action at the far end.
@@ -179,7 +200,7 @@ def classify_turn(
         return "Automation"
     if recipe:
         return "Applications"
-    if names & _GROUNDING_TOOLS:
+    if grounded:
         return "Assistants"
     return "Access"
 
