@@ -104,7 +104,7 @@ describe("importing Claude Code skills", () => {
       { match: "/v1/skills", json: { skills: [] } },
     ]);
     render(<SkillsTab />);
-    fireEvent.click(await screen.findByRole("button", { name: /Add workflow/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
     fireEvent.click(screen.getByTestId("skill-import-claude"));
 
     await waitFor(() => expect(screen.getByText("brand-voice")).toBeTruthy());
@@ -126,7 +126,7 @@ describe("importing Claude Code skills", () => {
       { match: "/v1/skills", json: { skills: [] } },
     ]);
     render(<SkillsTab />);
-    fireEvent.click(await screen.findByRole("button", { name: /Add workflow/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Add skill/ }));
     fireEvent.click(screen.getByTestId("skill-import-claude"));
     await waitFor(() => expect(screen.getByText(/Nothing found/)).toBeTruthy());
   });

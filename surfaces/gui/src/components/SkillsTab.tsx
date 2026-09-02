@@ -44,7 +44,7 @@ const BADGE =
 
 const isQualitatiTool = (row: SkillRow) => row.name.toLowerCase().startsWith("qualitati-");
 
-const workflowLabel = (row: SkillRow) =>
+const skillLabel = (row: SkillRow) =>
   isQualitatiTool(row)
     ? row.name
         .slice("qualitati-".length)
@@ -99,7 +99,7 @@ export function SkillsTab({
   const [editor, setEditor] = useState<Editor | null>(null);
   const [upload, setUpload] = useState<SkillUploadPreview | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [workflowQuery, setWorkflowQuery] = useState("");
+  const [skillQuery, setSkillQuery] = useState("");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -245,24 +245,24 @@ export function SkillsTab({
     refresh();
   };
 
-  const normalizedQuery = workflowQuery.trim().toLowerCase();
+  const normalizedQuery = skillQuery.trim().toLowerCase();
   const matchesQuery = (row: SkillRow) =>
     !normalizedQuery ||
     row.name.toLowerCase().includes(normalizedQuery) ||
     row.description.toLowerCase().includes(normalizedQuery) ||
-    workflowLabel(row).toLowerCase().includes(normalizedQuery);
+    skillLabel(row).toLowerCase().includes(normalizedQuery);
   const personalRows = rows.filter((row) => !isQualitatiTool(row));
   const qualitatiRows = rows.filter(isQualitatiTool);
   const visiblePersonalRows = personalRows.filter(matchesQuery);
   const visibleQualitatiRows = qualitatiRows.filter(matchesQuery);
   const showQualitatiTools = toolsOpen || (Boolean(normalizedQuery) && visibleQualitatiRows.length > 0);
 
-  const renderWorkflowRow = (row: SkillRow, builtIn = false) => (
+  const renderSkillRow = (row: SkillRow, builtIn = false) => (
     <div key={row.name} className="flex items-center gap-3 px-4 py-3">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className={`text-[13px] font-medium ${row.enabled ? "" : "text-muted"}`}>
-            {workflowLabel(row)}
+            {skillLabel(row)}
           </span>
           {builtIn ? <span className={BADGE}>Built in</span> : null}
           {!builtIn && row.source !== "local" ? <span className={BADGE}>{row.source}</span> : null}
@@ -286,7 +286,7 @@ export function SkillsTab({
       <button
         className={BTN_BORDERED}
         title="Edit"
-        aria-label={`Edit ${workflowLabel(row)}`}
+        aria-label={`Edit ${skillLabel(row)}`}
         onClick={() =>
           setEditor({
             mode: "edit",
@@ -349,7 +349,7 @@ export function SkillsTab({
             onClick={() => setAddOpen((v) => !v)}
           >
             <span className="inline-flex items-center gap-1.5">
-              <Icon name="plus" size={13} /> Add workflow
+              <Icon name="plus" size={13} /> Add skill
             </span>
           </button>
           {addOpen ? (
@@ -398,7 +398,7 @@ export function SkillsTab({
                   <div className="text-[13px] font-medium">Create with MimiWork</div>
                   <div className="text-[11.5px] text-muted">
                     Starts a conversation — the worker builds it and asks before adding it to
-                    your workflows
+                    your skills
                   </div>
                 </button>
                 <button
@@ -462,8 +462,8 @@ export function SkillsTab({
           className={`${INPUT} pl-9`}
           aria-label="Search skills"
           placeholder="Search your skills…"
-          value={workflowQuery}
-          onChange={(e) => setWorkflowQuery(e.target.value)}
+          value={skillQuery}
+          onChange={(e) => setSkillQuery(e.target.value)}
         />
       </div>
 
@@ -839,7 +839,7 @@ export function SkillsTab({
       {editor ? (
         <div className={`${CARD} p-4 mb-4`}>
           <div className="text-[13px] font-medium mb-3">
-            {editor.mode === "new" ? "New workflow" : `Edit ${editor.name}`}
+            {editor.mode === "new" ? "New skill" : `Edit ${editor.name}`}
           </div>
           <label className={FIELD_LABEL} htmlFor="skill-name">
             Name
@@ -878,7 +878,7 @@ export function SkillsTab({
               disabled={!editor.name.trim() || !editor.instructions.trim()}
               onClick={save}
             >
-              Save workflow
+              Save skill
             </button>
             <button className={BTN_BORDERED} onClick={() => setEditor(null)}>
               Cancel
@@ -889,7 +889,7 @@ export function SkillsTab({
 
       <div className="flex items-center justify-between gap-3 mb-2 px-0.5">
         <h3 className="text-[12px] font-semibold text-muted uppercase tracking-[0.08em]">
-          Your workflows
+          Your skills
         </h3>
         <span className="text-[11.5px] text-faint">
           {normalizedQuery ? `${visiblePersonalRows.length} found` : personalRows.length}
@@ -897,17 +897,17 @@ export function SkillsTab({
       </div>
 
       {visiblePersonalRows.length > 0 ? (
-        <div className={`${CARD} divide-y divide-line`} data-testid="workflow-list">
-          {visiblePersonalRows.map((row) => renderWorkflowRow(row))}
+        <div className={`${CARD} divide-y divide-line`} data-testid="skill-list">
+          {visiblePersonalRows.map((row) => renderSkillRow(row))}
         </div>
       ) : !normalizedQuery && personalRows.length === 0 && !editor ? (
-        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="workflow-empty">
-          No workflows yet — <b>Add workflow</b> to teach Mimi a recurring task, like
+        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="skill-empty">
+          No skills yet — <b>Add skill</b> to teach Mimi a recurring task, like
           “prepare my Monday status report”.
         </div>
       ) : visibleQualitatiRows.length === 0 ? (
-        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="workflow-no-results">
-          Nothing matches “{workflowQuery.trim()}”. Try a task, outcome, or workflow name.
+        <div className={`${CARD} p-5 text-[13px] text-muted`} data-testid="skill-no-results">
+          Nothing matches “{skillQuery.trim()}”. Try a task, outcome, or skill name.
         </div>
       ) : null}
 
@@ -937,7 +937,7 @@ export function SkillsTab({
           </button>
           {showQualitatiTools ? (
             <div id="qualitati-tool-list" className="border-t border-line divide-y divide-line">
-              {visibleQualitatiRows.map((row) => renderWorkflowRow(row, true))}
+              {visibleQualitatiRows.map((row) => renderSkillRow(row, true))}
             </div>
           ) : null}
         </div>

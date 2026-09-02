@@ -176,10 +176,10 @@ export function Composer(props: Props) {
       ? text.slice(1).toLowerCase()
       : null;
   // Keep the first impression small: "/" is the short app-command menu. Saved commands
-  // join after one typed character; reusable workflows join after two, when the user has
+  // join after one typed character; skills join after two, when the user has
   // expressed enough intent to make a broader search useful.
   const wantsSavedCommands = slashQuery !== null && slashQuery.length >= 1;
-  const wantsWorkflows = slashQuery !== null && slashQuery.length >= 2;
+  const wantsSkills = slashQuery !== null && slashQuery.length >= 2;
   const paletteRows: PaletteRow[] = [
     ...(props.onAppCommand
       ? APP_COMMANDS.map((c) => ({ kind: "app" as const, ...c }))
@@ -192,7 +192,7 @@ export function Composer(props: Props) {
           scope: c.scope,
         }))
       : []),
-    ...(wantsWorkflows
+    ...(wantsSkills
       ? (slashSkills ?? [])
           .map((s) => ({
             kind: "skill" as const,
@@ -205,7 +205,7 @@ export function Composer(props: Props) {
   ];
   const slashMatches = paletteRows.filter((row) => {
     // QualiTaTi entries are implementation capabilities Mimi chooses automatically,
-    // not commands or reusable workflows a person should have to know by name.
+    // not commands or skills a person should have to know by name.
     if (row.name.toLowerCase().startsWith("qualitati-")) return false;
     const query = slashQuery ?? "";
     const searchable =
@@ -214,7 +214,7 @@ export function Composer(props: Props) {
   });
   const slashLoading =
     (wantsSavedCommands && savedCommands === null) ||
-    (wantsWorkflows && slashSkills === null);
+    (wantsSkills && slashSkills === null);
   const activeSlashIndex = Math.min(slashIndex, Math.max(slashMatches.length - 1, 0));
 
   useEffect(() => {
@@ -229,7 +229,7 @@ export function Composer(props: Props) {
   }, [wantsSavedCommands, props.workspace]);
 
   useEffect(() => {
-    if (!wantsWorkflows || !props.sessionId) return;
+    if (!wantsSkills || !props.sessionId) return;
     let live = true;
     sessionSkills(props.sessionId, props.workspace)
       .then((all) => live && setSlashSkills(all.filter((s) => s.enabled)))
@@ -237,7 +237,7 @@ export function Composer(props: Props) {
     return () => {
       live = false;
     };
-  }, [wantsWorkflows, props.sessionId, props.workspace]);
+  }, [wantsSkills, props.sessionId, props.workspace]);
 
   // `activeSlashIndex` clamps a late async result to a real row; the textarea change
   // handler resets the stored index whenever the person changes their query.
@@ -785,13 +785,13 @@ export function Composer(props: Props) {
         }}
       >
         {/* "/" palette — compact at rest, then progressively searches saved commands and
-            reusable workflows as the user types. */}
+            skills as the user types. */}
         {slashQuery !== null && (
           <div
             className="px-2 pt-2"
             data-testid="skill-popup"
             role="listbox"
-            aria-label="Commands and workflows"
+            aria-label="Commands and skills"
           >
             {slashMatches.length > 0 ? (
               slashMatches.map((row, i) => (
@@ -820,15 +820,15 @@ export function Composer(props: Props) {
               </div>
             ) : slashQuery.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
-                Type a command, or keep typing to find saved commands and workflows.
+                Type a command, or keep typing to find saved commands and skills.
               </div>
             ) : slashQuery.length === 1 ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
-                Keep typing to search workflows.
+                Keep typing to search skills.
               </div>
             ) : slashMatches.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
-                No commands or workflows match “{slashQuery}”. Try another word.
+                No commands or skills match “{slashQuery}”. Try another word.
               </div>
             ) : null}
           </div>

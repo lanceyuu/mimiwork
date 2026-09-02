@@ -154,7 +154,7 @@ export function PersonaView({
               <div className={`${SEC_H} mb-1`}>Connections for full benefit</div>
               <p className="text-[12.5px] text-muted mb-2.5">
                 Declared by the persona — wire {shortPersonaName(detail.name, personaId)} into these
-                to unlock its full workflow.
+                to unlock everything it can do.
               </p>
               <div className="rounded-xl2 border border-line overflow-hidden">
                 {detail.recommends.map((r, i) => {

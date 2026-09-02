@@ -1,14 +1,14 @@
 import { test, expect } from "./fixtures";
 
 // SKILLS-SPEC §9 journey 2 — liveness from the session's seat: the composer's searched "/" popup is
-// the live "what can my worker use right now" view. A workflow created in Settings is offered;
+// the live "what can my worker use right now" view. A skill created in Settings is offered;
 // a disabled one vanishes. Hermetic: the popup reads /v1/sessions/{id}/skills from fixtures.
 
 test("skills-session: new skill offered in '/', disabled one absent", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
 
-  // The seeded workflows appear once the user types enough to search for them.
+  // The seeded skills appear once the user types enough to search for them.
   const box = page.getByPlaceholder(/Ask the coworker/);
   await box.fill("/we");
   await expect(page.getByTestId("skill-popup")).toBeVisible();
@@ -21,11 +21,11 @@ test("skills-session: new skill offered in '/', disabled one absent", async ({ p
   await page.getByTestId("account-row").click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "Skills", exact: true }).click();
-  await page.getByRole("button", { name: /Add workflow/ }).click();
+  await page.getByRole("button", { name: /Add skill/ }).click();
   await page.getByText("Write it myself").click();
   await page.getByLabel("Name").fill("fresh-skill");
   await page.getByLabel("Instructions").fill("Do the fresh thing.");
-  await page.getByRole("button", { name: "Save workflow" }).click();
+  await page.getByRole("button", { name: "Save skill" }).click();
   await expect(page.getByRole("status")).toContainText("fresh-skill");
   await page.getByLabel("weekly-report enabled").click();
   await expect(page.getByRole("status")).toContainText("turned off everywhere");

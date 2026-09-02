@@ -1,5 +1,5 @@
 /** TRANSFER PACK (GUI) — the gestures a Claude Code / Cowork / Codex user already knows:
- *  one progressive "/" palette (app commands + saved commands + workflows), "@" file mentions, and ⇧⇥ to
+ *  one progressive "/" palette (app commands + saved commands + skills), "@" file mentions, and ⇧⇥ to
  *  cycle permission modes. Owner ask 2026-08-23: what you learn here must work there.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -75,7 +75,7 @@ describe("the / palette", () => {
     expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
   });
 
-  it("offers saved commands after one character and workflows after two", async () => {
+  it("offers saved commands after one character and skills after two", async () => {
     const calls = stubFetch();
     render(<Composer {...props()} />);
     fireEvent.change(box(), { target: { value: "/d" } });

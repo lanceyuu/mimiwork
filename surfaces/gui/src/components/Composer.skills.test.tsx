@@ -71,14 +71,14 @@ describe("Composer / skills popup", () => {
     const calls = stubFetch();
     render(<Composer {...props({ onAppCommand: vi.fn() })} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(await screen.findByRole("listbox", { name: "Commands and workflows" })).toBeTruthy();
+    expect(await screen.findByRole("listbox", { name: "Commands and skills" })).toBeTruthy();
     expect(screen.getByText("/help")).toBeTruthy();
     expect(screen.queryByText("/weekly-report")).toBeNull();
     expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
     expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(false);
   });
 
-  it("waits for two typed characters before fetching workflows", async () => {
+  it("waits for two typed characters before fetching skills", async () => {
     const calls = stubFetch();
     render(<Composer {...props()} />);
     fireEvent.change(box(), { target: { value: "/g" } });
@@ -93,7 +93,7 @@ describe("Composer / skills popup", () => {
     expect(calls.some((c) => c.url.includes("/skills"))).toBe(true);
   });
 
-  it("searches workflow names and descriptions but never exposes QualiTaTi tools", async () => {
+  it("searches skill names and descriptions but never exposes QualiTaTi tools", async () => {
     stubFetch();
     render(<Composer {...props()} />);
     fireEvent.change(box(), { target: { value: "/monday" } });
@@ -101,7 +101,7 @@ describe("Composer / skills popup", () => {
     expect(screen.queryByText("/muted-one")).toBeNull();
 
     fireEvent.change(box(), { target: { value: "/qualitati" } });
-    await screen.findByText(/No commands or workflows match/);
+    await screen.findByText(/No commands or skills match/);
     expect(screen.queryByText("/qualitati-projects")).toBeNull();
     expect(screen.queryByText("/qualitati-export")).toBeNull();
   });

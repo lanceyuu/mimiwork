@@ -21,8 +21,8 @@ test("skills-settings: create via the menu → name-first banner; edit persists"
   await expect(page.getByTitle("Show folder")).toContainText("2 files");
   await expect(page.getByText("Start a conversation")).toHaveCount(0);
 
-  // Add workflow ▾ → the three doors, then Write it myself.
-  await page.getByRole("button", { name: /Add workflow/ }).click();
+  // Add skill ▾ → the three doors, then Write it myself.
+  await page.getByRole("button", { name: /Add skill/ }).click();
   await expect(page.getByText("Import a file")).toBeVisible();
   await expect(page.getByText("Create with MimiWork")).toBeVisible();
   await page.getByText("Write it myself").click();
@@ -30,7 +30,7 @@ test("skills-settings: create via the menu → name-first banner; edit persists"
   await page.getByLabel("Name").fill("greet-warmly");
   await page.getByLabel("Description").fill("Greets people warmly");
   await page.getByLabel("Instructions").fill("Always greet warmly.");
-  await page.getByRole("button", { name: "Save workflow" }).click();
+  await page.getByRole("button", { name: "Save skill" }).click();
 
   // Name-first teal confirmation (§7) + the new row.
   const status = page.getByRole("status");
@@ -43,7 +43,7 @@ test("skills-settings: create via the menu → name-first banner; edit persists"
   const name = page.getByLabel("Name");
   await expect(name).toBeDisabled();
   await page.getByLabel("Description").fill("Monday status report, sharper");
-  await page.getByRole("button", { name: "Save workflow" }).click();
+  await page.getByRole("button", { name: "Save skill" }).click();
   await expect(page.getByText("Monday status report, sharper")).toBeVisible();
 });
 

@@ -8,7 +8,7 @@ test("skills-forcerun: popup pick → inline /name → skill rides the frame →
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
 
-  // A two-letter search opens the workflow results; picking inserts the inline prefix
+  // A two-letter search opens the skill results; picking inserts the inline prefix
   // (no chip) and keeps focus.
   const box = page.getByPlaceholder(/Ask the coworker/);
   await box.fill("/we");
