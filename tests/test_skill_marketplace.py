@@ -9,8 +9,12 @@ def test_index_is_bundled_and_large():
     idx = mp._load_index()
     assert len(idx) > 5000
     assert {"name", "description", "repo", "path", "ref"} <= set(idx[0])
-    # Every entry pins a full commit sha — installs can't drift behind the listing.
-    assert all(len(e["ref"]) == 40 for e in idx[:50])
+    # Every community entry pins a full commit sha — installs can't drift behind the
+    # listing. Our own repo's store entries (store_extras.json) track a branch instead:
+    # the drift the pin guards against is a third party's, and pinning our own edits
+    # would need an index rebuild each time.
+    assert all(len(e["ref"]) == 40 for e in idx[:50] if e["repo"] != "lanceyuu/mimiwork")
+    assert any(e["repo"] == "lanceyuu/mimiwork" for e in idx[:5])
 
 
 def test_search_ranks_full_coverage_and_dedupes():

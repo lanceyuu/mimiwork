@@ -57,7 +57,7 @@ datas += collect_data_files("coworker", includes=["**/*.jsonl"])
 # first run. Includes non-.md resources (css/js/json in the slide template pack).
 # skills/store_index.json.gz — the community skill store's search index (~7,200 entries).
 datas += collect_data_files(
-    "coworker", includes=["skills/builtin/**/*", "skills/*.json.gz"]
+    "coworker", includes=["skills/builtin/**/*", "skills/*.json.gz", "skills/*.json"]
 )
 # blueprints/*.mimiflow.json — bundled starter automations (Automations ▸ starter blueprints).
 datas += collect_data_files("coworker", includes=["blueprints/*.json"])

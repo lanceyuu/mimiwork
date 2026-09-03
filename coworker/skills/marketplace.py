@@ -51,7 +51,19 @@ def _load_index() -> list[dict[str, Any]]:
             if _index_cache is None:
                 data = resources.files(__package__).joinpath("store_index.json.gz")
                 with data.open("rb") as fh:
-                    _index_cache = json.loads(gzip.decompress(fh.read()).decode("utf-8"))
+                    index = json.loads(gzip.decompress(fh.read()).decode("utf-8"))
+                # Skills this repo keeps for the store rather than bundling (owner call
+                # 2026-09-03: mono-color is a taste, not a default). They live under
+                # `skills/store/` on GitHub and install like any other entry; `ref` is a
+                # branch on purpose — our own repo moves forward, and pinning would
+                # need an index rebuild on every edit.
+                extras = resources.files(__package__).joinpath("store_extras.json")
+                try:
+                    with extras.open("rb") as fh:
+                        own = json.loads(fh.read().decode("utf-8"))
+                except (OSError, ValueError):
+                    own = []
+                _index_cache = [e for e in own if isinstance(e, dict)] + index
     return _index_cache
 
 
