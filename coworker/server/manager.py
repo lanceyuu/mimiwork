@@ -149,6 +149,12 @@ def _os_reveal(target: Path, mode: str = "reveal") -> dict[str, Any]:
     return {"ok": True}
 
 
+def _credits() -> list[dict[str, Any]]:
+    from ..credits import credits
+
+    return credits()
+
+
 def _same_dir(a: str, b: str) -> bool:
     """Two paths naming one directory (after ~ and symlinks) — or both empty."""
     try:
@@ -3538,6 +3544,8 @@ class SessionManager:
             },
             "repo_url": "https://github.com/lanceyuu/mimiwork",
             "tutorial_url": "https://github.com/lanceyuu/mimiwork#the-ten-minute-tutorial",
+            # Whose work this stands on (coworker/credits.py; CREDITS.md is the same list).
+            "credits": _credits(),
         }
 
     def _fetch_releases(self) -> list[dict[str, Any]]:

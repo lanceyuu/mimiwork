@@ -1406,6 +1406,18 @@ export async function removeModel(model: string): Promise<ModelSettings & { ok: 
 }
 
 /** Evidence that this app is maintained and current — see manager.about(). */
+export interface CreditItem {
+  name: string;
+  what?: string;
+  url?: string;
+  license?: string;
+}
+export interface CreditSection {
+  title: string;
+  blurb?: string;
+  items: CreditItem[];
+}
+
 export interface AboutInfo {
   version: string;
   models: number;
@@ -1413,6 +1425,8 @@ export interface AboutInfo {
   releases: { tag: string; name: string; published_at: string }[];
   maintainer: string;
   contact?: { address?: string; phone?: string; email?: string };
+  // Whose work this stands on — the same list as CREDITS.md (coworker/credits.py).
+  credits?: CreditSection[];
   repo_url: string;
   tutorial_url: string;
 }

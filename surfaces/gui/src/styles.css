@@ -2070,6 +2070,21 @@ button.btn-primary:disabled { opacity: 0.45; cursor: default; filter: none; }
 .ask-entry-system { color: var(--faint); border-bottom: 1px dashed var(--line); padding-bottom: 4px; margin-bottom: 4px; }
 .ask-entry-reply { color: var(--ink); border-top: 1px solid var(--line); padding-top: 6px; margin-top: 6px; }
 .ask-entry-error { color: #b91c1c; }
+/* Credits (Settings → About) */
+.credits-sections { display: flex; flex-direction: column; }
+.credits-section { border-top: 1px solid var(--line); }
+.credits-section:first-child { border-top: 0; }
+.credits-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 9px 0; background: none; border: 0; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; text-align: left; }
+.credits-title { flex: 1; font-weight: 600; }
+.credits-count { font-size: 11px; color: var(--faint); min-width: 18px; text-align: center; padding: 0 5px; border-radius: 999px; background: var(--paper); }
+.credits-body { padding: 0 0 10px 22px; }
+.credits-blurb { font-size: 12px; color: var(--faint); margin-bottom: 6px; }
+.credits-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.credits-item { font-size: 12.5px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.credits-name { font-weight: 600; color: var(--ink); background: none; border: 0; padding: 0; font: inherit; font-weight: 600; cursor: pointer; }
+button.credits-name:hover { color: var(--accent); text-decoration: underline; }
+.credits-license { font-size: 10.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.credits-what { color: var(--muted); flex-basis: 100%; }
 /* Template gallery */
 .apps-gallery { margin-bottom: 18px; }
 .apps-gallery-group { margin-bottom: 12px; }

@@ -331,6 +331,9 @@ statistics-aware data-analysis toolchain — and carries its own desktop refinem
 binary and package names (`coworker`, `openworker-server`) keep their upstream names for
 compatibility.
 
+The full list of projects, skills and libraries MimiWork learns from or ships with — and what
+was taken from each — is in [CREDITS.md](CREDITS.md), and in the app under Settings → About.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Original work © 2024 Andrew Ng; modifications © 2026 MimiWork

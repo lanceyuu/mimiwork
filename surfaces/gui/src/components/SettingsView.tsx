@@ -46,6 +46,7 @@ import { useThemePref } from "../theme";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { AliveCard } from "./AliveCard";
+import { CreditsCard } from "./CreditsCard";
 import { ModelsTab } from "./ManageTabs";
 import { MemorySection } from "./MemorySection";
 import { PersonasTab } from "./PersonasTab";
@@ -539,6 +540,7 @@ function AppearanceSection() {
           every build, the browser dev shell runs the same first-run flow) and, on
           desktop, the manual update check (launch also checks automatically). */}
       <AliveCard card={CARD} label={FIELD_LABEL} help={FIELD_HELP} />
+      <CreditsCard card={CARD} label={FIELD_LABEL} />
 
       <div className={CARD + " p-4 mt-4"} data-testid="language-card">
         <div className={FIELD_LABEL + " mb-2"}>{tr("Language")}</div>
