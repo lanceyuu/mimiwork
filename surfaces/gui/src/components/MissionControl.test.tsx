@@ -95,11 +95,29 @@ describe("MissionControl", () => {
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
-  it("approval rows route to the inbox", async () => {
+  it("a waiting prompt opens the conversation it waits in", async () => {
+    // The cross-session Inbox lists only unattended prompts; an attended one lives
+    // inline, so routing there read as "Nothing pending" (owner-hit 2026-09-03).
+    const onOpenInbox = vi.fn();
+    const onSelectSession = vi.fn();
+    getActivity.mockResolvedValue({
+      busy: false,
+      items: [{ kind: "approval", id: "i1", title: "Needs your OK", session_id: "s1", workspace: "/w", agent: "cowork" }],
+    });
+    render(
+      <MissionControl onSelectSession={onSelectSession} onOpenAutomation={noop} onOpenInbox={onOpenInbox} />,
+    );
+    await waitFor(() => expect(screen.getByTestId("mc-approval")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("mc-approval"));
+    expect(onSelectSession).toHaveBeenCalledWith("s1", "/w", "cowork");
+    expect(onOpenInbox).not.toHaveBeenCalled();
+  });
+
+  it("a prompt with no conversation still goes to the inbox", async () => {
     const onOpenInbox = vi.fn();
     getActivity.mockResolvedValue({
       busy: false,
-      items: [{ kind: "approval", id: "i1", title: "Needs your OK", session_id: "s1" }],
+      items: [{ kind: "approval", id: "i2", title: "Orphan", session_id: "" }],
     });
     render(
       <MissionControl onSelectSession={noop} onOpenAutomation={noop} onOpenInbox={onOpenInbox} />,

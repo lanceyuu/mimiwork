@@ -130,24 +130,14 @@ def test_usage_signal_triggers_between_tool_turns(tmp_path):
     assert engine._last_context_tokens is None  # reset once the view shrank
 
 
-def test_summarizer_failure_unattended_auto_trims(tmp_path):
+def test_summarizer_failure_retries_then_trims_without_asking(tmp_path):
+    # Owner ask 2026-09-03: compaction is automatic. Three tries, then trim and carry on;
+    # no Retry/Trim question, attended or not.
     provider = CompactingProvider(
         [AssistantTurn(text="done", finish_reason="stop")], summary_fails=99
     )
     engine = make_engine(tmp_path,provider, messages=long_history(), cap=400)
-    events = collect(engine)  # is_attended is None → unattended policy
-
-    compacted = [e for e in events if e.type == EventType.COMPACTED]
-    assert compacted and "trimmed" in compacted[0].data["text"].lower()
-    assert engine.compaction_state is not None and engine.compaction_state.trimmed
-    assert len(provider.summary_calls) == 2  # the one unconditional retry, then trim
-
-
-def test_summarizer_failure_attended_prompts_retry_then_succeeds(tmp_path):
-    provider = CompactingProvider(
-        [AssistantTurn(text="done", finish_reason="stop")], summary_fails=2
-    )
-    engine = make_engine(tmp_path,provider, messages=long_history(), cap=400)
+    engine.retry_delays = (0.0,) * 6
     engine.is_attended = lambda: True
     asked = []
 
@@ -156,25 +146,26 @@ def test_summarizer_failure_attended_prompts_retry_then_succeeds(tmp_path):
         return {"answer": "Retry"}
 
     engine.question_asker = asker
-    collect(engine)
+    events = collect(engine)
 
-    assert asked and asked[0]["options"] == ["Retry", "Trim oldest 10%"]
-    assert engine.compaction_state is not None and not engine.compaction_state.trimmed
+    compacted = [e for e in events if e.type == EventType.COMPACTED]
+    assert compacted and "trimmed" in compacted[0].data["text"].lower()
+    assert "try again" in compacted[0].data["text"].lower()
+    assert engine.compaction_state is not None and engine.compaction_state.trimmed
+    assert len(provider.summary_calls) == 3
+    assert asked == [], "compaction never parks a question"
 
 
-def test_summarizer_failure_attended_choose_trim(tmp_path):
+def test_summarizer_failure_then_success_compacts_quietly(tmp_path):
     provider = CompactingProvider(
-        [AssistantTurn(text="done", finish_reason="stop")], summary_fails=99
+        [AssistantTurn(text="done", finish_reason="stop")], summary_fails=2
     )
     engine = make_engine(tmp_path,provider, messages=long_history(), cap=400)
-    engine.is_attended = lambda: True
-
-    async def asker(args, tool_call_id=None):
-        return {"answer": "Trim oldest 10%"}
-
-    engine.question_asker = asker
+    engine.retry_delays = (0.0,) * 6
     collect(engine)
-    assert engine.compaction_state is not None and engine.compaction_state.trimmed
+
+    assert engine.compaction_state is not None and not engine.compaction_state.trimmed
+    assert len(provider.summary_calls) == 3
 
 
 def test_raw_overflow_routes_into_compaction_and_retries(tmp_path):

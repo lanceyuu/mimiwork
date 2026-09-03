@@ -220,10 +220,16 @@ export function RightRail({
   }, [selected?.path, sessionId]);
 
   // Notify the app when a preview opens/closes (drives the left-nav auto-collapse).
-  // The builder's app preview is a preview too: it wants the width.
+  // The builder's app preview is a preview too: it wants the width. Only TRANSITIONS
+  // fire: the callback's identity changes whenever the nav collapses or expands, and
+  // re-firing on that re-collapsed the nav the instant the user opened it beside a
+  // preview (owner-hit 2026-09-03: "it shows and disappears immediately").
+  const previewChangeRef = useRef(onPreviewChange);
+  previewChangeRef.current = onPreviewChange;
   useEffect(() => {
-    onPreviewChange?.(!!selected || builderVisible);
-  }, [!!selected, builderVisible, onPreviewChange]);
+    previewChangeRef.current?.(!!selected || builderVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!selected, builderVisible]);
 
   const reloadSelected = () => {
     if (!selected) return Promise.resolve();

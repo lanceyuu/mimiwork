@@ -780,9 +780,14 @@ class TurnEngine:
     async def _compact_now(self, *, force: bool = False) -> Optional[str]:
         """Run the compaction policy. Callers gate on `_compaction_due()` (or `force`,
         the overflow path). Returns the user-facing notice text when the outbound view
-        changed, else None. Failure policy per spec: retry once (both modes); attended →
-        Retry / Trim prompt; unattended → auto-trim and continue (never park a run on
-        bookkeeping)."""
+        changed, else None.
+
+        Failure policy (owner ask 2026-09-03: "compact it automatically"): three tries
+        with a pause between — a summarizer outage is usually the same transient the
+        turn itself just hit — then the app default model if the compaction model is a
+        different one, then trim and carry on. Never a question: the old Retry/Trim
+        prompt parked an Inbox item nobody could find, and a run waiting on its own
+        bookkeeping is a run that looks hung."""
         cfg = self._compaction_config()
         pct = float(cfg["threshold_pct"])
         cap = int(cfg["cap_tokens"])
@@ -793,49 +798,33 @@ class TurnEngine:
         )
         model = str(cfg.get("model") or "") or self.model
 
-        def _build() -> Optional[_compaction.CompactionState]:
+        def _build(with_model: str) -> Optional[_compaction.CompactionState]:
             return _compaction.build_state(
                 self.messages,
                 provider=self.provider,
-                model=model,
+                model=with_model,
                 keep_tokens=keep,
                 prior=self.compaction_state,
             )
 
         state: Optional[_compaction.CompactionState] = None
         failed = False
-        for _attempt in range(2):  # first try + the unconditional single retry
-            try:
-                state = await asyncio.to_thread(_build)
-                failed = False
-                break
-            except Exception:
-                failed = True
-        if failed and self.question_asker is not None and self.is_attended and self.is_attended():
-            while True:
-                answer = await self._interruptible(
-                    self.question_asker(
-                        {
-                            "question": (
-                                "Context compaction failed — the summarizer couldn't "
-                                "condense this session's history. How should I proceed?"
-                            ),
-                            "options": ["Retry", "Trim oldest 10%"],
-                            "allow_text": False,
-                            "header": "Compaction",
-                        },
-                        None,
-                    ),
-                    interrupted=None,
-                )
-                if not answer or answer.get("answer") != "Retry":
+        candidates = [model] + ([self.model] if self.model != model else [])
+        delays = (0.0, self.retry_delays[0], self.retry_delays[1])
+        for with_model in candidates:
+            for delay in delays:
+                if self._cancel.is_set():
                     break
+                if delay:
+                    await asyncio.sleep(delay)
                 try:
-                    state = await asyncio.to_thread(_build)
+                    state = await asyncio.to_thread(_build, with_model)
                     failed = False
                     break
                 except Exception:
-                    continue
+                    failed = True
+            if state is not None:
+                break
         if state is not None:
             self.compaction_state = state
             self._last_context_tokens = None  # stale once the outbound view shrank
@@ -851,7 +840,10 @@ class TurnEngine:
             if trimmed is not None:
                 self.compaction_state = trimmed
                 self._last_context_tokens = None
-                return "Context trimmed — oldest turns dropped (summary unavailable)"
+                return (
+                    "Context trimmed — the summary could not be made right now (model "
+                    "unavailable); oldest turns dropped, Mimi will try again at the next checkpoint"
+                )
         return None
 
     # -- helpers ----------------------------------------------------------------

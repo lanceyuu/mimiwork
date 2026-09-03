@@ -4397,12 +4397,18 @@ class SessionManager:
                 }
             )
         for item in pending:
+            # The session the item belongs to, so the NOW band can open THAT conversation
+            # — an attended prompt lives inline there, not in the cross-session Inbox
+            # (owner-hit 2026-09-03: the row led to an empty Inbox).
+            summary = self.session_store.summary(item.session_id) or {} if item.session_id else {}
             items.append(
                 {
                     "kind": "approval",
                     "id": item.id,
                     "title": item.title,
                     "session_id": item.session_id,
+                    "workspace": summary.get("workspace", ""),
+                    "agent": summary.get("agent", "cowork"),
                 }
             )
         return {

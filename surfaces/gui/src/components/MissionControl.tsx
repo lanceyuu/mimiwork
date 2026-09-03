@@ -73,7 +73,7 @@ export function MissionControl(props: {
               className="min-w-0 flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left hover:bg-paper"
               title={
                 r.kind === "approval"
-                  ? "Waiting for you — open it"
+                  ? "Waiting for you — open the conversation"
                   : r.kind === "automation"
                     ? "Automation running — view it"
                     : "Session working — open it"
@@ -82,6 +82,10 @@ export function MissionControl(props: {
                 if (r.kind === "session")
                   props.onSelectSession(r.id, r.workspace || "", r.agent || "cowork");
                 else if (r.kind === "automation") props.onOpenAutomation(r.id);
+                // A prompt waits INSIDE its conversation (the card renders there); the
+                // cross-session Inbox only lists unattended ones, so it read as empty.
+                else if (r.session_id)
+                  props.onSelectSession(r.session_id, r.workspace || "", r.agent || "cowork");
                 else props.onOpenInbox();
               }}
             >
