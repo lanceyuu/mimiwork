@@ -4,7 +4,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "examples" / "vibe-coding-5-minutes-relaxed.png"
 WIDTH = 1800

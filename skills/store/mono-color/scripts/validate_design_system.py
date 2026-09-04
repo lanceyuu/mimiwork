@@ -5,7 +5,6 @@ import struct
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SYSTEM_DIR = ROOT / "design-system"
 HEX_COLOR = re.compile(r"^#[0-9A-F]{6}$")

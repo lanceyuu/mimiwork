@@ -4,7 +4,6 @@ import re
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 EVALS_PATH = ROOT / "evals" / "evals.json"
 ALLOWED_MODES = {
