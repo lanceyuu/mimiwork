@@ -99,3 +99,57 @@ def test_the_session_reader_serves_them_and_refuses_comments_elsewhere(tmp_path,
     assert m.comment_artifact("s1", docx_path.name, 0, "Title needs a date", author="")["ok"]
     assert not m.comment_artifact("s1", docx_path.name, 0, "   ")["ok"]
     assert not m.comment_artifact("s1", "nope.txt", 0, "x")["ok"]
+
+
+def _tracked(path):
+    """Add a tracked insertion, a tracked deletion and a comment to `path` in place —
+    python-docx writes none of them itself, so the XML is built by hand the way Word
+    writes it."""
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    doc = Document(str(path))
+    p = doc.paragraphs[1]  # "The sample consisted of 24 interviews & 2 groups."
+    ins = OxmlElement("w:ins")
+    ins.set(qn("w:author"), "Mimi")
+    ins.set(qn("w:date"), "2026-09-04T09:00:00Z")
+    r = OxmlElement("w:r")
+    t = OxmlElement("w:t")
+    t.text = " and three diaries"
+    r.append(t)
+    ins.append(r)
+    p._p.append(ins)
+    dl = OxmlElement("w:del")
+    dl.set(qn("w:author"), "Reviewer 2")
+    r2 = OxmlElement("w:r")
+    dt = OxmlElement("w:delText")
+    dt.text = " (preliminary)"
+    r2.append(dt)
+    dl.append(r2)
+    p._p.append(dl)
+    doc.add_comment(p.runs[1:2], text="Say how they were recruited.", author="Shubin", initials="SY")
+    doc.save(str(path))
+
+
+def test_tracked_changes_and_comments_show_as_word_shows_them(docx_path):
+    _tracked(docx_path)
+    got = docx_to_html(docx_path)
+    html = got["html"]
+    assert got["changes"] == {"insertions": 1, "deletions": 1, "comments": 1}
+    # The insertion is there, marked and attributed; python-docx alone would drop it.
+    assert '<ins class="doc-ins" title="Inserted by Mimi, 2026-09-04"> and three diaries</ins>' in html
+    # The deletion is still readable, struck through — not silently accepted.
+    assert '<del class="doc-del" title="Deleted by Reviewer 2"> (preliminary)</del>' in html
+    # The comment sits where it was made, numbered, with its text on hover.
+    assert '<sup class="doc-comment" data-comment="0" title="Shubin: Say how they were recruited.">1</sup>' in html
+    assert html.index("consisted</b>") < html.index('class="doc-comment"') < html.index("<ins")
+    # A legend up top says what the reader is looking at.
+    assert html.startswith('<div class="doc-changes">')
+    assert "Track changes: 1 insertion, 1 deletion · 1 comment" in html
+
+
+def test_a_clean_document_has_no_legend(docx_path):
+    got = docx_to_html(docx_path)
+    assert got["changes"] == {"insertions": 0, "deletions": 0, "comments": 0}
+    assert "doc-changes" not in got["html"]

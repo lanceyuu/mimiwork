@@ -133,12 +133,21 @@ The app updates itself from then on.
 
 | Your machine | Download | First launch |
 |---|---|---|
-| **Mac — Apple Silicon** (M1–M4) | [**MimiWork-macos-arm64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) | Drag to Applications, then **right-click → Open** once |
-| **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) | Drag to Applications, then **right-click → Open** once |
+| **Mac — Apple Silicon** (M1–M4) | [**MimiWork-macos-arm64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) | Drag to Applications, then run the one-line command below once |
+| **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) | Drag to Applications, then run the one-line command below once |
 | **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) | Run it; SmartScreen → **More info → Run anyway** |
 
-Builds aren't code-signed yet — that's the one-time prompt on each OS. Every release, with
-checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
+**Mac: "MimiWork is damaged and can't be opened."** It isn't. The builds aren't notarized
+with Apple yet, and macOS (Sonoma and Sequoia) reports any un-notarized download that way —
+right-click → Open no longer gets past it. Open Terminal and run, once:
+
+```bash
+xattr -cr /Applications/MimiWork.app
+```
+
+Then open MimiWork normally. That removes the quarantine flag the browser put on the
+download; updates install from inside the app and never trigger it again. Every release,
+with checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
 
 ### The ten-minute tutorial
 

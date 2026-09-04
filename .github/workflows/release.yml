@@ -226,3 +226,15 @@ jobs:
           draft: true
           files: dist/*
           generate_release_notes: true
+          # Until the APPLE_* secrets exist the Mac builds are not notarized, and macOS
+          # calls an un-notarized download "damaged". Say what to do at the top of every
+          # release, where people who hit it look first (owner report 2026-09-04).
+          body: |
+            **Mac: "MimiWork is damaged and can't be opened"?** It isn't — the build is not yet notarized with Apple, and macOS says that about any un-notarized download. Drag MimiWork to Applications, then run once in Terminal:
+
+            ```
+            xattr -cr /Applications/MimiWork.app
+            ```
+
+            and open it normally. Updates install from inside the app and never need this again.
+

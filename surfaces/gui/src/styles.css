@@ -711,6 +711,15 @@ button.btn.danger { color: var(--accent); }
 .artifact-doc th { background: var(--paper); font-weight: 600; }
 .artifact-doc img { max-width: 100%; display: block; margin: 8px 0; border-radius: 6px; }
 .artifact-doc .doc-img-skipped { font-size: 12px; color: var(--faint); }
+/* Tracked changes and comments, the way Word marks them */
+.artifact-doc ins.doc-ins { text-decoration: underline; text-decoration-color: #15803d; color: #15803d; background: rgba(22,163,74,0.10); border-radius: 3px; padding: 0 1px; }
+.artifact-doc del.doc-del { text-decoration: line-through; color: #b91c1c; background: rgba(220,38,38,0.08); border-radius: 3px; padding: 0 1px; }
+.artifact-doc .doc-del-p { border-left: 3px solid #b91c1c; padding-left: 8px; color: var(--muted); }
+.artifact-doc sup.doc-comment { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 2px; border-radius: 999px; background: #f59e0b; color: #fff; font-size: 10px; font-weight: 700; line-height: 1; vertical-align: super; cursor: help; }
+.artifact-doc .doc-changes { display: flex; align-items: center; gap: 10px; margin: 0 0 16px; padding: 7px 12px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.artifact-doc .doc-changes-ins, .artifact-doc .doc-changes-del { font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+.artifact-doc .doc-changes-ins { color: #15803d; background: rgba(22,163,74,0.10); text-decoration: underline; }
+.artifact-doc .doc-changes-del { color: #b91c1c; background: rgba(220,38,38,0.08); text-decoration: line-through; }
 .artifact-doc.pinnable [data-p], .artifact-doc.pinnable [data-slide] { cursor: pointer; border-radius: 6px; }
 .artifact-doc.pinnable [data-p]:hover { background: var(--accent-soft, rgba(13,148,136,0.08)); box-shadow: 0 0 0 4px var(--accent-soft, rgba(13,148,136,0.08)); }
 .artifact-slides { max-width: 820px; }
