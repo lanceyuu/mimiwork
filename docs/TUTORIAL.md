@@ -12,6 +12,28 @@ conversation.
 
 ---
 
+## 0 · Install (once)
+
+Download from the [Releases page](https://github.com/lanceyuu/mimiwork/releases/latest): the
+`.dmg` for Mac (Apple Silicon or Intel), the `-setup.exe` for Windows. MimiWork is not yet
+signed with Apple or Microsoft, so the first launch asks you to vouch for it — once.
+
+- **Mac:** drag MimiWork to Applications and double-click it. When macOS says it could not
+  verify the app (or calls it “damaged”), click **Done**, open **System Settings ▸ Privacy &
+  Security**, scroll to *Security* and click **Open Anyway**, then open MimiWork again and
+  enter your password. No button there? Open Terminal and run
+  `xattr -cr /Applications/MimiWork.app`, then open it normally.
+- **Windows:** if the browser holds the download, choose **Keep ▸ Show more ▸ Keep anyway**
+  (Edge) or **Keep** (Chrome). Run the installer; on the blue *Windows protected your PC*
+  screen click **More info ▸ Run anyway**. On a locked-down work PC: right-click the file ▸
+  Properties ▸ tick **Unblock**.
+
+Every step, with the exact wording of each prompt, is in the
+[README’s Install section](../README.md#install). Updates install from inside the app and
+never ask again.
+
+---
+
 ## 1 · Connect a model (2 minutes)
 
 Open **Settings ▸ Models**. Two ways in:

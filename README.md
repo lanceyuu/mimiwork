@@ -131,23 +131,58 @@ approval first**, and nothing is fetched on its own.
 
 The app updates itself from then on.
 
-| Your machine | Download | First launch |
-|---|---|---|
-| **Mac — Apple Silicon** (M1–M4) | [**MimiWork-macos-arm64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) | Drag to Applications, then run the one-line command below once |
-| **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) | Drag to Applications, then run the one-line command below once |
-| **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) | Run it; SmartScreen → **More info → Run anyway** |
+| Your machine | Download |
+|---|---|
+| **Mac — Apple Silicon** (M1–M4) | [**MimiWork-macos-arm64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg) |
+| **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) |
+| **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) |
 
-**Mac: "MimiWork is damaged and can't be opened."** It isn't. The builds aren't notarized
-with Apple yet, and macOS (Sonoma and Sequoia) reports any un-notarized download that way —
-right-click → Open no longer gets past it. Open Terminal and run, once:
+MimiWork is not yet signed with Apple or Microsoft, so both systems warn about it the
+first time. Nothing is wrong with the file — the warning only means the publisher is
+unknown to them. Here is what you will see and what to click, on current macOS
+(Sequoia 15 and Tahoe 26) and Windows 11. It is a one-time thing: updates install from
+inside the app and never trigger it again.
+
+### Mac — the first launch
+
+1. Open the `.dmg` and drag **MimiWork** into **Applications**.
+2. Double-click MimiWork. macOS says *“MimiWork” Not Opened — Apple could not verify…* or
+   *“MimiWork” is damaged and can’t be opened*. Click **Done** (never *Move to Trash*).
+3. Open **System Settings ▸ Privacy & Security** and scroll down to **Security**. Under
+   *“MimiWork” was blocked to protect your Mac*, click **Open Anyway**. The button stays
+   for about an hour after step 2; if it is not there, double-click MimiWork once more and
+   come back.
+4. Double-click MimiWork again, click **Open Anyway** in the dialog and enter your Mac
+   password. macOS remembers the choice.
+
+**If the Security section shows nothing, or the Mac is managed by your organisation:**
+open Terminal (⌘ Space, type *Terminal*) and paste
 
 ```bash
 xattr -cr /Applications/MimiWork.app
 ```
 
-Then open MimiWork normally. That removes the quarantine flag the browser put on the
-download; updates install from inside the app and never trigger it again. Every release,
-with checksums and older versions, is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
+then open MimiWork normally. That removes the “downloaded from the internet” flag the
+browser put on the file, which is all the “damaged” message is about.
+
+### Windows — the first launch
+
+1. Download **MimiWork-windows-setup.exe**. The browser may hold the download back:
+   - **Edge:** click the download at the top right, then **⋯ ▸ Keep ▸ Show more ▸ Keep anyway**.
+   - **Chrome:** click the download arrow, then **Keep** (sometimes behind *Show more*).
+2. Run the installer. Windows shows the blue **Windows protected your PC** screen. Click
+   **More info**, check that the app is *MimiWork-windows-setup.exe*, then **Run anyway**.
+3. Finish the installer. MimiWork opens.
+
+**If *Run anyway* is missing (a work PC where SmartScreen is locked by policy):**
+right-click the downloaded file ▸ **Properties** ▸ **General** ▸ tick **Unblock** ▸ **OK**,
+then run it. If that box is missing too, your IT team has to allow it (a Microsoft Defender
+SmartScreen exception or an allow-list entry for MimiWork).
+
+Apple’s and Microsoft’s publisher certificates are paid, yearly things; the release
+pipeline already signs and notarizes the moment QualiTaTi has them, and these steps go
+away. Every release, with checksums and older versions, is on the
+[Releases page](https://github.com/lanceyuu/mimiwork/releases).
 
 ### The ten-minute tutorial
 

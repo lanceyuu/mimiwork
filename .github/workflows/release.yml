@@ -230,11 +230,10 @@ jobs:
           # calls an un-notarized download "damaged". Say what to do at the top of every
           # release, where people who hit it look first (owner report 2026-09-04).
           body: |
-            **Mac: "MimiWork is damaged and can't be opened"?** It isn't — the build is not yet notarized with Apple, and macOS says that about any un-notarized download. Drag MimiWork to Applications, then run once in Terminal:
+            **First launch.** MimiWork is not yet signed with Apple or Microsoft, so each system warns once. Nothing is wrong with the file.
 
-            ```
-            xattr -cr /Applications/MimiWork.app
-            ```
+            - **Mac** — if macOS says it could not verify the app or that it is "damaged": click **Done**, open **System Settings ▸ Privacy & Security**, scroll to *Security*, click **Open Anyway**, then open MimiWork again and enter your password. No button there? In Terminal: `xattr -cr /Applications/MimiWork.app`, then open it normally.
+            - **Windows** — if the browser holds the download: **Keep ▸ Show more ▸ Keep anyway** (Edge) or **Keep** (Chrome). On the blue *Windows protected your PC* screen: **More info ▸ Run anyway**. Locked-down work PC: right-click the file ▸ Properties ▸ tick **Unblock**.
 
-            and open it normally. Updates install from inside the app and never need this again.
+            Step by step, with every prompt's wording: [Install](https://github.com/lanceyuu/mimiwork#install). Updates install from inside the app and never ask again.
 

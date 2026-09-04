@@ -8,6 +8,17 @@ L'habitude qui compte le plus : **demandez le résultat, pas les étapes.** Le t
 
 ---
 
+## 0 · Installer (une seule fois)
+
+Téléchargez depuis la [page Releases](https://github.com/lanceyuu/mimiwork/releases/latest) : le `.dmg` pour Mac (Apple Silicon ou Intel), le `-setup.exe` pour Windows. MimiWork n’est pas encore signé auprès d’Apple ni de Microsoft : au premier lancement, le système vous demande de vous porter garant — une seule fois.
+
+- **Mac :** glissez MimiWork dans Applications et double-cliquez. Quand macOS dit qu’il ne peut pas vérifier l’app (ou qu’elle est « endommagée »), cliquez **Terminé**, ouvrez **Réglages Système ▸ Confidentialité et sécurité**, descendez jusqu’à *Sécurité* et cliquez **Ouvrir quand même**, puis rouvrez MimiWork et saisissez votre mot de passe. Pas de bouton ? Ouvrez le Terminal et lancez `xattr -cr /Applications/MimiWork.app`, puis ouvrez l’app normalement.
+- **Windows :** si le navigateur retient le téléchargement, choisissez **Conserver ▸ Afficher plus ▸ Conserver quand même** (Edge) ou **Conserver** (Chrome). Lancez l’installateur ; sur l’écran bleu *Windows a protégé votre ordinateur*, cliquez **Informations complémentaires ▸ Exécuter quand même**. Sur un PC professionnel verrouillé : clic droit sur le fichier ▸ Propriétés ▸ cochez **Débloquer**.
+
+Chaque étape, avec le libellé exact de chaque message, est dans la [section Install du README](../README.md#install). Les mises à jour s’installent depuis l’app et ne redemandent rien.
+
+---
+
 ## 1 · Connecter un modèle (2 minutes)
 
 Ouvrez **Settings ▸ Models** (Réglages ▸ Modèles). Deux chemins :

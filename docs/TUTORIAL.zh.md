@@ -8,6 +8,17 @@
 
 ---
 
+## 0 · 安装(只需一次)
+
+从 [Releases 页面](https://github.com/lanceyuu/mimiwork/releases/latest)下载:Mac 用 `.dmg`(Apple 芯片或 Intel 各一个),Windows 用 `-setup.exe`。MimiWork 尚未向 Apple 和 Microsoft 购买签名证书,所以第一次启动时系统会请你确认一次——只需一次。
+
+- **Mac:**把 MimiWork 拖进"应用程序",双击打开。当 macOS 提示无法验证(或说它"已损坏")时,点**完成**,打开**系统设置 ▸ 隐私与安全性**,滚动到"安全性",点**仍要打开**,再次打开 MimiWork 并输入密码。没有这个按钮?打开"终端",运行 `xattr -cr /Applications/MimiWork.app`,然后正常打开。
+- **Windows:**浏览器拦下下载时,选**保留 ▸ 显示详细信息 ▸ 仍然保留**(Edge)或**保留**(Chrome)。运行安装程序;在蓝色的"Windows 已保护你的电脑"界面点**更多信息 ▸ 仍要运行**。公司电脑被策略锁定时:右键文件 ▸ 属性 ▸ 勾选**解除锁定**。
+
+每一步以及每个提示的原文,见 [README 的 Install 一节](../README.md#install)。之后的更新都在应用内完成,不会再问。
+
+---
+
 ## 1 · 连接模型(2 分钟)
 
 打开 **Settings ▸ Models**(设置 ▸ 模型)。两种方式:

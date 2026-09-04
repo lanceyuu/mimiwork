@@ -8,6 +8,17 @@ Den ene vanen som betyr mest: **be om resultatet, ikke stegene.** MimiWorks jobb
 
 ---
 
+## 0 · Installer (én gang)
+
+Last ned fra [Releases-siden](https://github.com/lanceyuu/mimiwork/releases/latest): `.dmg` for Mac (Apple Silicon eller Intel), `-setup.exe` for Windows. MimiWork er ennå ikke signert hos Apple eller Microsoft, så første oppstart ber deg gå god for appen — én gang.
+
+- **Mac:** dra MimiWork til Programmer og dobbeltklikk. Når macOS sier den ikke kan verifisere appen (eller kaller den «skadet»), klikk **Ferdig**, åpne **Systeminnstillinger ▸ Personvern og sikkerhet**, bla til *Sikkerhet* og klikk **Åpne likevel**, åpne MimiWork igjen og skriv inn passordet ditt. Ingen knapp der? Åpne Terminal og kjør `xattr -cr /Applications/MimiWork.app`, og åpne appen som vanlig.
+- **Windows:** holder nettleseren nedlastingen tilbake, velg **Behold ▸ Vis mer ▸ Behold likevel** (Edge) eller **Behold** (Chrome). Kjør installasjonen; på den blå skjermen *Windows beskyttet PC-en din* klikker du **Mer info ▸ Kjør likevel**. På en låst jobb-PC: høyreklikk filen ▸ Egenskaper ▸ huk av **Fjern blokkering**.
+
+Hvert steg, med den nøyaktige ordlyden i hver melding, står i [README-ens Install-del](../README.md#install). Oppdateringer installeres fra appen og spør aldri igjen.
+
+---
+
 ## 1 · Koble til en modell (2 minutter)
 
 Åpne **Settings ▸ Models** (Innstillinger ▸ Modeller). To veier inn:
