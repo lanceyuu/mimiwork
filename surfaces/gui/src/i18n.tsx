@@ -170,6 +170,11 @@ const D: Record<string, [string, string, string]> = {
     "Demandez au coéquipier…  (déposez ou collez des fichiers)",
   ],
   "Stop": ["停止", "Stopp", "Arrêter"],
+  "Mimi Puppy's free allowance is used up for today": ["Mimi Puppy 今天的免费额度已用完", "Mimi Puppys gratiskvote er brukt opp for i dag", "Le quota gratuit de Mimi Puppy est épuisé pour aujourd'hui"],
+  "resets at": ["将于以下时间重置：", "tilbakestilles kl.", "réinitialisé à"],
+  "Switch to Mimi Hound": ["切换到 Mimi Hound", "Bytt til Mimi Hound", "Passer à Mimi Hound"],
+  "Mimi Puppy": ["Mimi Puppy", "Mimi Puppy", "Mimi Puppy"],
+  "free requests left today": ["次免费请求今天剩余", "gratis forespørsler igjen i dag", "requêtes gratuites restantes aujourd'hui"],
   // ── settings tabs ──
   "General": ["通用", "Generelt", "Général"],
   "Models": ["模型", "Modeller", "Modèles"],

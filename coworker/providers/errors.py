@@ -33,7 +33,85 @@ _NO_QUOTA = (
     "exceeded your current quota",
     "credit balance is too low",
     "billing hard limit",
+    # QualiTaTi gateway: a 429 that is NOT "slow down" — the day's free allowance is
+    # spent, or the balance is empty. Retrying it every few seconds looked like an
+    # outage to the owner ("Mimi Puppy does not work", 2026-09-04).
+    "free_tier_exhausted",
+    "insufficient_credits",
 )
+
+
+def _gateway_detail(exc: Exception) -> Optional[dict]:
+    """The QualiTaTi gateway's error body — {"code", "message", "used", "cap", ...} —
+    when the SDK exception carries one. The OpenAI SDK formats it as
+    "Error code: 429 - {python dict repr}"; other clients pass JSON. Both are read
+    from the outermost balanced braces."""
+    import ast
+    import json
+
+    text = str(exc)
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth, end = 0, -1
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end < 0:
+        return None
+    blob = text[start : end + 1]
+    data = None
+    try:
+        data = json.loads(blob)
+    except ValueError:
+        try:
+            data = ast.literal_eval(blob)
+        except (ValueError, SyntaxError):
+            return None
+    detail = data.get("detail") if isinstance(data, dict) else None
+    if isinstance(detail, dict) and detail.get("code"):
+        return detail
+    return None
+
+
+def _local_midnight_utc() -> str:
+    """When the free tier resets, in the user's own clock: "at 02:00 (midnight UTC)"."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    reset = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    local = reset.astimezone()
+    hours = (reset - now).total_seconds() / 3600
+    when = f"in about {int(round(hours))} hour{'s' if round(hours) != 1 else ''}" if hours >= 1 else "within the hour"
+    return f"{when}, at {local.strftime('%H:%M')} your time (midnight UTC)"
+
+
+def friendly_gateway_error(exc: Exception) -> Optional[str]:
+    """One actionable sentence for the QualiTaTi gateway's own refusals, or None."""
+    detail = _gateway_detail(exc)
+    if not detail:
+        return None
+    code = str(detail.get("code") or "")
+    if code == "FREE_TIER_EXHAUSTED":
+        used, cap = detail.get("used"), detail.get("cap")
+        count = f" ({used} of {cap} requests)" if isinstance(used, int) and isinstance(cap, int) else ""
+        return (
+            f"Mimi Puppy's free allowance for today is used up{count}. It resets "
+            f"{_local_midnight_utc()}. To keep going now, switch the model to Mimi Hound — "
+            "it runs on your QualiTaTi credits and a typical message costs a fraction of one."
+        )
+    if code == "INSUFFICIENT_CREDITS":
+        return (
+            "Your QualiTaTi balance is empty — team pool, this month's points and purchased "
+            "credits are all at zero. Top up at qualitati.com/recharge, or switch the model to "
+            "Mimi Puppy, which is free within its daily allowance."
+        )
+    return None
 
 
 def friendly_model_error(model: str, exc: Exception) -> Optional[str]:

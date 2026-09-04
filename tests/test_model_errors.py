@@ -84,3 +84,35 @@ def test_unrelated_errors_pass_through_raw():
         friendly_model_error("gpt-5.6-sol", RuntimeError("connection reset by peer"))
         is None
     )
+
+
+# -- the QualiTaTi gateway's own refusals (owner report 2026-09-04) --------------------
+def test_a_spent_free_allowance_is_explained_not_retried():
+    from coworker.providers.errors import friendly_gateway_error, is_transient
+
+    exc = RuntimeError(
+        "Error code: 429 - {'detail': {'code': 'FREE_TIER_EXHAUSTED', 'message': "
+        "\"Mimi Puppy's free daily allowance is used up (200 requests today).\", "
+        "'used': 214, 'cap': 200}}"
+    )
+    assert is_transient(exc) is False  # a 429, but not "slow down"
+    msg = friendly_gateway_error(exc)
+    assert msg and "used up (214 of 200 requests)" in msg
+    assert "midnight UTC" in msg and "Mimi Hound" in msg
+
+
+def test_an_empty_balance_points_at_the_top_up_page():
+    from coworker.providers.errors import friendly_gateway_error, is_transient
+
+    exc = RuntimeError('Error code: 402 - {"detail": {"code": "INSUFFICIENT_CREDITS", "message": "empty"}}')
+    assert is_transient(exc) is False
+    msg = friendly_gateway_error(exc)
+    assert msg and "qualitati.com/recharge" in msg and "Mimi Puppy" in msg
+
+
+def test_a_busy_gateway_is_still_a_retry():
+    from coworker.providers.errors import friendly_gateway_error, is_transient
+
+    exc = RuntimeError("Error code: 429 - {'detail': {'code': 'GATEWAY_BUSY', 'message': 'busy', 'retry_after': 2}}")
+    assert is_transient(exc) is True
+    assert friendly_gateway_error(exc) is None

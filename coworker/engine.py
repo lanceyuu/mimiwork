@@ -29,6 +29,7 @@ from .permissions import Mode, PermissionEngine
 from .providers import AssistantTurn, ProviderClient, ToolCall
 from .providers.errors import (
     friendly_credential_error,
+    friendly_gateway_error,
     friendly_model_error,
     friendly_transient_error,
     is_stale_credential,
@@ -588,7 +589,8 @@ class TurnEngine:
                 if streamed or streamed_reasoning:
                     self.messages.append(_assistant_message(_partial_turn()))
                 friendly = (
-                    friendly_model_error(self.model, exc)
+                    friendly_gateway_error(exc)
+                    or friendly_model_error(self.model, exc)
                     or friendly_credential_error(exc)
                     or friendly_transient_error(exc)
                 )

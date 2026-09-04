@@ -274,7 +274,33 @@ class QualitatiClient:
             "signed_in": True,
             "provider_configured": bool(provider.get("api_key")),
             "profile": profile,
+            # Mimi Puppy's remaining free requests today — so the app can warn before
+            # the gateway refuses (owner ask 2026-09-04). None when unavailable.
+            "free_tier": self._free_tier(headers),
         }
+
+    def _free_tier(self, headers: dict[str, str]) -> Optional[dict[str, Any]]:
+        """{cap, remaining, resets_at} from the gateway's model list, or None."""
+        try:
+            r = httpx.get(f"{self.base}/api/llm/v1/models", headers=headers, timeout=_TIMEOUT)
+            if r.status_code != 200:
+                return None
+            for m in (r.json() or {}).get("data") or []:
+                if isinstance(m, dict) and "free_daily_cap" in m:
+                    from datetime import datetime, timedelta, timezone
+
+                    reset = (datetime.now(timezone.utc) + timedelta(days=1)).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    return {
+                        "model": m.get("id"),
+                        "cap": int(m.get("free_daily_cap") or 0),
+                        "remaining": int(m.get("free_daily_remaining") or 0),
+                        "resets_at": reset.isoformat(),
+                    }
+        except Exception:
+            return None
+        return None
 
     def _profile(self, headers: dict[str, str]) -> Optional[dict[str, Any]]:
         try:

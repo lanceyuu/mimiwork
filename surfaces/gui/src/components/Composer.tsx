@@ -116,6 +116,9 @@ interface Props {
   onInterrupt: () => void;
   onModeChange: (mode: string) => void;
   onModelChange: (model: string) => void;
+  // Mimi Puppy's free requests today; the banner below the approvals warns at 10 % left
+  // and offers Mimi Hound when it is spent.
+  freeTier?: { model?: string; cap: number; remaining: number; resets_at: string } | null;
   // When set (Code/Cowork), the Mode menu is shown. The folder/roots + branch controls left the
   // composer for the Session settings drawer (§22) — folder access is standing session config.
   workspace?: string;
@@ -736,6 +739,8 @@ export function Composer(props: Props) {
     <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
 
+      <FreeTierBanner model={props.model} freeTier={props.freeTier} onModelChange={props.onModelChange} />
+
       {dictationError && (
         <div className="max-w-3xl mx-auto mb-2 px-1 text-[12px] text-red-600" role="alert">
           {dictationError}
@@ -1348,6 +1353,59 @@ function AttachChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
       <button className="attach-x" onClick={onRemove} title="Remove">
         ✕
       </button>
+    </div>
+  );
+}
+
+
+/** Mimi Puppy's daily allowance, before the gateway says no (owner ask 2026-09-04).
+ *  Amber at the last 10 %, red with a one-click switch to Mimi Hound when spent. Shown
+ *  only while Puppy is the selected model — other models are never rate-capped here. */
+function FreeTierBanner({
+  model,
+  freeTier,
+  onModelChange,
+}: {
+  model: string;
+  freeTier?: { cap: number; remaining: number; resets_at: string } | null;
+  onModelChange: (model: string) => void;
+}) {
+  const t = useT();
+  if (!freeTier || !/mimi-puppy$/.test(model || "")) return null;
+  const { cap, remaining, resets_at } = freeTier;
+  const low = Math.max(10, Math.round(cap * 0.1));
+  if (remaining > low) return null;
+  const at = (() => {
+    const d = new Date(resets_at);
+    return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  })();
+  const hound = model.replace(/mimi-puppy$/, "mimi-hound");
+  if (remaining <= 0) {
+    return (
+      <div
+        data-testid="free-tier-banner"
+        role="alert"
+        className="max-w-3xl mx-auto mb-1.5 flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-[12.5px] text-red-800"
+      >
+        <span className="flex-1">
+          {t("Mimi Puppy's free allowance is used up for today")}
+          {at ? ` · ${t("resets at")} ${at}` : ""}
+        </span>
+        <button className="btn sm shrink-0" data-testid="free-tier-switch" onClick={() => onModelChange(hound)}>
+          {t("Switch to Mimi Hound")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div
+      data-testid="free-tier-banner"
+      className="max-w-3xl mx-auto mb-1.5 flex items-center gap-2 rounded-lg border border-warnInk/30 bg-warnSoft px-3 py-1.5 text-[12.5px] text-warnInk"
+    >
+      <span className="flex-1">
+        {t("Mimi Puppy")}: {remaining} {t("free requests left today")}
+        {at ? ` · ${t("resets at")} ${at}` : ""}
+      </span>
     </div>
   );
 }

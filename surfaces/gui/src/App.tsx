@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
+  qualitatiStatus,
+  type QualitatiStatus,
   compactSession,
   announceInboxUnlock,
   finalizeAutomationRun,
@@ -219,6 +221,19 @@ export function App() {
   const [mode, setMode] = useState("interactive");
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
+  // Mimi Puppy's free allowance today (owner ask 2026-09-04: warn before the gateway
+  // refuses). Polled every minute and after every turn; the composer shows the banner.
+  const [freeTier, setFreeTier] = useState<QualitatiStatus["free_tier"]>(null);
+  const refreshFreeTier = useCallback(() => {
+    qualitatiStatus()
+      .then((st) => setFreeTier(st.free_tier ?? null))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    refreshFreeTier();
+    const t = setInterval(refreshFreeTier, 60_000);
+    return () => clearInterval(t);
+  }, [refreshFreeTier]);
   // When the in-flight turn began (ms) — the waiting line counts up from it, so a long
   // tool step reads as "still going, 3m in" rather than "hung?" (owner report 2026-09-04).
   const [runningSince, setRunningSince] = useState<number | null>(null);
@@ -903,6 +918,7 @@ export function App() {
         case "turn_done":
           setRunning(false);
           refreshSessions();
+          refreshFreeTier();
           // Catch-all artifact refresh: files created via shell or on a brand-new session (whose
           // record only exists after the first save) appear once the turn completes.
           setBrowserRefreshKey((k) => k + 1);
@@ -2010,6 +2026,7 @@ export function App() {
               onInterrupt={interrupt}
               onModeChange={changeMode}
               onModelChange={changeModel}
+              freeTier={freeTier}
               sessionId={sessionId}
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
               unattended={unattended}

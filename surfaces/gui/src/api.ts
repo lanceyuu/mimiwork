@@ -2528,6 +2528,8 @@ export type QualitatiStatus = {
   username?: string;
   error?: string;
   profile?: { username?: string; email?: string; credits?: number; plan?: string };
+  // Mimi Puppy's free requests today, so the app can warn before the gateway refuses.
+  free_tier?: { model?: string; cap: number; remaining: number; resets_at: string } | null;
 };
 
 export async function qualitatiStatus(): Promise<QualitatiStatus> {

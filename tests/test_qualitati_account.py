@@ -166,12 +166,22 @@ def test_status_signed_out(monkeypatch, secrets):
 def test_status_prefers_the_durable_api_key(monkeypatch, secrets):
     secrets.put(AUTH_PROFILE, {"username": "shubin", "access_token": "jwt"})
     secrets.put(PROVIDER_PROFILE, {"api_key": "qt_k", "base_url": "x"})
-    fake = wire(monkeypatch, {("GET", "/api/user/profile"): (200, PROFILE_BODY)})
+    fake = wire(monkeypatch, {
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+        ("GET", "/api/llm/v1/models"): (200, {"data": [
+            {"id": "mimi-hound", "credits_remaining": 420},
+            {"id": "mimi-puppy", "free_daily_cap": 500, "free_daily_remaining": 37},
+        ]}),
+    })
 
     result = QualitatiClient(secrets).status()
     assert result["signed_in"] and result["profile"]["credits"] == 420
     _, _, kwargs = fake.calls[0]
     assert kwargs["headers"] == {"X-API-Key": "qt_k"}  # JWT left unused
+    # Mimi Puppy's allowance rides along, so the app can warn before the gateway refuses.
+    free = result["free_tier"]
+    assert free["model"] == "mimi-puppy" and free["cap"] == 500 and free["remaining"] == 37
+    assert free["resets_at"].endswith("00:00:00+00:00")
 
 
 def test_status_offline_keeps_the_session(monkeypatch, secrets):
