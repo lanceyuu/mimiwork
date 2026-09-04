@@ -1248,3 +1248,21 @@ def test_about_answers_the_is_this_alive_questions(tmp_path, monkeypatch):
     assert "Vivienne" in body["contact"]["address"]
     assert body["repo_url"].startswith("https://github.com/")
     assert body["releases"] == []  # soft-failed, not an error page
+
+
+def test_ready_says_whether_a_turn_is_already_running(tmp_path):
+    """A socket that attaches mid-turn (the user came back, or relaunched the app while
+    a turn ran on) must not show Send over a busy engine: `ready` carries the engine's
+    running state, since the turn_start that would have said so was missed."""
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    client = TestClient(create_app(manager))
+    with client.websocket_connect("/ws/session/idle") as ws:
+        ready = ws.receive_json()
+        assert ready["type"] == "ready"
+        assert ready["data"]["running"] is False
+        assert ready["data"]["running_since"] is None
+    manager.mark_running("busy")
+    with client.websocket_connect("/ws/session/busy") as ws:
+        ready = ws.receive_json()
+        assert ready["data"]["running"] is True
+        assert ready["data"]["running_since"] > 0

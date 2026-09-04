@@ -380,6 +380,7 @@ body {
   display: inline-flex; align-items: center; gap: 9px; align-self: flex-start;
   color: var(--muted); font-size: 13px; line-height: 1;
 }
+.waiting-elapsed { color: var(--faint); font-variant-numeric: tabular-nums; }
 .waiting-spinner {
   width: 14px; height: 14px; border-radius: 50%;
   border: 2px solid var(--line-strong); border-top-color: var(--accent);

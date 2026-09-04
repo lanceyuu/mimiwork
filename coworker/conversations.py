@@ -57,7 +57,11 @@ def title_from(messages: list[dict]) -> str:
             text = content_to_text(m.get("content"), image_placeholder="").strip()
             if text:
                 return text.splitlines()[0][:60]
-    return "New session"
+    # Nothing to name it after YET. Empty, never the placeholder: the placeholder is the
+    # GUI's to show, and a stored one is sticky (the upsert keeps the first title it sees),
+    # so a row created before the first turn — a folder grant does that — was called "New
+    # session" for good however the conversation went on (owner report 2026-09-04).
+    return ""
 
 
 class ConversationStore:
@@ -324,6 +328,11 @@ class ConversationStore:
         """One-time per session: move any inline blob into a .jsonl and persist
         title + n_msgs in the index. Skips already-migrated rows on later startups."""
         with self._lock:
+            # Rows a pre-turn save stamped with the placeholder (see title_from): clear it
+            # so the loop below names them from their transcript, once.
+            self._conn.execute(
+                "UPDATE sessions SET title = NULL WHERE title = 'New session' AND renamed = 0"
+            )
             rows = self._conn.execute(
                 "SELECT session_id, messages, n_msgs, title FROM sessions"
             ).fetchall()
@@ -349,7 +358,7 @@ class ConversationStore:
                     messages = []
                 self._conn.execute(
                     "UPDATE sessions SET n_msgs = ?, title = ? WHERE session_id = ?",
-                    (len(messages), row["title"] or title_from(messages), sid),
+                    (len(messages), row["title"] or title_from(messages) or None, sid),
                 )
             self._conn.commit()
 
@@ -376,14 +385,14 @@ class ConversationStore:
             elif len(record.messages) < existing:  # rare; not append-only
                 self._write_all(sid, record.messages)
 
-            title = record.title or title_from(record.messages)
+            title = record.title or title_from(record.messages) or None
             self._conn.execute(
                 """
                 INSERT INTO sessions (session_id, workspace, model, mode, title, agent, n_msgs, messages, extra_roots, grants, compaction, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(session_id) DO UPDATE SET
                     workspace = excluded.workspace, model = excluded.model, mode = excluded.mode,
-                    title = COALESCE(sessions.title, excluded.title), agent = excluded.agent,
+                    title = COALESCE(NULLIF(sessions.title, ''), excluded.title), agent = excluded.agent,
                     n_msgs = excluded.n_msgs, messages = NULL, extra_roots = excluded.extra_roots,
                     grants = excluded.grants, compaction = excluded.compaction,
                     updated_at = CURRENT_TIMESTAMP

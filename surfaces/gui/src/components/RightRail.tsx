@@ -557,6 +557,10 @@ function ArtifactViewer({
   // in the preview's content space (scroll included), so markers scroll with the page.
   // A Word paragraph pin also carries its index, so the comment can go INTO the file.
   const previewRef = useRef<HTMLDivElement | null>(null);
+  // An HTML preview lives in an iframe, which swallows clicks: the pin listener goes
+  // INSIDE its document (same origin — it is our own srcdoc), the markers are painted in
+  // there too so they scroll with the page, and the screenshot is taken of that document.
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [draft, setDraft] = useState<Omit<Pin, "n" | "text"> | null>(null);
   const [draftText, setDraftText] = useState("");
@@ -574,10 +578,44 @@ function ArtifactViewer({
     setDraft(null);
     setDraftText("");
   };
+  const wireFrame = () => {
+    const frame = frameRef.current;
+    const doc = frame?.contentDocument;
+    if (!frame || !doc || !onFeedback) return;
+    doc.addEventListener("click", (e) => {
+      const host = previewRef.current;
+      const target = e.target as Element | null;
+      if (!host || !target || target.closest("[data-mimi-pin]")) return;
+      const fr = frame.getBoundingClientRect();
+      const hr = host.getBoundingClientRect();
+      const spot = pinFor(target, e.clientX, e.clientY) || { pin: "" };
+      // The draft box is the host's: place it where the click shows on screen. The pin
+      // itself is remembered in the page's own coordinates (scroll included).
+      setDraft({
+        ...spot,
+        x: e.clientX + fr.left - hr.left + host.scrollLeft,
+        y: e.clientY + fr.top - hr.top + host.scrollTop,
+        fx: e.pageX,
+        fy: e.pageY,
+      });
+      setDraftText("");
+    });
+    paintFramePins(doc, pins);
+  };
+  useEffect(() => {
+    const doc = frameRef.current?.contentDocument;
+    if (doc) paintFramePins(doc, pins);
+  }, [pins]);
   const sendAll = async () => {
     if (!onFeedback || !pins.length) return;
     setSending(true);
-    const shot = await screenshotPreview(previewRef.current, pins);
+    const frameDoc = content?.kind === "html" ? frameRef.current?.contentDocument : null;
+    const shot = frameDoc
+      ? await screenshotPreview(
+          frameDoc.documentElement,
+          pins.map((p) => ({ n: p.n, x: p.fx ?? -1, y: p.fy ?? -1 })),
+        )
+      : await screenshotPreview(previewRef.current, pins);
     setSending(false);
     const lines = pins.map((p) => `${p.n}. ${p.pin ? `(${p.pin}) ` : ""}${p.text}`).join("\n");
     const head =
@@ -814,9 +852,11 @@ function ArtifactViewer({
         ) : content.kind === "html" ? (
           <iframe
             key={`${artifact.path}-${reloadKey}`}
+            ref={frameRef}
             sandbox="allow-scripts allow-same-origin"
             className="artifact-frame"
             srcDoc={content.content || ""}
+            onLoad={wireFrame}
           />
         ) : content.kind === "markdown" ? (
           <div className="artifact-md">
@@ -868,7 +908,7 @@ function ArtifactViewer({
         {/* Markers last, so they paint above the content in the browser AND in the
             html2canvas capture (which follows DOM order more than z-index). */}
         {pins.map((p) =>
-          p.x >= 0 ? (
+          p.x >= 0 && p.fx == null ? (
             <div key={p.n} className="artifact-pin" style={{ left: p.x, top: p.y }} data-testid="artifact-pin" title={p.text} data-html2canvas-ignore>
               {p.n}
             </div>
@@ -888,7 +928,33 @@ interface Pin {
   paragraph?: number;
   x: number;
   y: number;
+  // Set for a pin inside an HTML preview: the page's own coordinates, where the marker
+  // is painted (see paintFramePins) and where the disc goes on the screenshot.
+  fx?: number;
+  fy?: number;
   text: string;
+}
+
+/** Numbered markers inside an HTML preview's document, redrawn from `pins` on every
+ *  change and after every (re)load — they are DOM the page does not own, so they are
+ *  replaced wholesale rather than reconciled. Ignored by the capture; the discs are
+ *  drawn by hand there, like the host's. */
+function paintFramePins(doc: Document, pins: Pin[]) {
+  doc.querySelectorAll("[data-mimi-pin]").forEach((n) => n.remove());
+  const body = doc.body;
+  if (!body) return;
+  for (const p of pins) {
+    if (p.fx == null || p.fy == null) continue;
+    const m = doc.createElement("div");
+    m.setAttribute("data-mimi-pin", String(p.n));
+    m.setAttribute("data-html2canvas-ignore", "");
+    m.textContent = String(p.n);
+    m.style.cssText =
+      `position:absolute;left:${p.fx}px;top:${p.fy}px;margin:-11px 0 0 -11px;width:22px;height:22px;` +
+      "border-radius:999px;background:#2563eb;color:#fff;font:700 11.5px/18px -apple-system,'Segoe UI',sans-serif;" +
+      "text-align:center;border:2px solid #fff;box-sizing:border-box;pointer-events:none;z-index:2147483647";
+    body.appendChild(m);
+  }
 }
 
 /** The preview with its markers, as one JPEG for the model to look at. html2canvas is a
@@ -896,7 +962,10 @@ interface Pin {
  *  the whole page is captured, then capped at a size the message channel accepts. The
  *  numbered discs are drawn by hand afterwards: html2canvas rendered the DOM markers as
  *  pale rings with no digit, and a marker the model cannot read is no marker. */
-async function screenshotPreview(el: HTMLDivElement | null, pins: Pin[]): Promise<string | null> {
+async function screenshotPreview(
+  el: HTMLElement | null | undefined,
+  pins: { n: number; x: number; y: number }[],
+): Promise<string | null> {
   if (!el) return null;
   try {
     const { default: html2canvas } = await import("html2canvas");
@@ -964,8 +1033,18 @@ function pinFor(target: Element, clientX: number, clientY: number): { pin: strin
   }
   const slide = target.closest("[data-slide]");
   if (slide) return { pin: `slide ${slide.getAttribute("data-slide")}` };
-  const pin = pinRegion(target, clientX, clientY);
+  const pin = pinRegion(target, clientX, clientY) || nearText(target);
   return pin ? { pin } : null;
+}
+
+/** Prose and pages: the block the click landed in, quoted by its first words — enough
+ *  for Mimi to find the spot in the source without the screenshot. */
+function nearText(target: Element): string {
+  const block = target.closest("h1,h2,h3,h4,h5,h6,p,li,td,th,button,a,label,figcaption,blockquote,pre,summary,dt,dd");
+  if (!block) return "";
+  const words = (block.textContent || "").trim().split(/\s+/);
+  if (!words[0]) return "";
+  return `${block.tagName.toLowerCase()} “${words.slice(0, 8).join(" ")}${words.length > 8 ? "…" : ""}”`;
 }
 
 function pinRegion(target: Element, clientX: number, clientY: number): string {

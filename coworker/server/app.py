@@ -1851,6 +1851,12 @@ def create_app(manager: SessionManager) -> FastAPI:
                     "command_trust": manager.workspace_command_trust(
                         str(getattr(engine, "audit_context", {}).get("workspace", ""))
                     ),
+                    # A socket that attaches MID-TURN (the user came back to the
+                    # conversation, or relaunched the app while a turn ran on) must
+                    # not show a Send button over a busy engine: the GUI only ever
+                    # learnt "running" from turn_start, which it had missed.
+                    "running": manager.is_running(session_id),
+                    "running_since": manager.running_since(session_id),
                 },
             }
         )

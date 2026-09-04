@@ -4451,6 +4451,10 @@ class SessionManager:
     def is_running(self, session_id: str) -> bool:
         return session_id in self._running_sessions
 
+    def running_since(self, session_id: str) -> Optional[float]:
+        """When the in-flight turn started (epoch seconds), None when idle."""
+        return self._running_sessions.get(session_id)
+
     def fork_session(self, session_id: str) -> dict[str, Any]:
         """Duplicate a conversation as a new thread (store-level copy). The fork
         loads like any resumed session; nothing about the original changes."""
@@ -5401,8 +5405,11 @@ class SessionManager:
                 # Reasoning-routed models spend hidden tokens BEFORE emitting text; a
                 # tight cap plus default effort yields an empty completion and a silent
                 # no-op. Effort "none" reaches only the OpenAI-compat path (the native
-                # providers whitelist their settings), and 64 leaves headroom either way.
-                max_tokens=64,
+                # providers whitelist their settings) and a gateway may not honour it:
+                # mimi-puppy thought for 250-600 tokens on a five-word title and the
+                # old cap of 64 returned nothing, every session (2026-09-04). The title
+                # itself is capped at 60 characters below, so the budget costs nothing.
+                max_tokens=1024,
                 reasoning_effort="none",
             )
             raw = (getattr(turn, "text", None) or "").strip()

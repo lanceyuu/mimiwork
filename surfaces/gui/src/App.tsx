@@ -219,6 +219,9 @@ export function App() {
   const [mode, setMode] = useState("interactive");
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
+  // When the in-flight turn began (ms) — the waiting line counts up from it, so a long
+  // tool step reads as "still going, 3m in" rather than "hung?" (owner report 2026-09-04).
+  const [runningSince, setRunningSince] = useState<number | null>(null);
   // Transient "Compacting context…" indicator (OPE-27): set by the `compacting` event,
   // cleared by whatever the engine emits next — the summarizer call is otherwise a
   // multi-second silent stall mid-turn.
@@ -697,9 +700,16 @@ export function App() {
           if (d.command_trust?.required) setWorkspaceTrustRequest(d.command_trust);
           // Cowork: adopt the server-provisioned scratch dir (only when we don't already have one).
           if (d.workspace) setWorkspace((cur) => cur || d.workspace);
+          // Attached mid-turn (came back to the conversation, relaunched the app while a
+          // turn ran on): the turn_start was missed, so take the engine's word for it.
+          if (d.running) {
+            setRunning(true);
+            setRunningSince(typeof d.running_since === "number" ? d.running_since * 1000 : Date.now());
+          }
           break;
         case "turn_start":
           setRunning(true);
+          setRunningSince(Date.now());
           setStreaming("");
           setReasoningStream("");
           // Background-delivered turns (channel message, self-wake, durable resume) have no local
@@ -1950,12 +1960,12 @@ export function App() {
                   )}
                   {/* Compaction runs between provider turns (nothing streams during it), so
                       the transient takes over the waiting slot with a specific label. */}
-                  {running && compacting && <WaitingForAgent label="Compacting context…" />}
+                  {running && compacting && <WaitingForAgent label="Compacting context…" since={runningSince} />}
                   {running &&
                     !compacting &&
                     !reasoningStream &&
                     (!streaming || streamMode(streaming, items, running) === "hold") &&
-                    !lastItemIsAssistant(items) && <WaitingForAgent />}
+                    !lastItemIsAssistant(items) && <WaitingForAgent since={runningSince} />}
                   {streaming && streamMode(streaming, items, running) === "answer" && (
                     <div className="transcript">
                       <div className="bubble-assistant">
@@ -2131,15 +2141,37 @@ function lastItemIsAssistant(items: Item[]): boolean {
   return false;
 }
 
-function WaitingForAgent({ label }: { label?: string }) {
+function WaitingForAgent({ label, since }: { label?: string; since?: number | null }) {
+  // Elapsed since the turn began, ticking once a second: the answer to "is it still
+  // working?" is a number that keeps moving.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!since) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since]);
+  const elapsed = since ? formatElapsed(now - since) : "";
   return (
     <div className="waiting-transcript">
       <div className="waiting-row" aria-live="polite">
         <span className="waiting-spinner" />
-        <span>{label || "Waiting for agent..."}</span>
+        <span>{label || "Mimi is working…"}</span>
+        {elapsed && (
+          <span className="waiting-elapsed" data-testid="waiting-elapsed">
+            {elapsed}
+          </span>
+        )}
       </div>
     </div>
   );
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
 function updateLastTool(

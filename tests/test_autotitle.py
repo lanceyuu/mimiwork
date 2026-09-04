@@ -232,3 +232,52 @@ async def test_nothing_produced_and_barely_started_keeps_its_opening_title(tmp_p
 
     assert len(provider.title_calls) == 1
     assert mgr.session_store.title_state("s1")["auto_title"] == "Opening Title Here"
+
+
+def test_a_row_saved_before_the_first_turn_takes_its_name_from_the_turn(tmp_path):
+    """A folder grant creates the session's row before any message exists. That row
+    used to be stamped "New session" for good — the upsert keeps the first title it
+    sees — so the conversation stayed nameless however it went on (owner, 2026-09-04)."""
+    from coworker.conversations import ConversationStore
+    from coworker.sessions import SessionRecord
+
+    store = ConversationStore(tmp_path)
+    pre = SessionRecord(
+        session_id="s1", workspace=str(tmp_path), model="m", mode="interactive", messages=[]
+    )
+    store.save(pre)
+    assert not store.load("s1").title  # nothing to name it after yet — no placeholder
+
+    store.save(
+        SessionRecord(
+            session_id="s1",
+            workspace=str(tmp_path),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "annotate the comments in exercise 1"}],
+        )
+    )
+    assert store.load("s1").title == "annotate the comments in exercise 1"
+
+
+def test_a_stored_placeholder_is_renamed_from_the_transcript_on_startup(tmp_path):
+    """Rows the old code already stamped: cleared once, then named like any other."""
+    from coworker.conversations import ConversationStore
+    from coworker.sessions import SessionRecord
+
+    store = ConversationStore(tmp_path)
+    store.save(
+        SessionRecord(
+            session_id="s1",
+            workspace=str(tmp_path),
+            model="m",
+            mode="interactive",
+            messages=[{"role": "user", "content": "read what's here"}],
+            title="New session",
+        )
+    )
+    assert store.load("s1").title == "New session"
+    assert ConversationStore(tmp_path).load("s1").title == "read what's here"
+    # A rename the user made is theirs, even to that exact text.
+    store.rename("s1", "New session")
+    assert ConversationStore(tmp_path).load("s1").title == "New session"
