@@ -55,6 +55,9 @@ BUILTIN = {
     "qualitati-surveys",
     "qualitati-survey-responses",
     "qualitati-export-survey",
+    "qualitati-create-survey",
+    "qualitati-edit-survey",
+    "qualitati-publish-survey",
 }
 
 QUALITATI_TOOL_SKILLS = {
@@ -65,6 +68,9 @@ QUALITATI_TOOL_SKILLS = {
     "qualitati-surveys": "qualitati_surveys",
     "qualitati-survey-responses": "qualitati_survey_responses",
     "qualitati-export-survey": "qualitati_export_survey",
+    "qualitati-create-survey": "qualitati_create_survey",
+    "qualitati-edit-survey": "qualitati_edit_survey",
+    "qualitati-publish-survey": "qualitati_publish_survey",
 }
 
 

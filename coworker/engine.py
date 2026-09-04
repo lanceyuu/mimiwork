@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -508,6 +509,8 @@ class TurnEngine:
                     reasoning="".join(streamed_reasoning) or None,
                 )
 
+            degenerate: Optional[str] = None
+            tail = ""  # the last few KB of streamed text, for the degeneration check
             try:
                 async for chunk in self._astream():
                     if chunk.reasoning_delta:
@@ -517,6 +520,13 @@ class TurnEngine:
                         )
                     if chunk.text_delta:
                         streamed.append(chunk.text_delta)
+                        tail = (tail + chunk.text_delta)[-_DEGENERATE_WINDOW:]
+                        degenerate = _degenerate_reason(tail)
+                        if degenerate:
+                            # Raw tool-call markup, or the same line for ever: nothing
+                            # after this point is an answer. Stop reading (the producer
+                            # thread drains on its own) and handle it below.
+                            break
                         yield Event(
                             EventType.ASSISTANT_DELTA, {"text": chunk.text_delta}
                         )
@@ -591,6 +601,49 @@ class TurnEngine:
                 self._append_notice("error", friendly or str(exc))
                 yield Event(EventType.ERROR, payload)
                 return
+            if degenerate:
+                # A model writing its NATIVE tool-call markup as text (DeepSeek's
+                # <｜DSML｜invoke_code>, seen through the QualiTaTi gateway 2026-09-04)
+                # and then looping on it for 37 KB. The interface cannot execute text,
+                # so: keep the prose before the breakdown, drop the rest, tell the model
+                # what happened and let it try the step again through function calling.
+                text = _strip_degenerate("".join(streamed))
+                turn = AssistantTurn(
+                    text=text or None,
+                    reasoning="".join(streamed_reasoning) or None,
+                )
+                self.messages.append(_assistant_message(turn, model=self.model))
+                yield Event(
+                    EventType.ASSISTANT_MESSAGE,
+                    {"text": turn.text, "tool_calls": [], "degenerate": degenerate},
+                )
+                self.messages.append(
+                    {
+                        "role": "user",
+                        "content": _DEGENERATE_HINT.format(
+                            what=(
+                                "raw tool-call markup written as text"
+                                if degenerate == "markup"
+                                else "the same line repeated over and over"
+                            ),
+                            tools=", ".join(self.registry.names()) or "none",
+                        ),
+                        "ts": time.time(),
+                        "steering": "degenerate",
+                    }
+                )
+                yield Event(
+                    EventType.NOTICE,
+                    {
+                        "kind": "degenerate",
+                        "text": (
+                            "Mimi's reply broke down into raw tool markup — asking it to redo the step."
+                            if degenerate == "markup"
+                            else "Mimi's reply got stuck repeating itself — asking it to redo the step."
+                        ),
+                    },
+                )
+                continue
             if self._cancel.is_set() and turn is None:
                 # Stopped mid-stream: persist exactly what the user watched arrive.
                 if streamed or streamed_reasoning:
@@ -859,6 +912,10 @@ class TurnEngine:
             self.model_settings,
         )
         provider = self.provider
+        # Set when the consumer walks away early (a degenerate stream): the producer
+        # then drops the provider's generator, which closes the HTTP stream — so the
+        # gateway stops generating (and billing) a reply nobody will read.
+        abandoned = [False]
 
         def produce():
             try:
@@ -867,7 +924,7 @@ class TurnEngine:
                 ):
                     # User pressed Stop: drop the stream between chunks (reading the
                     # asyncio.Event's flag from a thread is safe; we only read).
-                    if self._cancel.is_set():
+                    if self._cancel.is_set() or abandoned[0]:
                         break
                     loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
             except Exception as exc:  # surfaced to the awaiting consumer
@@ -876,6 +933,13 @@ class TurnEngine:
                 loop.call_soon_threadsafe(queue.put_nowait, ("done", None))
 
         loop.run_in_executor(None, produce)
+        try:
+            async for item in self._drain(queue):
+                yield item
+        finally:
+            abandoned[0] = True
+
+    async def _drain(self, queue: asyncio.Queue):
         while True:
             # Race the queue against Stop so a stalled stream (no chunks arriving —
             # the pre-first-token wait, a wedged connection) can't hold the turn.
@@ -1848,6 +1912,52 @@ class TurnEngine:
             out[i] = msg
             break
         return out
+
+
+# -- degenerate streams --------------------------------------------------------------
+# A reply that stops being a reply: the model emits its native tool-call markup as
+# prose (DeepSeek's fullwidth-bar special tokens, `<｜DSML｜…>`, `<｜tool▁calls▁begin｜>`)
+# or repeats one line without end. Both burn credits and, persisted, poison every later
+# turn's context. Checked on the streaming tail, so the turn is cut within a chunk or two.
+_DEGENERATE_WINDOW = 4000
+_NATIVE_MARKUP = re.compile(r"<(?:｜[^｜<>\n]{1,60}｜|\|DSML\|)")
+_LOOP_LINES = 25
+_DEGENERATE_HINT = (
+    "Your last reply broke down into {what}, which this interface cannot execute or "
+    "show, so it was cut off there. Do not write tool calls as text. Use the tools "
+    "through the function-calling interface ({tools}); if no tool is needed, answer "
+    "in plain prose. Redo the step you were on."
+)
+
+
+def _degenerate_reason(tail: str) -> Optional[str]:
+    if _NATIVE_MARKUP.search(tail):
+        return "markup"
+    lines = [ln for ln in tail.split("\n") if ln.strip()]
+    if len(lines) >= _LOOP_LINES and len(set(lines[-_LOOP_LINES:])) == 1:
+        return "loop"
+    return None
+
+
+def _strip_degenerate(text: str) -> str:
+    """The prose before the breakdown: cut at the first markup token, and at the start
+    of a run of identical lines."""
+    m = _NATIVE_MARKUP.search(text)
+    if m:
+        text = text[: m.start()]
+    lines = text.split("\n")
+    run_start, run = 0, 0
+    for i in range(1, len(lines)):
+        if lines[i].strip() and lines[i] == lines[i - 1]:
+            run += 1
+            if run == 1:
+                run_start = i - 1
+            if run >= 4:
+                lines = lines[:run_start]
+                break
+        else:
+            run = 0
+    return "\n".join(lines).rstrip()
 
 
 def _assistant_message(turn: AssistantTurn, model: Optional[str] = None) -> dict[str, Any]:
