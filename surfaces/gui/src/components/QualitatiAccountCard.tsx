@@ -536,21 +536,23 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
                 data-testid="qualitati-reg-email"
               />
               <input
-                className="input"
+                className={"input" + (password && policy ? " border-red-500 focus:border-red-500" : "")}
                 placeholder="Password"
                 type="password"
                 value={password}
                 autoComplete="new-password"
                 onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={!!(password && policy)}
                 data-testid="qualitati-reg-password"
               />
               <input
-                className="input"
+                className={"input" + (confirm && password !== confirm ? " border-red-500 focus:border-red-500" : "")}
                 placeholder="Confirm password"
                 type="password"
                 value={confirm}
                 autoComplete="new-password"
                 onChange={(e) => setConfirm(e.target.value)}
+                aria-invalid={!!(confirm && password !== confirm)}
                 data-testid="qualitati-reg-confirm"
               />
               <input
@@ -560,13 +562,34 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
                 onChange={(e) => setInvite(e.target.value)}
                 data-testid="qualitati-reg-invite"
               />
-              <div className="col-span-2 text-[11.5px] text-faint" data-testid="qualitati-reg-hint">
-                {password && policy
-                  ? `Password needs ${policy}.`
-                  : confirm && password !== confirm
-                    ? "Passwords don't match."
-                    : "8+ characters with upper & lower case, a number and a symbol."}
-              </div>
+              {/* The rule reads as a quiet hint until it is broken; then it is a red
+                  notice with the field outlined — the grey line was easy to miss
+                  (owner ask 2026-09-04). */}
+              {password && policy ? (
+                <div
+                  className="col-span-2 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12.5px] font-medium text-red-700"
+                  role="alert"
+                  data-testid="qualitati-reg-hint"
+                  data-state="problem"
+                >
+                  <span aria-hidden="true">⚠</span>
+                  <span>Password needs {policy}. Rule: 8+ characters with upper &amp; lower case, a number and a symbol.</span>
+                </div>
+              ) : confirm && password !== confirm ? (
+                <div
+                  className="col-span-2 flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12.5px] font-medium text-red-700"
+                  role="alert"
+                  data-testid="qualitati-reg-hint"
+                  data-state="problem"
+                >
+                  <span aria-hidden="true">⚠</span>
+                  <span>Passwords don't match.</span>
+                </div>
+              ) : (
+                <div className="col-span-2 text-[11.5px] text-faint" data-testid="qualitati-reg-hint" data-state="ok">
+                  8+ characters with upper &amp; lower case, a number and a symbol.
+                </div>
+              )}
               <label className="col-span-2 flex items-start gap-2 text-[12px] text-muted cursor-pointer">
                 <input
                   type="checkbox"

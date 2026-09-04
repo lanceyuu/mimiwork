@@ -143,8 +143,17 @@ describe("QualitatiAccountCard — create account", () => {
     fireEvent.change(screen.getByTestId("qualitati-reg-username"), { target: { value: "newbie" } });
     fireEvent.change(screen.getByTestId("qualitati-reg-email"), { target: { value: "n@x.com" } });
     fireEvent.change(screen.getByTestId("qualitati-reg-password"), { target: { value: "weakpassword" } });
-    expect(screen.getByTestId("qualitati-reg-hint").textContent).toContain("uppercase");
+    // A broken rule is a red notice with the field outlined, not a grey hint (owner ask 2026-09-04).
+    const hint = screen.getByTestId("qualitati-reg-hint");
+    expect(hint.textContent).toContain("uppercase");
+    expect(hint.getAttribute("data-state")).toBe("problem");
+    expect(hint.getAttribute("role")).toBe("alert");
+    expect(screen.getByTestId("qualitati-reg-password").getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(screen.getByTestId("qualitati-reg-password"), { target: { value: "Str0ng!pw" } });
+    expect(screen.getByTestId("qualitati-reg-hint").getAttribute("data-state")).toBe("ok");
+    fireEvent.change(screen.getByTestId("qualitati-reg-confirm"), { target: { value: "Str0ng!p" } });
+    expect(screen.getByTestId("qualitati-reg-hint").textContent).toContain("don't match");
+    expect(screen.getByTestId("qualitati-reg-confirm").getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(screen.getByTestId("qualitati-reg-confirm"), { target: { value: "Str0ng!pw" } });
     fireEvent.change(screen.getByTestId("qualitati-reg-invite"), { target: { value: "ab12" } });
     // Terms gate: the button stays disabled until the box is ticked.
