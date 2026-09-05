@@ -22,6 +22,26 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  "Mimi Hound uses account credits.": ["Mimi Hound 使用账户积分。", "Mimi Hound bruker kontokreditter.", "Mimi Hound utilise les crédits du compte."],
+  "What should we produce?": ["我们要制作什么？", "Hva skal vi lage?", "Que voulez-vous créer ?"],
+  "Choose a result, then attach your files or share a folder. You can edit the request before sending.": ["选择成果类型，再添加文件或共享文件夹。发送前可以修改请求。", "Velg et resultat, legg ved filer eller del en mappe. Du kan redigere forespørselen før du sender.", "Choisissez un résultat, puis joignez vos fichiers ou partagez un dossier. Vous pouvez modifier la demande avant de l’envoyer."],
+  "Start with a file": ["从文件开始", "Start med en fil", "Commencer avec un fichier"],
+  "Summarize into Word": ["汇总成 Word 文档", "Oppsummer i Word", "Résumer dans Word"],
+  "Turn interviews or notes into a clear, editable report": ["将访谈或笔记整理为清晰、可编辑的报告", "Gjør intervjuer eller notater til en tydelig, redigerbar rapport", "Transformer des entretiens ou des notes en rapport clair et modifiable"],
+  "Clean a spreadsheet": ["清理电子表格", "Rydd et regneark", "Nettoyer un tableur"],
+  "Get an organized workbook with a record of changes": ["生成整理后的工作簿并记录修改", "Få en ryddig arbeidsbok med endringslogg", "Obtenir un classeur organisé avec un historique des modifications"],
+  "Turn notes into slides": ["将笔记制作成幻灯片", "Gjør notater til lysbilder", "Transformer des notes en diapositives"],
+  "Build an editable presentation with a clear story": ["制作条理清晰、可编辑的演示文稿", "Lag en redigerbar presentasjon med en tydelig fortelling", "Créer une présentation modifiable au récit clair"],
+  "More ways to start": ["更多开始方式", "Flere måter å starte på", "Autres façons de commencer"],
+  "Your files are saved. Open one to review it, or ask for changes.": ["文件已保存。打开查看，或提出修改要求。", "Filene dine er lagret. Åpne en for å se gjennom den, eller be om endringer.", "Vos fichiers sont enregistrés. Ouvrez-en un pour le vérifier ou demandez des modifications."],
+  "Revise": ["修改", "Revider", "Réviser"],
+  "One task can use several requests.": ["一个任务可能使用多次请求。", "Én oppgave kan bruke flere forespørsler.", "Une tâche peut utiliser plusieurs requêtes."],
+  "Account credits": ["账户积分", "Kontokreditter", "Crédits du compte"],
+  "Example and requirements": ["示例与要求", "Eksempel og krav", "Exemple et prérequis"],
+  "Expected output": ["预期成果", "Forventet resultat", "Résultat attendu"],
+  "What you need": ["所需材料与工具", "Dette trenger du", "Ce qu’il vous faut"],
+  "Installation checked": ["安装已验证", "Installasjon kontrollert", "Installation vérifiée"],
+
   "Could not load skills. Try again.": ["无法加载技能，请重试。", "Kunne ikke laste ferdigheter. Prøv igjen.", "Impossible de charger les compétences. Réessayez."],
   "daily limit": ["每日额度", "daglig grense", "limite quotidienne"],
   "Search the skill store": ["搜索技能商店", "Søk i ferdighetsbutikken", "Rechercher dans la boutique de compétences"],

@@ -1,7 +1,7 @@
 [
   {
     "name": "mono-color",
-    "description": "Generate original one-ink or controlled two-ink editorial images from any theme, sentence, article idea, object, or reference photo. Always use this skill when the user asks for \u5355\u8272\u6d77\u62a5\u3001\u53cc\u8272\u5370\u5237\u3001\u5355\u8272\u8c03\u89c6\u89c9\u3001\u84dd\u8272/\u7eff\u8272\u5b54\u7248\u5370\u5237\u3001risograph\u3001\u7f51\u70b9\u7167\u7247\u3001\u590d\u53e4\u6216\u5f53\u4ee3\u7f16\u8f91\u6392\u7248\u3001zine poster, monochrome editorial poster, duotone p",
+    "description": "Generate original one-ink or controlled two-ink editorial images from any theme, sentence, article idea, object, or reference photo. Always use this skill when the user asks for 单色海报、双色印刷、单色调视觉、蓝色/绿色孔版印刷、risograph、网点照片、复古或当代编辑排版、zine poster, monochrome editorial poster, duotone p",
     "repo": "lanceyuu/mimiwork",
     "path": "skills/store/mono-color",
     "ref": "main"
@@ -12,7 +12,11 @@
     "repo": "Nanako0129/sepia",
     "path": "skills/sepia",
     "ref": "401c89e43caf03ce5e8da0bf5cd6c96095ba70af",
-    "recommended": true
+    "recommended": true,
+    "example_prompt": "Review my draft, then suggest minimal edits that preserve facts and my voice.",
+    "expected_output": "A prose review or revised draft.",
+    "requirements": "The text to revise and its intended audience.",
+    "install_checked_at": "2026-09-05"
   },
   {
     "name": "internal-comms",
@@ -20,7 +24,11 @@
     "repo": "anthropics/skills",
     "path": "skills/internal-comms",
     "ref": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
-    "recommended": true
+    "recommended": true,
+    "example_prompt": "Turn my project notes into a weekly team update with progress, plans, and problems.",
+    "expected_output": "A structured team update, newsletter, or FAQ.",
+    "requirements": "Project notes and the intended audience.",
+    "install_checked_at": "2026-09-05"
   },
   {
     "name": "theme-factory",
@@ -28,6 +36,70 @@
     "repo": "anthropics/skills",
     "path": "skills/theme-factory",
     "ref": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
-    "recommended": true
+    "recommended": true,
+    "example_prompt": "Show me the available themes, then apply my choice to this presentation.",
+    "expected_output": "A document or deck with consistent colors and typography.",
+    "requirements": "An existing document or deck and file-editing tools.",
+    "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "content-research-writer",
+    "description": "Research, outline, and refine articles with sources and section-by-section feedback.",
+    "repo": "ComposioHQ/awesome-claude-skills",
+    "path": "content-research-writer",
+    "ref": "be2a406907dbc61b73e6827ded415c96139d13a2",
+    "recommended": true,
+    "example_prompt": "Write a sourced briefing on the topic in my notes. Separate supported claims from open questions.",
+    "expected_output": "A sourced outline and article draft.",
+    "requirements": "Source notes and web search for claims needing verification.",
+    "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "meeting-insights-analyzer",
+    "description": "Review meeting transcripts for communication patterns and specific, evidence-backed feedback.",
+    "repo": "ComposioHQ/awesome-claude-skills",
+    "path": "meeting-insights-analyzer",
+    "ref": "be2a406907dbc61b73e6827ded415c96139d13a2",
+    "recommended": true,
+    "example_prompt": "Review this meeting transcript for unclear decisions and missed opportunities to listen. Quote the supporting passages.",
+    "expected_output": "A feedback report with transcript excerpts and practical next steps.",
+    "requirements": "A meeting transcript with speaker labels; recordings must be transcribed first.",
+    "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "changelog-generator",
+    "description": "Turn a project’s Git history into clear release notes grouped by user impact.",
+    "repo": "ComposioHQ/awesome-claude-skills",
+    "path": "changelog-generator",
+    "ref": "be2a406907dbc61b73e6827ded415c96139d13a2",
+    "recommended": true,
+    "example_prompt": "Draft release notes from the commits between the two versions I specify. Explain changes in plain language.",
+    "expected_output": "Draft release notes linked to the relevant changes.",
+    "requirements": "Read access to a Git repository and the version range to summarize.",
+    "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "tailored-resume-generator",
+    "description": "Tailor a resume to a job description using relevant experience and achievements.",
+    "repo": "ComposioHQ/awesome-claude-skills",
+    "path": "tailored-resume-generator",
+    "ref": "be2a406907dbc61b73e6827ded415c96139d13a2",
+    "recommended": true,
+    "example_prompt": "Adapt my resume to this job description. Use only my actual experience and flag missing information.",
+    "expected_output": "A tailored resume draft and a list of gaps to clarify.",
+    "requirements": "Your existing resume and the target job description.",
+    "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "copy-editing",
+    "description": "Improve existing copy through focused passes for clarity, consistency, and a stronger message.",
+    "repo": "coreyhaines31/marketingskills",
+    "path": "skills/copy-editing",
+    "ref": "5b2c0007766c6a1cf1d53fd8fc73e979e0821022",
+    "recommended": true,
+    "example_prompt": "Edit this announcement for clarity and concision. Preserve the facts and voice, and explain important edits.",
+    "expected_output": "Edited copy with a concise explanation of changes.",
+    "requirements": "The original draft and, optionally, brand or audience guidance.",
+    "install_checked_at": "2026-09-05"
   }
 ]

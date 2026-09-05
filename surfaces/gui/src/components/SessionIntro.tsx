@@ -6,17 +6,28 @@ import { ConnectorIcon } from "../connectors/ConnectorIcon";
 import { indexConnectors, visualFor, type ConnectorMap } from "../connectors/visuals";
 import { useRoots } from "../useRoots";
 import { AddFolderForm } from "./AddFolderForm";
+import { useT } from "../i18n";
 
-// Empty-state for a fresh Cowork session (§27): a greeting, exactly three concrete template
-// tasks, and the composer — nothing else. Each task carries its own setup: no icon tiles (the
-// title is the row), connector dots on the sub-line (brand color = connected and enabled for
-// this session, grayscale = not — §23's vocabulary), and sub-line copy that is always the task's
-// OUTCOME, never connection state. Sources ready → "Start →" on hover, click prefills the
-// composer. Not ready → "Configure ›" always visible (for a gated row the setup action IS the
-// row's meaning), opening the §23 Session settings drawer — no second setup surface here.
+// Start with the file the user wants to take away. Source setup and custom workflows
+// stay available below, so a first task does not require choosing an integration.
+const DELIVERABLES = [
+  {
+    id: "word", title: "Summarize into Word", format: "Word",
+    description: "Turn interviews or notes into a clear, editable report",
+    prompt: "Summarize the interviews or notes I provide into an editable Word document (.docx). Ask me to attach the source files or share their folder if they are not available yet. Identify the main themes, preserve quoted wording, and link findings to their sources. Separate evidence from interpretation and flag missing information. Save the report in this task's folder, check the document for formatting and source accuracy, and tell me what you checked with a link to the finished file.",
+  },
+  {
+    id: "spreadsheet", title: "Clean a spreadsheet", format: "Excel",
+    description: "Get an organized workbook with a record of changes",
+    prompt: "Clean the spreadsheet or CSV I provide and save a new Excel workbook (.xlsx). Ask me to attach the source file or share its folder if it is not available yet. Inspect the columns, missing values, duplicates, and inconsistent formats. Preserve the original and ask before making ambiguous changes or removing data. Include a change log, compare row counts, check formulas and totals where present, and link the finished workbook with a summary of the checks.",
+  },
+  {
+    id: "slides", title: "Turn notes into slides", format: "PowerPoint",
+    description: "Build an editable presentation with a clear story",
+    prompt: "Turn the notes or document I provide into an editable PowerPoint presentation (.pptx). Ask me to attach the source material if it is not available yet, and ask who the audience is and how long the presentation should be. Use a clear narrative, concise slides, and speaker notes. Preserve source facts and do not invent figures or citations. Save the deck in this task's folder, check for overflowing text and missing content, and link the finished file with a summary of what you checked.",
+  },
+];
 
-// The three starters are the three ways in (owner call 2026-08-23): work in a folder,
-// work with something you've connected, and teach the coworker your way of doing things.
 const FOLDER_PROMPT =
   "Work in this folder: read what's here, tell me what matters, and suggest what to produce next.";
 const CANVA_PROMPT =
@@ -43,6 +54,7 @@ export function SessionIntro({
   onOpenSessionSettings: () => void;
   onPrefill: (text: string, attachments?: Attachment[]) => void;
 }) {
+  const t = useT();
   const { roots, busy, error, addRoot } = useRoots(sessionId);
   const [live, setLive] = useState<Set<string>>(new Set());
   const [byName, setByName] = useState<ConnectorMap>({});
@@ -77,14 +89,26 @@ export function SessionIntro({
   return (
     <div className="intro">
       <h1 className="greeting">
-        <img src={mimiMark} alt="" className="intro-mimi" draggable={false} /> What should we produce?
+        <img src={mimiMark} alt="" className="intro-mimi" draggable={false} /> {t("What should we produce?")}
       </h1>
       <p className="intro-lede">
-        Pick a task to start — I'll do the work and save the result. Or just type what you need
-        below.
+        {t("Choose a result, then attach your files or share a folder. You can edit the request before sending.")}
       </p>
 
-      <div className="intro-tasks">
+      <div className="intro-tasks" aria-label={t("Start with a file")}>
+        {DELIVERABLES.map((task) => (
+          <button key={task.id} className="task-card deliverable-starter" data-testid={`intro-task-${task.id}`} onClick={() => onPrefill(task.prompt)}>
+            <span className="task-card-body">
+              <span className="task-card-title">{t(task.title)}</span>
+              <span className="task-card-sub">{t(task.description)}</span>
+            </span>
+            <span className="task-card-act">{task.format}</span>
+          </button>
+        ))}
+      </div>
+      <details className="intro-more">
+        <summary>{t("More ways to start")}</summary>
+        <div className="intro-tasks">
         <button className="task-card" data-testid="intro-task-folder" onClick={pickFolder}>
           <span className="task-card-body">
             <span className="task-card-title">Work in a folder</span>
@@ -137,7 +161,8 @@ export function SessionIntro({
           </span>
           <span className="task-card-act">Start →</span>
         </button>
-      </div>
+        </div>
+      </details>
     </div>
   );
 }

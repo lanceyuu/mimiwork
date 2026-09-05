@@ -749,6 +749,13 @@ export function SkillsTab({
                     ) : null}
                   </div>
                   <div className="text-[11.5px] text-muted line-clamp-2">{r.description}</div>
+                  {r.example_prompt && <details className="skill-example">
+                    <summary>{t("Example and requirements")}</summary>
+                    <p>{r.example_prompt}</p>
+                    {r.expected_output && <p><strong>{t("Expected output")}: </strong>{r.expected_output}</p>}
+                    {r.requirements && <p><strong>{t("What you need")}: </strong>{r.requirements}</p>}
+                    {r.install_checked_at && <p>{t("Installation checked")}: {r.install_checked_at}</p>}
+                  </details>}
                 </div>
                 <button
                   className={`${BTN_BORDERED} disabled:opacity-40`}

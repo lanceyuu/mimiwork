@@ -76,6 +76,7 @@ interface Props {
   // Several pinned comments go together, with a screenshot of the preview and its
   // numbered markers, so a vision-capable model sees where each one points.
   onFeedback?: (text: string, attachments?: Attachment[]) => void;
+  onRevise?: (path: string) => void;
   // Building an app in this conversation: the rail shows it running beside the chat,
   // Coze-style, and reloads whenever Mimi saves. Open the app's own page from here.
   onOpenApp?: (id: string) => void;
@@ -98,6 +99,7 @@ export function RightRail({
   openAccessKey = 0,
   onOpenIntegrations,
   onFeedback,
+  onRevise,
   onOpenApp,
 }: Props) {
   const t = useT();
@@ -395,6 +397,7 @@ export function RightRail({
               <div className="rail-muted">Nothing produced yet — files Mimi writes appear here.</div>
             ) : (
               <div className="artifact-list">
+                {!running && <p className="rail-muted">{t("Your files are saved. Open one to review it, or ask for changes.")}</p>}
                 {artifacts.slice(0, 16).map((a, i, list) => (
                   <div key={a.path}>
                     {/* The server ranks deliverables above working files; the first
@@ -413,8 +416,16 @@ export function RightRail({
                       {a.name}
                       <span className="artifact-row-meta">{formatBytes(a.size)} · {clockTime(a.modified_at)}</span>
                     </span>
-                      <span className="artifact-open">Open</span>
+                      <span className="artifact-open">{t("Open")}</span>
                     </button>
+                    <div className="artifact-file-actions">
+                      <button className="rail-secondary-btn" onClick={() => void revealArtifact(sessionId, a.path, "reveal")} aria-label={`${t("Show in folder")}: ${a.name}`}>
+                        {t("Show in folder")}
+                      </button>
+                      {onRevise && <button className="rail-secondary-btn" disabled={running} onClick={() => onRevise(a.path)} aria-label={`${t("Revise")}: ${a.name}`}>
+                        {t("Revise")}
+                      </button>}
+                    </div>
                   </div>
                 ))}
               </div>

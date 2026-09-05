@@ -455,4 +455,17 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
     await waitFor(() => expect(screen.queryByText("Could not load skills. Try again.")).toBeNull());
   });
 
+
+  it("lets a reader inspect an example, output, and requirements before installing", async () => {
+    stubFetch(STORE_ROUTES([{ ...ENTRY, example_prompt: "Summarize my evidence", expected_output: "A sourced draft", requirements: "Source notes", install_checked_at: "2026-09-05" }]));
+    render(<SkillsTab />);
+    await openStore();
+    const summary = await screen.findByText("Example and requirements");
+    fireEvent.click(summary);
+    expect(summary.parentElement!.textContent).toContain("Summarize my evidence");
+    expect(summary.parentElement!.textContent).toContain("A sourced draft");
+    expect(summary.parentElement!.textContent).toContain("Source notes");
+    expect(summary.parentElement!.textContent).toContain("Installation checked: 2026-09-05");
+  });
+
 });

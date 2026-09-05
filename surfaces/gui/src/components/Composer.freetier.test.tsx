@@ -39,7 +39,17 @@ describe("Composer / Mimi Puppy allowance banner", () => {
     const onModelChange = vi.fn();
     render(<Composer {...props({ onModelChange, freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.getByRole("alert").textContent).toContain("Mimi Puppy's free allowance is used up for today");
+    expect(screen.getByRole("alert").textContent).toContain("Mimi Hound uses account credits.");
     fireEvent.click(screen.getByTestId("free-tier-switch"));
     expect(onModelChange).toHaveBeenCalledWith("qualitati:mimi-hound");
   });
+
+  it("distinguishes the account balance from free requests and explains multi-step usage", () => {
+    render(<Composer {...props({ accountCredits: 420, freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-06T00:00:00Z" } })} />);
+    const banner = screen.getByTestId("free-tier-banner");
+    expect(banner.textContent).toContain("300 free requests left today");
+    expect(banner.textContent).toContain("Account credits: 420");
+    expect(banner.textContent).toContain("One task can use several requests.");
+  });
+
 });

@@ -60,7 +60,12 @@ def _load_index() -> list[dict[str, Any]]:
                         own = json.loads(fh.read().decode("utf-8"))
                 except (OSError, ValueError):
                     own = []
-                _index_cache = [e for e in own if isinstance(e, dict)] + index
+                curated = [e for e in own if isinstance(e, dict)]
+                # An updated listing must describe the same revision that find() installs.
+                replaced = {(e["repo"], e["path"]) for e in curated}
+                _index_cache = curated + [
+                    e for e in index if (e["repo"], e["path"]) not in replaced
+                ]
     return _index_cache
 
 

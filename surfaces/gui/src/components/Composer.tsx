@@ -118,6 +118,7 @@ interface Props {
   onModelChange: (model: string) => void;
   // Mimi Puppy's free requests today; the banner below the approvals warns at 10 % left
   // and offers Mimi Hound when it is spent.
+  accountCredits?: number | null;
   freeTier?: { model?: string; cap: number; remaining: number; resets_at: string } | null;
   // When set (Code/Cowork), the Mode menu is shown. The folder/roots + branch controls left the
   // composer for the Session settings drawer (§22) — folder access is standing session config.
@@ -739,7 +740,7 @@ export function Composer(props: Props) {
     <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
 
-      <FreeTierBanner model={props.model} freeTier={props.freeTier} onModelChange={props.onModelChange} />
+      <FreeTierBanner model={props.model} freeTier={props.freeTier} accountCredits={props.accountCredits} onModelChange={props.onModelChange} />
 
       {dictationError && (
         <div className="max-w-3xl mx-auto mb-2 px-1 text-[12px] text-red-600" role="alert">
@@ -1364,9 +1365,11 @@ function AttachChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
 function FreeTierBanner({
   model,
   freeTier,
+  accountCredits,
   onModelChange,
 }: {
   model: string;
+  accountCredits?: number | null;
   freeTier?: { cap: number; remaining: number; resets_at: string } | null;
   onModelChange: (model: string) => void;
 }) {
@@ -1390,6 +1393,10 @@ function FreeTierBanner({
         <span className="flex-1">
           {t("Mimi Puppy's free allowance is used up for today")}
           {at ? ` · ${t("resets at")} ${at}` : ""}
+          <span className="block text-[11.5px] mt-0.5">
+            {t("Mimi Hound uses account credits.")}
+            {typeof accountCredits === "number" ? ` ${t("Account credits")}: ${accountCredits}.` : ""}
+          </span>
         </span>
         <button className="btn sm shrink-0" data-testid="free-tier-switch" onClick={() => onModelChange(hound)}>
           {t("Switch to Mimi Hound")}
@@ -1406,6 +1413,10 @@ function FreeTierBanner({
       <span className="flex-1">
         {t("Mimi Puppy")}: {remaining} {t("free requests left today")} ({t("daily limit")}: {cap})
         {at ? ` · ${t("resets at")} ${at}` : ""}
+        <span className="block text-[11.5px] mt-0.5">
+          {t("One task can use several requests.")}
+          {typeof accountCredits === "number" ? ` ${t("Account credits")}: ${accountCredits}.` : ""}
+        </span>
       </span>
     </div>
   );

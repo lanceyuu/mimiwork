@@ -1811,6 +1811,10 @@ export async function getAutomations(): Promise<Automation[]> {
 /** One listing in the community skill store (bundled index over three GitHub
  * repos; installs download the pinned files on demand). */
 export interface SkillStoreEntry {
+  example_prompt?: string;
+  expected_output?: string;
+  requirements?: string;
+  install_checked_at?: string;
   name: string;
   description: string;
   repo: string;

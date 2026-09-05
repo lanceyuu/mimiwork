@@ -223,11 +223,15 @@ export function App() {
   const [running, setRunning] = useState(false);
   // Mimi Puppy's free allowance today (owner ask 2026-09-04: warn before the gateway
   // refuses). Polled every minute and after every turn; the composer shows the banner.
+  const [accountCredits, setAccountCredits] = useState<number | null>(null);
   const [freeTier, setFreeTier] = useState<QualitatiStatus["free_tier"]>(null);
   const refreshFreeTier = useCallback(() => {
     qualitatiStatus()
-      .then((st) => setFreeTier(st.free_tier ?? null))
-      .catch(() => setFreeTier(null));
+      .then((st) => {
+        setFreeTier(st.free_tier ?? null);
+        setAccountCredits(typeof st.profile?.credits === "number" ? st.profile.credits : null);
+      })
+      .catch(() => { setFreeTier(null); setAccountCredits(null); });
   }, []);
   useEffect(() => {
     refreshFreeTier();
@@ -2031,6 +2035,7 @@ export function App() {
               onModeChange={changeMode}
               onModelChange={changeModel}
               freeTier={freeTier}
+              accountCredits={accountCredits}
               sessionId={sessionId}
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
               unattended={unattended}
@@ -2105,6 +2110,11 @@ export function App() {
             openAccessKey={accessKey}
             onOpenIntegrations={() => setSurface("integrations")}
             onFeedback={(text, attachments) => send(text, attachments)}
+            onRevise={(path) => prefillComposer(`Please revise the file ${JSON.stringify(path)}.
+
+Changes I want:
+
+Keep the original and save a revised copy. Check the requested changes and give me a link to the revised file.`)}
             onOpenApp={(id) => {
               setAppsOpenId(id);
               setSurface("apps");

@@ -11,8 +11,10 @@ test("three rows, no Set-me-up; gated rows show Configure › and expand the rai
   await page.goto("/");
   await expect(page.getByText("What should we produce?")).toBeVisible();
 
-  // Exactly the three template tasks; the old setup list is gone.
-  await expect(page.locator(".task-card")).toHaveCount(3);
+  await expect(page.locator(".deliverable-starter")).toHaveCount(3);
+  await page.getByText("More ways to start", { exact: true }).click();
+  // The three secondary workflows remain available.
+  await expect(page.locator(".intro-more .task-card")).toHaveCount(3);
   await expect(page.getByText("Set me up (optional)")).toHaveCount(0);
   await expect(page.getByText("Give me access to a folder")).toHaveCount(0);
 
@@ -53,6 +55,7 @@ test("ready rows reveal Start → on hover and prefill the composer", async ({ p
   );
   await page.goto("/");
 
+  await page.getByText("More ways to start", { exact: true }).click();
   const canva = page.getByTestId("intro-task-canva");
   await expect(canva).toContainText("Start →");
   // The action is hover-revealed on ready rows (hidden at rest).
@@ -76,6 +79,7 @@ test("folder task opens the inline add-folder form; adding a folder prefills the
   await page.goto("/");
 
   // No shared folder yet (the fixture root is the primary scratch) → the row expands the form.
+  await page.getByText("More ways to start", { exact: true }).click();
   await page.getByTestId("intro-task-folder").click();
   const path = page.getByPlaceholder("Choose or paste a folder path…");
   await expect(path).toBeVisible();

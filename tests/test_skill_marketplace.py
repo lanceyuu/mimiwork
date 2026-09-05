@@ -183,8 +183,20 @@ def test_preview_shows_the_red_flag_instead_of_hiding_it(monkeypatch):
 
 def test_recommended_skills_are_pinned_and_include_the_complete_sepia_skill():
     shelf = mp.browse_page("recommended")
-    assert {e["name"] for e in shelf["results"]} == {"sepia", "internal-comms", "theme-factory"}
+    assert {e["name"] for e in shelf["results"]} == {
+        "sepia", "internal-comms", "theme-factory", "content-research-writer",
+        "meeting-insights-analyzer", "changelog-generator", "tailored-resume-generator", "copy-editing",
+    }
     assert all(len(e["ref"]) == 40 for e in shelf["results"])
     sepia = mp.find("sepia", "Nanako0129/sepia")
     assert sepia["path"] == "skills/sepia"
     assert mp.search("sepia")[0]["repo"] == "Nanako0129/sepia"
+
+
+def test_curated_updates_replace_old_revisions_and_carry_useful_examples():
+    for entry in mp.browse_page("recommended")["results"]:
+        copies = [e for e in mp._load_index() if (e["repo"], e["path"]) == (entry["repo"], entry["path"])]
+        assert len(copies) == 1
+        assert entry["example_prompt"] and entry["expected_output"] and entry["requirements"]
+        assert entry["install_checked_at"] == "2026-09-05"
+        assert mp.find(entry["name"], entry["repo"])["ref"] == entry["ref"]
