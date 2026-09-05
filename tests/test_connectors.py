@@ -767,9 +767,34 @@ def test_new_connector_descriptors_listed(tmp_path):
     assert all(t["kind"] == "read" for t in by_name["dropbox"]["tools"])
     assert all(t["kind"] == "read" for t in by_name["box"]["tools"])
     assert all(t["kind"] == "read" for t in by_name["quickbooks"]["tools"])
-    # google_drive (scope discipline) and canva (exports are renders) too
+    # google_drive (scope discipline) and canva's manual REST path (exports are renders) too
     assert all(t["kind"] == "read" for t in by_name["google_drive"]["tools"])
     assert all(t["kind"] == "read" for t in by_name["canva"]["tools"])
+
+
+def test_canva_is_mcp_backed_with_a_pinned_tool_set(tmp_path):
+    """Canva connects with one click against Canva's own MCP server (canva.dev/docs/mcp);
+    the tool surface is the pinned list, reads free and writes gated, and the manual
+    token path keeps its REST tools — the profile's mode picks one set (jira pattern)."""
+    from coworker.connectors.descriptors import get_descriptor
+    from coworker.connectors.tool_defs import active_tool_defs, mcp_pinned_tools
+
+    assert get_descriptor("canva").mcp_url == "https://mcp.canva.com/mcp"
+    pinned = mcp_pinned_tools("canva")
+    assert "generate-design" in pinned and "export-design" in pinned
+    assert "search-designs" in pinned and "comment-on-design" in pinned
+    assert all("-" in p or p.isalpha() for p in pinned)  # Canva's own hyphenated names
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    rest = {t.name for t in active_tool_defs(secrets, "canva")}
+    assert "canva_list_designs" in rest and not any(n.startswith("mcp__") for n in rest)
+
+    secrets.put("canva:default", {"mode": "mcp", "enabled": True})
+    mcp = {t.name: t for t in active_tool_defs(secrets, "canva")}
+    assert "canva_list_designs" not in mcp
+    assert mcp["mcp__canva__generate-design"].kind == "write"
+    assert mcp["mcp__canva__export-design"].kind == "read"
+    assert mcp["mcp__canva__upload-asset-from-url"].kind == "write"
 
 
 def test_new_connectors_connect_and_gate_tools(tmp_path):

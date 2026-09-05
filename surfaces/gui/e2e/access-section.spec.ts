@@ -3,7 +3,8 @@
 // the session can touch; expanding edits inline at rail width (no overlay, no dialog).
 // Fixture state: browser + slack + github connected/enabled (github is two_way WITHOUT
 // channels — relay mentions, no subscriptions), gmail recommended-not-connected, one
-// primary root → summary "Browser, Slack +1 · 1 folder".
+// primary root → summary "Browser, Slack +1" (folders have their own rail section since
+// 2026-09-05, so the folder fact left this header).
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -20,17 +21,18 @@ test("no topbar opener; the Access header IS the ambient glance; expanding edits
   // The trust surface is ambient: the collapsed header always shows the summary — and no
   // nudge text ever renders at rest (§23's rule carried over).
   const section = page.getByTestId("access-section");
-  await expect(section.getByTestId("access-summary")).toHaveText("Browser, Slack +1 · 1 folder");
+  await expect(section.getByTestId("access-summary")).toHaveText("Browser, Slack +1");
   await expect(section.getByText(/recommended/i)).toHaveCount(0);
 
-  // Expand → Sources (per-session toggles), Recommended (with its reason), Folders — all
-  // inline in the rail; no dialog appears anywhere.
+  // Expand → Sources (per-session toggles), Recommended (with its reason) — inline in the
+  // rail; no dialog appears anywhere. Folders are their own section above.
   await section.getByTestId("access-toggle").click();
   const body = page.getByRole("region", { name: "Session access" });
   await expect(body.getByText("Sources")).toBeVisible();
   await expect(body.getByText("Slack", { exact: true })).toBeVisible();
   await expect(body.getByText("email context for morning summaries")).toBeVisible();
-  await expect(body.getByTestId("drawer-directories").getByText("Temporary space")).toBeVisible();
+  await expect(body.getByTestId("drawer-directories")).toHaveCount(0);
+  await expect(page.getByTestId("folders-section").getByText("Temporary space", { exact: true })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Channels is a chat capability, not a two_way one: Slack gets the drill-down, GitHub
@@ -92,5 +94,5 @@ test("per-session mute round-trips; the summary follows", async ({ page }) => {
   // Muting Slack for this session drops it from the live summary (the fixture flips
   // enabled on POST and the section reloads).
   await body.getByTitle("Enabled for this session — tap to mute here").nth(1).click();
-  await expect(section.getByTestId("access-summary")).toHaveText("Browser, GitHub · 1 folder");
+  await expect(section.getByTestId("access-summary")).toHaveText("Browser, GitHub");
 });

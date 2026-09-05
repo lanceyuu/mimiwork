@@ -75,7 +75,7 @@ La différence entre un bon outil et un collègue : le collègue se souvient.
 
 ## 6 · Connectez vos outils de travail
 
-**Settings ▸ Connectors.** Slack (mentionnez Mimi dans un canal, le travail fini revient dans le fil), Gmail/Outlook, Google Agenda et Drive, GitHub, Jira, Notion, Canva, **Qualtrics** (lire le questionnaire pour que `Q4_1` devienne une vraie question, récupérer les réponses en CSV ou en SPSS `.sav` étiqueté — avec votre approbation à chaque téléchargement), et vos données de recherche QualiTaTi (projets, entretiens, questionnaires — chaque récupération demande d'abord). Tout le reste parle [MCP](https://modelcontextprotocol.io/).
+**Settings ▸ Connectors.** Slack (mentionnez Mimi dans un canal, le travail fini revient dans le fil), Gmail/Outlook, Google Agenda et Drive, GitHub, Jira, Notion, Canva, **Qualtrics** (lire le questionnaire pour que `Q4_1` devienne une vraie question, récupérer les réponses en CSV ou en SPSS `.sav` étiqueté — avec votre approbation à chaque téléchargement), et vos données de recherche QualiTaTi (projets, entretiens, questionnaires — chaque récupération demande d'abord). Canva se connecte en un clic : Mimi peut chercher, générer, modifier, commenter et exporter vos designs. Tout le reste parle [MCP](https://modelcontextprotocol.io/).
 
 ## 7 · Faites-la travailler pendant que vous ne travaillez pas
 

@@ -180,7 +180,8 @@ ACCESS: dict[str, list[str]] = {
         "Never edits or deletes anything in your Drive.",
     ],
     "canva": [
-        "Browses your designs and exports them — read-only.",
+        "Searches, reads, and exports your designs; generates and edits designs as you.",
+        "Uploads assets, comments, and moves designs between folders — every write asks first.",
     ],
     "figma": [
         "Reads design files and comments; exports assets.",

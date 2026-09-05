@@ -1164,22 +1164,27 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="canva",
         title="Canva",
         icon="◠",
-        blurb="Browse, create, and export designs.",
+        blurb="Generate, edit, import, and export designs; comment and organize folders.",
         auth="oauth",
         two_way=False,
         brand_color="#00c4cc",
         logo="canva",
+        aliases=("design", "slides", "poster", "social post", "brand kit", "template"),
+        # Canva's own MCP server (canva.dev/docs/mcp): OAuth 2.1 with Dynamic Client
+        # Registration, so the local flow needs no integration of ours. The pinned
+        # tool set in tool_defs mirrors Canva's published tools list (2026-09-05).
+        mcp_url="https://mcp.canva.com/mcp",
         fields=[
             Field(
                 "access_token",
                 "OAuth access token",
                 secret=True,
-                help="Access token from a Canva Connect integration.",
+                help="Access token from your own Canva Connect integration (manual path).",
             ),
         ],
         instructions=[
-            "Create a Connect integration at canva.com/developers and complete an OAuth grant.",
-            "Paste the access token below.",
+            "One click connects via Canva sign-in in your browser (recommended).",
+            "Manual: create a Connect integration at canva.com/developers, complete an OAuth grant, and paste the access token below.",
         ],
         validate=_validate_canva,
         available=True,

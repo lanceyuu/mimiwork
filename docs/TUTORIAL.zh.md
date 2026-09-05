@@ -75,7 +75,7 @@
 
 ## 6 · 连接你的工作平台
 
-**Settings ▸ Connectors**(连接器)。Slack(在频道里@Mimi,成果回到原话题)、Gmail/Outlook、Google 日历和云端硬盘、GitHub、Jira、Notion、Canva、**Qualtrics**(读取问卷让 `Q4_1` 变成真实问题,把答卷拉成 CSV 或带标签的 SPSS `.sav`——每次下载都需你批准),以及你的 QualiTaTi 研究数据(项目、访谈、问卷——每次读取都先征求同意)。其他系统走 [MCP](https://modelcontextprotocol.io/)。
+**Settings ▸ Connectors**(连接器)。Slack(在频道里@Mimi,成果回到原话题)、Gmail/Outlook、Google 日历和云端硬盘、GitHub、Jira、Notion、Canva、**Qualtrics**(读取问卷让 `Q4_1` 变成真实问题,把答卷拉成 CSV 或带标签的 SPSS `.sav`——每次下载都需你批准),以及你的 QualiTaTi 研究数据(项目、访谈、问卷——每次读取都先征求同意)。Canva 一键登录:Mimi 可以搜索、生成、编辑、评论并导出你的设计。其他系统走 [MCP](https://modelcontextprotocol.io/)。
 
 ## 7 · 你不在时,它继续干活
 

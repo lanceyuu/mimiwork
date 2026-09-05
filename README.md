@@ -74,7 +74,8 @@ which tools it wants — before it ever lands on your disk.
 **It connects to where you work.** 25+ integrations — Slack, Gmail, Outlook, Google
 Calendar and Drive, GitHub, Jira, Notion, Linear, HubSpot, Canva, monday.com — plus
 anything reachable over [MCP](https://modelcontextprotocol.io/). Tag it in a Slack channel
-and the finished work comes back as a thread reply.
+and the finished work comes back as a thread reply. Canva signs in with one click and Mimi
+can search, generate, edit, comment on and export your designs there.
 
 **Including where your data lives.** Connect **Qualtrics** and ask for the December wave:
 it reads the questionnaire so `Q4_1` arrives as *"How satisfied were you with — speed of

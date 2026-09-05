@@ -69,6 +69,7 @@ Open source the app is built with. Each project's license applies to it.
 - **[Playwright](https://playwright.dev)** — The browser automation tools, and the app's own end-to-end tests. Microsoft.
 - **[OpenAI, Anthropic and Google Gen AI SDKs](https://github.com/openai/openai-python)** — The provider clients.
 - **[MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)** — Model Context Protocol servers as tools.
+- **[Canva Connect API and Canva MCP](https://www.canva.dev/docs/mcp/)** — The Canva connector: one-click sign-in against Canva's own MCP server, and the Connect REST endpoints for the manual path. Canva.
 - **[DDGS](https://github.com/deedy5/ddgs)** — The keyless default web search.
 - **[croniter](https://github.com/kiorky/croniter)** — Next-run arithmetic for automations.
 - **[Textual](https://textual.textualize.io)** — The terminal interface.

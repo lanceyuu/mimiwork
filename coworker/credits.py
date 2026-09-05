@@ -196,6 +196,7 @@ CREDITS: list[dict[str, Any]] = [
             {"name": "Playwright", "what": "The browser automation tools, and the app's own end-to-end tests. Microsoft.", "url": "https://playwright.dev"},
             {"name": "OpenAI, Anthropic and Google Gen AI SDKs", "what": "The provider clients.", "url": "https://github.com/openai/openai-python"},
             {"name": "MCP Python SDK", "what": "Model Context Protocol servers as tools.", "url": "https://github.com/modelcontextprotocol/python-sdk"},
+            {"name": "Canva Connect API and Canva MCP", "what": "The Canva connector: one-click sign-in against Canva's own MCP server, and the Connect REST endpoints for the manual path. Canva.", "url": "https://www.canva.dev/docs/mcp/"},
             {"name": "DDGS", "what": "The keyless default web search.", "url": "https://github.com/deedy5/ddgs"},
             {"name": "croniter", "what": "Next-run arithmetic for automations.", "url": "https://github.com/kiorky/croniter"},
             {"name": "Textual", "what": "The terminal interface.", "url": "https://textual.textualize.io"},

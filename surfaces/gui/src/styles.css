@@ -2124,3 +2124,11 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
    tool calls folds into one activity line that the reader can open. */
 .stepgroup-live > .stepgroup-head { color: var(--muted); }
 .activity-head { background: none; border: 0; font: inherit; }
+
+/* Folders section (rail, first): the one obvious way to hand Mimi a folder. */
+.rail-primary-btn {
+  display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 8px;
+  font: inherit; font-size: 13px; font-weight: 600; color: #fff; background: var(--accent);
+  border: 0; border-radius: 9px; padding: 8px 10px; cursor: pointer;
+}
+.rail-primary-btn:hover { filter: brightness(1.06); }

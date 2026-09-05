@@ -4,7 +4,7 @@
 //     glance made ambient. Ships collapsed; expanding edits INLINE at rail width (no overlay).
 //   · Sources — Connected toggles (per-session mute), Recommended (connect-in-context), and the
 //     two-way connectors' channels drill-down — the drawer's content, recut.
-//   · Folders — the session's working directories (add/remove, RO/RW gate, branch).
+//   (Folders moved to their own FoldersSection at the top of the rail, 2026-09-05.)
 // Owns its data (GET /v1/sessions/{id}/connections + the connector index), like the settings
 // row before it. Deep links (intro "Configure ›", onboarding "Start working") bump `openKey`
 // to expand it and scroll it into view.
@@ -18,7 +18,6 @@ import {
   setSessionConnection,
   subscribeChannel,
   unsubscribeChannel,
-  revealRoot,
   type Connector,
   type RecentChannel,
   type SessionConnections,
@@ -26,12 +25,8 @@ import {
 } from "../api";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { indexConnectors, labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
-import { baseName } from "../paths";
-import { useRoots } from "../useRoots";
-import { AddFolderForm } from "./AddFolderForm";
 import { Icon } from "./Icon";
 import { ConnectSetup } from "./ManageTabs";
-import { RootRow } from "./RootRow";
 import { ChannelPicker } from "./SubscriptionsChip";
 import { Toggle } from "./Toggle";
 
@@ -49,20 +44,11 @@ const BTN_BORDERED =
 export function AccessSection({
   sessionId,
   personaId,
-  projectScoped,
-  workspace,
-  branch,
-  scratchPrimary,
   openKey = 0,
   onOpenIntegrations,
 }: {
   sessionId: string;
   personaId?: string;
-  // Project-scoped (code-family) sessions summarize the folder NAME, not a count.
-  projectScoped?: boolean;
-  workspace?: string;
-  branch?: string | null;
-  scratchPrimary?: boolean;
   // Bumped by deep links ("Configure ›", onboarding's Start-working) → expand + scroll here.
   openKey?: number;
   onOpenIntegrations?: () => void;
@@ -70,8 +56,6 @@ export function AccessSection({
   const [open, setOpen] = useState(false);
   const [conns, setConns] = useState<SessionConnections | null>(null);
   const [byName, setByName] = useState<ConnectorMap>({});
-  const { roots, busy: rootsBusy, error: rootsError, addRoot, toggleAccess, removeRoot } =
-    useRoots(sessionId, open ? 1 : 0);
   const rootEl = useRef<HTMLElement | null>(null);
 
   const reload = useCallback(() => {
@@ -117,8 +101,6 @@ export function AccessSection({
   // The add flow guarantees the new source is live HERE: the user asked for it in this
   // session, so after the connect lands it is also enabled per-session explicitly.
   const [addedFrom, setAddedFrom] = useState<string | null>(null);
-  // Folders mirrors Sources: flat rows + a quiet "+" link that expands the inline form.
-  const [addingFolder, setAddingFolder] = useState(false);
 
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [recent, setRecent] = useState<RecentChannel[]>([]);
@@ -139,7 +121,6 @@ export function AccessSection({
       setAdding(false);
       setQuery("");
       setAddedFrom(null);
-      setAddingFolder(false);
     }
   }, [open]);
 
@@ -190,7 +171,7 @@ export function AccessSection({
     )
     .sort((a, b) => a.title.localeCompare(b.title));
 
-  // The header summary — the §23 glance, permanent: live source names + the folder fact.
+  // The header summary — the §23 glance, permanent: the live source names.
   const names = live.map((c) => labelFor(c.connector, byName));
   const sourcesPart =
     names.length === 0
@@ -198,12 +179,7 @@ export function AccessSection({
       : names.length <= 2
         ? names.join(", ")
         : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
-  const folderPart = projectScoped
-    ? baseName(workspace || roots.find((r) => r.primary)?.path || "") || null
-    : roots.length > 0
-      ? `${roots.length} folder${roots.length === 1 ? "" : "s"}`
-      : null;
-  const summary = [sourcesPart, folderPart].filter(Boolean).join(" · ");
+  const summary = sourcesPart;
 
   return (
     <section className="rail-section" ref={rootEl} data-testid="access-section">
@@ -408,44 +384,6 @@ export function AccessSection({
                 </div>
               )}
 
-              {/* Working directories — standing session config (§22/§23 lineage). Flat rows +
-                  a quiet "+" link, structurally identical to Sources (owner ask 2026-07-13:
-                  the old drawer's card wrapper read too heavy in the rail). */}
-              <div data-testid="drawer-directories">
-                <div className={`${SEC_H} mb-1.5`}>Folders</div>
-                <div className="-mx-1.5">
-                  {roots.map((r) => (
-                    <RootRow
-                      key={r.path}
-                      root={r}
-                      busy={rootsBusy}
-                      scratchPrimary={scratchPrimary}
-                      branch={r.primary ? branch : undefined}
-                      onToggle={toggleAccess}
-                      onRemove={removeRoot}
-                      onOpen={(r) => void revealRoot(sessionId, r.path)}
-                    />
-                  ))}
-                </div>
-                {addingFolder ? (
-                  <div className="mt-1.5">
-                    <AddFolderForm
-                      onAdd={addRoot}
-                      busy={rootsBusy}
-                      startOpen
-                      onDismiss={() => setAddingFolder(false)}
-                    />
-                  </div>
-                ) : (
-                  <button
-                    className="mt-1 text-[12px] text-accent hover:underline text-left"
-                    onClick={() => setAddingFolder(true)}
-                  >
-                    + Give access to a folder…
-                  </button>
-                )}
-                {rootsError && <div className="roots-err">{rootsError}</div>}
-              </div>
             </div>
           )}
         </div>

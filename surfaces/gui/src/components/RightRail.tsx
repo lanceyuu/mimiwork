@@ -15,6 +15,7 @@ import type { TodoItem } from "../types";
 import { clockTime } from "../time";
 import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
+import { FoldersSection } from "./FoldersSection";
 import { Icon } from "./Icon";
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
@@ -367,6 +368,16 @@ export function RightRail({
               <span aria-hidden>{builderApp.icon}</span> Show {builderApp.title} here
             </button>
           )}
+          {/* Folders first: what Mimi can touch on this computer is the question every
+              new user asks, and it was buried inside Access (owner ask 2026-09-05). */}
+          <FoldersSection
+            key={`folders-${sessionId}`}
+            sessionId={sessionId}
+            projectScoped={projectScoped}
+            workspace={workspace}
+            branch={branch}
+            scratchPrimary={scratchPrimary}
+          />
           <RailSection title="Progress" open={open.progress} onToggle={() => setOpen({ ...open, progress: !open.progress })}>
             <ProgressSummary running={running} toolNames={toolNames} todo={todo} />
           </RailSection>
@@ -472,10 +483,6 @@ export function RightRail({
             key={sessionId}
             sessionId={sessionId}
             personaId={personaId}
-            projectScoped={projectScoped}
-            workspace={workspace}
-            branch={branch}
-            scratchPrimary={scratchPrimary}
             openKey={openAccessKey}
             onOpenIntegrations={onOpenIntegrations}
           />

@@ -131,7 +131,8 @@ The difference between a good tool and a colleague is that a colleague remembers
 the thread), Gmail/Outlook, Google Calendar and Drive, GitHub, Jira, Notion, Canva,
 **Qualtrics** (read a survey's questionnaire so `Q4_1` becomes a real question, pull
 responses as CSV or labelled SPSS `.sav` — with your approval per download), and your
-QualiTaTi research data (projects, interviews, surveys — each retrieval asks first).
+QualiTaTi research data (projects, interviews, surveys — each retrieval asks first). Canva
+signs in with one click: Mimi can search, generate, edit, comment on and export your designs.
 Anything else speaks [MCP](https://modelcontextprotocol.io/).
 
 ## 7 · Make it run while you don't

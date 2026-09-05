@@ -75,7 +75,7 @@ Forskjellen på et godt verktøy og en kollega er at en kollega husker.
 
 ## 6 · Koble til der du jobber
 
-**Settings ▸ Connectors.** Slack (tagg Mimi i en kanal, det ferdige arbeidet kommer tilbake i tråden), Gmail/Outlook, Google Kalender og Disk, GitHub, Jira, Notion, Canva, **Qualtrics** (les spørreskjemaet så `Q4_1` blir et ekte spørsmål, hent svar som CSV eller etikettert SPSS `.sav` — med din godkjenning per nedlasting), og QualiTaTi-forskningsdataene dine (prosjekter, intervjuer, undersøkelser — hver henting spør først). Alt annet snakker [MCP](https://modelcontextprotocol.io/).
+**Settings ▸ Connectors.** Slack (tagg Mimi i en kanal, det ferdige arbeidet kommer tilbake i tråden), Gmail/Outlook, Google Kalender og Disk, GitHub, Jira, Notion, Canva, **Qualtrics** (les spørreskjemaet så `Q4_1` blir et ekte spørsmål, hent svar som CSV eller etikettert SPSS `.sav` — med din godkjenning per nedlasting), og QualiTaTi-forskningsdataene dine (prosjekter, intervjuer, undersøkelser — hver henting spør først). Canva kobles til med ett klikk: Mimi kan søke i, generere, redigere, kommentere og eksportere designene dine. Alt annet snakker [MCP](https://modelcontextprotocol.io/).
 
 ## 7 · La den jobbe når du ikke gjør det
 
