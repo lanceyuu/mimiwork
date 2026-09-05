@@ -2119,3 +2119,8 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
 .skill-example { font-size: 12px; color: var(--muted); margin-top: 6px; }
 .skill-example summary { cursor: pointer; color: var(--ink); }
 .skill-example p { margin: 7px 0; line-height: 1.5; }
+
+/* Turn view (owner ask 2026-09-05): a live turn is open, its header a clock; each run of
+   tool calls folds into one activity line that the reader can open. */
+.stepgroup-live > .stepgroup-head { color: var(--muted); }
+.activity-head { background: none; border: 0; font: inherit; }

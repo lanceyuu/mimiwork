@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
 import { shortArgs } from "./ApprovalCard";
-import { humanizeAsk, humanizeTool, type HumanLine } from "../humanize";
+import { formatElapsed, humanizeAsk, humanizeTool, summarizeSteps, type HumanLine } from "../humanize";
 import { Markdown } from "./Markdown";
 import { ConnectorMessageCard } from "./ConnectorMessageCard";
 import { Icon } from "./Icon";
@@ -114,6 +114,7 @@ type TurnRow =
   | { type: "narr"; text: string }
   | { type: "step"; tool: ToolItem; approval?: ApprovalItem }
   | { type: "ask"; approval: ApprovalItem };
+type StepOrAsk = Exclude<TurnRow, { type: "narr" }>;
 
 function buildRows(items: TurnItem[]): TurnRow[] {
   // First pass: tool rows in order; then pair each resolved approval with the nearest
@@ -235,34 +236,111 @@ function StepRow({ tool, approval }: { tool: ToolItem; approval?: ApprovalItem }
   );
 }
 
+// A run of steps between two pieces of narration folds into ONE line — "Read 3 files, ran a
+// command" — expandable to the individual humanized rows. The step still running is never
+// hidden: it renders below the summary with its spinner, so the reader always sees which
+// stage the model is at.
+function ActivityGroup({ steps, live }: { steps: StepOrAsk[]; live?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const running = live ? steps.find((r) => r.type === "step" && r.tool.status === "…") : undefined;
+  const done = steps.filter((r) => r !== running);
+  const row = (r: StepOrAsk, i: number) =>
+    r.type === "ask" ? (
+      <div className="flex items-baseline gap-2 px-2 py-0.5" key={i} data-testid="turn-ask">
+        <span className={"w-3.5 text-center text-[10px] shrink-0 " + (r.approval.resolved === "deny" ? "text-danger" : "text-ok")}>●</span>
+        <LineText line={humanizeAsk(r.approval.name, r.approval.args)} />
+        {approvalChip(r.approval.resolved)}
+      </div>
+    ) : (
+      <StepRow tool={r.tool} approval={r.approval} key={i} />
+    );
+  return (
+    <div data-testid="turn-activity">
+      {done.length === 1 ? (
+        row(done[0], 0)
+      ) : done.length > 1 ? (
+        <>
+          <button
+            type="button"
+            className="activity-head flex items-center gap-2 px-2 py-0.5 rounded-lg text-[12.5px] text-faint hover:text-muted hover:bg-paper cursor-pointer w-full text-left"
+            onClick={() => setOpen((v) => !v)}
+            data-testid="turn-activity-summary"
+          >
+            <span className={"chev inline-block transition-transform" + (open ? " rotate-90" : "")}>›</span>
+            <span>{summarizeSteps(done.map((r) => (r.type === "step" ? r.tool.name : `ask:${r.approval.name}`)))}</span>
+          </button>
+          {open && <div className="ml-1.5 pl-2 border-l-2 border-line flex flex-col gap-0.5">{done.map(row)}</div>}
+        </>
+      ) : null}
+      {running && row(running, -1)}
+    </div>
+  );
+}
+
+function useElapsed(since: number | null | undefined, ticking: boolean): string {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!since || !ticking) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [since, ticking]);
+  return since ? formatElapsed(now - since) : "";
+}
+
 function TurnGroup({
   items,
   live,
+  since,
+  duration,
   streamingText,
 }: {
   items: TurnItem[];
   live?: boolean;
-  // Sub-threshold streamed text belongs to THIS group (§33 ref #3): collapsed → it rides
-  // the header as the live line; expanded → the small quiet line under the steps.
+  // ms epoch when the live turn began — drives the "Working for 1m 24s" clock.
+  since?: number | null;
+  // seconds a finished turn took (from the surrounding message timestamps), when known.
+  duration?: number;
+  // Sub-threshold streamed text belongs to THIS group (§33 ref #3): the quiet line under
+  // the steps while live; on the header only if the reader folded the turn.
   streamingText?: string;
 }) {
-  // Turns start COLLAPSED, running or not (owner call 2026-07-14) — the header's live
-  // line is the pulse; expanding is opt-in.
+  // A live turn is OPEN — narration and the current step in view, the way a coding agent
+  // shows its work (owner ask 2026-09-05; supersedes the collapsed default of 2026-07-14).
+  // A finished turn folds to one line; the answer bubble below it is what matters then.
   const rows = buildRows(items);
   const tools = items.filter((it): it is ToolItem => it.kind === "tool");
   const running = live || tools.some((t) => t.status === "…");
   const [userToggle, setUserToggle] = useState<boolean | null>(null);
-  const open = userToggle ?? false;
+  const open = userToggle ?? running;
   const lastNarr = [...items].reverse().find((it): it is AssistantItem => it.kind === "assistant");
   const liveLine = streamingText || lastNarr?.text || "";
+  const elapsed = useElapsed(since, running);
 
   const nSteps = rows.filter((r) => r.type !== "narr").length;
   const declined = items.filter((it) => it.kind === "approval" && it.resolved === "deny").length;
   const hiddenTotal = tools.reduce((n, t) => n + (t.hidden || 0), 0);
   const stepsLabel = `${nSteps} step${nSteps === 1 ? "" : "s"}`;
+  const head = running
+    ? elapsed
+      ? `Working for ${elapsed}`
+      : "Working…"
+    : duration
+      ? `Worked for ${formatElapsed(duration * 1000)}`
+      : stepsLabel;
+
+  // Consecutive steps fold into one activity line; narration stays a paragraph between them.
+  const blocks: Array<{ narr: string } | { steps: StepOrAsk[] }> = [];
+  for (const row of rows) {
+    if (row.type === "narr") blocks.push({ narr: row.text });
+    else {
+      const last = blocks[blocks.length - 1];
+      if (last && "steps" in last) last.steps.push(row);
+      else blocks.push({ steps: [row] });
+    }
+  }
 
   return (
-    <details className="stepgroup" open={open}>
+    <details className={"stepgroup" + (running ? " stepgroup-live" : "")} open={open}>
       <summary
         className="stepgroup-head flex items-center gap-2 py-0.5 cursor-pointer select-none text-[12.5px] text-faint hover:text-muted"
         onClick={(e) => {
@@ -271,8 +349,10 @@ function TurnGroup({
         }}
       >
         <span className={"chev inline-block transition-transform" + (open ? " rotate-90" : "")}>›</span>
+        {running && <span className="spinner" data-testid="turn-running" />}
         <span>
-          <span>{running ? `Running ${stepsLabel}…` : stepsLabel}</span>
+          <span data-testid="turn-head">{head}</span>
+          {(running || duration) && <span> · {stepsLabel}</span>}
           {declined > 0 && (
             <>
               {" · "}
@@ -297,25 +377,19 @@ function TurnGroup({
         )}
       </summary>
       {open && (
-        <div className="ml-1.5 mt-1 pl-2 border-l-2 border-line flex flex-col gap-0.5">
-          {rows.map((row, i) =>
-            row.type === "narr" ? (
-              <div className="turn-narr px-2 py-1 text-[13px] text-muted max-w-[60ch]" key={i} data-testid="turn-narration">
-                <Markdown text={row.text} />
-              </div>
-            ) : row.type === "ask" ? (
-              <div className="flex items-baseline gap-2 px-2 py-0.5" key={i} data-testid="turn-ask">
-                <span className={"w-3.5 text-center text-[10px] shrink-0 " + (row.approval.resolved === "deny" ? "text-danger" : "text-ok")}>●</span>
-                <LineText line={humanizeAsk(row.approval.name, row.approval.args)} />
-                {approvalChip(row.approval.resolved)}
+        <div className="ml-1.5 mt-1 pl-2 border-l-2 border-line flex flex-col gap-1">
+          {blocks.map((b, i) =>
+            "narr" in b ? (
+              <div className="turn-narr px-2 py-1 text-[13px] text-muted max-w-[72ch]" key={i} data-testid="turn-narration">
+                <Markdown text={b.narr} />
               </div>
             ) : (
-              <StepRow tool={row.tool} approval={row.approval} key={i} />
+              <ActivityGroup steps={b.steps} live={running && i === blocks.length - 1} key={i} />
             ),
           )}
           {streamingText && (
             <div
-              className="turn-narr px-2 py-1 text-[13px] text-muted max-w-[60ch]"
+              className="turn-narr px-2 py-1 text-[13px] text-muted max-w-[72ch]"
               data-testid="turn-live-stream"
             >
               <Markdown text={streamingText} />
@@ -336,6 +410,8 @@ interface Props {
   // ASSISTANT bubble and then vanish into the group when the next tool call arrived
   // (owner report 2026-07-13). The answer bubble appears once, when the turn ends.
   running?: boolean;
+  // ms epoch when the live turn began (the sidecar's running_since) — the turn's clock.
+  since?: number | null;
   // Sub-threshold streamed text (streamGate mode "quiet") — handed to the live turn group.
   streamingText?: string;
   // Re-run the failed turn (no new user message). Offered only on a retriable notice that
@@ -359,7 +435,7 @@ export function retryAnchor(items: Item[]): number {
   return -1;
 }
 
-export function Transcript({ items, running, streamingText, onRetry, onUndoMemory }: Props) {
+export function Transcript({ items, running, since, streamingText, onRetry, onUndoMemory }: Props) {
   // §33 grouping: a turn = the maximal run of assistant/tool/resolved-approval items between
   // breakers (user, connector, notices, plan/dir requests…). Trailing assistant texts are the
   // ANSWER and render as bubbles after the group; interior assistant texts are narration and
@@ -400,6 +476,23 @@ export function Transcript({ items, running, streamingText, onRetry, onUndoMemor
   flush(!!running);
 
   const lastTurnIndex = blocks.reduce((acc, b, i) => ("turn" in b ? i : acc), -1);
+  // A finished turn's duration: the user message before it to the answer after it (tool
+  // items carry no timestamps; the messages around them do).
+  const tsAt = (bi: number) => {
+    const b = blocks[bi];
+    const it = b && "item" in b ? b.item : undefined;
+    return it && (it.kind === "user" || it.kind === "assistant") && typeof it.ts === "number" ? it.ts : undefined;
+  };
+  const durationOf = (bi: number) => {
+    let start: number | undefined;
+    for (let i = bi - 1; i >= 0 && start === undefined; i--) {
+      const b = blocks[i];
+      if ("item" in b && b.item.kind === "user") start = tsAt(i);
+      else if ("turn" in b || ("item" in b && b.item.kind !== "assistant")) break;
+    }
+    const end = tsAt(bi + 1);
+    return start && end && end > start ? Math.round(end - start) : undefined;
+  };
   return (
     <div className="transcript">
       {blocks.map((block, bi) => {
@@ -408,6 +501,8 @@ export function Transcript({ items, running, streamingText, onRetry, onUndoMemor
             <TurnGroup
               items={block.turn}
               live={block.live}
+              since={block.live ? since : undefined}
+              duration={block.live ? undefined : durationOf(bi)}
               streamingText={block.live && bi === lastTurnIndex ? streamingText : undefined}
               key={bi}
             />

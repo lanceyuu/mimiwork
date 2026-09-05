@@ -62,6 +62,7 @@ import { Icon } from "./components/Icon";
 import { nextPose } from "./mimiPose";
 import { Sidebar } from "./components/Sidebar";
 import { ThinkingBlock, Transcript } from "./components/Transcript";
+import { formatElapsed } from "./humanize";
 import { Composer } from "./components/Composer";
 import { Markdown } from "./components/Markdown";
 import { SearchModal } from "./components/SearchModal";
@@ -1967,6 +1968,7 @@ export function App() {
                     items={items}
                     onApprove={approve}
                     running={running}
+                    since={runningSince}
                     onRetry={retry}
                     onUndoMemory={(id, previous) => void undoMemorySave(id, previous)}
                     // §33 ref #3: sub-threshold streamed text renders INSIDE the live turn
@@ -1989,7 +1991,10 @@ export function App() {
                     !compacting &&
                     !reasoningStream &&
                     (!streaming || streamMode(streaming, items, running) === "hold") &&
-                    !lastItemIsAssistant(items) && <WaitingForAgent since={runningSince} />}
+                    !lastItemIsAssistant(items) &&
+                    // Once the turn has tool activity, the live turn group carries the clock
+                    // and the spinning step — a second "working" row under it said the same.
+                    !liveTurnHasActivity(items) && <WaitingForAgent since={runningSince} />}
                   {streaming && streamMode(streaming, items, running) === "answer" && (
                     <div className="transcript">
                       <div className="bubble-assistant">
@@ -2163,6 +2168,15 @@ Keep the original and save a revised copy. Check the requested changes and give 
   );
 }
 
+function liveTurnHasActivity(items: Item[]): boolean {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.kind === "user") return false;
+    if (item.kind === "tool") return true;
+  }
+  return false;
+}
+
 function lastItemIsAssistant(items: Item[]): boolean {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
@@ -2197,13 +2211,6 @@ function WaitingForAgent({ label, since }: { label?: string; since?: number | nu
   );
 }
 
-function formatElapsed(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
 
 function updateLastTool(
   items: Item[],

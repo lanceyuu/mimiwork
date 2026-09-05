@@ -166,3 +166,53 @@ export function humanizeAsk(name: string, args: any): HumanLine {
       return { pre: `Wanted to use ${name}` };
   }
 }
+
+// "Working for 1m 24s" / "Worked for 12s" — the elapsed clock on a turn (and the
+// pre-first-token waiting row in App).
+export function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+// One line for a run of tool calls between two pieces of narration — "Read 3 files, ran a
+// command, searched the web" — the collapsed shape of activity in the turn view. Categories
+// keep first-seen order; counts appear only where they mean something.
+const STEP_KINDS: Record<string, [string, string] | [string]> = {
+  read_file: ["read a file", "read {n} files"],
+  write_file: ["edited a file", "edited {n} files"],
+  replace_in_file: ["edited a file", "edited {n} files"],
+  apply_patch: ["edited a file", "edited {n} files"],
+  apply_unified_diff: ["edited a file", "edited {n} files"],
+  run_shell: ["ran a command", "ran {n} commands"],
+  shell_task_output: ["ran a command", "ran {n} commands"],
+  shell_task_kill: ["ran a command", "ran {n} commands"],
+  grep: ["searched the code"],
+  git_log: ["searched the code"],
+  web_search: ["searched the web"],
+  web_fetch: ["read a web page", "read {n} web pages"],
+  load_skill: ["used a skill", "used {n} skills"],
+  explore: ["sent a sub-agent", "sent {n} sub-agents"],
+  todo_write: ["updated the plan"],
+  send_message: ["sent a message", "sent {n} messages"],
+  // An approval that never became a call (declined, or still pending) — "ask:<tool>".
+  ask: ["asked for permission", "asked for permission {n} times"],
+};
+
+export function summarizeSteps(names: string[]): string {
+  const counts = new Map<string, number>();
+  for (const name of names) {
+    const kind = STEP_KINDS[name.startsWith("ask:") ? "ask" : name];
+    const key = kind ? kind[0] : "used {n} tools";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const parts = [...counts].map(([key, n]) => {
+    const plural = Object.values(STEP_KINDS).find((k) => k[0] === key)?.[1];
+    if (key === "used {n} tools") return n === 1 ? "used a tool" : `used ${n} tools`;
+    return n > 1 && plural ? plural.replace("{n}", String(n)) : key;
+  });
+  const line = parts.join(", ");
+  return line.charAt(0).toUpperCase() + line.slice(1);
+}

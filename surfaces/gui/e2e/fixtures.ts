@@ -701,6 +701,42 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return;
         }
+        // A multi-step turn the way a real one streams: narration, runs of tool calls, a
+        // step that takes a while, then the answer — the turn view's "which stage is it
+        // at" shape (owner ask 2026-09-05). ~2 s end to end so specs can look mid-turn.
+        if (/work the report/i.test(msg.text)) {
+          const steps: Array<() => void> = [
+            () => send("assistant_message", { text: "I'll read the two source files, then run the checks and write the summary." }),
+            () => send("tool_proposed", { name: "read_file", arguments: { path: "data/sales-q2.csv" } }),
+            () => send("tool_finished", { name: "read_file", status: "ok", result_preview: "month,region,total\n…" }),
+            () => send("tool_proposed", { name: "read_file", arguments: { path: "data/ledger.xlsx" } }),
+            () => send("tool_finished", { name: "read_file", status: "ok", result_preview: "3 sheets" }),
+            () => send("tool_proposed", { name: "grep", arguments: { pattern: "June" } }),
+            () => send("tool_finished", { name: "grep", status: "ok", result_preview: "0 matches" }),
+            () => send("assistant_message", { text: "Both files parse, but the June column is missing from the sales export. I'll fill it from the ledger and run the checks." }),
+            () => send("tool_proposed", { name: "run_shell", arguments: { command: "python scripts/check_totals.py", description: "Check that regional totals add up" } }),
+            () => send("tool_finished", { name: "run_shell", status: "ok", result_preview: "all totals match" }),
+            () => send("tool_proposed", { name: "write_file", arguments: { path: "out/Q2 summary.docx" } }),
+            () => send("tool_finished", { name: "write_file", status: "ok", result_preview: "ok" }),
+            () => send("assistant_message", { text: "Summary written. Verifying that it opens cleanly." }),
+            () => send("tool_proposed", { name: "run_shell", arguments: { command: "python scripts/verify_docx.py 'out/Q2 summary.docx'", description: "Open the document and count its sections" } }),
+          ];
+          let i = 0;
+          const timer = setInterval(() => {
+            if (i < steps.length) {
+              steps[i]();
+              i += 1;
+              return;
+            }
+            clearInterval(timer);
+            setTimeout(() => {
+              send("tool_finished", { name: "run_shell", status: "ok", result_preview: "3 sections" });
+              send("assistant_message", { text: "Done: **Q2 summary.docx** has the three sections you asked for, and the June column was filled from the ledger." });
+              send("turn_done");
+            }, 1500);
+          }, 80);
+          return;
+        }
         // A reasoning model's turn: thinking deltas tick in slowly, then the answer —
         // the assistant_message carries the full trace like the real engine's payload.
         if (/think hard/i.test(msg.text)) {

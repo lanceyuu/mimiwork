@@ -19,22 +19,27 @@ const TURN: Item[] = [
 ];
 
 describe("TurnGroup (Transcript §33)", () => {
-  it("groups the whole turn; answer stays outside; narration and humanized steps inside", () => {
+  it("groups the whole turn; answer stays outside; narration and folded steps inside", () => {
     const { container } = render(<Transcript items={TURN} onApprove={vi.fn()} />);
 
-    // Collapsed at rest: "2 steps", NO approval count, and no step/narration content visible.
-    expect(screen.getByText("2 steps")).toBeTruthy();
+    // A finished turn rests folded: "2 steps", NO approval count, no narration or step content.
+    expect(screen.getByTestId("turn-head").textContent).toBe("2 steps");
     expect(screen.queryByText(/approval/)).toBeNull();
     expect(screen.queryByTestId("turn-narration")).toBeNull();
     expect(screen.queryByText(/Sent a Slack message/)).toBeNull();
 
-    // The final answer is a normal bubble OUTSIDE the disclosure, visible while collapsed.
+    // The final answer is a normal bubble OUTSIDE the disclosure, visible while folded.
     expect(screen.getByText("Posted to #all-openworker.")).toBeTruthy();
 
-    // Expand → narration renders quiet inside; steps are English lines, not raw args;
-    // the approval is a chip on the send_message row, not a separate box.
+    // Expand → narration is a paragraph; the two steps fold into ONE activity line.
     fireEvent.click(container.querySelector("summary.stepgroup-head")!);
     expect(screen.getByTestId("turn-narration").textContent).toContain("Checking what merged");
+    expect(screen.getByTestId("turn-activity-summary").textContent).toContain("Read a file, sent a message");
+    expect(screen.queryByText("runbook.md")).toBeNull();
+
+    // Open the activity → steps are English lines, not raw args; the approval is a chip on
+    // the send_message row, not a separate box.
+    fireEvent.click(screen.getByTestId("turn-activity-summary"));
     expect(screen.getByText("runbook.md")).toBeTruthy();
     expect(screen.getByText(/Sent a Slack message to/)).toBeTruthy();
     expect(screen.getByText("✓ approved")).toBeTruthy();
@@ -45,20 +50,44 @@ describe("TurnGroup (Transcript §33)", () => {
     expect(container.textContent).toContain('{"ok": true}');
   });
 
-  it("a running turn is labeled Running but starts COLLAPSED (§33 ref #3)", () => {
+  it("a running turn is OPEN: narration in view, the current step under it (owner ask 2026-09-05)", () => {
     const items: Item[] = [
       { kind: "assistant", text: "Looking at the repo." },
       { kind: "tool", id: "t1", name: "grep", args: { pattern: "TODO" }, status: "…" },
     ];
     const { container } = render(<Transcript items={items} onApprove={vi.fn()} />);
-    expect(screen.getByText(/Running 1 step…/)).toBeTruthy();
-    expect(screen.queryByTestId("turn-narration")).toBeNull(); // collapsed by default
-    expect(screen.getByTestId("turn-live-line").textContent).toContain("Looking at the repo");
-    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
+    expect(screen.getByTestId("turn-head").textContent).toBe("Working…");
+    expect(screen.getByTestId("turn-running")).toBeTruthy();
+    expect(screen.getByTestId("turn-narration").textContent).toContain("Looking at the repo");
+    // The running step is never folded away — it is the "which stage" answer.
     expect(screen.getByTestId("step-running")).toBeTruthy();
+    expect(screen.getByText(/Searched the code for/)).toBeTruthy();
+    expect(screen.queryByTestId("turn-live-line")).toBeNull();
+    // Folding it by hand puts the last narration on the header as the live line.
+    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
+    expect(screen.queryByTestId("turn-narration")).toBeNull();
+    expect(screen.getByTestId("turn-live-line").textContent).toContain("Looking at the repo");
   });
 
-  it("declined approvals keep their own 'Wanted to' row and surface on the collapsed line", () => {
+  it("a live turn with a start time shows a ticking clock", () => {
+    vi.useFakeTimers();
+    const items: Item[] = [{ kind: "tool", id: "t1", name: "read_file", args: { path: "a.md" }, status: "…" }];
+    render(<Transcript items={items} onApprove={vi.fn()} running since={Date.now() - 65_000} />);
+    expect(screen.getByTestId("turn-head").textContent).toBe("Working for 1m 5s");
+    vi.useRealTimers();
+  });
+
+  it("a finished turn says how long it took, from the message timestamps around it", () => {
+    const items: Item[] = [
+      { kind: "user", text: "go", ts: 1000 },
+      { kind: "tool", id: "t1", name: "read_file", args: { path: "a.md" }, status: "ok" },
+      { kind: "assistant", text: "Done.", ts: 1084 },
+    ];
+    render(<Transcript items={items} onApprove={vi.fn()} />);
+    expect(screen.getByTestId("turn-head").textContent).toBe("Worked for 1m 24s");
+  });
+
+  it("declined approvals keep their own 'Wanted to' row and surface on the folded line", () => {
     const items: Item[] = [
       { kind: "tool", id: "t1", name: "read_file", args: { path: "a.md" }, status: "ok" },
       { kind: "approval", name: "run_shell", args: { command: "rm -rf build/" }, reason: "", resolved: "deny" },
@@ -66,6 +95,8 @@ describe("TurnGroup (Transcript §33)", () => {
     const { container } = render(<Transcript items={items} onApprove={vi.fn()} />);
     expect(screen.getByTestId("stepgroup-declined").textContent).toBe("1 declined");
     fireEvent.click(container.querySelector("summary.stepgroup-head")!);
+    expect(screen.getByTestId("turn-activity-summary").textContent).toContain("Read a file, asked for permission");
+    fireEvent.click(screen.getByTestId("turn-activity-summary"));
     const ask = screen.getByTestId("turn-ask");
     expect(ask.textContent).toContain("Wanted to run");
     expect(ask.textContent).toContain("rm -rf build/");
@@ -92,14 +123,13 @@ describe("live turns (§33 flicker fix)", () => {
 
   it("while running, trailing assistant text stays INSIDE the group — no answer bubble flash", () => {
     const { container } = render(<Transcript items={LIVE} onApprove={vi.fn()} running />);
-    // No assistant bubble anywhere; the group starts COLLAPSED with the narration riding
-    // the header as the live line (§33 ref #3 — expanding is opt-in).
+    // No assistant bubble anywhere; the group is OPEN with the narration as its last line.
     expect(container.querySelector(".bubble-assistant")).toBeNull();
+    expect(screen.getByTestId("turn-narration").textContent).toContain("Inspecting the fetched dataset");
+    // Folded by hand, the same text rides the header as the live line.
+    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
     expect(screen.queryByTestId("turn-narration")).toBeNull();
     expect(screen.getByTestId("turn-live-line").textContent).toContain("Inspecting the fetched dataset");
-    // Expanding shows it as the quiet line inside.
-    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
-    expect(screen.getByTestId("turn-narration").textContent).toContain("Inspecting the fetched dataset");
     // Once the turn ends (running=false), the same trailing text IS the answer bubble.
     cleanup();
     const done = render(<Transcript items={LIVE} onApprove={vi.fn()} />);
@@ -108,7 +138,7 @@ describe("live turns (§33 flicker fix)", () => {
     );
   });
 
-  it("quiet streamed text rides the collapsed header and the expanded body — never floats", () => {
+  it("quiet streamed text rides the open body and the folded header — never floats", () => {
     const { container } = render(
       <Transcript
         items={LIVE}
@@ -117,12 +147,12 @@ describe("live turns (§33 flicker fix)", () => {
         streamingText="The quote endpoint rate-limited, so I'm checking the historical pages."
       />,
     );
-    // Collapsed: the STREAMING text wins the header live line (fresher than the last item).
-    expect(screen.getByTestId("turn-live-line").textContent).toContain("quote endpoint rate-limited");
-    expect(container.querySelector(".bubble-assistant")).toBeNull();
-    // Expanded: it renders as the small quiet line under the steps.
-    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
+    // Open: it renders as the quiet line under the steps, never as a bubble.
     expect(screen.getByTestId("turn-live-stream").textContent).toContain("quote endpoint rate-limited");
+    expect(container.querySelector(".bubble-assistant")).toBeNull();
+    // Folded: the STREAMING text wins the header live line (fresher than the last item).
+    fireEvent.click(container.querySelector("summary.stepgroup-head")!);
+    expect(screen.getByTestId("turn-live-line").textContent).toContain("quote endpoint rate-limited");
   });
 
   it("a PENDING approval neither splits the turn nor promotes the narration", () => {
@@ -262,5 +292,17 @@ describe("humanizeTool", () => {
   it("still renders pre-rename todo_write histories (legacy `items` key)", () => {
     const line = humanizeTool("todo_write", { items: [{ content: "Old plan", status: "pending" }] });
     expect(line.obj).toContain("Old plan");
+  });
+});
+
+describe("summarizeSteps (the folded activity line)", () => {
+  it("counts by kind in first-seen order and reads as one sentence", async () => {
+    const { summarizeSteps } = await import("../humanize");
+    expect(summarizeSteps(["read_file", "read_file", "run_shell", "web_search", "read_file"])).toBe(
+      "Read 3 files, ran a command, searched the web",
+    );
+    expect(summarizeSteps(["apply_patch", "write_file"])).toBe("Edited 2 files");
+    expect(summarizeSteps(["frobnicate"])).toBe("Used a tool");
+    expect(summarizeSteps(["grep", "grep"])).toBe("Searched the code");
   });
 });
