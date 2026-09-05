@@ -227,12 +227,16 @@ export function App() {
   const refreshFreeTier = useCallback(() => {
     qualitatiStatus()
       .then((st) => setFreeTier(st.free_tier ?? null))
-      .catch(() => {});
+      .catch(() => setFreeTier(null));
   }, []);
   useEffect(() => {
     refreshFreeTier();
     const t = setInterval(refreshFreeTier, 60_000);
-    return () => clearInterval(t);
+    window.addEventListener("focus", refreshFreeTier);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", refreshFreeTier);
+    };
   }, [refreshFreeTier]);
   // When the in-flight turn began (ms) — the waiting line counts up from it, so a long
   // tool step reads as "still going, 3m in" rather than "hung?" (owner report 2026-09-04).

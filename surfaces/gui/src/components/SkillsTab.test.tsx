@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SkillsTab } from "./SkillsTab";
 
 // SKILLS-SPEC §5/§6 GUI — Settings ▸ Skills: list + badges + rich-skill file counts, form
@@ -354,6 +354,7 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
   // ── the skill store: browsing, honest counts, and reading before installing ──────
   const STORE_ROUTES = (results: any[], total = results.length) => [
     { match: "/v1/skills/store/categories", json: { categories: [
+      { key: "recommended", label: "Recommended", count: 3 },
       { key: "research", label: "Research", count: 513 },
       { key: "writing", label: "Writing & editing", count: 207 },
     ] } },
@@ -384,7 +385,7 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
     expect(screen.getByTestId("skill-store-shelf-research").textContent).toContain("513");
     expect((await screen.findByTestId("skill-store-count")).textContent).toContain("of 513");
     expect(screen.getByTestId("skill-store-more")).toBeTruthy();
-    expect(calls.some((c) => c.url.includes("category=research"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("category=recommended"))).toBe(true);
   });
 
   it("shelf clicks and typed searches both go through the same list", async () => {
@@ -422,4 +423,36 @@ describe("SkillsTab — rich-skill disclosure (§6)", () => {
     const row = await screen.findByTestId("skill-store-install-lit-review");
     expect(row.closest("div")!.parentElement!.textContent).toContain("+2 more collections");
   });
+
+  it("keeps the latest search when an older response arrives late", async () => {
+    let finish!: (value: unknown) => void;
+    const slow = new Promise((resolve) => { finish = resolve; });
+    stubFetch([
+      { match: "q=slow", json: slow },
+      { match: "q=sepia", json: { results: [{ ...ENTRY, name: "sepia" }], total: 1 } },
+      ...STORE_ROUTES([ENTRY]),
+    ]);
+    render(<SkillsTab />);
+    await openStore();
+    await screen.findByTestId("skill-store-install-lit-review");
+    fireEvent.change(screen.getByLabelText("Search the skill store"), { target: { value: "slow" } });
+    fireEvent.change(screen.getByLabelText("Search the skill store"), { target: { value: "sepia" } });
+    await screen.findByTestId("skill-store-install-sepia");
+    await act(async () => { finish({ results: [ENTRY], total: 1 }); });
+    expect(screen.queryByTestId("skill-store-install-lit-review")).toBeNull();
+    expect(screen.getByTestId("skill-store-install-sepia")).toBeTruthy();
+  });
+
+  it("offers retry when the store fails instead of claiming no skills match", async () => {
+    stubFetch(STORE_ROUTES([ENTRY]));
+    render(<SkillsTab />);
+    await openStore();
+    await screen.findByTestId("skill-store-install-lit-review");
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.change(screen.getByLabelText("Search the skill store"), { target: { value: "sepia" } });
+    expect((await screen.findByRole("alert")).textContent).toContain("Could not load skills");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText("Could not load skills. Try again.")).toBeNull());
+  });
+
 });

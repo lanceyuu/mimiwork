@@ -179,3 +179,12 @@ def test_preview_shows_the_red_flag_instead_of_hiding_it(monkeypatch):
     )
     got = mp.preview("x")
     assert got["ok"] and got["flagged"] is True and "curl" in got["flag_hit"]
+
+
+def test_recommended_skills_are_pinned_and_include_the_complete_sepia_skill():
+    shelf = mp.browse_page("recommended")
+    assert {e["name"] for e in shelf["results"]} == {"sepia", "internal-comms", "theme-factory"}
+    assert all(len(e["ref"]) == 40 for e in shelf["results"])
+    sepia = mp.find("sepia", "Nanako0129/sepia")
+    assert sepia["path"] == "skills/sepia"
+    assert mp.search("sepia")[0]["repo"] == "Nanako0129/sepia"

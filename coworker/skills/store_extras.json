@@ -1,9 +1,33 @@
 [
   {
     "name": "mono-color",
-    "description": "Generate original one-ink or controlled two-ink editorial images from any theme, sentence, article idea, object, or reference photo. Always use this skill when the user asks for 单色海报、双色印刷、单色调视觉、蓝色/绿色孔版印刷、risograph、网点照片、复古或当代编辑排版、zine poster, monochrome editorial poster, duotone p",
+    "description": "Generate original one-ink or controlled two-ink editorial images from any theme, sentence, article idea, object, or reference photo. Always use this skill when the user asks for \u5355\u8272\u6d77\u62a5\u3001\u53cc\u8272\u5370\u5237\u3001\u5355\u8272\u8c03\u89c6\u89c9\u3001\u84dd\u8272/\u7eff\u8272\u5b54\u7248\u5370\u5237\u3001risograph\u3001\u7f51\u70b9\u7167\u7247\u3001\u590d\u53e4\u6216\u5f53\u4ee3\u7f16\u8f91\u6392\u7248\u3001zine poster, monochrome editorial poster, duotone p",
     "repo": "lanceyuu/mimiwork",
     "path": "skills/store/mono-color",
     "ref": "main"
+  },
+  {
+    "name": "sepia",
+    "description": "Review and revise prose while preserving facts and your voice. Includes writing, minimal edits, full rewrites, professional documents, fiction, and Chinese-language guidance.",
+    "repo": "Nanako0129/sepia",
+    "path": "skills/sepia",
+    "ref": "401c89e43caf03ce5e8da0bf5cd6c96095ba70af",
+    "recommended": true
+  },
+  {
+    "name": "internal-comms",
+    "description": "Draft team updates, project reports, company newsletters, and FAQs using practical communication templates.",
+    "repo": "anthropics/skills",
+    "path": "skills/internal-comms",
+    "ref": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
+    "recommended": true
+  },
+  {
+    "name": "theme-factory",
+    "description": "Give slides, documents, and reports a consistent visual style with ten ready-made color and font themes or a custom theme.",
+    "repo": "anthropics/skills",
+    "path": "skills/theme-factory",
+    "ref": "41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f",
+    "recommended": true
   }
 ]

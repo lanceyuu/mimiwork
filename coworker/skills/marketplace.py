@@ -52,11 +52,8 @@ def _load_index() -> list[dict[str, Any]]:
                 data = resources.files(__package__).joinpath("store_index.json.gz")
                 with data.open("rb") as fh:
                     index = json.loads(gzip.decompress(fh.read()).decode("utf-8"))
-                # Skills this repo keeps for the store rather than bundling (owner call
-                # 2026-09-03: mono-color is a taste, not a default). They live under
-                # `skills/store/` on GitHub and install like any other entry; `ref` is a
-                # branch on purpose — our own repo moves forward, and pinning would
-                # need an index rebuild on every edit.
+                # Small curated additions survive community-index refreshes. External
+                # entries pin reviewed commits; our own mono-color listing tracks main.
                 extras = resources.files(__package__).joinpath("store_extras.json")
                 try:
                     with extras.open("rb") as fh:
@@ -183,6 +180,7 @@ def search_page(
 # term sets, matched against the same index, so no extra data has to ship.
 
 CATEGORIES: list[dict[str, Any]] = [
+    {"key": "recommended", "label": "Recommended", "terms": []},
     {"key": "writing", "label": "Writing & editing",
      "terms": ["writing", "editing", "copywriting", "proofread", "style", "prose"]},
     {"key": "research", "label": "Research",
@@ -227,7 +225,9 @@ def browse_page(category: str, *, limit: int = 24, offset: int = 0) -> dict[str,
         for entry in _load_index():
             words = set(_tokens(entry["name"])) | set(_tokens(entry["description"]))
             hits = terms & words
-            if hits:
+            if category == "recommended" and entry.get("recommended"):
+                scored.append((1.0, entry))
+            elif category != "recommended" and hits:
                 # Shelf order: how squarely it belongs, then how well it explains itself.
                 scored.append((len(hits) * 4.0 + min(len(entry["description"]), 240) / 60.0, entry))
         rows, total = _rank(scored, 0, 0)

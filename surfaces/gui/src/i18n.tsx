@@ -22,6 +22,10 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  "Could not load skills. Try again.": ["无法加载技能，请重试。", "Kunne ikke laste ferdigheter. Prøv igjen.", "Impossible de charger les compétences. Réessayez."],
+  "daily limit": ["每日额度", "daglig grense", "limite quotidienne"],
+  "Search the skill store": ["搜索技能商店", "Søk i ferdighetsbutikken", "Rechercher dans la boutique de compétences"],
+  "Clear search": ["清除搜索", "Tøm søket", "Effacer la recherche"],
   // ── EDGE (ch. 9) and the Five A's (ch. 7) ──
   "Where the value lands": ["价值落在哪里", "Hvor verdien lander", "Où atterrit la valeur"],
   "What makes them possible": ["是什么让它们成为可能", "Hva som gjør dem mulig", "Ce qui les rend possibles"],

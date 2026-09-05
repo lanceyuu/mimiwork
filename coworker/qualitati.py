@@ -286,7 +286,12 @@ class QualitatiClient:
             if r.status_code != 200:
                 return None
             for m in (r.json() or {}).get("data") or []:
-                if isinstance(m, dict) and "free_daily_cap" in m:
+                if (
+                    isinstance(m, dict)
+                    and str(m.get("id", "")).split(":")[-1] == "mimi-puppy"
+                    and m.get("free_daily_cap") is not None
+                    and m.get("free_daily_remaining") is not None
+                ):
                     from datetime import datetime, timedelta, timezone
 
                     reset = (datetime.now(timezone.utc) + timedelta(days=1)).replace(

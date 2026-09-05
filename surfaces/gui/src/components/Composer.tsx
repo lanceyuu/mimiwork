@@ -1358,7 +1358,7 @@ function AttachChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
 }
 
 
-/** Mimi Puppy's daily allowance, before the gateway says no (owner ask 2026-09-04).
+/** Keep the daily balance visible so users can plan before it runs low.
  *  Amber at the last 10 %, red with a one-click switch to Mimi Hound when spent. Shown
  *  only while Puppy is the selected model — other models are never rate-capped here. */
 function FreeTierBanner({
@@ -1374,7 +1374,7 @@ function FreeTierBanner({
   if (!freeTier || !/mimi-puppy$/.test(model || "")) return null;
   const { cap, remaining, resets_at } = freeTier;
   const low = Math.max(10, Math.round(cap * 0.1));
-  if (remaining > low) return null;
+  const isLow = remaining <= low;
   const at = (() => {
     const d = new Date(resets_at);
     return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -1385,7 +1385,7 @@ function FreeTierBanner({
       <div
         data-testid="free-tier-banner"
         role="alert"
-        className="max-w-3xl mx-auto mb-1.5 flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-[12.5px] text-red-800"
+        className="max-w-3xl mx-auto mb-1.5 flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-[12.5px] text-red-800"
       >
         <span className="flex-1">
           {t("Mimi Puppy's free allowance is used up for today")}
@@ -1400,10 +1400,11 @@ function FreeTierBanner({
   return (
     <div
       data-testid="free-tier-banner"
-      className="max-w-3xl mx-auto mb-1.5 flex items-center gap-2 rounded-lg border border-warnInk/30 bg-warnSoft px-3 py-1.5 text-[12.5px] text-warnInk"
+      role="status"
+      className={`max-w-3xl mx-auto mb-1.5 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-[12.5px] ${isLow ? "border-warnInk/30 bg-warnSoft text-warnInk" : "border-line bg-paper text-muted"}`}
     >
       <span className="flex-1">
-        {t("Mimi Puppy")}: {remaining} {t("free requests left today")}
+        {t("Mimi Puppy")}: {remaining} {t("free requests left today")} ({t("daily limit")}: {cap})
         {at ? ` · ${t("resets at")} ${at}` : ""}
       </span>
     </div>

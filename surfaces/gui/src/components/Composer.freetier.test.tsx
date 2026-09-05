@@ -20,9 +20,9 @@ const props = (extra: Partial<Parameters<typeof Composer>[0]> = {}) => ({
 afterEach(cleanup);
 
 describe("Composer / Mimi Puppy allowance banner", () => {
-  it("says nothing while plenty is left, or when another model is selected", () => {
+  it("shows the daily balance even when plenty remains and hides it for other models", () => {
     const { rerender } = render(<Composer {...props({ freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
-    expect(screen.queryByTestId("free-tier-banner")).toBeNull();
+    expect(screen.getByTestId("free-tier-banner").textContent).toContain("300 free requests left today (daily limit: 500)");
     rerender(<Composer {...props({ model: "qualitati:mimi-hound", freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.queryByTestId("free-tier-banner")).toBeNull();
   });

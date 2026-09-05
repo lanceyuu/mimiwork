@@ -518,3 +518,13 @@ def test_the_tour_flag_round_trips_like_onboarded(tmp_path):
     assert client.get("/v1/settings").json()["tour_seen"] is False
     assert client.post("/v1/settings/tour-seen", json={"value": True}).json()["ok"] is True
     assert client.get("/v1/settings").json()["tour_seen"] is True
+
+
+@pytest.mark.parametrize("models", [
+    [{"id": "other-free-model", "free_daily_cap": 50, "free_daily_remaining": 12}],
+    [{"id": "mimi-puppy", "free_daily_cap": 500}],
+    [{"id": "mimi-puppy", "free_daily_cap": 500, "free_daily_remaining": None}],
+])
+def test_another_models_allowance_or_missing_balance_is_not_puppy_exhaustion(monkeypatch, secrets, models):
+    wire(monkeypatch, {("GET", "/api/llm/v1/models"): (200, {"data": models})})
+    assert QualitatiClient(secrets)._free_tier({}) is None

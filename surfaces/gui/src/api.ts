@@ -1854,6 +1854,7 @@ export async function browseSkillStore(
   params.set("limit", String(opts.limit ?? 24));
   params.set("offset", String(opts.offset ?? 0));
   const res = await fetch(`${httpBase()}/v1/skills/store?${params.toString()}`);
+  if (!res.ok) throw new Error("Could not load skills");
   const page = await res.json();
   return { results: page.results ?? [], total: page.total ?? 0, offset: page.offset ?? 0 };
 }

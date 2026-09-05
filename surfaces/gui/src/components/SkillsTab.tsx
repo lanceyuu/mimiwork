@@ -22,6 +22,7 @@ import {
   type SkillUploadPreview,
 } from "../api";
 import { Icon } from "./Icon";
+import { useT } from "../i18n";
 
 // Settings ▸ Skills (SKILLS-SPEC §5/§6) — the management home: the LIST is the page; every
 // add-surface appears only when summoned from the single "Add skill" menu (the three doors:
@@ -95,6 +96,7 @@ export function SkillsTab({
   // prefilled in the composer — the worker builds the skill and proposes it via save_skill.
   onCreateSkill?: (description: string) => void;
 }) {
+  const t = useT();
   const [rows, setRows] = useState<SkillRow[]>([]);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [upload, setUpload] = useState<SkillUploadPreview | null>(null);
@@ -120,6 +122,8 @@ export function SkillsTab({
   const [storeCat, setStoreCat] = useState("");
   const [storeTotal, setStoreTotal] = useState(0);
   const [storeLoading, setStoreLoading] = useState(false);
+  const storeRequest = useRef(0);
+  const [storeError, setStoreError] = useState(false);
   // Preview: read the SKILL.md before it lands on disk.
   const [preview, setPreview] = useState<SkillStorePreview | null>(null);
   const [previewFor, setPreviewFor] = useState<SkillStoreEntry | null>(null);
@@ -150,11 +154,18 @@ export function SkillsTab({
     const q = opts.q ?? storeQuery;
     const category = opts.category ?? storeCat;
     const offset = opts.more ? storeResults.length : 0;
+    const request = ++storeRequest.current;
     setStoreLoading(true);
+    setStoreError(false);
     const page = await browseSkillStore({ q, category, limit: STORE_PAGE, offset }).catch(
-      () => ({ results: [], total: 0, offset: 0 }),
+      () => null,
     );
+    if (request !== storeRequest.current) return;
     setStoreLoading(false);
+    if (!page) {
+      setStoreError(true);
+      return;
+    }
     setStoreResults((cur) => (opts.more ? [...cur, ...page.results] : page.results));
     setStoreTotal(page.total);
   };
@@ -423,16 +434,17 @@ export function SkillsTab({
                   onClick={() => {
                     setAddOpen(false);
                     setStoreOpen(true);
+                    setStoreQuery("");
                     void skillStoreCategories()
                       .then(setStoreCats)
                       .catch(() => setStoreCats([]));
-                    void loadStore({ q: "", category: "research" });
-                    setStoreCat("research");
+                    void loadStore({ q: "", category: "recommended" });
+                    setStoreCat("recommended");
                   }}
                 >
                   <div className="text-[13px] font-medium">Browse the skill store</div>
                   <div className="text-[11.5px] text-muted">
-                    8,400 community skills — browse by shelf, read one before you install it
+                    Start with recommended skills, or browse by task
                   </div>
                 </button>
               </div>
@@ -533,8 +545,7 @@ export function SkillsTab({
             <div>
               <div className="text-[13.5px] font-semibold">Skill store</div>
               <div className="text-[11.5px] text-muted">
-                8,400 community skills from curated GitHub collections — installs are pinned
-                to the reviewed version.
+                Start with a few useful picks. Read the instructions before installing a community skill.
               </div>
             </div>
             <button
@@ -552,6 +563,7 @@ export function SkillsTab({
             placeholder="Search skills… (e.g. seo audit, meeting notes, resume)"
             value={storeQuery}
             autoFocus
+            aria-label={t("Search the skill store")}
             data-testid="skill-store-search"
             onChange={(e) => {
               const q = e.target.value;
@@ -562,6 +574,23 @@ export function SkillsTab({
               void loadStore({ q });
             }}
           />
+
+          {storeQuery ? (
+            <button className={`${BTN_BORDERED} mt-2`} onClick={() => {
+              setStoreQuery("");
+              setPreview(null);
+              setPreviewFor(null);
+              setStoreFlag(null);
+              void loadStore({ q: "" });
+            }}>{t("Clear search")}</button>
+          ) : null}
+
+          {storeError ? (
+            <div role="alert" className="mt-2 text-[12.5px] text-warnInk">
+              {t("Could not load skills. Try again.")}
+              <button className={`${BTN_BORDERED} ml-2`} onClick={() => void loadStore()}>{t("Retry")}</button>
+            </div>
+          ) : null}
 
           {/* Shelves — the browsing path. Hidden while a query is typed: the query IS
               the filter, and two competing filters is one too many. */}
@@ -585,7 +614,7 @@ export function SkillsTab({
                     void loadStore({ q: "", category: c.key });
                   }}
                 >
-                  {c.label} <span className="opacity-60">{c.count}</span>
+                  {t(c.label)} <span className="opacity-60">{c.count}</span>
                 </button>
               ))}
             </div>
@@ -706,11 +735,11 @@ export function SkillsTab({
             </div>
           ) : null}
 
-          <div className="mt-2 max-h-80 overflow-y-auto divide-y divide-line">
+          <div className="skill-store-results mt-2 max-h-80 overflow-y-auto divide-y divide-line">
             {storeResults.map((r) => (
-              <div key={`${r.repo}/${r.path}`} className="py-2.5 flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+              <div key={`${r.repo}/${r.path}`} className="skill-store-result py-2.5 flex items-start gap-3">
+                <div className="skill-store-description min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-medium truncate">{r.name}</span>
                     <span className={BADGE}>{r.repo.split("/")[0]}</span>
                     {r.also_in ? (
@@ -748,7 +777,7 @@ export function SkillsTab({
             {storeLoading && storeResults.length === 0 ? (
               <div className="py-3 text-[12px] text-muted">Looking…</div>
             ) : null}
-            {!storeLoading && storeQuery.trim() && storeResults.length === 0 ? (
+            {!storeLoading && !storeError && storeQuery.trim() && storeResults.length === 0 ? (
               <div className="py-3 text-[12px] text-muted">
                 No skills match that search. Try a plainer word, or clear the box to browse
                 by shelf.
