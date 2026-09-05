@@ -35,6 +35,11 @@ test("the account menu: Inbox + Connectors always listed; Settings carries the s
   await expect(menu.getByRole("button", { name: /Settings/ })).toContainText("⌘");
   await expect(menu.getByRole("button", { name: "Automations", exact: true })).toBeVisible();
   await expect(menu.getByRole("button", { name: "Activity", exact: true })).toBeVisible();
+  // Tutorial sits right after Activity (owner ask 2026-09-06) and opens the docs.
+  const labels = await menu.getByRole("button").allTextContents();
+  const activity = labels.findIndex((l) => l.trim() === "Activity");
+  expect(labels[activity + 1].trim()).toBe("Tutorial");
+  await page.screenshot({ path: "test-results/account-menu-tutorial.png" });
 });
 
 test("Activity in the menu is the audit log; Unrouted lives under Inbox ▸ Configure", async ({

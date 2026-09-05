@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getAbout, type AboutInfo } from "../api";
 import { openExternal } from "../tauri";
-import { useT } from "../i18n";
+import { useT, tutorialUrl } from "../i18n";
 
 // "Is this thing still alive?" — answered with evidence, not adjectives.
 //
@@ -91,7 +91,7 @@ export function AliveCard({ card, label, help }: { card: string; label: string; 
           {t("Source and releases")}
         </button>
         <span className="text-faint">·</span>
-        <button className="text-accent hover:underline" onClick={() => openExternal(about.tutorial_url || "")}>
+        <button className="text-accent hover:underline" onClick={() => openExternal(tutorialUrl(about.tutorial_url))}>
           {t("Tutorial")}
         </button>
       </div>

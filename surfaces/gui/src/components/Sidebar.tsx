@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useT } from "../i18n";
+import { useT, tutorialUrl } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
 import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
@@ -1446,6 +1446,9 @@ export function Sidebar(props: Props) {
                 )}
                 {appMenuItem("clock", t("Automations"), props.onOpenScheduled, props.scheduledActive)}
                 {appMenuItem("audit", t("Activity"), props.onOpenAudit, props.auditActive)}
+                {/* The tutorial, one click from the account menu (owner ask 2026-09-06);
+                    opens in the browser, in the app's language. */}
+                {appMenuItem("book", t("Tutorial"), () => openExternal(tutorialUrl()))}
                 {appMenuItem("folder", t("Files"), props.onOpenFiles, props.filesActive)}
                 {qtSignedIn && (
                   <>

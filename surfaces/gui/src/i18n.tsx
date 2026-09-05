@@ -670,6 +670,15 @@ for (const [source, translations] of Object.entries(D)) {
 let current: Lang = "en";
 const subs = new Set<() => void>();
 
+// The tutorial in the reader's language: the README's ten-minute tutorial for English,
+// the translated docs/TUTORIAL.<lang>.md on GitHub otherwise (the account menu's Tutorial
+// item and the About card's link both go here).
+export function tutorialUrl(englishUrl?: string): string {
+  const lang = getLang();
+  if (lang === "en") return englishUrl || "https://github.com/lanceyuu/mimiwork#the-ten-minute-tutorial";
+  return `https://github.com/lanceyuu/mimiwork/blob/main/docs/TUTORIAL.${lang}.md`;
+}
+
 export function getLang(): Lang {
   return current;
 }
