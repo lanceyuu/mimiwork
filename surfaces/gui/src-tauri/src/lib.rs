@@ -535,16 +535,75 @@ fn show_companion(app: &tauri::AppHandle) {
     }
 }
 
+// --- One coordinate space for the pet: LOGICAL pixels ---------------------------------
+// tao's "physical" numbers do not share a scale on a Mac with mixed displays: the cursor
+// is logical × the PRIMARY monitor's scale, a window's position is logical × ITS OWN
+// scale, a monitor's rect is logical × its own scale. Compare two of those across a
+// Retina MacBook (2x) and an external 1x monitor and the pet on the external screen reads
+// as "the cursor is beside her", turns click-through, and can no longer be grabbed (owner
+// report 2026-09-06: "drag her to another screen and she is very hard to drag"). Logical
+// pixels are the one space macOS itself keeps consistent across screens, so every
+// geometry function below converts to them first and set_position takes them back.
+
+fn window_scale(w: &tauri::WebviewWindow) -> f64 {
+    w.scale_factor().unwrap_or(1.0).max(0.1)
+}
+
+/// The scale the cursor reading is in — the primary monitor's on macOS (tao's choice),
+/// the window's own elsewhere, where physical coordinates are one space.
+fn cursor_scale(app: &tauri::AppHandle, w: &tauri::WebviewWindow) -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = w;
+        app.primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+            .max(0.1)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        window_scale(w)
+    }
+}
+
+fn companion_logical_position(w: &tauri::WebviewWindow) -> Option<(i32, i32)> {
+    let p = w.outer_position().ok()?;
+    let s = window_scale(w);
+    Some(((p.x as f64 / s).round() as i32, (p.y as f64 / s).round() as i32))
+}
+
+fn companion_logical_size(w: &tauri::WebviewWindow) -> (i32, i32) {
+    let s = window_scale(w);
+    w.outer_size()
+        .ok()
+        .map(|ws| ((ws.width as f64 / s).round() as i32, (ws.height as f64 / s).round() as i32))
+        .unwrap_or((240, 250))
+}
+
+fn monitor_logical_rect(mon: &tauri::Monitor) -> (i32, i32, i32, i32) {
+    let s = mon.scale_factor().max(0.1);
+    let mp = mon.position();
+    let ms = mon.size();
+    (
+        (mp.x as f64 / s).round() as i32,
+        (mp.y as f64 / s).round() as i32,
+        (ms.width as f64 / s).round() as i32,
+        (ms.height as f64 / s).round() as i32,
+    )
+}
+
 /// True when a decent slice of the pet overlaps some connected monitor — i.e. the user
 /// can see and grab her. Deliberately not "fully inside": parking her against an edge is
 /// a normal thing to do, and the transparent margin around the sprite makes it common.
 fn companion_is_visible(w: &tauri::WebviewWindow) -> bool {
-    let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
-    let pos = match w.outer_position() {
-        Ok(p) => p,
-        Err(_) => return true, // can't tell → don't move her
+    let ws = companion_logical_size(w);
+    let Some((x, y)) = companion_logical_position(w) else {
+        return true; // can't tell → don't move her
     };
-    monitor_overlap(w, pos.x, pos.y, &ws).is_some()
+    monitor_overlap(w, x, y, ws).is_some()
 }
 
 /// How much of a window rect lands on a monitor rect, per axis (physical px; (0, 0) when
@@ -562,7 +621,7 @@ fn rect_overlap(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> (i32, i
 }
 
 /// Enough of her on screen to see and grab: a real corner, so BOTH axes must show at
-/// least this many physical px. An area test alone passes a 10px-wide ribbon down the
+/// least this many logical px. An area test alone passes a 10px-wide ribbon down the
 /// side of the screen, which is not something a user can grab (caught by the tests below).
 const COMPANION_MIN_VISIBLE: i32 = 60;
 
@@ -581,21 +640,19 @@ fn clamp_rect(win: (i32, i32, i32, i32), mon: (i32, i32, i32, i32)) -> (i32, i32
     (x.clamp(mx, max_x), y.clamp(my, max_y))
 }
 
-/// The monitor showing the most of a window placed at (x, y), when that overlap is worth
-/// at least a corner of her (60x60 physical px).
+/// The monitor showing the most of a window placed at logical (x, y), when that overlap
+/// is worth at least a corner of her (60x60 logical px).
 fn monitor_overlap(
     w: &tauri::WebviewWindow,
     x: i32,
     y: i32,
-    ws: &tauri::PhysicalSize<u32>,
+    ws: (i32, i32),
 ) -> Option<tauri::Monitor> {
     let monitors = w.available_monitors().ok()?;
     let (mut best, mut best_area) = (None, 0i64);
-    let win = (x, y, ws.width as i32, ws.height as i32);
+    let win = (x, y, ws.0, ws.1);
     for mon in monitors {
-        let mp = mon.position();
-        let ms = mon.size();
-        let rect = (mp.x, mp.y, ms.width as i32, ms.height as i32);
+        let rect = monitor_logical_rect(&mon);
         if !rect_visible(win, rect) {
             continue;
         }
@@ -641,8 +698,8 @@ fn hide_companion(app: &tauri::AppHandle) {
 /// Put the pet where the user left her; failing that, the bottom-right of the monitor the
 /// main window lives on, above the Dock/taskbar.
 fn position_companion(w: &tauri::WebviewWindow) {
-    let ws = w.outer_size().unwrap_or(tauri::PhysicalSize::new(240, 250));
-    if let Some((x, y)) = companion_saved_position(w, &ws) {
+    let ws = companion_logical_size(w);
+    if let Some((x, y)) = companion_saved_position(w, ws) {
         move_companion(w, x, y);
         return;
     }
@@ -650,12 +707,9 @@ fn position_companion(w: &tauri::WebviewWindow) {
         w.primary_monitor().ok().flatten()
     });
     if let Some(mon) = monitor {
-        let ms = mon.size();
-        let mp = mon.position();
-        let sf = mon.scale_factor();
-        let margin = (24.0 * sf) as i32;
-        let x = mp.x + ms.width as i32 - ws.width as i32 - margin;
-        let y = mp.y + ms.height as i32 - ws.height as i32 - (80.0 * sf) as i32;
+        let (mx, my, mw, mh) = monitor_logical_rect(&mon);
+        let x = mx + mw - ws.0 - 24;
+        let y = my + mh - ws.1 - 80;
         move_companion(w, x, y);
     }
 }
@@ -666,7 +720,9 @@ fn position_companion(w: &tauri::WebviewWindow) {
 /// for good — the pet "kept going back to the original place" (owner report 2026-08-24).
 fn move_companion(w: &tauri::WebviewWindow, x: i32, y: i32) {
     COMPANION_MOVING.store(true, std::sync::atomic::Ordering::Release);
-    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    // Logical, so a spot on the 1x external screen is not halved by the 2x scale of the
+    // screen she happens to start on.
+    let _ = w.set_position(tauri::LogicalPosition::new(x as f64, y as f64));
     COMPANION_PLACED.store(true, std::sync::atomic::Ordering::Release);
     // The Moved event lands on the event loop after set_position returns; hold the flag
     // briefly so it is still set when the handler reads it.
@@ -676,7 +732,7 @@ fn move_companion(w: &tauri::WebviewWindow, x: i32, y: i32) {
     });
 }
 
-/// The last user-dragged position (physical px), clamped so she is always reachable.
+/// The last user-dragged position (logical px), clamped so she is always reachable.
 ///
 /// The old rule — keep it only if the window lands ENTIRELY inside one monitor — quietly
 /// forgot every spot along a screen edge, which is exactly where people park a pet. Now a
@@ -684,7 +740,7 @@ fn move_companion(w: &tauri::WebviewWindow, x: i32, y: i32) {
 /// under it, it is nudged back into view rather than thrown away.
 fn companion_saved_position(
     w: &tauri::WebviewWindow,
-    ws: &tauri::PhysicalSize<u32>,
+    ws: (i32, i32),
 ) -> Option<(i32, i32)> {
     let prefs = std::fs::read_to_string(desktop_prefs_path())
         .ok()
@@ -694,18 +750,33 @@ fn companion_saved_position(
     if monitor_overlap(w, x, y, ws).is_some() {
         return Some((x, y)); // still on a screen — leave it exactly as dropped
     }
+    // Positions saved before 2026-09-06 were physical px of the screen she was on. A 1x
+    // screen's are logical already (caught above); a 2x screen's are twice too big, so
+    // try them at the primary's scale before giving up on the spot.
+    if !prefs
+        .get("companion_pos_logical")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let s = w
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|m| m.scale_factor())
+            .unwrap_or(1.0)
+            .max(0.1);
+        let (lx, ly) = ((x as f64 / s).round() as i32, (y as f64 / s).round() as i32);
+        if monitor_overlap(w, lx, ly, ws).is_some() {
+            return Some((lx, ly));
+        }
+    }
     // Off-screen now (display unplugged, resolution change): clamp into the primary.
     let mon = w
         .primary_monitor()
         .ok()
         .flatten()
         .or_else(|| w.current_monitor().ok().flatten())?;
-    let mp = mon.position();
-    let ms = mon.size();
-    Some(clamp_rect(
-        (x, y, ws.width as i32, ws.height as i32),
-        (mp.x, mp.y, ms.width as i32, ms.height as i32),
-    ))
+    Some(clamp_rect((x, y, ws.0, ws.1), monitor_logical_rect(&mon)))
 }
 
 // Drag persistence: WindowEvent::Moved fires continuously while the OS drags the
@@ -746,6 +817,7 @@ fn queue_companion_pos_save(x: i32, y: i32) {
             Some((x, y)) => {
                 write_desktop_pref_value("companion_pos_x", serde_json::json!(x));
                 write_desktop_pref_value("companion_pos_y", serde_json::json!(y));
+                write_desktop_pref_value("companion_pos_logical", serde_json::json!(true));
             }
             None => {
                 COMPANION_POS_SAVE_ARMED.store(false, std::sync::atomic::Ordering::Release);
@@ -807,8 +879,9 @@ static COMPANION_IGNORING: std::sync::atomic::AtomicBool =
 static COMPANION_WATCH_ARMED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
-/// Is the cursor inside the pet's live area? Rect is (x, y, w, h) in physical pixels,
-/// relative to the window's top-left; cursor and window origin are screen coordinates.
+/// Is the cursor inside the pet's live area? Rect is (x, y, w, h) in logical (CSS) pixels,
+/// relative to the window's top-left; cursor and window origin are logical screen
+/// coordinates — see `logical_hit` for the scales they arrive in.
 fn cursor_on_pet(
     cursor: (f64, f64),
     window: (f64, f64),
@@ -822,17 +895,32 @@ fn cursor_on_pet(
     cx >= left && cx <= left + rw && cy >= top && cy <= top + rh
 }
 
+/// Reconcile the two readings before the hit test: the cursor comes in at `cursor_scale`
+/// (the primary monitor's on macOS), the window origin at the window's own scale, and the
+/// rect is CSS px. Everything meets in logical px.
+fn logical_hit(
+    cursor: (f64, f64),
+    cursor_scale: f64,
+    origin: (i32, i32),
+    origin_scale: f64,
+    rect: (f64, f64, f64, f64),
+) -> bool {
+    cursor_on_pet(
+        (cursor.0 / cursor_scale, cursor.1 / cursor_scale),
+        (origin.0 as f64 / origin_scale, origin.1 as f64 / origin_scale),
+        rect,
+    )
+}
+
 /// The webview reports where its live controls are (the pet, plus her speech bubble while
-/// she has something to say), in CSS pixels relative to the window.
+/// she has something to say), in CSS pixels relative to the window. Kept as CSS px: the
+/// scale is applied at poll time, against the screen she is on THEN — a rect scaled once
+/// on the 2x screen was twice too big, or half, after a drag to the other one.
 #[tauri::command]
 fn companion_hot_rect(app: tauri::AppHandle, x: f64, y: f64, width: f64, height: f64) {
-    let scale = app
-        .get_webview_window("companion")
-        .and_then(|w| w.scale_factor().ok())
-        .unwrap_or(1.0);
     if let Ok(mut rect) = COMPANION_HOT_RECT.lock() {
         *rect = if width > 0.0 && height > 0.0 {
-            Some((x * scale, y * scale, width * scale, height * scale))
+            Some((x, y, width, height))
         } else {
             None
         };
@@ -878,9 +966,11 @@ fn start_companion_click_through(app: &tauri::AppHandle) {
             let origin = w.outer_position().ok();
             match (rect, cursor, origin) {
                 (Some(rect), Some(cursor), Some(origin)) => {
-                    let on_pet = cursor_on_pet(
+                    let on_pet = logical_hit(
                         (cursor.x, cursor.y),
-                        (origin.x as f64, origin.y as f64),
+                        cursor_scale(&app, &w),
+                        (origin.x, origin.y),
+                        window_scale(&w),
                         rect,
                     );
                     set_companion_ignoring(&w, !on_pet);
@@ -1162,9 +1252,16 @@ pub fn run() {
                     position_companion(&companion);
                     // Persist wherever the user drags her (debounced in
                     // queue_companion_pos_save); position_companion restores it.
-                    companion.on_window_event(|event| {
+                    let c = companion.clone();
+                    companion.on_window_event(move |event| {
                         if let WindowEvent::Moved(pos) = event {
-                            queue_companion_pos_save(pos.x, pos.y);
+                            // Logical: the event is physical at the scale of the screen she
+                            // is on right now, which changes mid-drag across screens.
+                            let s = window_scale(&c);
+                            queue_companion_pos_save(
+                                (pos.x as f64 / s).round() as i32,
+                                (pos.y as f64 / s).round() as i32,
+                            );
                         }
                     });
                 }
@@ -1274,7 +1371,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_rect, cursor_on_pet, rect_visible};
+    use super::{clamp_rect, cursor_on_pet, logical_hit, rect_visible};
 
     // A 2x 1512x982 display, in physical pixels — the machine the bug was reported on.
     const SCREEN: (i32, i32, i32, i32) = (0, 0, 3024, 1964);
@@ -1298,6 +1395,22 @@ mod tests {
         assert!(!cursor_on_pet((1010.0, 810.0), window, rect)); // empty air, top-left
         assert!(!cursor_on_pet((1230.0, 1040.0), window, rect)); // empty air, bottom-right
         assert!(!cursor_on_pet((1100.0, 900.0), window, rect)); // just above her head
+    }
+
+    #[test]
+    fn a_pet_on_the_1x_external_screen_still_answers_the_2x_cursor() {
+        // The owner's desk (2026-09-06): Retina MacBook (2x, primary) + a 1x Dell to the
+        // right. Pet parked on the Dell at logical (2000, 1500): tao reports its origin at
+        // the Dell's scale, (2000, 1500), but the cursor at the PRIMARY's, so a pointer
+        // on the dog at logical (2100, 1650) arrives as (4200, 3300).
+        let rect = (65.0, 140.0, 110.0, 110.0);
+        assert!(logical_hit((4200.0, 3300.0), 2.0, (2000, 1500), 1.0, rect));
+        // Raw comparison — the old code — said the cursor was nowhere near her.
+        assert!(!cursor_on_pet((4200.0, 3300.0), (2000.0, 1500.0), rect));
+        // Same pointer beside her (logical (2020, 1510)) is still empty air.
+        assert!(!logical_hit((4040.0, 3020.0), 2.0, (2000, 1500), 1.0, rect));
+        // On the primary itself both readings share the scale: unchanged behaviour.
+        assert!(logical_hit((2200.0, 1900.0), 2.0, (2000, 1600), 2.0, rect));
     }
 
     #[test]
