@@ -421,7 +421,7 @@ interface Props {
   // MEMORY-SPEC §5.1: undo a just-announced write. `previous` (set when the write was
   // an edit) is the text to restore; without it the memory is deleted.
   onUndoMemory?: (id: number, previous?: string) => void;
-  // "Show me how": ask for a diagram of the task that just finished. Offered once, under
+  // "Visualize this task": ask for a diagram of the task that just finished. Offered once, under
   // the tail of an idle session whose last turn did real work (tool calls) — a plain chat
   // reply has no process to draw.
   onShowMe?: () => void;
@@ -645,7 +645,7 @@ export function Transcript({ items, running, since, streamingText, onRetry, onUn
       {!running && onShowMe && showMeAnchor(items) && (
         <div className="show-me-row">
           <button className="btn" data-testid="show-me" onClick={onShowMe}>
-            {t("Show me how")}
+            {t("Visualize this task")}
           </button>
         </div>
       )}

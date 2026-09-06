@@ -307,9 +307,9 @@ describe("summarizeSteps (the folded activity line)", () => {
   });
 });
 
-// "Show me how" (owner ask 2026-09-06): one button under an idle session whose last turn
+// "Visualize this task" (owner ask 2026-09-06): one button under an idle session whose last turn
 // did work; never while running, never after a turn that was only talk.
-describe("Show me how", () => {
+describe("Visualize this task", () => {
   it("offers the button after a finished turn with tool activity and sends on click", () => {
     const onShowMe = vi.fn();
     render(<Transcript items={TURN} onApprove={vi.fn()} onShowMe={onShowMe} />);

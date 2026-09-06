@@ -1971,7 +1971,9 @@ a:focus-visible,
   user-select: none;
 }
 .app.nav-collapsed .surface-back { padding-left: 50px; }
-.app.tauri-overlay .surface-back { height: 52px; padding-top: 8px; }
+/* Content sits on the traffic-lights line — center 22px, the reveal button's (owner caught
+   the Back link 8px under the sidebar glyph, 2026-09-06). Bar height unchanged. */
+.app.tauri-overlay .surface-back { height: 52px; padding-top: 0; padding-bottom: 8px; }
 .app.tauri-overlay.nav-collapsed .surface-back { padding-left: 104px; }
 .surface-back-btn {
   display: inline-flex;

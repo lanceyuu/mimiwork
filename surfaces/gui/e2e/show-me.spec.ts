@@ -1,9 +1,9 @@
 import { test, expect } from "./fixtures";
 
-// "Show me how" (owner ask 2026-09-06): after a turn that did work, one button under the
+// "Visualize this task" (owner ask 2026-09-06): after a turn that did work, one button under the
 // answer asks the show-me skill for a diagram of the process; the Mermaid fence it answers
 // with is drawn inline, not shown as code.
-test("show me how: button after a working turn → diagram drawn in the reply", async ({ page }) => {
+test("visualize this task: button after a working turn → diagram drawn in the reply", async ({ page }) => {
   await page.goto("/");
   const box = page.getByPlaceholder(/Ask the coworker/);
   await expect(box).toBeVisible();

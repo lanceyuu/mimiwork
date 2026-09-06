@@ -701,7 +701,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return;
         }
-        // The "Show me how" button force-runs the show-me skill; the answer is a Mermaid
+        // The "Visualize this task" button force-runs the show-me skill; the answer is a Mermaid
         // fence the transcript draws inline.
         if (msg.skill === "show-me") {
           send("assistant_message", {

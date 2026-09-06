@@ -1,6 +1,6 @@
 ---
 name: show-me
-description: Explain the current topic, or how the last task was done, visually — a short flow diagram, call tree, file tree, diff, or one focused HTML page. Use when the user says "show me", "draw it", "visualize", "how did you do that", or presses "Show me how" after a task.
+description: Explain the current topic, or how the last task was done, visually — a short flow diagram, call tree, file tree, diff, or one focused HTML page. Use when the user says "show me", "draw it", "visualize", "how did you do that", or presses "Visualize this task" after a task.
 ---
 
 # Show me
@@ -8,7 +8,7 @@ description: Explain the current topic, or how the last task was done, visually 
 Help the user understand the current topic visually. Skip the preamble, keep prose brief,
 and pick the smallest view that makes the key point clear. One or two visuals, not all of them.
 
-## When the user asks how the last task was done ("Show me how")
+## When the user asks to visualize the last task ("Visualize this task")
 
 Look back at what you actually did in this conversation: the steps, the tools, the files
 read and produced, the decisions. Draw THAT — not a generic process. Real names, real files.

@@ -169,10 +169,14 @@ describe("a plain link to a produced file (owner-hit 2026-08-31)", () => {
   });
 });
 
-// A ```mermaid fence is drawn (the show-me skill's "Show me how" answer); the library is
+// A ```mermaid fence is drawn (the show-me skill's "Visualize this task" answer); the library is
 // mocked — what matters is that the fence reaches the renderer and its SVG lands in the DOM.
 vi.mock("mermaid", () => ({
-  default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: "<svg data-mock></svg>" })) },
+  default: {
+    initialize: vi.fn(),
+    parse: vi.fn(async (text: string) => !/BROKEN/.test(text)),
+    render: vi.fn(async () => ({ svg: "<svg data-mock></svg>" })),
+  },
 }));
 describe("Markdown mermaid fences", () => {
   it("renders a mermaid fence as a diagram, and other fences as code", async () => {
@@ -183,5 +187,21 @@ describe("Markdown mermaid fences", () => {
     vi.useRealTimers();
     expect(container.querySelector('[data-testid="mermaid"] svg')).toBeTruthy();
     expect(container.querySelectorAll("pre").length).toBe(1); // the text fence stays a code block
+  });
+});
+
+// A fence Mermaid cannot parse (mid-stream, or a bad label) stays a code block and never
+// reaches render — that is where the library would otherwise draw its error bomb.
+describe("Markdown mermaid fences that do not parse", () => {
+  it("keeps the raw fence and does not call render", async () => {
+    const mermaid = (await import("mermaid")).default as any;
+    mermaid.render.mockClear();
+    vi.useFakeTimers();
+    const { container } = render(<Markdown text={"```mermaid\nflowchart LR\n  A[BROKEN\n```"} />);
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    expect(container.querySelector("pre code")?.textContent).toContain("BROKEN");
+    expect(container.querySelector('[data-testid="mermaid"]')).toBeNull();
+    expect(mermaid.render).not.toHaveBeenCalled();
   });
 });
