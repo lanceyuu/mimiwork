@@ -159,7 +159,7 @@ def search_tools(workspace: str, roots: Any = None) -> list:
                     break
             return {"engine": "ripgrep", **{"count": len(matches), "matches": matches}}
 
-        return {"engine": "python", **_py_grep(root, bases, pattern, glob, n)}
+        return {"engine": "python", **_py_grep(root, bases, pattern, glob, n, roots=roots)}
 
     grep.__name__ = "grep"
     grep.__doc__ = _SCHEMA["function"]["description"]
@@ -200,8 +200,11 @@ def _parse_rg(stdout: str, root: Path, n: int) -> dict[str, Any]:
 
 
 def _py_grep(
-    root: Path, bases: list[Path], pattern: str, glob: Optional[str], n: int
+    root: Path, bases: list[Path], pattern: str, glob: Optional[str], n: int,
+    *, roots: Any = None,
 ) -> dict[str, Any]:
+    from .office.paths import PathError, resolve_read
+
     try:
         rx = re.compile(pattern)
     except re.error as exc:
@@ -215,7 +218,10 @@ def _py_grep(
                     continue
                 fp = Path(dirpath) / fn
                 try:
-                    with open(fp, "r", encoding="utf-8", errors="ignore") as fh:
+                    # A permitted directory can contain links to private files. Authorize
+                    # each resolved file, not just the directory where the walk started.
+                    target = resolve_read(str(fp), roots or root)
+                    with open(target, "r", encoding="utf-8", errors="ignore") as fh:
                         for i, line in enumerate(fh, 1):
                             if rx.search(line):
                                 matches.append(
@@ -227,6 +233,6 @@ def _py_grep(
                                 )
                                 if len(matches) >= n:
                                     return {"count": len(matches), "matches": matches}
-                except OSError:
+                except (OSError, PathError):
                     continue
     return {"count": len(matches), "matches": matches}

@@ -576,8 +576,8 @@ function ArtifactViewer({
   // A Word paragraph pin also carries its index, so the comment can go INTO the file.
   const previewRef = useRef<HTMLDivElement | null>(null);
   // An HTML preview lives in an iframe, which swallows clicks: the pin listener goes
-  // INSIDE its document (same origin — it is our own srcdoc), the markers are painted in
-  // there too so they scroll with the page, and the screenshot is taken of that document.
+  // INSIDE its document. Same-origin access preserves pins and screenshots, but document
+  // scripts MUST remain sandboxed: artifact content is untrusted and the parent has credentials.
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const [pins, setPins] = useState<Pin[]>([]);
   const [draft, setDraft] = useState<Omit<Pin, "n" | "text"> | null>(null);
@@ -871,7 +871,7 @@ function ArtifactViewer({
           <iframe
             key={`${artifact.path}-${reloadKey}`}
             ref={frameRef}
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-same-origin"
             className="artifact-frame"
             srcDoc={content.content || ""}
             onLoad={wireFrame}

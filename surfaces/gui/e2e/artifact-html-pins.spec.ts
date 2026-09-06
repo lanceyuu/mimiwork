@@ -13,7 +13,7 @@ const HTML = `<!doctype html><html><body style="margin:0;padding:24px;font-famil
 <p id="deep">A paragraph far down the page, reachable only by scrolling.</p>
 </body></html>`;
 
-async function openHtmlArtifact(page: any) {
+async function openHtmlArtifact(page: any, html = HTML) {
   await page.route("**/v1/sessions/*/artifacts", async (route) => {
     await route.fulfill({
       status: 200,
@@ -27,7 +27,7 @@ async function openHtmlArtifact(page: any) {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, path: "stimulus_A.html", kind: "html", content: HTML }),
+      body: JSON.stringify({ ok: true, path: "stimulus_A.html", kind: "html", content: html }),
     });
   });
   await page.goto("/");
@@ -38,6 +38,29 @@ async function openHtmlArtifact(page: any) {
   await expect(frame.locator("#title")).toBeVisible();
   return frame;
 }
+
+test("untrusted HTML cannot execute scripts or read the parent token, including after reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "__COWORKER_API_TOKEN__", { value: "dummy-preview-secret" });
+  });
+  const attack = `parent.document.body.dataset.stolenToken = parent.__COWORKER_API_TOKEN__;
+    document.body.dataset.scriptRan = 'yes';`;
+  const html = HTML.replace("</body>", `<script>${attack}</script>
+    <img src="data:image/png;base64,broken" onerror="${attack}">
+    <button id="attack" onclick="${attack}">Try script</button>
+    <iframe id="nested" sandbox="allow-scripts allow-same-origin" srcdoc="<script>parent.parent.document.body.dataset.stolenToken = 'nested';</script>"></iframe>
+    </body>`);
+  const frame = await openHtmlArtifact(page, html);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await expect(frame.locator("#nested")).toBeAttached();
+    await frame.locator("#attack").click();
+    await expect(frame.locator("body")).not.toHaveAttribute("data-script-ran", "yes");
+    await expect(page.locator("body")).not.toHaveAttribute("data-stolen-token");
+    // The host's annotation listener must still work even though document code cannot run.
+    await expect(page.getByTestId("artifact-draft")).toBeVisible();
+    if (attempt === 0) await page.getByRole("button", { name: "Reload preview" }).click();
+  }
+});
 
 test("a click inside the HTML preview pins a comment there, and Send ships it with a screenshot", async ({ page }) => {
   const frame = await openHtmlArtifact(page);

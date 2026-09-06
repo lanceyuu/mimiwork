@@ -26,8 +26,23 @@ class RiskClass(str, Enum):
 WRITE_TOOLS = {"write_file", "replace_in_file", "apply_patch", "apply_unified_diff"}
 SHELL_TOOL = "run_shell"
 
+# Destination arguments differ from source paths for image transformations. Keep the
+# classification and the permission engine's write scoping on the same declaration.
+WRITE_PATH_ARGUMENTS = {
+    **{name: "path" for name in WRITE_TOOLS},
+    "write_document": "path",
+    "edit_document": "path",
+    "revise_document": "path",
+    "write_workbook": "path",
+    "edit_workbook": "path",
+    "write_presentation": "path",
+    "edit_image": "output",
+    "annotate_image": "output",
+    "combine_images": "output",
+}
+
 _BASE: dict[str, RiskClass] = {
-    **{name: RiskClass.WRITE_LOCAL for name in WRITE_TOOLS},
+    **{name: RiskClass.WRITE_LOCAL for name in WRITE_PATH_ARGUMENTS},
     SHELL_TOOL: RiskClass.EXEC,
 }
 

@@ -29,6 +29,9 @@ from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOO
     SHELL_TOOL as SHELL_TOOL,
 )
 from .risk import (
+    WRITE_PATH_ARGUMENTS,
+)
+from .risk import (
     WRITE_TOOLS as WRITE_TOOLS,
 )
 from .risk import (
@@ -146,7 +149,7 @@ class PermissionEngine:
 
         # Path scoping for writes that name a path (all modes): must land in a writable root.
         if is_write:
-            path = arguments.get("path")
+            path = arguments.get(WRITE_PATH_ARGUMENTS.get(tool_name, "path"))
             if path is not None and not self._under_writable_root(path):
                 return Decision(False, f"path is not in a writable directory: {path}")
 
