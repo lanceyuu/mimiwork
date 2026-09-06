@@ -1009,6 +1009,8 @@ button.root-text:focus-visible { outline: 2px solid var(--accent); outline-offse
   border-radius: 7px; padding: 3px 9px; font-size: 11.5px; color: var(--muted); cursor: pointer; flex: none;
 }
 .mlist-row:hover .mlist-make { visibility: visible; }
+.mlist-more { align-self: flex-start; margin: 2px 8px 0; padding: 0; border: 0; background: none; font: inherit; font-size: 12.5px; color: var(--accent); cursor: pointer; }
+.mlist-more:hover { text-decoration: underline; }
 .mlist-make:hover { color: var(--ink); border-color: var(--ink); }
 .mlist-add { display: flex; gap: 8px; margin-top: 8px; }
 .mlist-add input {

@@ -558,7 +558,7 @@ DESCRIPTORS: list[ProviderDescriptor] = [
         "openrouter",
         "OpenRouter",
         base_url="https://openrouter.ai/api/v1",
-        recommended_model="z-ai/glm-5.3",
+        recommended_model="minimax/minimax-m3:free",
         env_key="OPENROUTER_API_KEY",
     ),
     ProviderDescriptor(

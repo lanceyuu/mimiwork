@@ -555,3 +555,39 @@ def test_manager_key_hygiene_stamps(tmp_path, monkeypatch):
     mgr2 = SessionManager(data_dir=tmp_path)
     provs2 = {p["name"]: p for p in mgr2.get_providers()}
     assert provs2["deepseek"]["last_used_at"] == first
+
+
+def test_openrouter_suggestions_come_live_then_fall_back(tmp_path, monkeypatch):
+    """OpenRouter's Settings list is its public catalog filtered to free tool-calling
+    models, largest context first; offline, the matrix's free entries remain."""
+    import httpx
+
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager.__new__(SessionManager)  # only _suggested_models (stateless)
+    catalog = {
+        "data": [
+            {"id": "a/small:free", "context_length": 1000, "supported_parameters": ["tools"]},
+            {"id": "b/paid", "context_length": 9999, "supported_parameters": ["tools"]},
+            {"id": "c/no-tools:free", "context_length": 9999, "supported_parameters": []},
+            {"id": "d/big:free", "context_length": 5000, "supported_parameters": ["tools"]},
+        ]
+    }
+    monkeypatch.setattr(
+        httpx, "get", lambda *a, **k: type("R", (), {"json": lambda self: catalog})()
+    )
+    got = mgr._suggested_models("openrouter")
+    assert got[:2] == ["d/big:free", "a/small:free"]
+    assert "b/paid" not in got and "c/no-tools:free" not in got
+    assert "minimax/minimax-m3:free" in got  # matrix fallback rides along, deduped
+
+    def boom(*a, **k):
+        raise OSError("offline")
+
+    mgr2 = SessionManager.__new__(SessionManager)
+    monkeypatch.setattr(httpx, "get", boom)
+    assert mgr2._suggested_models("openrouter") == [
+        "minimax/minimax-m3:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "google/gemma-4-31b-it:free",
+    ]

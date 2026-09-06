@@ -39,6 +39,7 @@ export function ModelChecklist({
   onChanged: (next: { models: string[]; model: string }) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const families = MODEL_FAMILIES[provider];
   const [family, setFamily] = useState(families?.[0]?.value || "");
 
@@ -49,10 +50,15 @@ export function ModelChecklist({
   const prefixed = (m: string) => (provider === "openai" || provOf(m) !== "openai" ? m : `${provider}:${m}`);
   const bare = (id: string) => (id.startsWith(`${provider}:`) ? id.slice(provider.length + 1) : id);
 
-  const rows = [
-    ...suggested.map(prefixed),
-    ...curated.filter((id) => provOf(id) === provider),
-  ].filter((id, i, a) => a.indexOf(id) === i);
+  // A live catalog (OpenRouter's free models, refreshed from its feed) can run to dozens;
+  // the list shows the first few — they arrive best-first — plus whatever the user has
+  // ticked, and the rest sit behind "Show all" and the add box's autocomplete.
+  const SHORTLIST = 6;
+  const mine = curated.filter((id) => provOf(id) === provider);
+  const all = [...suggested.map(prefixed), ...mine].filter((id, i, a) => a.indexOf(id) === i);
+  const folded = !showAll && suggested.length > SHORTLIST + 2;
+  const rows = folded ? all.filter((id, i) => i < SHORTLIST || mine.includes(id)) : all;
+  const hidden = all.length - rows.length;
 
   const checked = (id: string) => curated.includes(id);
   const refresh = async () => {
@@ -127,17 +133,28 @@ export function ModelChecklist({
           </select>
         )}
         <input
-          placeholder="Add another model…"
+          placeholder={hidden > 0 ? "Add or search a model…" : "Add another model…"}
           value={draft}
           spellCheck={false}
           autoComplete="off"
+          list={`mlist-options-${provider}`}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
         />
+        <datalist id={`mlist-options-${provider}`}>
+          {suggested.map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
         <button className="btn-primary sm" onClick={add} disabled={!draft.trim()}>
           Add
         </button>
       </div>
+      {(hidden > 0 || (showAll && suggested.length > SHORTLIST + 2)) && (
+        <button className="mlist-more" data-testid="mlist-more" onClick={() => setShowAll((v) => !v)}>
+          {hidden > 0 ? `Show all ${all.length}` : "Show fewer"}
+        </button>
+      )}
     </div>
   );
 }

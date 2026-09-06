@@ -381,9 +381,8 @@ def test_matrix_answers_capabilities_for_reseller_ids():
         "together:zai-org/GLM-5.2",
         "together:meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
         "fireworks:accounts/fireworks/models/kimi-k2p6",
-        "openrouter:z-ai/glm-5.2",
-        "openrouter:meta-llama/llama-4-maverick",
         "openrouter:minimax/minimax-m3:free",  # the :free suffix is a second colon
+        "openrouter:google/gemma-4-31b-it:free",
     ):
         caps = capabilities_for(mid)
         assert caps.tools and caps.parallel_tool_calls and caps.streaming
@@ -395,9 +394,10 @@ def test_matrix_labels_and_custom_model_fallback():
     labels = model_labels()
     assert labels["together:zai-org/GLM-5.2"] == "GLM-5.2 · via Together"
     assert labels["zai:glm-5.2"] == "GLM-5.2 · Z AI"
-    # Deliberately small: agent-capable current models only (owner call, 2026-07-04);
-    # the three OpenRouter :free entries (2026-09-06) lifted the ceiling from 60.
-    assert len(MATRIX) < 70
+    # Deliberately small: agent-capable current models only (owner call, 2026-07-04).
+    assert len(MATRIX) < 60
+    # OpenRouter: free models only (owner call 2026-09-06); the live list is not here.
+    assert all(k.endswith(":free") for k in MATRIX if k.startswith("openrouter:"))
     assert all(e.caps.tools for e in MATRIX.values())
     # A custom (unlisted) reseller model falls back to the conservative default — usable,
     # but at the user's own risk (no parallel tool calls assumed).

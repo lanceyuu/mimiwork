@@ -2875,11 +2875,43 @@ class SessionManager:
             return [m.split(":", 1)[-1] for m in self._ollama_models()]
         from ..providers.matrix import models_for_provider
 
+        live = self._openrouter_models() if name == "openrouter" else []
         return list(
             dict.fromkeys(
-                [*models_for_provider(name), *self.COMPAT_MODELS.get(name, [])]
+                [*live, *models_for_provider(name), *self.COMPAT_MODELS.get(name, [])]
             )
         )
+
+    OPENROUTER_CATALOG = "https://openrouter.ai/api/v1/models"
+
+    def _openrouter_models(self) -> list[str]:
+        """OpenRouter's FREE, tool-calling models, live from its public catalog (no key
+        needed), largest context first — so the Settings list keeps up with releases
+        without an app update (owner ask 2026-09-06). Cached an hour; empty when offline,
+        and the matrix's fallback entries take over. Never raises."""
+        import time
+
+        now = time.monotonic()
+        cached = getattr(self, "_openrouter_cache", None)
+        if cached and now - cached[0] < 3600:
+            return cached[1]
+        ids: list[str] = []
+        try:
+            import httpx
+
+            data = httpx.get(self.OPENROUTER_CATALOG, timeout=4.0).json().get("data", [])
+            free = [
+                m
+                for m in data
+                if str(m.get("id", "")).endswith(":free")
+                and "tools" in (m.get("supported_parameters") or [])
+            ]
+            free.sort(key=lambda m: -int(m.get("context_length") or 0))
+            ids = [m["id"] for m in free]
+        except Exception:
+            return []  # transient — do not cache a miss
+        self._openrouter_cache = (now, ids)
+        return ids
 
     def set_provider(
         self, name: str, fields: Optional[dict[str, Any]]

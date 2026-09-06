@@ -70,3 +70,35 @@ describe("ModelChecklist add-model family dropdown", () => {
     expect(addModel).toHaveBeenCalledWith("openrouter:z-ai/glm-5.2");
   });
 });
+
+// A live catalog (OpenRouter's free models) is a shortlist, not a wall: the first six
+// plus anything ticked; "Show all" opens the rest; the add box autocompletes every id.
+describe("ModelChecklist shortlist for long live catalogs", () => {
+  const live = Array.from({ length: 17 }, (_, i) => `lab/model-${i}:free`);
+  it("folds a long suggestion list and unfolds on Show all", () => {
+    render(
+      <ModelChecklist
+        provider="openrouter"
+        knownProviders={KNOWN}
+        suggested={live}
+        curated={["openrouter:lab/model-15:free"]}
+        defaultModel=""
+        onChanged={() => {}}
+      />,
+    );
+    const names = () => screen.getAllByTitle(/^openrouter:/).map((el) => el.getAttribute("title"));
+    expect(names()).toHaveLength(7); // six best-first + the ticked one from further down
+    expect(names()).toContain("openrouter:lab/model-15:free");
+    expect(document.querySelectorAll("datalist option")).toHaveLength(17);
+    fireEvent.click(screen.getByTestId("mlist-more"));
+    expect(names()).toHaveLength(17);
+    expect(screen.getByTestId("mlist-more").textContent).toBe("Show fewer");
+  });
+  it("leaves short lists alone", () => {
+    render(
+      <ModelChecklist provider="openrouter" knownProviders={KNOWN} suggested={live.slice(0, 5)} curated={[]} defaultModel="" onChanged={() => {}} />,
+    );
+    expect(screen.getAllByTitle(/^openrouter:/)).toHaveLength(5);
+    expect(screen.queryByTestId("mlist-more")).toBeNull();
+  });
+});

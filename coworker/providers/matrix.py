@@ -204,36 +204,12 @@ MATRIX: dict[str, ModelEntry] = {
     "fireworks:accounts/fireworks/models/llama4-maverick-instruct-basic": ModelEntry(
         "Llama 4 Maverick · via Fireworks", _AGENTIC, 1_000_000
     ),
-    # OpenRouter slugs are lowercase `<lab>/<model>` (checked against their catalog
-    # 2026-07-25); same labs as above, one key for all of them.
-    "openrouter:z-ai/glm-5.3": ModelEntry("GLM-5.3 · via OpenRouter", _AGENTIC),
-    "openrouter:z-ai/glm-5.2": ModelEntry("GLM-5.2 · via OpenRouter", _AGENTIC, 128_000),
-    "openrouter:moonshotai/kimi-k3": ModelEntry(
-        "Kimi K3 · via OpenRouter",
-        ModelCapabilities(
-            tools=True, vision=True, parallel_tool_calls=True, streaming=True
-        ),
-        1_000_000,
-    ),
-    "openrouter:moonshotai/kimi-k2.6": ModelEntry(
-        "Kimi K2.6 · via OpenRouter", _AGENTIC, 256_000
-    ),
-    "openrouter:minimax/minimax-m3": ModelEntry(
-        "MiniMax M3 · via OpenRouter",
-        ModelCapabilities(
-            tools=True, vision=True, parallel_tool_calls=True, streaming=True
-        ),
-        1_000_000,
-    ),
-    "openrouter:deepseek/deepseek-v4-pro": ModelEntry(
-        "DeepSeek V4 Pro · via OpenRouter", _AGENTIC, 128_000
-    ),
-    "openrouter:meta-llama/llama-4-maverick": ModelEntry(
-        "Llama 4 Maverick · via OpenRouter", _AGENTIC, 1_000_000
-    ),
-    # OpenRouter's `:free` variants cost nothing and skip its credit pre-check (they are
-    # rate-limited instead) — the paid ids above 402 on an account with no balance. Picked
-    # from the live catalog 2026-09-06: tool calling on, largest context first.
+    # OpenRouter: FREE models only (owner call 2026-09-06 — the paid ids 402'd an account
+    # with no balance, and OpenRouter's catalog moves faster than releases). These three
+    # are the offline fallback; the Settings list itself comes live from OpenRouter's
+    # public catalog (manager._openrouter_models), filtered the same way.
+    # `:free` variants cost nothing and skip OpenRouter's credit pre-check (they are
+    # rate-limited instead). Picked from the live catalog 2026-09-06, tool calling on.
     "openrouter:minimax/minimax-m3:free": ModelEntry(
         "MiniMax M3 · free via OpenRouter",
         ModelCapabilities(
