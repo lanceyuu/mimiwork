@@ -51,6 +51,9 @@ const MIMI_TIERS = [
   { id: "qualitati:mimi-werewolf", label: "Mimi Werewolf", blurb: "frontier · the strongest tier" },
 ] as const;
 
+const fmtCarbon = (g: number) => (g < 1 ? `${(g * 1000).toFixed(0)} mg` : g < 1000 ? `${g.toFixed(2)} g` : `${(g / 1000).toFixed(2)} kg`);
+const fmtWater = (l: number) => (l < 1 ? `${(l * 1000).toFixed(1)} mL` : `${l.toFixed(2)} L`);
+
 export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) {
   const [state, setState] = useState<QualitatiStatus | null>(null);
   const [footprint, setFootprint] = useState<QualitatiFootprint | null>(null);
@@ -411,27 +414,29 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           </div>
         </div>
       ) : null}
-      {state.signed_in && footprint?.ok && footprint.carbon_g !== undefined ? (
-        <div
-          className="mt-2 flex items-center gap-1.5 text-[11.5px] text-muted"
-          data-testid="qualitati-footprint"
-          title={`${footprint.scope ?? ""} — ${footprint.measured_by ?? ""}`}
-        >
-          <span aria-hidden>🌱</span>
-          <span>
-            Environmental impact this month, whole Mimi service:{" "}
-            <span className="text-ink font-medium tabular-nums">
-              {footprint.carbon_g < 1
-                ? `${(footprint.carbon_g * 1000).toFixed(0)} mg`
-                : `${footprint.carbon_g.toFixed(2)} g`}{" "}
-              CO₂e
-            </span>{" "}
-            ·{" "}
-            <span className="text-ink font-medium tabular-nums">
-              {((footprint.water_l ?? 0) * 1000).toFixed(1)} mL
-            </span>{" "}
-            water · measured by Scaleway, Paris 🇫🇷
-          </span>
+      {state.signed_in && footprint?.ok && (footprint.you || footprint.carbon_g !== undefined) ? (
+        <div className="mt-2 flex flex-col gap-0.5 text-[11.5px] text-muted" data-testid="qualitati-footprint">
+          {footprint.you && (
+            <div className="flex items-center gap-1.5" title={footprint.you.method}>
+              <span aria-hidden>🌱</span>
+              <span>
+                Your impact this month, roughly:{" "}
+                <span className="text-ink font-medium tabular-nums">{fmtCarbon(footprint.you.carbon_g)} CO₂e</span> ·{" "}
+                <span className="text-ink font-medium tabular-nums">{fmtWater(footprint.you.water_l)}</span> water · from{" "}
+                {footprint.you.calls} call{footprint.you.calls === 1 ? "" : "s"} on the{" "}
+                {footprint.you.region === "eu" ? "French" : "US"} grid
+              </span>
+            </div>
+          )}
+          {footprint.carbon_g !== undefined && (
+            <div className="flex items-center gap-1.5 pl-5" title={`${footprint.scope ?? ""} — ${footprint.measured_by ?? ""}`}>
+              <span>
+                Whole Mimi service, measured by Scaleway, Paris 🇫🇷:{" "}
+                <span className="tabular-nums">{fmtCarbon(footprint.carbon_g)} CO₂e</span> ·{" "}
+                <span className="tabular-nums">{fmtWater(footprint.water_l ?? 0)}</span> water
+              </span>
+            </div>
+          )}
         </div>
       ) : null}
       {state.signed_in ? null : phase === "mfa" ? (

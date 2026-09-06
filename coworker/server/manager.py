@@ -2701,11 +2701,51 @@ class SessionManager:
         )
 
     def qualitati_footprint(self) -> dict[str, Any]:
-        """Measured environmental impact of the Mimi service (Scaleway data,
-        proxied through the QualiTaTi gateway with the stored credential)."""
-        return self._qualitati_get("/api/llm/v1/footprint", label="footprint")
+        """The account's OWN estimated impact this month (`you`, from its ledger
+        tokens — see footprint.py) on top of the service-wide figure Scaleway
+        measures. The estimate stands on its own when the measurement is down."""
+        out = self._qualitati_get("/api/llm/v1/footprint", label="footprint")
+        you = self._my_footprint()
+        if you:
+            out = {**out, "ok": True, "you": you}
+            out.pop("error", None)
+        return out
 
-    def qualitati_credits(self, limit: int = 50) -> dict[str, Any]:
+    def _my_footprint(self) -> Optional[dict[str, Any]]:
+        """Month-to-date tokens from this account's MimiWork ledger rows, paged
+        newest-first until the rows predate the month, then the rough estimate for
+        the grid its models run on. None when the ledger cannot be read."""
+        from datetime import datetime, timezone
+
+        from ..footprint import estimate
+
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        tokens_in = tokens_out = calls = 0
+        for page in range(5):  # ponytail: 1000 calls/month ceiling; page further if it matters
+            body = self.qualitati_credits(200, offset=page * 200)
+            if not body.get("ok"):
+                return None
+            rows = body.get("entries") or []
+            for row in rows:
+                if str(row.get("at") or "")[:7] < month:
+                    rows = None
+                    break
+                tokens_in += int(row.get("tokens_in") or 0)
+                tokens_out += int(row.get("tokens_out") or 0)
+                calls += 1
+            if rows is None or len(rows) < 200:
+                break
+        region_body = self.qualitati_region()
+        region = str(region_body.get("region") or "us") if region_body.get("ok") else "us"
+        return {
+            **estimate(tokens_in, tokens_out, region),
+            "tokens_in": tokens_in,
+            "tokens_out": tokens_out,
+            "calls": calls,
+            "period_start": month + "-01",
+        }
+
+    def qualitati_credits(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
         """What this app has spent from the QualiTaTi account, most recent first.
 
         Reads the account's own credit ledger, narrowed to the rows MimiWork
@@ -2715,8 +2755,10 @@ class SessionManager:
         a local estimate — the numbers in the app are the numbers on the bill.
         """
         limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
         body = self._qualitati_get(
-            f"/api/user/credit-ledger?limit={limit}&source=mimiwork*", label="credit history"
+            f"/api/user/credit-ledger?limit={limit}&offset={offset}&source=mimiwork*",
+            label="credit history",
         )
         if not body.get("ok"):
             return body

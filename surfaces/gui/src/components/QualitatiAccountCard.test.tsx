@@ -356,3 +356,37 @@ describe("model region (GDPR switch)", () => {
     expect(screen.queryByTestId("qualitati-region")).toBeNull();
   });
 });
+
+// The footprint line leads with the account's OWN rough share (owner ask 2026-09-07) and
+// keeps the service-wide measurement under it; the estimate alone is enough to show it.
+describe("QualitatiAccountCard footprint", () => {
+  it("shows the personal estimate first, the measured service figure second", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      {
+        match: "/v1/qualitati/footprint",
+        json: {
+          ok: true,
+          carbon_g: 812.5,
+          water_l: 3.2,
+          you: { carbon_g: 0.55, water_l: 0.018, energy_wh: 10, tokens_in: 100000, tokens_out: 10000, calls: 2, region: "eu", method: "rough" },
+        },
+      },
+    ]);
+    render(<QualitatiAccountCard />);
+    const line = await screen.findByTestId("qualitati-footprint");
+    expect(line.textContent).toContain("Your impact this month, roughly: 550 mg CO₂e · 18.0 mL water · from 2 calls on the French grid");
+    expect(line.textContent).toContain("Whole Mimi service, measured by Scaleway, Paris 🇫🇷: 812.50 g CO₂e · 3.20 L water");
+  });
+  it("stands on the estimate alone when the measurement is down", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+      { match: "/v1/qualitati/footprint", json: { ok: true, you: { carbon_g: 2, water_l: 0.05, energy_wh: 5, tokens_in: 1, tokens_out: 1, calls: 1, region: "us", method: "rough" } } },
+    ]);
+    render(<QualitatiAccountCard />);
+    const line = await screen.findByTestId("qualitati-footprint");
+    expect(line.textContent).toContain("2.00 g CO₂e");
+    expect(line.textContent).toContain("from 1 call on the US grid");
+    expect(line.textContent).not.toContain("Whole Mimi service");
+  });
+});

@@ -1915,8 +1915,9 @@ export async function qualitatiSetRegion(region: "eu" | "us"): Promise<Qualitati
   return res.json();
 }
 
-/** Measured environmental impact of the Mimi service (Scaleway Environmental
- * Footprint, month to date, whole service — not per user). */
+/** Environmental impact: `you` is the account's OWN month-to-date share — a rough
+ * per-token estimate over its ledger (footprint.py) — and the top-level fields are
+ * the whole service as Scaleway measures it. Either may be absent. */
 export interface QualitatiFootprint {
   ok: boolean;
   error?: string;
@@ -1926,6 +1927,16 @@ export interface QualitatiFootprint {
   region?: string;
   scope?: string;
   measured_by?: string;
+  you?: {
+    carbon_g: number;
+    water_l: number;
+    energy_wh: number;
+    tokens_in: number;
+    tokens_out: number;
+    calls: number;
+    region: string;
+    method: string;
+  };
 }
 /** What MimiWork has spent from the signed-in QualiTaTi account — the server's
  * own ledger, not a local estimate. Shown on the Activity page. */
