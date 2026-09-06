@@ -46,6 +46,9 @@ BUILTIN = {
     "mimi-style",
     # emilkowalski/skills — fluid Apple-style interfaces for web deliverables
     "apple-design",
+    # humanlayer/skills show-me, adapted: the "Show me how" button under a finished
+    # turn force-runs it; Mermaid fences draw inline in the transcript (2026-09-06)
+    "show-me",
     # One discoverable workflow per QualiTaTi tool exposed by MimiWork. These remain
     # ordinary editable skills; allowed-tools records the exact one-to-one binding.
     "qualitati-projects",

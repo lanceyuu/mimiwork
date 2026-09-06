@@ -35,6 +35,7 @@ const D: Record<string, [string, string, string]> = {
   "More ways to start": ["更多开始方式", "Flere måter å starte på", "Autres façons de commencer"],
   "Your files are saved. Open one to review it, or ask for changes.": ["文件已保存。打开查看，或提出修改要求。", "Filene dine er lagret. Åpne en for å se gjennom den, eller be om endringer.", "Vos fichiers sont enregistrés. Ouvrez-en un pour le vérifier ou demandez des modifications."],
   "Revise": ["修改", "Revider", "Réviser"],
+  "Show me how": ["展示过程", "Vis meg hvordan", "Montre-moi comment"],
   "One task can use several requests.": ["一个任务可能使用多次请求。", "Én oppgave kan bruke flere forespørsler.", "Une tâche peut utiliser plusieurs requêtes."],
   "Account credits": ["账户积分", "Kontokreditter", "Crédits du compte"],
   "Example and requirements": ["示例与要求", "Eksempel og krav", "Exemple et prérequis"],

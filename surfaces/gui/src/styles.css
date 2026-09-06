@@ -357,6 +357,9 @@ body {
   margin: 4px 0 14px; padding: 12px 14px; overflow-x: auto;
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px;
 }
+.show-me-row { display: flex; justify-content: flex-start; padding: 2px 0 8px; }
+.md-mermaid { margin: 8px 0; overflow-x: auto; }
+.md-mermaid svg { max-width: 100%; height: auto; }
 .md pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.55; }
 
 /* blockquote */

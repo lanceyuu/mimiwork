@@ -1,3 +1,4 @@
+import { useT } from "../i18n";
 import { useEffect, useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
 import { shortArgs } from "./ApprovalCard";
@@ -420,6 +421,22 @@ interface Props {
   // MEMORY-SPEC §5.1: undo a just-announced write. `previous` (set when the write was
   // an edit) is the text to restore; without it the memory is deleted.
   onUndoMemory?: (id: number, previous?: string) => void;
+  // "Show me how": ask for a diagram of the task that just finished. Offered once, under
+  // the tail of an idle session whose last turn did real work (tool calls) — a plain chat
+  // reply has no process to draw.
+  onShowMe?: () => void;
+}
+
+// Is the transcript tail a finished turn with activity, followed only by its answer?
+export function showMeAnchor(items: Item[]): boolean {
+  let sawTool = false;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "tool") sawTool = true;
+    else if (it.kind === "user") return sawTool;
+    else if (it.kind !== "assistant" && !(it.kind === "notice" && it.tone === "info") && !(it.kind === "approval" && it.resolved)) return false;
+  }
+  return false;
 }
 
 // The transcript index whose notice gets the Retry button: the tail error notice, looking
@@ -435,7 +452,8 @@ export function retryAnchor(items: Item[]): number {
   return -1;
 }
 
-export function Transcript({ items, running, since, streamingText, onRetry, onUndoMemory }: Props) {
+export function Transcript({ items, running, since, streamingText, onRetry, onUndoMemory, onShowMe }: Props) {
+  const t = useT();
   // §33 grouping: a turn = the maximal run of assistant/tool/resolved-approval items between
   // breakers (user, connector, notices, plan/dir requests…). Trailing assistant texts are the
   // ANSWER and render as bubbles after the group; interior assistant texts are narration and
@@ -624,6 +642,13 @@ export function Transcript({ items, running, since, streamingText, onRetry, onUn
             return null;
         }
       })}
+      {!running && onShowMe && showMeAnchor(items) && (
+        <div className="show-me-row">
+          <button className="btn" data-testid="show-me" onClick={onShowMe}>
+            {t("Show me how")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

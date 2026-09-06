@@ -1971,6 +1971,11 @@ export function App() {
                     since={runningSince}
                     onRetry={retry}
                     onUndoMemory={(id, previous) => void undoMemorySave(id, previous)}
+                    onShowMe={() =>
+                      // Short on purpose: it is the user's bubble. The skill's own "how the
+                      // last task was done" section carries the detail.
+                      send("How did you do that?", undefined, "show-me")
+                    }
                     // §33 ref #3: sub-threshold streamed text renders INSIDE the live turn
                     // group (header when collapsed, quiet line when expanded) — never as a
                     // floating paragraph.

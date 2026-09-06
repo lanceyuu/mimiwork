@@ -168,3 +168,20 @@ describe("a plain link to a produced file (owner-hit 2026-08-31)", () => {
     expect(container.querySelector("a")?.getAttribute("href")).toBe("//cdn.example.com/x.js");
   });
 });
+
+// A ```mermaid fence is drawn (the show-me skill's "Show me how" answer); the library is
+// mocked — what matters is that the fence reaches the renderer and its SVG lands in the DOM.
+vi.mock("mermaid", () => ({
+  default: { initialize: vi.fn(), render: vi.fn(async () => ({ svg: "<svg data-mock></svg>" })) },
+}));
+describe("Markdown mermaid fences", () => {
+  it("renders a mermaid fence as a diagram, and other fences as code", async () => {
+    vi.useFakeTimers();
+    const { container } = render(<Markdown text={"```mermaid\nflowchart LR\n  A-->B\n```\n\n```text\nplain\n```"} />);
+    expect(container.querySelector("pre code")?.textContent).toContain("A-->B"); // raw until drawn
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    expect(container.querySelector('[data-testid="mermaid"] svg')).toBeTruthy();
+    expect(container.querySelectorAll("pre").length).toBe(1); // the text fence stays a code block
+  });
+});

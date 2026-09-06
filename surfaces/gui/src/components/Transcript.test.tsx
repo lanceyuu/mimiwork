@@ -306,3 +306,22 @@ describe("summarizeSteps (the folded activity line)", () => {
     expect(summarizeSteps(["grep", "grep"])).toBe("Searched the code");
   });
 });
+
+// "Show me how" (owner ask 2026-09-06): one button under an idle session whose last turn
+// did work; never while running, never after a turn that was only talk.
+describe("Show me how", () => {
+  it("offers the button after a finished turn with tool activity and sends on click", () => {
+    const onShowMe = vi.fn();
+    render(<Transcript items={TURN} onApprove={vi.fn()} onShowMe={onShowMe} />);
+    fireEvent.click(screen.getByTestId("show-me"));
+    expect(onShowMe).toHaveBeenCalledTimes(1);
+  });
+  it("hides it while running and for a turn without tool calls", () => {
+    render(<Transcript items={TURN} onApprove={vi.fn()} running onShowMe={vi.fn()} />);
+    expect(screen.queryByTestId("show-me")).toBeNull();
+    cleanup();
+    const talk: Item[] = [{ kind: "user", text: "hi" }, { kind: "assistant", text: "hello" }];
+    render(<Transcript items={talk} onApprove={vi.fn()} onShowMe={vi.fn()} />);
+    expect(screen.queryByTestId("show-me")).toBeNull();
+  });
+});

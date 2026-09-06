@@ -3,6 +3,7 @@ import remarkGfm from "remark-gfm";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
+import { Mermaid } from "./Mermaid";
 import { platformOS } from "../tauri";
 import { useT } from "../i18n";
 
@@ -191,6 +192,14 @@ export function Markdown({ text }: { text: string }) {
         // which would otherwise drop what it does not recognise as a web URL.
         urlTransform={(url) => (filePath(url) ? url : defaultUrlTransform(url))}
         components={{
+          // A ```mermaid fence becomes a drawn diagram instead of a code block.
+          pre: ({ node, children, ...props }) => {
+            const code: any = (node as any)?.children?.[0];
+            const cls: string[] = code?.properties?.className || [];
+            const text = code?.children?.[0]?.value;
+            if (cls.includes("language-mermaid") && typeof text === "string") return <Mermaid chart={text} />;
+            return <pre {...props}>{children}</pre>;
+          },
           a: ({ node: _n, href, children, ...props }) => {
             const path = filePath(href);
             if (path) {

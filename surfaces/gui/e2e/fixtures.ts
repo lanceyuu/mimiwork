@@ -701,6 +701,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return;
         }
+        // The "Show me how" button force-runs the show-me skill; the answer is a Mermaid
+        // fence the transcript draws inline.
+        if (msg.skill === "show-me") {
+          send("assistant_message", {
+            text: "Here is how the report came together:\n\n```mermaid\nflowchart LR\n    A[Read sales-q2.csv] --> C[Fill June column]\n    B[Read ledger.xlsx] --> C\n    C --> D[Write Q2 summary.docx]\n    D --> E[Verify 3 sections]\n```",
+          });
+          send("turn_done");
+          return;
+        }
         // A multi-step turn the way a real one streams: narration, runs of tool calls, a
         // step that takes a while, then the answer — the turn view's "which stage is it
         // at" shape (owner ask 2026-09-05). ~2 s end to end so specs can look mid-turn.
