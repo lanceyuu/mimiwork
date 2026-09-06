@@ -82,6 +82,18 @@ def _strip_foreign_sidecars(messages: list[dict[str, Any]]) -> list[dict[str, An
 
 _MAX_TOKENS_ERROR = "'max_tokens' is not supported"
 
+# OpenRouter fills a missing `max_tokens` with the model's own ceiling (131k for DeepSeek
+# V4 Pro) and refuses the call up front — 402 — if the balance could not pay for a reply
+# that long, so a one-line question on a near-empty account never reached the model
+# (owner report 2026-09-06). An explicit ceiling makes that check about the reply we
+# actually want. 8192 is plenty for one turn; agentic work loops through tool calls anyway.
+OPENROUTER_MAX_TOKENS = 8192
+
+
+def _vendor_defaults(base_url: Optional[str], settings: dict[str, Any]) -> None:
+    if base_url and "openrouter.ai" in base_url:
+        settings.setdefault("max_tokens", OPENROUTER_MAX_TOKENS)
+
 
 def _param_fix_retry(kwargs: dict[str, Any], exc: Exception) -> dict[str, Any]:
     """Kwargs for the one retry an unsupported-parameter error earns, or re-raise.
@@ -172,6 +184,7 @@ class OpenAIProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ) -> AssistantTurn:
+        _vendor_defaults(self._base_url, settings)
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": _strip_foreign_sidecars(messages),
@@ -216,6 +229,7 @@ class OpenAIProvider(ProviderClient):
         tools: Optional[list[dict[str, Any]]] = None,
         **settings: Any,
     ):
+        _vendor_defaults(self._base_url, settings)
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": _strip_foreign_sidecars(messages),

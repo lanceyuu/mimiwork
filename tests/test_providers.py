@@ -383,6 +383,7 @@ def test_matrix_answers_capabilities_for_reseller_ids():
         "fireworks:accounts/fireworks/models/kimi-k2p6",
         "openrouter:z-ai/glm-5.2",
         "openrouter:meta-llama/llama-4-maverick",
+        "openrouter:minimax/minimax-m3:free",  # the :free suffix is a second colon
     ):
         caps = capabilities_for(mid)
         assert caps.tools and caps.parallel_tool_calls and caps.streaming
@@ -394,8 +395,9 @@ def test_matrix_labels_and_custom_model_fallback():
     labels = model_labels()
     assert labels["together:zai-org/GLM-5.2"] == "GLM-5.2 · via Together"
     assert labels["zai:glm-5.2"] == "GLM-5.2 · Z AI"
-    # Deliberately small: agent-capable current models only (owner call, 2026-07-04).
-    assert len(MATRIX) < 60
+    # Deliberately small: agent-capable current models only (owner call, 2026-07-04);
+    # the three OpenRouter :free entries (2026-09-06) lifted the ceiling from 60.
+    assert len(MATRIX) < 70
     assert all(e.caps.tools for e in MATRIX.values())
     # A custom (unlisted) reseller model falls back to the conservative default — usable,
     # but at the user's own risk (no parallel tool calls assumed).
@@ -456,3 +458,26 @@ def test_complete_picks_up_reasoning_content():
     provider = OpenAIProvider(client=_FakeClient(SimpleNamespace(choices=[choice])))
     turn = provider.complete(model="deepseek-v4-pro", messages=[{"role": "user", "content": "x"}])
     assert turn.text == "Answer" and turn.reasoning == "deep thought"
+
+
+def test_openrouter_gets_an_explicit_max_tokens_and_other_endpoints_do_not():
+    """OpenRouter reserves the model's whole output ceiling when max_tokens is absent
+    and 402s a near-empty account before the model sees the prompt (2026-09-06)."""
+    from coworker.providers.openai_provider import OPENROUTER_MAX_TOKENS
+
+    for base, expect in (
+        ("https://openrouter.ai/api/v1", OPENROUTER_MAX_TOKENS),
+        ("https://api.together.xyz/v1", None),
+        (None, None),
+    ):
+        client = _FakeClient(_response(content="ok"))
+        OpenAIProvider(client=client, base_url=base).complete(
+            model="m", messages=[{"role": "user", "content": "hi"}]
+        )
+        assert client.chat.completions.calls[0].get("max_tokens") == expect
+    # A caller's own setting wins.
+    client = _FakeClient(_response(content="ok"))
+    OpenAIProvider(client=client, base_url="https://openrouter.ai/api/v1").complete(
+        model="m", messages=[{"role": "user", "content": "hi"}], max_tokens=1024
+    )
+    assert client.chat.completions.calls[0]["max_tokens"] == 1024

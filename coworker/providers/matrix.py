@@ -231,6 +231,22 @@ MATRIX: dict[str, ModelEntry] = {
     "openrouter:meta-llama/llama-4-maverick": ModelEntry(
         "Llama 4 Maverick · via OpenRouter", _AGENTIC, 1_000_000
     ),
+    # OpenRouter's `:free` variants cost nothing and skip its credit pre-check (they are
+    # rate-limited instead) — the paid ids above 402 on an account with no balance. Picked
+    # from the live catalog 2026-09-06: tool calling on, largest context first.
+    "openrouter:minimax/minimax-m3:free": ModelEntry(
+        "MiniMax M3 · free via OpenRouter",
+        ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
+        1_000_000,
+    ),
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free": ModelEntry(
+        "Nemotron 3 Ultra · free via OpenRouter", _AGENTIC, 1_000_000
+    ),
+    "openrouter:google/gemma-4-31b-it:free": ModelEntry(
+        "Gemma 4 31B · free via OpenRouter", _AGENTIC, 262_144
+    ),
     # -- cloud accounts (models running in the user's own AWS/GCP) ----------------
     # Bedrock ids carry a family segment (claude/ → native Anthropic path, other/ →
     # Converse) plus AWS's own `-v<n>:<m>` version suffix. Some regions require the
