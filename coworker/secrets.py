@@ -47,7 +47,21 @@ def _load_dotenv(path: Path) -> dict[str, str]:
     env: dict[str, str] = {}
     if not path.is_file():
         return env
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # Windows Notepad saves "ANSI" (cp1252) or UTF-16 with a BOM; a strict utf-8 read
+    # raised UnicodeDecodeError out of every secrets.get(), and /v1/settings 500'd —
+    # the Models page sat on "Loading…" for good (Windows field report 2026-09-07).
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return env
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        text = raw.decode("utf-16")  # Notepad's "Unicode" — BOM-marked, never guessed
+    else:
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("cp1252", errors="replace")
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

@@ -3248,6 +3248,16 @@ class SessionManager:
             selectable.insert(0, self.model)
         from ..providers.matrix import model_context_windows, model_labels
 
+        # The GUI boots on this payload and the Models page cannot render without it,
+        # so a decorative field that fails (a bad pref, an odd file) must log and drop
+        # out — never turn the whole answer into a 500 (Windows report 2026-09-07).
+        def _safe(label: str, fn, default):
+            try:
+                return fn()
+            except Exception:
+                logger.exception("settings: %s failed; using default", label)
+                return default
+
         return {
             "provider": "openai",
             "model": self.model,
@@ -3267,7 +3277,7 @@ class SessionManager:
             "onboarded": bool(self._prefs.get("onboarded")),
             "tour_seen": bool(self._prefs.get("tour_seen")),
             "language": str(self._prefs.get("language") or "en"),
-            "time_saved": self.time_saved_total(),
+            "time_saved": _safe("time_saved", self.time_saved_total, {}),
             "experimental_connectors": experimental_enabled(self.secrets),
             "surfaces": self._surfaces(),
             "nav_layout": self._nav_layout(),
@@ -3276,12 +3286,12 @@ class SessionManager:
             "scratch_base": self._prefs.get("scratch_base")
             or self.DEFAULT_SCRATCH_BASE,
             # The folder new conversations start with — None until the user hands one over.
-            "default_folder": self.default_folder(),
+            "default_folder": _safe("default_folder", self.default_folder, None),
             # Real on-disk secrets location, so the UI shows the OS-native path instead of a
             # hardcoded POSIX one (Windows -> %APPDATA%\coworker, macOS/Linux -> ~/.config).
             "secrets_path": str(self.secrets.path),
-            **self.pdf_settings(),
-            **self.compaction_settings_payload(),
+            **_safe("pdf_settings", self.pdf_settings, {}),
+            **_safe("compaction", self.compaction_settings_payload, {}),
         }
 
     def _surfaces(self) -> dict[str, bool]:

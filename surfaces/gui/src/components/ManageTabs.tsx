@@ -75,13 +75,35 @@ const EXAMPLE = `{
 // per-provider ModelChecklist / read-only model preview (form view).
 export function ModelsTab() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
-  const refreshSettings = () => getSettings().then(setSettings).catch(() => setSettings(null));
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const refreshSettings = () =>
+    getSettings()
+      .then((s) => {
+        setSettings(s);
+        setLoadError(null);
+      })
+      .catch((e) => {
+        // Never a silent, endless "Loading…" (Windows report 2026-09-07): name the
+        // failure and offer a retry; the server log has the traceback.
+        setSettings(null);
+        setLoadError(e instanceof Error ? e.message : String(e));
+      });
   const ps = useProviderSetup({ onSaved: refreshSettings });
   useEffect(() => {
     refreshSettings();
   }, []);
 
-  if (!settings) return <div className="text-[13px] text-muted">Loading…</div>;
+  if (!settings)
+    return loadError ? (
+      <div className="text-[13px] text-muted" data-testid="models-load-error">
+        Could not load model settings — {loadError}
+        <button className="btn ml-2" onClick={refreshSettings}>
+          Retry
+        </button>
+      </div>
+    ) : (
+      <div className="text-[13px] text-muted">Loading…</div>
+    );
 
   const info = ps.info;
   const knownNames = ps.providers.map((p) => p.name);

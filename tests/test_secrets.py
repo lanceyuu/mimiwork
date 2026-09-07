@@ -85,3 +85,16 @@ def test_delete(tmp_path):
     assert store.delete("x") is True
     assert store.delete("x") is False
     assert store.get("x") is None
+
+
+def test_dotenv_reads_notepad_encodings(tmp_path):
+    """Windows Notepad writes ANSI (cp1252) or BOM-marked UTF-16; neither may raise."""
+    for name, raw in (
+        ("ansi", "K=caf\xe9\r\n".encode("cp1252")),
+        ("utf16", "K=caf\xe9\r\n".encode("utf-16")),  # the codec writes the BOM
+        ("utf8bom", "﻿K=caf\xe9\n".encode("utf-8")),
+    ):
+        d = tmp_path / name
+        d.mkdir()
+        (d / ".env").write_bytes(raw)
+        assert SecretStore(path=d / "secrets.json").resolve("${K}") == "caf\xe9", name

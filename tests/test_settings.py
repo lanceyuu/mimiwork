@@ -174,3 +174,29 @@ def test_ollama_models_gated_on_liveness(tmp_path, monkeypatch):
 
     monkeypatch.setattr(SessionManager, "_ollama_alive", lambda self: True)
     assert "ollama:llama3.3" in manager.get_settings()["models"]
+
+
+def test_settings_survive_a_windows_encoded_dotenv_and_a_bad_pref(tmp_path, monkeypatch):
+    """Windows field report (2026-09-07): the Models page sat on "Loading…" forever
+    because /v1/settings answered 500 — every secrets.get() choked on a cp1252 `.env`
+    and the GUI hides the failure. The payload must come back whatever the decorations do."""
+    from fastapi.testclient import TestClient
+
+    from coworker.server.app import create_app
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".env").write_bytes("OPENAI_API_KEY=sk-caf\xe9\r\n".encode("cp1252"))
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(state))
+    manager = SessionManager(data_dir=tmp_path / "data")
+    manager._prefs["compaction_threshold_pct"] = "seventy"  # a pref no validator wrote
+    client = TestClient(create_app(manager))
+
+    res = client.get("/v1/settings")
+    assert res.status_code == 200
+    body = res.json()
+    assert isinstance(body["models"], list) and "model" in body
+    assert "compaction_threshold_pct" not in body  # the bad knob dropped out, nothing else did
+    assert SecretStore(path=state / "secrets.json").resolve("${OPENAI_API_KEY}") == "sk-café"

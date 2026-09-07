@@ -1362,6 +1362,9 @@ export async function testModel(
 
 export async function getSettings(): Promise<ModelSettings> {
   const res = await fetch(`${httpBase()}/v1/settings`);
+  // A 500 here used to become "Loading…" forever on the Models page (Windows report
+  // 2026-09-07): say what the server said, so the page can show it.
+  if (!res.ok) throw new Error(`settings: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
   return res.json();
 }
 
