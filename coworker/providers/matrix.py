@@ -109,7 +109,7 @@ MATRIX: dict[str, ModelEntry] = {
     # blended tokens. (vision yes, pdf no — the gateway is OpenAI-compat, no
     # inline file part.)
     "qualitati:mimi-hound": ModelEntry(
-        label="Mimi Hound · fast",
+        label="Mimi Hound · free, fast",
         caps=ModelCapabilities(
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),

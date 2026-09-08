@@ -27,9 +27,12 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib import error, request
 
-_MAX_FILES = 40
-_MAX_TOTAL_BYTES = 3_000_000
-_MAX_FILE_BYTES = 1_500_000
+# Sized for real skills, not toy ones: Anthropic's canvas-design ships 54 fonts in 83
+# files and 5.5 MB, and the 40-file cap refused it (owner hit 2026-09-08). The
+# blocked-suffix list, not the count, is what keeps executables out.
+_MAX_FILES = 300
+_MAX_TOTAL_BYTES = 30_000_000
+_MAX_FILE_BYTES = 5_000_000
 _BLOCKED_SUFFIXES = {".exe", ".dll", ".so", ".dylib", ".bin", ".app", ".msi", ".pkg"}
 
 # Red flags in skill INSTRUCTIONS (they steer the agent): downloading-and-running

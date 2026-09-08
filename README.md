@@ -199,7 +199,7 @@ help me analyse interviews?" gets you a conversation.
 Open **Settings ▸ Models**. Two ways in:
 
 - **Sign in with QualiTaTi** — no keys; the Mimi models spend your existing credits. The
-  card shows the three tiers — **Mimi Puppy** (free every day), **Mimi Hound** (fast),
+  card shows the three tiers — **Mimi Puppy** (free every day), **Mimi Hound** (fast, also free),
   **Mimi Wolf** (most capable) — each with a **Test** button that makes a real call.
   While you're here: pick your **model region** (*Default · US*, cheaper — or *Strict
   GDPR · Paris*, data stays in Europe), and know that the **Activity** page shows

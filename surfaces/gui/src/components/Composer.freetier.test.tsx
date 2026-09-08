@@ -23,7 +23,11 @@ describe("Composer / Mimi Puppy allowance banner", () => {
   it("shows the daily balance even when plenty remains and hides it for other models", () => {
     const { rerender } = render(<Composer {...props({ freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.getByTestId("free-tier-banner").textContent).toContain("300 free requests left today (daily limit: 500)");
-    rerender(<Composer {...props({ model: "qualitati:mimi-hound", freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
+    // Hound shares the allowance (free since 2026-09-08) and shows it too; Wolf is paid and never does.
+    rerender(<Composer {...props({ model: "qualitati:mimi-hound", freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
+    expect(screen.getByTestId("free-tier-banner").textContent).toContain("Mimi Hound: 300 free requests left today");
+    expect(screen.getByTestId("free-tier-banner").textContent).toContain("shared with Mimi Puppy");
+    rerender(<Composer {...props({ model: "qualitati:mimi-wolf", freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.queryByTestId("free-tier-banner")).toBeNull();
   });
 
@@ -35,13 +39,13 @@ describe("Composer / Mimi Puppy allowance banner", () => {
     expect(screen.queryByTestId("free-tier-switch")).toBeNull();
   });
 
-  it("when spent, says so and switches to Mimi Hound in one click", () => {
+  it("when spent, says so and switches to Mimi Wolf in one click", () => {
     const onModelChange = vi.fn();
     render(<Composer {...props({ onModelChange, freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
-    expect(screen.getByRole("alert").textContent).toContain("Mimi Puppy's free allowance is used up for today");
-    expect(screen.getByRole("alert").textContent).toContain("Mimi Hound uses account credits.");
+    expect(screen.getByRole("alert").textContent).toContain("Today's free allowance for Mimi Puppy and Mimi Hound is used up");
+    expect(screen.getByRole("alert").textContent).toContain("Mimi Wolf uses account credits.");
     fireEvent.click(screen.getByTestId("free-tier-switch"));
-    expect(onModelChange).toHaveBeenCalledWith("qualitati:mimi-hound");
+    expect(onModelChange).toHaveBeenCalledWith("qualitati:mimi-wolf");
   });
 
   it("distinguishes the account balance from free requests and explains multi-step usage", () => {

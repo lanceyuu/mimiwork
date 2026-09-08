@@ -40,7 +40,7 @@ Open **Settings ▸ Models**. Two ways in:
 
 - **Sign in with QualiTaTi** — no keys, the Mimi models spend your existing credits.
   After signing in you'll see the three tiers right on the card — **Mimi Puppy** (free
-  every day), **Mimi Hound** (fast), **Mimi Wolf** (most capable) — each with a **Test**
+  every day), **Mimi Hound** (fast, also free), **Mimi Wolf** (most capable) — each with a **Test**
   button that makes a real one-token call, so you know it works before you need it.
   Two things worth setting while you're here:
   - **Model region** — *Default · US* (cheaper credits) or *Strict GDPR · Paris 🇫🇷*

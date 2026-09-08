@@ -22,7 +22,9 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
-  "Mimi Hound uses account credits.": ["Mimi Hound 使用账户积分。", "Mimi Hound bruker kontokreditter.", "Mimi Hound utilise les crédits du compte."],
+  "Mimi Wolf uses account credits.": ["Mimi Wolf 使用账户积分。", "Mimi Wolf bruker kontokreditter.", "Mimi Wolf utilise les crédits du compte."],
+  "shared with Mimi Hound": ["与 Mimi Hound 共用", "delt med Mimi Hound", "partagée avec Mimi Hound"],
+  "shared with Mimi Puppy": ["与 Mimi Puppy 共用", "delt med Mimi Puppy", "partagée avec Mimi Puppy"],
   "What should we produce?": ["我们要制作什么？", "Hva skal vi lage?", "Que voulez-vous créer ?"],
   "Choose a result, then attach your files or share a folder. You can edit the request before sending.": ["选择成果类型，再添加文件或共享文件夹。发送前可以修改请求。", "Velg et resultat, legg ved filer eller del en mappe. Du kan redigere forespørselen før du sender.", "Choisissez un résultat, puis joignez vos fichiers ou partagez un dossier. Vous pouvez modifier la demande avant de l’envoyer."],
   "Start with a file": ["从文件开始", "Start med en fil", "Commencer avec un fichier"],
@@ -195,9 +197,9 @@ const D: Record<string, [string, string, string]> = {
     "Demandez au coéquipier…  (déposez ou collez des fichiers)",
   ],
   "Stop": ["停止", "Stopp", "Arrêter"],
-  "Mimi Puppy's free allowance is used up for today": ["Mimi Puppy 今天的免费额度已用完", "Mimi Puppys gratiskvote er brukt opp for i dag", "Le quota gratuit de Mimi Puppy est épuisé pour aujourd'hui"],
+  "Today's free allowance for Mimi Puppy and Mimi Hound is used up": ["Mimi Puppy 和 Mimi Hound 今天的免费额度已用完", "Dagens gratiskvote for Mimi Puppy og Mimi Hound er brukt opp", "L’allocation gratuite du jour pour Mimi Puppy et Mimi Hound est épuisée"],
   "resets at": ["将于以下时间重置：", "tilbakestilles kl.", "réinitialisé à"],
-  "Switch to Mimi Hound": ["切换到 Mimi Hound", "Bytt til Mimi Hound", "Passer à Mimi Hound"],
+  "Switch to Mimi Wolf": ["切换到 Mimi Wolf", "Bytt til Mimi Wolf", "Passer à Mimi Wolf"],
   "Mimi Puppy": ["Mimi Puppy", "Mimi Puppy", "Mimi Puppy"],
   "free requests left today": ["次免费请求今天剩余", "gratis forespørsler igjen i dag", "requêtes gratuites restantes aujourd'hui"],
   // ── settings tabs ──

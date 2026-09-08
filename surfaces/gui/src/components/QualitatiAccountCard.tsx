@@ -46,7 +46,7 @@ export function passwordPolicyProblem(pw: string): string | null {
 // The gateway's three tiers, in the order a user meets them: free first, then by price.
 const MIMI_TIERS = [
   { id: "qualitati:mimi-puppy", label: "Mimi Puppy", blurb: "free every day" },
-  { id: "qualitati:mimi-hound", label: "Mimi Hound", blurb: "fast · spends credits" },
+  { id: "qualitati:mimi-hound", label: "Mimi Hound", blurb: "fast · free every day" },
   { id: "qualitati:mimi-wolf", label: "Mimi Wolf", blurb: "powerful · spends credits" },
   { id: "qualitati:mimi-werewolf", label: "Mimi Werewolf", blurb: "frontier · the strongest tier" },
 ] as const;
@@ -178,8 +178,8 @@ export function QualitatiAccountCard({ onChanged }: { onChanged?: () => void }) 
           <div className="text-[13.5px] font-semibold">QualiTaTi account</div>
           <div className="text-[12px] text-muted truncate">
             {state.signed_in
-              ? "“Mimi Puppy” is free for use; “Mimi Hound” (fast) and “Mimi Wolf” (powerful) spend your credits."
-              : "Sign in for free Mimi Puppy every day — plus your QualiTaTi credits for Hound and Wolf. No API key needed."}
+              ? "“Mimi Puppy” and “Mimi Hound” (fast) are free every day; “Mimi Wolf” (powerful) and “Mimi Werewolf” spend your credits."
+              : "Sign in for free Mimi Puppy and Mimi Hound every day — plus your QualiTaTi credits for Wolf and Werewolf. No API key needed."}
           </div>
         </div>
         {state.signed_in && (

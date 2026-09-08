@@ -154,7 +154,7 @@ function CreditsPanel({ credits }: { credits: QualitatiCredits }) {
       </div>
       {rows.length === 0 ? (
         <div className="text-[11.5px] text-faint mt-1.5">
-          Nothing billed yet — Mimi Puppy answers free every day.
+          Nothing billed yet — Mimi Puppy and Mimi Hound answer free every day.
         </div>
       ) : (
         <>

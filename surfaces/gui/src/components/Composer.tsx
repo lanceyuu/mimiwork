@@ -116,8 +116,8 @@ interface Props {
   onInterrupt: () => void;
   onModeChange: (mode: string) => void;
   onModelChange: (model: string) => void;
-  // Mimi Puppy's free requests today; the banner below the approvals warns at 10 % left
-  // and offers Mimi Hound when it is spent.
+  // Puppy and Hound's shared free requests today; the banner below the approvals warns
+  // at 10 % left and offers Mimi Wolf when it is spent.
   accountCredits?: number | null;
   freeTier?: { model?: string; cap: number; remaining: number; resets_at: string } | null;
   // When set (Code/Cowork), the Mode menu is shown. The folder/roots + branch controls left the
@@ -1360,8 +1360,9 @@ function AttachChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
 
 
 /** Keep the daily balance visible so users can plan before it runs low.
- *  Amber at the last 10 %, red with a one-click switch to Mimi Hound when spent. Shown
- *  only while Puppy is the selected model — other models are never rate-capped here. */
+ *  Amber at the last 10 %, red with a one-click switch to Mimi Wolf when spent. Shown
+ *  while Puppy or Hound is selected — both are free since 2026-09-08 and share one daily
+ *  allowance; the paid tiers are never rate-capped here. */
 function FreeTierBanner({
   model,
   freeTier,
@@ -1374,7 +1375,8 @@ function FreeTierBanner({
   onModelChange: (model: string) => void;
 }) {
   const t = useT();
-  if (!freeTier || !/mimi-puppy$/.test(model || "")) return null;
+  const which = /mimi-hound$/.test(model || "") ? "hound" : /mimi-puppy$/.test(model || "") ? "puppy" : null;
+  if (!freeTier || !which) return null;
   const { cap, remaining, resets_at } = freeTier;
   const low = Math.max(10, Math.round(cap * 0.1));
   const isLow = remaining <= low;
@@ -1382,7 +1384,7 @@ function FreeTierBanner({
     const d = new Date(resets_at);
     return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   })();
-  const hound = model.replace(/mimi-puppy$/, "mimi-hound");
+  const wolf = model.replace(/mimi-(puppy|hound)$/, "mimi-wolf");
   if (remaining <= 0) {
     return (
       <div
@@ -1391,15 +1393,15 @@ function FreeTierBanner({
         className="max-w-3xl mx-auto mb-1.5 flex flex-wrap items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-[12.5px] text-red-800"
       >
         <span className="flex-1">
-          {t("Mimi Puppy's free allowance is used up for today")}
+          {t("Today's free allowance for Mimi Puppy and Mimi Hound is used up")}
           {at ? ` · ${t("resets at")} ${at}` : ""}
           <span className="block text-[11.5px] mt-0.5">
-            {t("Mimi Hound uses account credits.")}
+            {t("Mimi Wolf uses account credits.")}
             {typeof accountCredits === "number" ? ` ${t("Account credits")}: ${accountCredits}.` : ""}
           </span>
         </span>
-        <button className="btn sm shrink-0" data-testid="free-tier-switch" onClick={() => onModelChange(hound)}>
-          {t("Switch to Mimi Hound")}
+        <button className="btn sm shrink-0" data-testid="free-tier-switch" onClick={() => onModelChange(wolf)}>
+          {t("Switch to Mimi Wolf")}
         </button>
       </div>
     );
@@ -1411,7 +1413,8 @@ function FreeTierBanner({
       className={`max-w-3xl mx-auto mb-1.5 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-[12.5px] ${isLow ? "border-warnInk/30 bg-warnSoft text-warnInk" : "border-line bg-paper text-muted"}`}
     >
       <span className="flex-1">
-        {t("Mimi Puppy")}: {remaining} {t("free requests left today")} ({t("daily limit")}: {cap})
+        {which === "hound" ? t("Mimi Hound") : t("Mimi Puppy")}: {remaining} {t("free requests left today")} ({t("daily limit")}: {cap})
+        {` · ${which === "hound" ? t("shared with Mimi Puppy") : t("shared with Mimi Hound")}`}
         {at ? ` · ${t("resets at")} ${at}` : ""}
         <span className="block text-[11.5px] mt-0.5">
           {t("One task can use several requests.")}
