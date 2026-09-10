@@ -154,6 +154,7 @@ class LocalExecutor(Executor):
         # Set by interrupt_now() (user Stop) — run()'s read loop treats it like an
         # early deadline, so the in-flight foreground command dies within one tick.
         self._abort = threading.Event()
+        self._run_lock = threading.Lock()
 
         # Pick a native shell per-OS. POSIX drives bash line-by-line; Windows drives
         # PowerShell in `-Command -` mode, which is a true stdin REPL (executes
@@ -217,6 +218,26 @@ class LocalExecutor(Executor):
             self._queue.put(None)  # EOF sentinel
 
     def run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]:
+        from .cancellation import tool_stop
+
+        stop = tool_stop.get()
+        # A forced task stop can release the agent before the old command has
+        # finished resynchronizing its shell. Never let the next task share that
+        # command's stdout or have its process killed by the old cleanup.
+        while not self._run_lock.acquire(timeout=0.1):
+            if stop is not None and stop.is_set():
+                return self._result(command, None, "", timed_out=False, error="interrupted by user")
+        try:
+            if stop is not None and stop.is_set():
+                return self._result(command, None, "", timed_out=False, error="interrupted by user")
+            return self._run(command, timeout)
+        finally:
+            self._run_lock.release()
+
+    def _run(self, command: str, timeout: Optional[float] = None) -> dict[str, Any]:
+        from .cancellation import tool_stop
+
+        stop = tool_stop.get()
         if self._proc.poll() is not None:
             # Shell exited (e.g. hard-closed after a prior command's timeout). Respawn so
             # the session self-heals rather than wedging every future command.
@@ -241,7 +262,7 @@ class LocalExecutor(Executor):
         lines: list[str] = []
 
         while True:
-            if self._abort.is_set():
+            if self._abort.is_set() or (stop is not None and stop.is_set()):
                 # User Stop: reuse the deadline path this tick (interrupt-and-resync on
                 # POSIX, decisive shell kill on Windows) instead of waiting out the timeout.
                 aborted = True

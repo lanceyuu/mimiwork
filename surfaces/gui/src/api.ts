@@ -2009,11 +2009,14 @@ export async function getActivity(): Promise<Activity> {
 }
 
 /** Mission control's stop button: halt a running session's turn from outside its socket. */
-export async function interruptSession(sessionId: string): Promise<{ ok: boolean }> {
+export async function interruptSession(sessionId: string, force = false, runningSince?: number): Promise<{ ok: boolean; running?: boolean; error?: string }> {
+  const query = new URLSearchParams({ force: String(force) });
+  if (runningSince != null) query.set("running_since", String(runningSince));
   const res = await fetch(
-    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/interrupt`,
-    jsonPost({}),
+    `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/interrupt?${query}`,
+    { ...jsonPost({}), signal: AbortSignal.timeout(5000) },
   );
+  if (!res.ok) throw new Error("The stop request could not be delivered. Try again.");
   return res.json();
 }
 
@@ -2439,20 +2442,56 @@ export type Handlers = {
 };
 
 export class Session {
-  private ws: WebSocket;
+  private ws!: WebSocket;
+  private timer?: ReturnType<typeof setInterval>;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private closed = false;
+  private lastReceived = Date.now();
+  private runningSince?: number;
   // Payloads sent before the socket finished opening, replayed on `onopen`. Belt-and-suspenders
   // against the first message being dropped if the user sends in the connect window.
   private outbox: object[] = [];
 
-  constructor(sessionId: string, workspace: string, agent: string, handlers: Handlers) {
-    const q = `?workspace=${encodeURIComponent(workspace)}&agent=${encodeURIComponent(agent)}`;
-    this.ws = openWebSocket(`${wsBase()}/ws/session/${sessionId}${q}`);
-    this.ws.onmessage = (e) => handlers.onEvent(JSON.parse(e.data));
-    this.ws.onopen = () => {
-      this.flush();
-      handlers.onOpen?.();
+  constructor(private sessionId: string, private workspace: string, private agent: string, private handlers: Handlers) {
+    this.connect();
+  }
+
+  private connect() {
+    if (this.closed) return;
+    const q = `?workspace=${encodeURIComponent(this.workspace)}&agent=${encodeURIComponent(this.agent)}`;
+    this.ws = openWebSocket(`${wsBase()}/ws/session/${this.sessionId}${q}`);
+    this.ws.onmessage = (e) => {
+      this.lastReceived = Date.now();
+      const event = JSON.parse(e.data) as WsEvent;
+      if (typeof event.data?.running_since === "number") this.runningSince = event.data.running_since;
+      if (event.type === "turn_start") this.runningSince = event.data?.running_since;
+      this.handlers.onEvent(event);
     };
-    this.ws.onclose = () => handlers.onClose?.();
+    this.ws.onopen = () => {
+      this.lastReceived = Date.now();
+      this.flush();
+      this.handlers.onOpen?.();
+      this.timer = setInterval(() => {
+        if (Date.now() - this.lastReceived > 20_000) {
+          this.reconnect();
+          return;
+        }
+        this.send({ type: "ping" });
+      }, 5000);
+    };
+    this.ws.onclose = () => this.reconnect();
+  }
+
+  private reconnect() {
+    clearInterval(this.timer);
+    // Do not wait for a dead connection's closing handshake or accept its late
+    // frames after a replacement socket has already reported the current state.
+    this.ws.onmessage = null;
+    this.ws.onopen = null;
+    this.ws.onclose = null;
+    this.ws.close();
+    this.handlers.onClose?.();
+    if (!this.closed) this.reconnectTimer = setTimeout(() => this.connect(), 1500);
   }
 
   private flush() {
@@ -2508,8 +2547,16 @@ export class Session {
     this.send({ type: "question_response", answer });
   }
 
-  interrupt() {
-    this.send({ type: "interrupt" });
+  async interrupt(force = false) {
+    // Force stop also works when this socket is stuck or reconnecting. A turn's
+    // server timestamp prevents a delayed stop from hitting a newer task.
+    if (force || this.ws.readyState !== WebSocket.OPEN) {
+      const result = await interruptSession(this.sessionId, force, this.runningSince);
+      if (!result.ok && result.running !== false) throw new Error(result.error || "Could not stop the task.");
+      if (result.running === false) this.handlers.onEvent({ type: "session_status", data: { running: false, phase: "idle" } });
+      return;
+    }
+    this.send({ type: "interrupt", force, running_since: this.runningSince });
   }
 
   // Re-run a turn that ended in a provider error — no new user message; the server
@@ -2527,6 +2574,9 @@ export class Session {
   }
 
   close() {
+    this.closed = true;
+    clearInterval(this.timer);
+    clearTimeout(this.reconnectTimer);
     // Detach before closing: this socket's async `close` event may land AFTER the
     // successor session's `open` (observed when switching into an automation-run
     // session), and a torn-down socket must not clobber the new one's connected state.

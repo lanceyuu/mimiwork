@@ -227,6 +227,36 @@ async def test_bridge_invokes_session_on_loop():
     assert seen == [("read_file", {"path": "a.txt"})]
 
 
+async def test_stopping_a_tool_cancels_its_mcp_request_without_waiting_for_the_timeout():
+    import threading
+
+    from coworker.tools.cancellation import tool_stop
+
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def call_async(tool, args):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    fn = build_callables(MCPServerDef(name="fs", transport="stdio"),
+                         [_fake_tool("read_file")], call_async, asyncio.get_running_loop())[0]
+    stop = threading.Event()
+    token = tool_stop.set(stop)
+    try:
+        task = asyncio.create_task(asyncio.to_thread(fn))
+        await asyncio.wait_for(entered.wait(), 1)
+        stop.set()
+        with pytest.raises(RuntimeError, match="interrupted by user"):
+            await asyncio.wait_for(task, 0.5)
+        await asyncio.wait_for(cancelled.wait(), 0.5)
+    finally:
+        stop.set()
+        tool_stop.reset(token)
+
+
 # -- REST ----------------------------------------------------------------------
 def test_rest_crud(tmp_path, monkeypatch):
     monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))

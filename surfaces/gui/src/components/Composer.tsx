@@ -114,6 +114,8 @@ interface Props {
   // effective skill menu. Absent (e.g. tests without sessions) → the popup never opens.
   sessionId?: string;
   onInterrupt: () => void;
+  stopping?: boolean;
+  onForceStop?: () => void;
   onModeChange: (mode: string) => void;
   onModelChange: (model: string) => void;
   // Puppy and Hound's shared free requests today; the banner below the approvals warns
@@ -569,6 +571,7 @@ export function Composer(props: Props) {
   };
 
   const submit = () => {
+    if (!props.connected || props.stopping) return;
     // While a popup is open the draft is a query, not a message — never send it.
     if (slashQuery !== null || mentionQuery !== null) return;
     // "/name …" that isn't a skill: an app command runs, a saved command expands.
@@ -613,6 +616,12 @@ export function Composer(props: Props) {
   };
 
   const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && props.running && slashQuery === null && mentionQuery === null && !dictation?.recording) {
+      e.preventDefault();
+      if (props.stopping) props.onForceStop?.();
+      else props.onInterrupt();
+      return;
+    }
     // ⇧⇥ cycles permission modes — the Claude Code gesture, same order as the menu.
     if (e.key === "Tab" && e.shiftKey && props.workspace !== undefined) {
       e.preventDefault();
@@ -1054,9 +1063,16 @@ export function Composer(props: Props) {
 
           {/* send / stop */}
           {props.running ? (
-            <button className="btn danger" onClick={props.onInterrupt}>
-              ⏹ {t("Stop")}
-            </button>
+            <>
+              {hasContent && !props.stopping && (
+                <button className="btn" onClick={submit} disabled={!props.connected || attachments.length > 0 || !!pendingSkill || !!dictation?.recording || !!dictationBusy}>
+                  {t("Steer")}
+                </button>
+              )}
+              <button className="btn danger inline-flex items-center gap-1.5 whitespace-nowrap" onClick={props.stopping ? props.onForceStop : props.onInterrupt} disabled={props.stopping && !props.onForceStop} title={t("Stop the current task (Esc)")}>
+                <Icon name="stop" size={14} /> {t(props.stopping ? props.onForceStop ? "Force stop" : "Stopping…" : "Stop task")}
+              </button>
+            </>
           ) : (
             <button
               className={

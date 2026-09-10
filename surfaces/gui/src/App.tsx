@@ -62,8 +62,8 @@ import { Icon } from "./components/Icon";
 import { nextPose } from "./mimiPose";
 import { Sidebar } from "./components/Sidebar";
 import { ThinkingBlock, Transcript } from "./components/Transcript";
-import { formatElapsed } from "./humanize";
 import { Composer } from "./components/Composer";
+import { TaskStatus, progressFromEvent, type TaskProgress } from "./components/TaskStatus";
 import { Markdown } from "./components/Markdown";
 import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
@@ -246,10 +246,10 @@ export function App() {
   // When the in-flight turn began (ms) — the waiting line counts up from it, so a long
   // tool step reads as "still going, 3m in" rather than "hung?" (owner report 2026-09-04).
   const [runningSince, setRunningSince] = useState<number | null>(null);
-  // Transient "Compacting context…" indicator (OPE-27): set by the `compacting` event,
-  // cleared by whatever the engine emits next — the summarizer call is otherwise a
-  // multi-second silent stall mid-turn.
-  const [compacting, setCompacting] = useState(false);
+  const [progress, setProgress] = useState<TaskProgress>(() => ({ phase: "model", lastActivity: Date.now() }));
+  const [lastReceived, setLastReceived] = useState(Date.now);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [streaming, setStreamingState] = useState("");
   // Ref mirror of `streaming`: the WS handler closure is built once per socket and can't read
@@ -691,8 +691,17 @@ export function App() {
   useEffect(() => {
     if (booting) return; // wait until boot/resume settles the session before connecting
     if (gatesWorkspace(agent) && !workspace) return; // Code needs a folder (gate handles it)
+    setStopping(false);
+    setStopError("");
+    setConnected(false);
+    let wasRunning = false;
+    let missedEvents = false;
+    let revision = 0;
     const handleEvent = (ev: WsEvent) => {
       const d = ev.data || {};
+      setLastReceived(Date.now());
+      setProgress((p) => progressFromEvent(p, ev));
+      if (ev.type !== "session_status") revision++;
       // An interrupted/errored turn never emits assistant_message, so its streamed partial
       // would otherwise live only in the ephemeral buffer until the next turn_start wipes it
       // (owner-hit 2026-07-22). Promote it to a durable transcript item — the engine persists
@@ -713,27 +722,46 @@ export function App() {
           },
         ]);
       };
-      // Any engine event after `compacting` means the summarizer finished (compacted /
-      // silent no-op / failure prompt) — the transient must never outlive it.
-      if (ev.type !== "compacting") setCompacting(false);
       switch (ev.type) {
         case "ready":
+        case "session_status": {
+          if (ev.type === "ready") {
+            if (d.model) setModel(d.model);
+            if (d.mode) setMode(d.mode);
+            if (d.command_trust?.required) setWorkspaceTrustRequest(d.command_trust);
+            if (d.workspace) setWorkspace((cur) => cur || d.workspace);
+          }
           setConnected(true);
-          if (d.model) setModel(d.model);
-          if (d.mode) setMode(d.mode);
-          if (d.command_trust?.required) setWorkspaceTrustRequest(d.command_trust);
-          // Cowork: adopt the server-provisioned scratch dir (only when we don't already have one).
-          if (d.workspace) setWorkspace((cur) => cur || d.workspace);
-          // Attached mid-turn (came back to the conversation, relaunched the app while a
-          // turn ran on): the turn_start was missed, so take the engine's word for it.
+          if (typeof d.running !== "boolean") break;
+          const shouldRecover = !d.running && (wasRunning || missedEvents);
+          wasRunning = d.running;
+          setRunning(d.running);
           if (d.running) {
-            setRunning(true);
-            setRunningSince(typeof d.running_since === "number" ? d.running_since * 1000 : Date.now());
+            setRunningSince((current) => typeof d.running_since === "number" ? d.running_since * 1000 : current || Date.now());
+            if (d.phase === "stopping") setStopping(true);
+          } else {
+            setStopping(false);
+            setStopError("");
+          }
+          if (shouldRecover) {
+            const atRevision = revision;
+            void getSessionMessages(sessionId).then((messages) => {
+              if (sessionRef.current !== session || revision !== atRevision || wasRunning) return;
+              setItems(itemsFromMessages(messages));
+              setUsage(usageFromMessages(messages));
+              setStreaming("");
+              setReasoningStream("");
+              missedEvents = false;
+            }).catch(() => { missedEvents = true; });
           }
           break;
+        }
         case "turn_start":
+          wasRunning = true;
           setRunning(true);
-          setRunningSince(Date.now());
+          setStopping(false);
+          setStopError("");
+          setRunningSince(typeof d.running_since === "number" ? d.running_since * 1000 : Date.now());
           setStreaming("");
           setReasoningStream("");
           // Background-delivered turns (channel message, self-wake, durable resume) have no local
@@ -887,9 +915,6 @@ export function App() {
           ]);
           announceMemoryChanged(); // Settings ▸ Memory, if open, is now stale
           break;
-        case "compacting":
-          setCompacting(true);
-          break;
         case "compacted":
           // Auto-compaction marker (OPE-27): outbound-only — the transcript stays intact,
           // this divider just shows where the model's memory was summarized.
@@ -901,7 +926,10 @@ export function App() {
           break;
         case "interrupted":
           flushPartialStream();
-          setItems((p) => [...p, { kind: "notice", tone: "warn", text: "Interrupted." }]);
+          setItems((p) => [...p, { kind: "notice", tone: "warn", text: d.text || "Interrupted." }]);
+          break;
+        case "interrupt_requested":
+          setStopping(true);
           break;
         case "error":
           flushPartialStream();
@@ -915,7 +943,7 @@ export function App() {
           // tells the user it reaches Mimi mid-run rather than starting a new turn.
           setItems((p) => [
             ...p,
-            { kind: "notice", tone: "info", text: "Mimi will pick this up at its next step." },
+            { kind: "notice", tone: "info", text: "Your message takes priority. Mimi will follow it as soon as the current step can stop safely." },
           ]);
           break;
         case "input_rejected":
@@ -925,7 +953,10 @@ export function App() {
           ]);
           break;
         case "turn_done":
+          wasRunning = false;
           setRunning(false);
+          setStopping(false);
+          setStopError("");
           refreshSessions();
           refreshFreeTier();
           // Catch-all artifact refresh: files created via shell or on a brand-new session (whose
@@ -968,7 +999,7 @@ export function App() {
           sessionRef.current?.userMessage(req.text, undefined, req.model, req.skill);
         }
       },
-      onClose: () => setConnected(false),
+      onClose: () => { setConnected(false); missedEvents = true; },
     });
     sessionRef.current = session;
     return () => session.close();
@@ -1159,7 +1190,16 @@ export function App() {
   const prefillNonce = useRef(0);
   const prefillComposer = (text: string, attachments?: Attachment[]) =>
     setComposerPrefill({ text, attachments, nonce: ++prefillNonce.current });
-  const interrupt = () => sessionRef.current?.interrupt();
+  const interrupt = (force = false) => {
+    const session = sessionRef.current;
+    if (!session) return;
+    setStopping(true);
+    setStopError("");
+    void session.interrupt(force).catch((error: unknown) => {
+      if (sessionRef.current !== session) return;
+      setStopError(error instanceof Error ? error.message : "Could not reach MimiWork. Try Force stop again.");
+    });
+  };
   const retry = () => {
     // Optimistic running: turn_start confirms; a rejected retry still ends in turn_done.
     setRunning(true);
@@ -1989,17 +2029,6 @@ export function App() {
                       <ThinkingBlock text={reasoningStream} live />
                     </div>
                   )}
-                  {/* Compaction runs between provider turns (nothing streams during it), so
-                      the transient takes over the waiting slot with a specific label. */}
-                  {running && compacting && <WaitingForAgent label="Compacting context…" since={runningSince} />}
-                  {running &&
-                    !compacting &&
-                    !reasoningStream &&
-                    (!streaming || streamMode(streaming, items, running) === "hold") &&
-                    !lastItemIsAssistant(items) &&
-                    // Once the turn has tool activity, the live turn group carries the clock
-                    // and the spinning step — a second "working" row under it said the same.
-                    !liveTurnHasActivity(items) && <WaitingForAgent since={runningSince} />}
                   {streaming && streamMode(streaming, items, running) === "answer" && (
                     <div className="transcript">
                       <div className="bubble-assistant">
@@ -2029,6 +2058,8 @@ export function App() {
               </div>
             )}
 
+            <TaskStatus running={running} connected={connected} since={runningSince} progress={progress}
+              lastReceived={lastReceived} stopping={stopping} error={stopError} />
             <Composer
               mode={mode}
               model={model}
@@ -2041,7 +2072,9 @@ export function App() {
               onConfigureVoiceInput={() => openSettings("voice")}
               onSend={send}
               onAppCommand={runAppCommand}
-              onInterrupt={interrupt}
+              onInterrupt={() => interrupt()}
+              stopping={stopping}
+              onForceStop={() => interrupt(true)}
               onModeChange={changeMode}
               onModelChange={changeModel}
               freeTier={freeTier}
@@ -2172,50 +2205,6 @@ Keep the original and save a revised copy. Check the requested changes and give 
     </div>
   );
 }
-
-function liveTurnHasActivity(items: Item[]): boolean {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item.kind === "user") return false;
-    if (item.kind === "tool") return true;
-  }
-  return false;
-}
-
-function lastItemIsAssistant(items: Item[]): boolean {
-  for (let i = items.length - 1; i >= 0; i--) {
-    const item = items[i];
-    if (item.kind === "notice") continue;
-    return item.kind === "assistant";
-  }
-  return false;
-}
-
-function WaitingForAgent({ label, since }: { label?: string; since?: number | null }) {
-  // Elapsed since the turn began, ticking once a second: the answer to "is it still
-  // working?" is a number that keeps moving.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!since) return;
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, [since]);
-  const elapsed = since ? formatElapsed(now - since) : "";
-  return (
-    <div className="waiting-transcript">
-      <div className="waiting-row" aria-live="polite">
-        <span className="waiting-spinner" />
-        <span>{label || "Mimi is working…"}</span>
-        {elapsed && (
-          <span className="waiting-elapsed" data-testid="waiting-elapsed">
-            {elapsed}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 
 function updateLastTool(
   items: Item[],

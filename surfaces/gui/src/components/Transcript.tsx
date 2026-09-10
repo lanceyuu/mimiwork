@@ -77,7 +77,7 @@ function BubbleMeta({ text, ts, align }: { text: string; ts?: number; align: "le
 // collapsed by default, the trace one click away. `live` = still streaming (pulsing label);
 // App renders that variant above the transcript, this one rides a finalized assistant item.
 export function ThinkingBlock({ text, live }: { text: string; live?: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!live);
   return (
     <div className="thinking">
       <button
@@ -494,6 +494,11 @@ export function Transcript({ items, running, since, streamingText, onRetry, onUn
   flush(!!running);
 
   const lastTurnIndex = blocks.reduce((acc, b, i) => ("turn" in b ? i : acc), -1);
+  const lastUserIndex = blocks.reduce((acc, b, i) => ("item" in b && (b.item.kind === "user" || b.item.kind === "connector") ? i : acc), -1);
+  // A retry or progress notice is not a turn ending. Keep that task's activity
+  // open while the model works on the next step after the notice.
+  const latest = blocks[lastTurnIndex];
+  if (running && latest && "turn" in latest && lastTurnIndex > lastUserIndex) latest.live = true;
   // A finished turn's duration: the user message before it to the answer after it (tool
   // items carry no timestamps; the messages around them do).
   const tsAt = (bi: number) => {

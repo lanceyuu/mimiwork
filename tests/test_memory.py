@@ -721,6 +721,8 @@ def test_the_guidance_asks_for_the_facts_people_actually_state():
 def test_compaction_asks_once_for_anything_worth_keeping():
     """Compaction is the one moment where "save it now or lose it" is literally true.
     Once per session, not per compaction: a long session compacts repeatedly."""
+    import asyncio
+
     from coworker.agent import MEMORY_CONSOLIDATION_NUDGE
     from coworker.engine import TurnEngine
 
@@ -728,6 +730,7 @@ def test_compaction_asks_once_for_anything_worth_keeping():
     engine._memory_nudged = False
     engine.memory_enabled = True
     engine._steering = []
+    engine._cancel = asyncio.Event()
 
     engine._queue_memory_consolidation()
     engine._queue_memory_consolidation()  # a second compaction must not ask again

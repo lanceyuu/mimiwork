@@ -6,7 +6,10 @@ hosted chat templates reject orphans and durable-resume re-prompts them."""
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
+
+import pytest
 
 from coworker.engine import ApprovalOutcome, TurnEngine
 from coworker.events import EventType
@@ -385,3 +388,136 @@ def test_retry_survives_model_switches(tmp_path):
 
 async def _drain_retry(engine):
     return [ev async for ev in engine.retry()]
+
+
+async def test_force_stop_releases_a_stalled_tool_and_never_runs_the_remaining_calls(tmp_path):
+    entered, release = threading.Event(), threading.Event()
+    registry = ToolRegistry()
+
+    def stalled():
+        entered.set()
+        release.wait(5)
+        return "late result"
+
+    def must_not_run():
+        raise AssertionError("an old task continued after stop")
+
+    registry.register(stalled)
+    registry.register(must_not_run)
+
+    async def approve(_):
+        return ApprovalOutcome.ONCE
+
+    engine = TurnEngine(
+        provider=OneTurnProvider(_tool_turn([("stalled", {}), ("must_not_run", {})])),
+        registry=registry, permissions=PermissionEngine(workspace_root=tmp_path),
+        model="gpt-5.5", approver=approve,
+    )
+
+    async def collect():
+        return [event async for event in engine.run("go")]
+
+    task = asyncio.create_task(collect())
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        engine.queue_steering("do something else", priority=True)
+        engine.request_interrupt()
+        await asyncio.sleep(0.02)
+        assert not task.done()
+        engine.request_interrupt(force=True)
+        events = await asyncio.wait_for(task, 0.5)
+        assert events[-1].type == EventType.INTERRUPTED
+        assert len(_tool_results(engine)) == 2
+        assert "may still finish" in events[-1].data["text"]
+        assert "may still finish" in _tool_results(engine)[0]["content"]
+        assert engine.drain_pending_steering() == []
+        # A late return must not append a result or turn the stopped task back on.
+        before = list(engine.messages)
+        release.set()
+        await asyncio.sleep(0.05)
+        assert engine.messages == before
+    finally:
+        release.set()
+        await task
+
+
+@pytest.mark.parametrize("thinking", [False, True])
+async def test_steering_replaces_a_silent_or_thinking_response_before_it_finishes(tmp_path, thinking):
+    entered, release = threading.Event(), threading.Event()
+    observed = asyncio.Event()
+
+    class Provider(ProviderClient):
+        calls = 0
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+        def complete(self, **kwargs):
+            raise NotImplementedError
+
+        def stream(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                if thinking:
+                    yield StreamChunk(reasoning_delta="considering the original request")
+                entered.set()
+                release.wait(5)
+                yield StreamChunk(turn=_tool_turn([("must_not_run", {})]))
+            else:
+                assert kwargs["messages"][-1]["content"] == "focus on the latest request"
+                yield StreamChunk(turn=AssistantTurn(text="updated answer"))
+
+    provider = Provider()
+    engine = TurnEngine(provider=provider, registry=ToolRegistry(),
+                        permissions=PermissionEngine(workspace_root=tmp_path), model="gpt-5.5")
+
+    async def collect():
+        events = []
+        async for event in engine.run("original"):
+            events.append(event)
+            if event.type == EventType.REASONING_DELTA:
+                observed.set()
+        return events
+
+    task = asyncio.create_task(collect())
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        if thinking:
+            await asyncio.wait_for(observed.wait(), 1)
+        engine.queue_steering("focus on the latest request", priority=True)
+        events = await asyncio.wait_for(task, 0.5)
+        assert events[-1].type == EventType.TURN_END
+        assert provider.calls == 2
+        assert engine.messages[-1]["content"] == "updated answer"
+        assert not any(e.type == EventType.TOOL_STARTED for e in events)
+        if thinking:
+            assert any(m.get("reasoning") == "considering the original request" for m in engine.messages)
+    finally:
+        release.set()
+        await task
+
+
+async def test_stop_wakes_a_silent_model_when_requested_from_another_thread(tmp_path):
+    entered, release = threading.Event(), threading.Event()
+
+    class SilentProvider(OneTurnProvider):
+        def complete(self, **kwargs):
+            entered.set()
+            release.wait(5)
+            return AssistantTurn(text="too late")
+
+    engine = TurnEngine(provider=SilentProvider(None), registry=ToolRegistry(),
+                        permissions=PermissionEngine(workspace_root=tmp_path), model="gpt-5.5")
+
+    async def collect():
+        return [event async for event in engine.run("go")]
+
+    task = asyncio.create_task(collect())
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        await asyncio.to_thread(engine.request_interrupt)
+        events = await asyncio.wait_for(task, 0.5)
+        assert events[-1].type == EventType.INTERRUPTED
+    finally:
+        release.set()
+        await task

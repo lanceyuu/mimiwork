@@ -1266,3 +1266,43 @@ def test_ready_says_whether_a_turn_is_already_running(tmp_path):
         ready = ws.receive_json()
         assert ready["data"]["running"] is True
         assert ready["data"]["running_since"] > 0
+
+
+def test_heartbeat_confirms_liveness_without_claiming_new_model_output(tmp_path):
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    client = TestClient(create_app(manager))
+    manager.mark_running("busy")
+    with client.websocket_connect("/ws/session/busy") as ws:
+        ready = ws.receive_json()["data"]
+        ws.send_json({"type": "ping"})
+        reply = ws.receive_json()
+        assert reply["type"] == "session_status"
+        assert reply["data"]["running"] is True
+        assert reply["data"]["running_since"] == ready["running_since"]
+        assert reply["data"]["last_activity_at"] == ready["last_activity_at"]
+        manager.mark_idle("busy")
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json()["data"]["running"] is False
+
+
+def test_a_delayed_force_stop_cannot_interrupt_a_different_task(tmp_path):
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    client = TestClient(create_app(manager))
+    with client.websocket_connect("/ws/session/busy") as ws:
+        ws.receive_json()
+        manager.mark_running("busy")
+        since = manager.running_since("busy")
+        result = client.post(f"/v1/sessions/busy/interrupt?force=true&running_since={since - 1}")
+        assert result.json()["ok"] is False
+        assert not manager._engines["busy"]._cancel.is_set()
+        result = client.post(f"/v1/sessions/busy/interrupt?force=true&running_since={since}")
+        assert result.json()["ok"] is True
+        assert manager._engines["busy"]._force_cancel.is_set()
+
+
+def test_invalid_force_stop_frames_are_rejected(tmp_path):
+    client = _client(tmp_path, [])
+    with client.websocket_connect("/ws/session/s") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "interrupt", "force": "yes"})
+        assert ws.receive_json()["type"] == "input_rejected"

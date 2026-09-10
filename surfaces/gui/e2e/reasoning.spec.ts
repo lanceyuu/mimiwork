@@ -13,9 +13,8 @@ test("thinking streams live, then persists as a collapsed disclosure on the answ
   await box.fill("think hard about this");
   await box.press("Enter");
 
-  // Live phase: the Thinking… block is up while deltas tick in; expanding shows the trace.
+  // Live reasoning is visible without opening a disclosure.
   await expect(page.getByText("Thinking…").first()).toBeVisible({ timeout: 10_000 });
-  await page.getByTestId("thinking-toggle").click();
   await expect(page.getByTestId("thinking-body")).toContainText("Weighing options.");
 
   // Finalized: the answer bubble carries a collapsed "Thought process" disclosure.

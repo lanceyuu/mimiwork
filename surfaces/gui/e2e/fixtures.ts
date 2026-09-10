@@ -617,15 +617,31 @@ export async function mockApi(page: import("@playwright/test").Page) {
   });
 
   await page.routeWebSocket(/\/ws\/session\//, (ws) => {
-    const send = (type: string, data: Record<string, unknown> = {}) =>
-      ws.send(JSON.stringify({ type, data }));
+    let live = false;
+    let phase = "model";
+    let since = Date.now() / 1000;
+    let lastActivity = since;
+    let stuck = false;
+    const send = (type: string, data: Record<string, unknown> = {}) => {
+      if (type === "turn_start") { live = true; since = Date.now() / 1000; }
+      if (type === "turn_done") live = false;
+      if (type === "assistant_delta") phase = "responding";
+      if (type === "reasoning_delta") phase = "thinking";
+      if (type === "tool_started") phase = "tool";
+      if (type === "interrupt_requested") phase = "stopping";
+      if (type !== "session_status") lastActivity = Date.now() / 1000;
+      ws.send(JSON.stringify({ type, data: type === "turn_start" ? { ...data, running_since: since } : data }));
+    };
     send("ready");
     let pendingTool = "run_shell"; // which proposal the next approval decision resolves
     let epicTimer: ReturnType<typeof setInterval> | null = null; // the slow stream, stoppable via interrupt
     let hadTurn = false; // a user_message landed — set_model is now a mid-session switch
     ws.onMessage((raw) => {
       const msg = JSON.parse(String(raw));
-      if (msg.type === "user_message") {
+      if (msg.type === "ping") {
+        send("session_status", { running: live, running_since: live ? since : null, phase: live ? phase : "idle", last_activity_at: lastActivity });
+      } else if (msg.type === "user_message") {
+        if (epicTimer) { clearInterval(epicTimer); epicTimer = null; }
         hadTurn = true;
         // Force-run (SKILLS-SPEC §6): like the real server, TURN_START ships the user's
         // literal "/name …" line as `display` so the client dedupes on what the user sees.
@@ -633,6 +649,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
           input: msg.text,
           ...(msg.skill ? { display: `/${msg.skill}${msg.text ? ` ${msg.text}` : ""}` } : {}),
         });
+        if (/wait silently/i.test(msg.text)) return;
+        if (/stalled connected service/i.test(msg.text)) {
+          stuck = true;
+          send("tool_proposed", { name: "mcp__canva__list-folder-items", arguments: {} });
+          send("tool_started", { name: "mcp__canva__list-folder-items" });
+          return;
+        }
         if (/run a tool/i.test(msg.text)) {
           pendingTool = "run_shell";
           send("tool_proposed", { name: "run_shell", arguments: { command: "ls" } });
@@ -846,6 +869,8 @@ export async function mockApi(page: import("@playwright/test").Page) {
         }
         send("turn_done");
       } else if (msg.type === "interrupt") {
+        send("interrupt_requested");
+        if (stuck) return;
         // Stop mid-stream: like the real engine, end the turn with `interrupted` and
         // NO assistant_message — the client owns promoting the partial into the transcript.
         if (epicTimer) {

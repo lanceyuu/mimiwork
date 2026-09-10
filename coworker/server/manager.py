@@ -206,6 +206,7 @@ class SessionManager:
         # (the start time feeds mission control's elapsed display; membership is
         # all the busy logic ever tests).
         self._running_sessions: dict[str, float] = {}
+        self._session_progress: dict[str, dict[str, Any]] = {}
         # Sessions with an auto-title LLM call in flight (FB-010) — one call at a time.
         self._autotitle_inflight: set[str] = set()
         self._autotitle_tasks: set[asyncio.Task] = set()
@@ -4131,6 +4132,29 @@ class SessionManager:
     async def broadcast_session(self, session_id: str, message: dict) -> None:
         """Fan a turn event out to every socket viewing this session. Best-effort: a dead socket
         is dropped, never fatal to the turn (delivery is socket-independent)."""
+        kind = message.get("type")
+        data = message.get("data") or {}
+        if kind == "turn_start":
+            message = {**message, "data": {**data, "running_since": self.running_since(session_id)}}
+        phases = {
+            "turn_start": "model", "iteration_end": "model", "compacted": "model",
+            "assistant_delta": "responding", "reasoning_delta": "thinking",
+            "assistant_message": "model", "tool_started": "tool",
+            "permission_required": "waiting", "directory_requested": "waiting",
+            "question_requested": "waiting", "plan_proposed": "waiting",
+            "compacting": "compacting", "interrupt_requested": "stopping",
+            "steer_queued": "steering",
+        }
+        if kind in phases or kind in {"tool_finished", "notice"}:
+            progress = self._session_progress.setdefault(session_id, {})
+            progress["last_activity_at"] = time.time()
+            if kind in phases:
+                progress["phase"] = phases[kind]
+            if kind == "tool_started":
+                progress["tool"] = data.get("name")
+            if kind == "notice" and data.get("kind") == "steering":
+                progress["phase"] = "model"
+                self._close_task_prompts(session_id, "superseded by a newer instruction")
         for cb in list(self._session_clients.get(session_id, ())):
             try:
                 await cb(message)
@@ -4433,6 +4457,7 @@ class SessionManager:
 
     def mark_running(self, session_id: str) -> None:
         self._running_sessions[session_id] = time.time()
+        self._session_progress[session_id] = {"phase": "model", "last_activity_at": time.time()}
         self._announce_activity()
 
     def try_mark_running(self, session_id: str) -> bool:
@@ -4440,11 +4465,16 @@ class SessionManager:
         if session_id in self._running_sessions:
             return False
         self._running_sessions[session_id] = time.time()
+        self._session_progress[session_id] = {"phase": "model", "last_activity_at": time.time()}
         self._announce_activity()
         return True
 
     def mark_idle(self, session_id: str) -> None:
         self._running_sessions.pop(session_id, None)
+        self._session_progress.pop(session_id, None)
+        engine = self._engines.get(session_id)
+        if engine is not None and engine._cancel.is_set():
+            self._close_task_prompts(session_id, "task stopped")
         self._announce_activity()
         # Every turn path (WS, background delivery, durable resume) marks idle when it
         # finishes — the one shared post-turn moment, so auto-titling hooks in here and
@@ -4553,14 +4583,38 @@ class SessionManager:
             "agent": (rec.agent if rec else None) or "cowork",
         }
 
-    def interrupt_session(self, session_id: str) -> dict[str, Any]:
+    def session_status(self, session_id: str) -> dict[str, Any]:
+        running = self.is_running(session_id)
+        engine = self._engines.get(session_id)
+        progress = self._session_progress.get(session_id, {})
+        return {
+            **progress,
+            "running": running,
+            "running_since": self.running_since(session_id),
+            "phase": "stopping" if running and engine and engine._cancel.is_set()
+            else progress.get("phase", "model") if running else "idle",
+        }
+
+    def _close_task_prompts(self, session_id: str, reason: str) -> None:
+        from ..inbox import KIND_NOTIFICATION
+
+        for item in self.inbox.pending(session_id):
+            if item.kind != KIND_NOTIFICATION:
+                self.inbox.resolve(item.id, reason)
+
+    def interrupt_session(
+        self, session_id: str, *, force: bool = False, running_since: Optional[float] = None
+    ) -> dict[str, Any]:
         """Stop a running session's turn from OUTSIDE its own socket (mission
         control's stop button) — same request_interrupt the session WS uses."""
         engine = self._engines.get(session_id)
         if engine is None or session_id not in self._running_sessions:
-            return {"ok": False, "error": "session is not running"}
-        engine.request_interrupt()
-        return {"ok": True}
+            return {"ok": False, "error": "session is not running", "running": False}
+        if running_since is not None and running_since != self.running_since(session_id):
+            return {"ok": False, "error": "That task already ended; a different task is running."}
+        engine.request_interrupt(force=force)
+        self._close_task_prompts(session_id, "task stopped")
+        return {"ok": True, "running": True}
 
     async def _resume_wake(self, wake) -> None:
         await self.deliver_to_session(wake.session_id, self._wake_message(wake))

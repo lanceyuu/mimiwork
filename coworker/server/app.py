@@ -259,10 +259,19 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.fork_session(session_id)
 
     @app.post("/v1/sessions/{session_id}/interrupt")
-    def interrupt_session(session_id: str) -> dict[str, Any]:
+    async def interrupt_session(
+        session_id: str, force: bool = False, running_since: Optional[float] = None
+    ) -> dict[str, Any]:
         """Mission control's stop button — halt a running session's turn from
         outside its own WebSocket."""
-        return manager.interrupt_session(session_id)
+        result = manager.interrupt_session(session_id, force=force, running_since=running_since)
+        if result["ok"]:
+            await manager.broadcast_session(session_id, {"type": "interrupt_requested", "data": {"force": force}})
+        return result
+
+    @app.get("/v1/sessions/{session_id}/status")
+    async def session_status(session_id: str) -> dict[str, Any]:
+        return manager.session_status(session_id)
 
     # -- transfer pack (Cowork / Claude Code parity) --------------------------------
 
@@ -1857,6 +1866,7 @@ def create_app(manager: SessionManager) -> FastAPI:
                     # learnt "running" from turn_start, which it had missed.
                     "running": manager.is_running(session_id),
                     "running_since": manager.running_since(session_id),
+                    **manager.session_status(session_id),
                 },
             }
         )
@@ -1931,8 +1941,11 @@ def create_app(manager: SessionManager) -> FastAPI:
                 # "asynchronous intervention"; the queue already existed for Slack
                 # follow-ups, the desktop socket just never used it.
                 if steer_text:
-                    engine.queue_steering(steer_text)
-                    await ws.send_json(
+                    if engine._cancel.is_set():
+                        await reject_input("This task is stopping. Send your message again once it has stopped.")
+                        return
+                    engine.queue_steering(steer_text, priority=True)
+                    await manager.broadcast_session(session_id,
                         {"type": "steer_queued", "data": {"text": steer_text}}
                     )
                     return
@@ -1941,6 +1954,9 @@ def create_app(manager: SessionManager) -> FastAPI:
                 )
                 return
             asyncio.create_task(run_turn(content, retry=retry, display=display))
+            # Start the engine's fresh cancellation scope before accepting another
+            # frame, so an immediate Stop cannot be erased by run() initialization.
+            await asyncio.sleep(0)
 
         try:
             while True:
@@ -1994,7 +2010,17 @@ def create_app(manager: SessionManager) -> FastAPI:
                 elif kind == "question_response":
                     _resolve_pending(str(message.get("answer", "")))
                 elif kind == "interrupt":
-                    engine.request_interrupt()
+                    force = message.get("force", False)
+                    since = message.get("running_since")
+                    if not isinstance(force, bool) or (since is not None and (isinstance(since, bool) or not isinstance(since, (int, float)))):
+                        await reject_input("Invalid stop request.")
+                        continue
+                    result = manager.interrupt_session(session_id, force=force, running_since=since)
+                    if result["ok"]:
+                        await manager.broadcast_session(session_id, {"type": "interrupt_requested", "data": {"force": force}})
+                    await ws.send_json({"type": "session_status", "data": manager.session_status(session_id)})
+                elif kind == "ping":
+                    await ws.send_json({"type": "session_status", "data": manager.session_status(session_id)})
                 elif kind == "retry":
                     # Re-run after a provider error (engine guards on the error-notice
                     # tail, so a stray frame is a no-op that still ends with turn_done).

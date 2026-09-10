@@ -22,6 +22,21 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  "Stop task": ["停止任务", "Stopp oppgaven", "Arrêter la tâche"],
+  "Force stop": ["强制停止", "Tving stopp", "Forcer l’arrêt"],
+  "Stopping…": ["正在停止…", "Stopper…", "Arrêt en cours…"],
+  "Steer": ["调整方向", "Endre retning", "Réorienter"],
+  "Stop the current task (Esc)": ["停止当前任务（Esc）", "Stopp den gjeldende oppgaven (Esc)", "Arrêter la tâche en cours (Échap)"],
+  "Waiting for the model…": ["正在等待模型…", "Venter på modellen…", "En attente du modèle…"],
+  "Writing a response…": ["正在撰写回复…", "Skriver et svar…", "Rédaction de la réponse…"],
+  "Running a step…": ["正在执行步骤…", "Utfører et trinn…", "Exécution d’une étape…"],
+  "Waiting for your response…": ["正在等待你的回复…", "Venter på svaret ditt…", "En attente de votre réponse…"],
+  "Summarizing earlier messages…": ["正在总结之前的消息…", "Oppsummerer tidligere meldinger…", "Résumé des messages précédents…"],
+  "Updating the task with your message…": ["正在根据你的消息调整任务…", "Oppdaterer oppgaven med meldingen din…", "Mise à jour de la tâche avec votre message…"],
+  "Stopping the current task…": ["正在停止当前任务…", "Stopper den gjeldende oppgaven…", "Arrêt de la tâche en cours…"],
+  "Connection lost. Reconnecting…": ["连接已断开，正在重连…", "Tilkoblingen er brutt. Kobler til igjen…", "Connexion perdue. Reconnexion…"],
+  "Connection active. No new output for": ["连接正常。没有新输出的时间：", "Tilkoblingen er aktiv. Ingen nye resultater på", "Connexion active. Aucune nouvelle sortie depuis"],
+  "The task may still be running. You can still try Stop task.": ["任务可能仍在运行。你仍可以尝试停止任务。", "Oppgaven kan fortsatt kjøre. Du kan fortsatt prøve å stoppe den.", "La tâche peut encore être en cours. Vous pouvez toujours essayer de l’arrêter."],
   "Mimi Wolf uses account credits.": ["Mimi Wolf 使用账户积分。", "Mimi Wolf bruker kontokreditter.", "Mimi Wolf utilise les crédits du compte."],
   "shared with Mimi Hound": ["与 Mimi Hound 共用", "delt med Mimi Hound", "partagée avec Mimi Hound"],
   "shared with Mimi Puppy": ["与 Mimi Puppy 共用", "delt med Mimi Puppy", "partagée avec Mimi Puppy"],

@@ -280,6 +280,42 @@ describe("steering a running turn", () => {
     expect(screen.getByText(/Stop/)).toBeTruthy();
   });
 
+  it("Steer submits the new direction without hiding Stop task", () => {
+    stubFetch();
+    const p = props({ running: true });
+    render(<Composer {...p} />);
+    fireEvent.change(runningBox(), { target: { value: "use the new numbers" } });
+    expect(screen.getByRole("button", { name: "Stop task" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Steer" }));
+    expect(p.onSend).toHaveBeenCalledWith("use the new numbers", [], undefined);
+    expect(p.onInterrupt).not.toHaveBeenCalled();
+  });
+
+  it("Escape stops a task and a second Escape can force it to stop", () => {
+    stubFetch();
+    const p = props({ running: true, onForceStop: vi.fn() });
+    const { rerender } = render(<Composer {...p} />);
+    fireEvent.keyDown(runningBox(), { key: "Escape" });
+    expect(p.onInterrupt).toHaveBeenCalledOnce();
+    rerender(<Composer {...p} stopping connected={false} />);
+    fireEvent.keyDown(runningBox(), { key: "Escape" });
+    expect(p.onForceStop).toHaveBeenCalledOnce();
+    expect((screen.getByRole("button", { name: "Force stop" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a disconnected or stopping composer keeps the user's draft", () => {
+    stubFetch();
+    const p = props({ running: true });
+    const { rerender } = render(<Composer {...p} connected={false} />);
+    fireEvent.change(runningBox(), { target: { value: "do this next" } });
+    fireEvent.keyDown(runningBox(), { key: "Enter" });
+    expect(p.onSend).not.toHaveBeenCalled();
+    rerender(<Composer {...p} stopping />);
+    fireEvent.keyDown(runningBox(), { key: "Enter" });
+    expect(p.onSend).not.toHaveBeenCalled();
+    expect((runningBox() as HTMLTextAreaElement).value).toBe("do this next");
+  });
+
   it("a picked /skill still waits for the turn to end", async () => {
     stubFetch();
     const p = props({ running: true });

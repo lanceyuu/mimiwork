@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -39,6 +40,7 @@ from .providers.errors import (
 from .repetition import RepetitionGuard as _RepetitionGuard
 from .timesaved import TimeSaved
 from .tools import RecoveryPolicy, ToolRegistry
+from .tools.cancellation import tool_stop
 
 
 class ApprovalOutcome(str, Enum):
@@ -207,6 +209,11 @@ class TurnEngine:
         ):
             self.messages.insert(0, {"role": "system", "content": instructions})
         self._cancel = asyncio.Event()
+        self._force_cancel = asyncio.Event()
+        self._steer_signal = asyncio.Event()
+        self._tool_cancel = threading.Event()
+        self._force_detached = False
+        self._control_loop: Optional[asyncio.AbstractEventLoop] = None
         # Each pending steering message: (text, optional MessageSource sidecar dict).
         self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
         # tool_call.id → the standing rule that auto-allowed it ("tool → target"), so the
@@ -226,14 +233,30 @@ class TurnEngine:
         self._resume_prepared_call_ids: set[str] = set()
 
     # -- external controls ------------------------------------------------------
-    def request_interrupt(self) -> None:
+    def request_interrupt(self, *, force: bool = False) -> None:
         """Stop the turn as soon as possible, from ANY state: mid-stream (the producer
         thread drops the stream between chunks), mid-tool (interrupt hooks kill the
         running command), awaiting an approval/question/plan (the await resolves as
         interrupted), or between iterations (the loop checkpoint). Every pending
         tool_call still gets a tool-error result so the history never carries orphans
         (hosted templates reject them, and durable-resume would re-prompt them)."""
+        # REST and executor hooks can call from worker threads. asyncio.Event.set
+        # must wake its waiters on the owning event loop.
+        if self._control_loop is not None:
+            try:
+                if asyncio.get_running_loop() is not self._control_loop:
+                    raise RuntimeError
+            except RuntimeError:
+                self._control_loop.call_soon_threadsafe(
+                    lambda: self.request_interrupt(force=force)
+                )
+                return
         self._cancel.set()
+        self._tool_cancel.set()
+        self._steering.clear()
+        self._steer_signal.clear()
+        if force:
+            self._force_cancel.set()
         for hook in self._interrupt_hooks:
             try:
                 hook()
@@ -245,21 +268,41 @@ class TurnEngine:
         turn. The pending task is cancelled so an answered-later Inbox card no-ops."""
         task = asyncio.ensure_future(coro)
         cancel_wait = asyncio.ensure_future(self._cancel.wait())
+        steer_wait = asyncio.ensure_future(self._steer_signal.wait())
         try:
             done, _ = await asyncio.wait(
-                {task, cancel_wait}, return_when=asyncio.FIRST_COMPLETED
+                {task, cancel_wait, steer_wait}, return_when=asyncio.FIRST_COMPLETED
             )
             if task in done:
                 return task.result()
             task.cancel()
             return interrupted
         finally:
+            if not task.done():
+                task.cancel()
             cancel_wait.cancel()
+            steer_wait.cancel()
+            await asyncio.gather(task, cancel_wait, steer_wait, return_exceptions=True)
+
+    def _reset_controls(self) -> None:
+        self._control_loop = asyncio.get_running_loop()
+        self._cancel = asyncio.Event()
+        self._force_cancel = asyncio.Event()
+        priority = self._steer_signal.is_set()
+        self._steer_signal = asyncio.Event()
+        if priority:
+            self._steer_signal.set()
+        self._tool_cancel = threading.Event()
+        self._force_detached = False
 
     def queue_steering(
-        self, text: str, source: Optional[dict[str, Any]] = None
+        self, text: str, source: Optional[dict[str, Any]] = None, *, priority: bool = False
     ) -> None:
+        if self._cancel.is_set():
+            return
         self._steering.append((text, source))
+        if priority:
+            self._steer_signal.set()
 
     def seed_approved_recovery(self, tool_call_id: str) -> None:
         """Mark a legacy call as prepared when a durable approval proves it never ran."""
@@ -292,7 +335,7 @@ class TurnEngine:
         if display is not None:
             message["_display"] = display
         self.messages.append(message)
-        self._cancel.clear()
+        self._reset_controls()
         data: dict[str, Any] = {"input": user_input}
         if source is not None:
             data["source"] = source
@@ -360,6 +403,11 @@ class TurnEngine:
             notice["text"] = text
         self.messages.append(notice)
 
+    def _interrupted_event(self, iterations: int) -> Event:
+        text = "Task stopped. An operation already started may still finish." if self._force_detached else None
+        self._append_notice("interrupted", text)
+        return Event(EventType.INTERRUPTED, {"iterations": iterations, **({"text": text} if text else {})})
+
     async def retry(self) -> AsyncIterator[Event]:
         """Re-run the model loop after a provider error — no new user message; the failed
         turn's input is already the tail of history. Guarded on the tail being an error
@@ -368,7 +416,7 @@ class TurnEngine:
         is the intended recovery path (owner-hit 2026-07-23)."""
         if not self._tail_is_retriable_error():
             return
-        self._cancel.clear()
+        self._reset_controls()
         self._begin_turn()
         yield Event(EventType.TURN_START, {"input": ""})
         async for event in self._loop():
@@ -383,7 +431,7 @@ class TurnEngine:
         pending = self._unanswered_trailing_tool_calls()
         if not pending:
             return
-        self._cancel.clear()
+        self._reset_controls()
         self._begin_turn()
         yield Event(EventType.TURN_START, {"input": "(resumed)"})
         self._resuming = True
@@ -393,7 +441,9 @@ class TurnEngine:
         finally:
             self._resuming = False
         yield Event(EventType.ITERATION_END, {"iteration": 0})
-        if not self._cancel.is_set():
+        if self._cancel.is_set():
+            yield self._interrupted_event(0)
+        else:
             async for event in self._loop():
                 yield event
 
@@ -442,6 +492,12 @@ class TurnEngine:
         rep_guard = _RepetitionGuard(min_chars=16)
         self._fail_streak = 0
         while True:
+            if self._cancel.is_set():
+                yield self._interrupted_event(iterations)
+                return
+            if self._steer_signal.is_set():
+                self._inject_steering()
+                yield Event(EventType.NOTICE, {"kind": "steering", "text": "Following your updated instruction."})
             if iterations >= self.max_iterations:
                 yield Event(
                     EventType.TURN_END,
@@ -497,6 +553,8 @@ class TurnEngine:
             if notice:
                 self._append_notice("compacted", notice)
                 yield Event(EventType.COMPACTED, {"text": notice})
+            if self._cancel.is_set() or self._steer_signal.is_set():
+                continue
 
             turn: Optional[AssistantTurn] = None
             streamed: list[str] = []
@@ -555,7 +613,7 @@ class TurnEngine:
                             "delay": delay,
                         },
                     )
-                    await asyncio.sleep(delay)
+                    await self._interruptible(asyncio.sleep(delay), None)
                     iterations -= 1  # the retry is the same step, not a new one
                     continue
                 # A raw context-overflow 400 (compaction mispredicted, e.g. the estimate
@@ -646,12 +704,20 @@ class TurnEngine:
                     },
                 )
                 continue
-            if self._cancel.is_set() and turn is None:
+            if self._steer_signal.is_set() and not self._cancel.is_set():
+                if streamed or streamed_reasoning:
+                    partial = _partial_turn()
+                    self.messages.append(_assistant_message(partial))
+                    yield Event(EventType.ASSISTANT_MESSAGE, {
+                        "text": partial.text, "reasoning": partial.reasoning, "tool_calls": [],
+                    })
+                # Incomplete tool calls from the old response must never execute.
+                continue
+            if self._cancel.is_set():
                 # Stopped mid-stream: persist exactly what the user watched arrive.
                 if streamed or streamed_reasoning:
                     self.messages.append(_assistant_message(_partial_turn()))
-                self._append_notice("interrupted")
-                yield Event(EventType.INTERRUPTED, {"iterations": iterations})
+                yield self._interrupted_event(iterations)
                 return
             if turn is None:
                 turn = AssistantTurn()
@@ -697,8 +763,12 @@ class TurnEngine:
             yield Event(EventType.ASSISTANT_MESSAGE, payload)
 
             if not turn.tool_calls:
+                if self._cancel.is_set():
+                    yield self._interrupted_event(iterations)
+                    return
                 if self._steering:
                     self._inject_steering()
+                    yield Event(EventType.NOTICE, {"kind": "steering", "text": "Following your updated instruction."})
                     continue
                 yield Event(
                     EventType.TURN_END,
@@ -784,11 +854,11 @@ class TurnEngine:
             yield Event(EventType.ITERATION_END, {"iteration": iterations})
 
             if self._cancel.is_set():
-                self._append_notice("interrupted")
-                yield Event(EventType.INTERRUPTED, {"iterations": iterations})
+                yield self._interrupted_event(iterations)
                 return
             if self._steering:
                 self._inject_steering()
+                yield Event(EventType.NOTICE, {"kind": "steering", "text": "Following your updated instruction."})
 
     # -- auto-compaction (OPE-27) ------------------------------------------------
     def _queue_memory_consolidation(self) -> None:
@@ -852,14 +922,17 @@ class TurnEngine:
             * _compaction.trigger_tokens(window, threshold_pct=pct, cap_tokens=cap)
         )
         model = str(cfg.get("model") or "") or self.model
+        messages = list(self.messages)
+        prior = self.compaction_state
+        provider = self.provider
 
         def _build(with_model: str) -> Optional[_compaction.CompactionState]:
             return _compaction.build_state(
-                self.messages,
-                provider=self.provider,
+                messages,
+                provider=provider,
                 model=with_model,
                 keep_tokens=keep,
-                prior=self.compaction_state,
+                prior=prior,
             )
 
         state: Optional[_compaction.CompactionState] = None
@@ -868,18 +941,20 @@ class TurnEngine:
         delays = (0.0, self.retry_delays[0], self.retry_delays[1])
         for with_model in candidates:
             for delay in delays:
-                if self._cancel.is_set():
+                if self._cancel.is_set() or self._steer_signal.is_set():
                     break
                 if delay:
-                    await asyncio.sleep(delay)
+                    await self._interruptible(asyncio.sleep(delay), None)
                 try:
-                    state = await asyncio.to_thread(_build, with_model)
+                    state = await self._interruptible(asyncio.to_thread(_build, with_model), None)
                     failed = False
                     break
                 except Exception:
                     failed = True
             if state is not None:
                 break
+        if self._cancel.is_set() or self._steer_signal.is_set():
+            return None
         if state is not None:
             self.compaction_state = state
             self._last_context_tokens = None  # stale once the outbound view shrank
@@ -914,6 +989,8 @@ class TurnEngine:
             self.model_settings,
         )
         provider = self.provider
+        cancel = self._cancel
+        steer = self._steer_signal
         # Set when the consumer walks away early (a degenerate stream): the producer
         # then drops the provider's generator, which closes the HTTP stream — so the
         # gateway stops generating (and billing) a reply nobody will read.
@@ -926,7 +1003,7 @@ class TurnEngine:
                 ):
                     # User pressed Stop: drop the stream between chunks (reading the
                     # asyncio.Event's flag from a thread is safe; we only read).
-                    if self._cancel.is_set() or abandoned[0]:
+                    if cancel.is_set() or steer.is_set() or abandoned[0]:
                         break
                     loop.call_soon_threadsafe(queue.put_nowait, ("chunk", chunk))
             except Exception as exc:  # surfaced to the awaiting consumer
@@ -945,16 +1022,10 @@ class TurnEngine:
         while True:
             # Race the queue against Stop so a stalled stream (no chunks arriving —
             # the pre-first-token wait, a wedged connection) can't hold the turn.
-            get_task = asyncio.ensure_future(queue.get())
-            cancel_task = asyncio.ensure_future(self._cancel.wait())
-            done, _ = await asyncio.wait(
-                {get_task, cancel_task}, return_when=asyncio.FIRST_COMPLETED
-            )
-            cancel_task.cancel()
-            if get_task not in done:
-                get_task.cancel()
-                return  # interrupted — the producer exits on its own next chunk
-            kind, payload = get_task.result()
+            item = await self._interruptible(queue.get(), None)
+            if item is None or self._cancel.is_set() or self._steer_signal.is_set():
+                return
+            kind, payload = item
             if kind == "chunk":
                 yield payload
             elif kind == "error":
@@ -1148,7 +1219,7 @@ class TurnEngine:
         run concurrently; everything else runs one at a time in call order."""
         cleared: list[ToolCall] = []
         for tool_call in tool_calls:
-            if self._cancel.is_set():
+            if self._cancel.is_set() or self._steer_signal.is_set():
                 # Stopped: every remaining call still gets an answer (no orphans).
                 yield self._interrupted_tool(tool_call)
                 continue
@@ -1224,23 +1295,42 @@ class TurnEngine:
         serial = [tc for tc in cleared if tc not in concurrent]
 
         if concurrent:
+            if self._cancel.is_set() or self._steer_signal.is_set():
+                for tool_call in concurrent:
+                    yield self._interrupted_tool(tool_call)
+                concurrent = []
+        if concurrent:
             for tool_call in concurrent:
                 yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
                 self._audit(tool_call, stage="started")
-            outcomes = await asyncio.gather(
-                *[asyncio.to_thread(self._execute_sync, tc) for tc in concurrent]
-            )
+            outcomes = await asyncio.gather(*[self._execute_interruptibly(tc) for tc in concurrent])
             for tool_call, (result, status) in zip(concurrent, outcomes):
                 yield self._record_result(tool_call, result, status)
 
         for tool_call in serial:
-            if self._cancel.is_set():
+            if self._cancel.is_set() or self._steer_signal.is_set():
                 yield self._interrupted_tool(tool_call)
                 continue
             yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
             self._audit(tool_call, stage="started")
-            result, status = await asyncio.to_thread(self._execute_sync, tool_call)
+            result, status = await self._execute_interruptibly(tool_call)
             yield self._record_result(tool_call, result, status)
+
+    async def _execute_interruptibly(self, tool_call: ToolCall) -> tuple[Any, str]:
+        task = asyncio.create_task(asyncio.to_thread(self._execute_sync, tool_call, self._tool_cancel))
+        force = asyncio.create_task(self._force_cancel.wait())
+        try:
+            done, _ = await asyncio.wait({task, force}, return_when=asyncio.FIRST_COMPLETED)
+            if task in done:
+                return task.result()
+            # Python cannot safely kill an arbitrary worker thread. Its journal stays
+            # running until it returns; never claim that a sent write was rolled back.
+            self._force_detached = True
+            return {"error": "Task stopped. An operation already started may still finish."}, "indeterminate"
+        finally:
+            task.cancel()
+            force.cancel()
+            await asyncio.gather(task, force, return_exceptions=True)
 
     def _interrupted_tool(self, tool_call: ToolCall) -> Event:
         """The stop-path answer for a call that will not run: a tool-error result in the
@@ -1384,7 +1474,16 @@ class TurnEngine:
 
         yield True
 
-    def _execute_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
+    def _execute_sync(self, tool_call: ToolCall, stop: Optional[threading.Event] = None) -> tuple[Any, str]:
+        if stop is not None and stop.is_set():
+            return {"error": "interrupted by user"}, "interrupted"
+        token = tool_stop.set(stop or self._tool_cancel)
+        try:
+            return self._execute_tool_sync(tool_call)
+        finally:
+            tool_stop.reset(token)
+
+    def _execute_tool_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
         """Execute one authorized call (runs in a worker thread)."""
         journal_key = self._tool_run_position(tool_call)
         journal = self.tool_journal if self.session_id and journal_key else None
@@ -1423,10 +1522,14 @@ class TurnEngine:
                     result = override, "ok"
                     break
         if result is None:
-            try:
-                result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
-            except Exception as exc:
-                result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
+            stop = tool_stop.get()
+            if stop is not None and stop.is_set():
+                result = {"error": "interrupted by user"}, "interrupted"
+            else:
+                try:
+                    result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
+                except Exception as exc:
+                    result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
         if result[1] == "ok" and tool_call.name == "write_file":
             # Text deliverables written through the generic file tool get the same
             # reopen-and-check the Office writers do (those check themselves — they
@@ -1791,6 +1894,7 @@ class TurnEngine:
         return taken
 
     def _inject_steering(self) -> None:
+        self._steer_signal.clear()
         for text, source in self._steering:
             message: dict[str, Any] = {
                 "role": "user",

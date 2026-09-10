@@ -53,6 +53,33 @@ def test_env_persists_across_calls(executor):
     assert "hello_world" in result["output"]
 
 
+def test_a_cancelled_turn_cannot_start_a_command_after_waiting_for_the_old_shell(executor, tmp_path):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from coworker.tools.cancellation import tool_stop
+
+    stop = threading.Event()
+    executor._run_lock.acquire()
+
+    def run_cancelled():
+        token = tool_stop.set(stop)
+        try:
+            return executor.run("echo unwanted > should-not-exist.txt")
+        finally:
+            tool_stop.reset(token)
+
+    with ThreadPoolExecutor() as pool:
+        pending = pool.submit(run_cancelled)
+        stop.set()
+        try:
+            assert pending.result(1)["error"] == "interrupted by user"
+        finally:
+            executor._run_lock.release()
+    assert not (tmp_path / "should-not-exist.txt").exists()
+    assert "next task" in executor.run("echo next task")["output"]
+
+
 def test_exit_code_captured(executor):
     assert executor.run(EXIT_OK)["exit_code"] == 0
     assert executor.run(EXIT_FAIL)["exit_code"] == 1

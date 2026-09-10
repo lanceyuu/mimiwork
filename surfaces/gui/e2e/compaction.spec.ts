@@ -65,13 +65,13 @@ test("the compacted divider renders mid-session and the transcript stays intact"
   await box.fill("compact the context");
   await box.press("Enter");
   // The transient signal shows while the summarizer runs, then yields to the divider.
-  await expect(page.getByText("Compacting context…").first()).toBeVisible({
+  await expect(page.getByText("Summarizing earlier messages…").first()).toBeVisible({
     timeout: 10_000,
   });
   await expect(
     page.getByText("Context compacted — earlier turns were summarized").first(),
   ).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText("Compacting context…")).toHaveCount(0);
+  await expect(page.getByText("Summarizing earlier messages…")).toHaveCount(0);
   await expect(
     page.getByText("Still on it — continuing where I left off.").first(),
   ).toBeVisible();

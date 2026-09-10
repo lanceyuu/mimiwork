@@ -1,5 +1,7 @@
 export type EventType =
   | "ready"
+  | "session_status"
+  | "interrupt_requested"
   | "inbound"
   | "turn_start"
   | "assistant_delta"

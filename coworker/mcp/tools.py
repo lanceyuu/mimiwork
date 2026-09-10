@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import re
+from concurrent.futures import TimeoutError as FutureTimeout
+from time import monotonic
 from typing import Any, Awaitable, Callable
 
 import aisuite as ai
 
+from ..tools.cancellation import tool_stop
 from .config import MCPServerDef
 
 CallAsync = Callable[[str, dict[str, Any]], Awaitable[Any]]
@@ -69,8 +72,27 @@ def build_callables(
         remote = mcp_tool.name
 
         def _invoke(_remote: str = remote, **kwargs: Any) -> Any:
+            stop = tool_stop.get()
+            if stop is not None and stop.is_set():
+                raise RuntimeError("interrupted by user")
             future = asyncio.run_coroutine_threadsafe(call_async(_remote, kwargs), loop)
-            return future.result(timeout)
+            deadline = monotonic() + timeout
+            try:
+                while True:
+                    if stop is not None and stop.is_set():
+                        raise RuntimeError("interrupted by user")
+                    remaining = deadline - monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("The connected service did not respond in time")
+                    try:
+                        return future.result(min(0.1, remaining))
+                    except FutureTimeout:
+                        if future.done():
+                            raise
+            finally:
+                # Cancel the actual MCP request too, not just its waiting worker.
+                if not future.done():
+                    future.cancel()
 
         # We attach the schema + metadata explicitly (rather than via `ai.tool`, which would
         # try to derive a schema from this `**kwargs` wrapper): the registry reads both attrs.
