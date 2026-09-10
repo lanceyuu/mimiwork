@@ -4633,7 +4633,14 @@ class SessionManager:
         if engine is None:
             return
         if not self.try_mark_running(session_id):
-            engine.queue_steering(message, source)
+            if engine.queue_steering(message, source):
+                return
+            # The running turn is stopping and takes no more steers. Wait for it to
+            # end and deliver as a turn of its own rather than losing the message.
+            # ponytail: 100ms poll; an idle Event on mark_idle if this ever matters.
+            while session_id in self._running_sessions:
+                await asyncio.sleep(0.1)
+            await self.deliver_to_session(session_id, message, source=source)
             return
         try:
             async for event in engine.run(message, source=source):

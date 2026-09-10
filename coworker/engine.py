@@ -297,12 +297,15 @@ class TurnEngine:
 
     def queue_steering(
         self, text: str, source: Optional[dict[str, Any]] = None, *, priority: bool = False
-    ) -> None:
+    ) -> bool:
+        """Queue a mid-turn message. False when the turn is stopping: a stop drops every
+        steer, so the caller must not assume the message will ever be read."""
         if self._cancel.is_set():
-            return
+            return False
         self._steering.append((text, source))
         if priority:
             self._steer_signal.set()
+        return True
 
     def seed_approved_recovery(self, tool_call_id: str) -> None:
         """Mark a legacy call as prepared when a durable approval proves it never ran."""

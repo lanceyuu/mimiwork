@@ -3,7 +3,7 @@
  *  cycle permission modes. Owner ask 2026-08-23: what you learn here must work there.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Composer } from "./Composer";
 
 const SKILLS = {
@@ -291,16 +291,26 @@ describe("steering a running turn", () => {
     expect(p.onInterrupt).not.toHaveBeenCalled();
   });
 
-  it("Escape stops a task and a second Escape can force it to stop", () => {
+  it("Escape stops a task and, after a moment, a second Escape can force it to stop", () => {
     stubFetch();
-    const p = props({ running: true, onForceStop: vi.fn() });
-    const { rerender } = render(<Composer {...p} />);
-    fireEvent.keyDown(runningBox(), { key: "Escape" });
-    expect(p.onInterrupt).toHaveBeenCalledOnce();
-    rerender(<Composer {...p} stopping connected={false} />);
-    fireEvent.keyDown(runningBox(), { key: "Escape" });
-    expect(p.onForceStop).toHaveBeenCalledOnce();
-    expect((screen.getByRole("button", { name: "Force stop" }) as HTMLButtonElement).disabled).toBe(false);
+    vi.useFakeTimers();
+    try {
+      const p = props({ running: true, onForceStop: vi.fn() });
+      const { rerender } = render(<Composer {...p} />);
+      fireEvent.keyDown(runningBox(), { key: "Escape" });
+      expect(p.onInterrupt).toHaveBeenCalledOnce();
+      rerender(<Composer {...p} stopping connected={false} />);
+      // A double-Esc (or double-click) is not a force stop.
+      fireEvent.keyDown(runningBox(), { key: "Escape" });
+      expect(p.onForceStop).not.toHaveBeenCalled();
+      expect((screen.getByRole("button", { name: "Stopping…" }) as HTMLButtonElement).disabled).toBe(true);
+      act(() => { vi.advanceTimersByTime(1500); });
+      fireEvent.keyDown(runningBox(), { key: "Escape" });
+      expect(p.onForceStop).toHaveBeenCalledOnce();
+      expect((screen.getByRole("button", { name: "Force stop" }) as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a disconnected or stopping composer keeps the user's draft", () => {

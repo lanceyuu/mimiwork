@@ -570,6 +570,16 @@ export function Composer(props: Props) {
     setPendingSkill(null);
   };
 
+  // Force stop is offered only after a normal stop has had a moment to land: a
+  // double-click or double-Esc on Stop task must not detach a tool about to finish.
+  const [forceReady, setForceReady] = useState(false);
+  useEffect(() => {
+    if (!props.stopping) return;
+    const timer = setTimeout(() => setForceReady(true), 1500);
+    return () => { clearTimeout(timer); setForceReady(false); };
+  }, [props.stopping]);
+  const onForceStop = props.stopping && forceReady ? props.onForceStop : undefined;
+
   const submit = () => {
     if (!props.connected || props.stopping) return;
     // While a popup is open the draft is a query, not a message — never send it.
@@ -618,7 +628,7 @@ export function Composer(props: Props) {
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape" && props.running && slashQuery === null && mentionQuery === null && !dictation?.recording) {
       e.preventDefault();
-      if (props.stopping) props.onForceStop?.();
+      if (props.stopping) onForceStop?.();
       else props.onInterrupt();
       return;
     }
@@ -1069,8 +1079,8 @@ export function Composer(props: Props) {
                   {t("Steer")}
                 </button>
               )}
-              <button className="btn danger inline-flex items-center gap-1.5 whitespace-nowrap" onClick={props.stopping ? props.onForceStop : props.onInterrupt} disabled={props.stopping && !props.onForceStop} title={t("Stop the current task (Esc)")}>
-                <Icon name="stop" size={14} /> {t(props.stopping ? props.onForceStop ? "Force stop" : "Stopping…" : "Stop task")}
+              <button className="btn danger inline-flex items-center gap-1.5 whitespace-nowrap" onClick={props.stopping ? onForceStop : props.onInterrupt} disabled={props.stopping && !onForceStop} title={t("Stop the current task (Esc)")}>
+                <Icon name="stop" size={14} /> {t(props.stopping ? onForceStop ? "Force stop" : "Stopping…" : "Stop task")}
               </button>
             </>
           ) : (

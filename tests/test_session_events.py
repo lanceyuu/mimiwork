@@ -134,3 +134,27 @@ def test_unrouted_endpoint(tmp_path):
         items[0]["source"] == "slack:D1"
         and items[0]["reason"] == "no DM session designated"
     )
+
+
+def test_deliver_during_a_stop_runs_once_the_turn_has_ended(tmp_path):
+    """A stop drops queued steers, so a Slack message or self-wake landing in the stop
+    window must wait for idle and run as its own turn, not vanish."""
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([_text("later")]))
+    engine = mgr.get_engine("S", agent="chat")
+    events, cb = _collector()
+    mgr.register_session_client("S", cb)
+
+    async def scenario():
+        mgr.mark_running("S")
+        engine.request_interrupt()
+        delivery = asyncio.create_task(mgr.deliver_to_session("S", "hi"))
+        await asyncio.sleep(0.05)
+        assert not delivery.done()
+        assert engine.drain_pending_steering() == []
+        mgr.mark_idle("S")
+        await asyncio.wait_for(delivery, 2)
+
+    asyncio.run(scenario())
+    assert _types(events)[0] == "turn_start"
+    assert events[0]["data"]["input"] == "hi"
+    assert _types(events)[-1] == "turn_done"
