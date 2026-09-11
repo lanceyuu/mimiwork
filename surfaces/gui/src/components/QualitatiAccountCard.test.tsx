@@ -165,7 +165,7 @@ describe("QualitatiAccountCard — create account", () => {
     await waitFor(() => expect(screen.getByTestId("qualitati-registered")).toBeTruthy());
     const reg = calls.find((c) => c.url.includes("/v1/qualitati/register"))!;
     expect(reg.body).toEqual({
-      username: "newbie", email: "n@x.com", password: "Str0ng!pw", referrer_code: "AB12",
+      username: "newbie", email: "n@x.com", password: "Str0ng!pw", referrer_code: "AB12", site: "global",
     });
     // Back on the sign-in face, username kept, password wiped.
     expect((screen.getByTestId("qualitati-username") as HTMLInputElement).value).toBe("newbie");
@@ -332,7 +332,7 @@ describe("model region (GDPR switch)", () => {
       expect(screen.getByTestId("qualitati-region-eu").getAttribute("aria-pressed")).toBe("true"),
     );
     const put = calls.find((c) => c.method === "PUT" && c.url.includes("/v1/qualitati/region"));
-    expect(put?.body).toEqual({ region: "eu" });
+    expect(put?.body).toEqual({ region: "eu", site: "global" });
   });
 
   it("a failed save falls back to the truth instead of lying", async () => {
@@ -389,4 +389,35 @@ describe("QualitatiAccountCard footprint", () => {
     expect(line.textContent).toContain("from 1 call on the US grid");
     expect(line.textContent).not.toContain("Whole Mimi service");
   });
+
+  it("the 质见中国 card signs in on its own site, with its own test ids", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: { ...SIGNED_OUT, site: "cn" } },
+      { match: "/v1/qualitati/login", method: "POST", json: { ...SIGNED_IN, site: "cn" } },
+    ]);
+    render(<QualitatiAccountCard site="cn" />);
+    fireEvent.change(await screen.findByTestId("qualitati-username-cn"), { target: { value: "shubin" } });
+    fireEvent.change(screen.getByTestId("qualitati-password-cn"), { target: { value: "pw" } });
+    fireEvent.click(screen.getByTestId("qualitati-signin-cn"));
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.includes("/v1/qualitati/login") && c.body?.site === "cn")).toBe(true),
+    );
+    expect(calls.some((c) => c.url.includes("/v1/qualitati/status?site=cn"))).toBe(true);
+  });
+
+  it("a signed-in 质见中国 card lists its own tier ids, has no EU/US switch, and tops up on qualitati.cn", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: { ...SIGNED_IN, site: "cn" } },
+      { match: "/v1/qualitati/region", json: { ok: true, region: "us", configured: false } },
+      { match: "/v1/settings", json: { models: ["qualitati_cn:mimi-puppy"], default_model: "qualitati_cn:mimi-puppy" } },
+    ]);
+    render(<QualitatiAccountCard site="cn" />);
+    await screen.findByTestId("qualitati-profile-cn");
+    expect(screen.getByTestId("qualitati-site-badge-cn").textContent).toContain("qualitati.cn");
+    expect(screen.queryByTestId("qualitati-region")).toBeNull();
+    expect(calls.some((c) => c.url.includes("/v1/qualitati/region"))).toBe(false);
+    fireEvent.click(screen.getByTestId("qualitati-topup-cn"));
+    expect(openExternal).toHaveBeenCalledWith("https://qualitati.cn/recharge");
+  });
+
 });

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useT, tutorialUrl } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
-import { QualitatiStatus, qualitatiLogout, qualitatiStatus } from "../api";
+import { QUALITATI_SITE_TITLE, QUALITATI_SITE_URL, QualitatiStatus, type QualitatiSite, qualitatiLogout, qualitatiStatus } from "../api";
 import { APPS_CHANGED, getApps, type MimiApp } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import { openExternal } from "../tauri";
@@ -160,12 +160,16 @@ export function Sidebar(props: Props) {
   // balance. Account sign-in keeps its homes inside
   // the connector panes; this row is about whose credits the models spend.
   const [qt, setQt] = useState<QualitatiStatus | null>(null);
+  const [qtCn, setQtCn] = useState<QualitatiStatus | null>(null);
   // Inbox chip sticky unlock (§26): absent until the product first parks an item (or a
   // session first goes Unattended), then permanent. Per-device, like nav collapse.
   const [inboxUnlocked, setInboxUnlocked] = useState(
     () => localStorage.getItem("ocw:inbox-unlocked") === "1",
   );
-  const refreshQt = () => qualitatiStatus().then(setQt).catch(() => {});
+  const refreshQt = () => {
+    qualitatiStatus().then(setQt).catch(() => {});
+    qualitatiStatus("cn").then(setQtCn).catch(() => {});
+  };
   useEffect(() => {
     refreshQt();
     const onFocus = () => refreshQt();
@@ -372,9 +376,12 @@ export function Sidebar(props: Props) {
 
   // Display identity for the account row: the cloud profile only carries the email, so the
   // row shows the capitalized local part ("rohit@…" → "Rohit"); the menu header shows it all.
-  const qtSignedIn = !!qt?.signed_in;
-  const qtName = qt?.profile?.username ?? qt?.username ?? "";
-  const qtCredits = qt?.profile?.credits;
+  // Two possible accounts (QualiTaTi, 质见中国): the row shows whichever is signed in,
+  // global first; the menu lists each signed-in site with its own top-up and sign-out.
+  const accounts = ([["global", qt], ["cn", qtCn]] as const).filter(([, s]) => !!s?.signed_in) as [QualitatiSite, QualitatiStatus][];
+  const primary = accounts[0]?.[1] ?? null;
+  const qtSignedIn = !!primary;
+  const qtName = primary?.profile?.username ?? primary?.username ?? "";
 
   // Roll the per-session attention/liveness up to the persona header and the footer Inbox: the
   // accent count bubbles (sum), the liveness dot aggregates (working wins over sleeping).
@@ -1402,14 +1409,21 @@ export function Sidebar(props: Props) {
                 role="menu"
               >
                 {qtSignedIn ? (
-                  <div
-                    className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
-                    data-testid="account-qt-header"
-                    title={`${qtName} · QualiTaTi`}
-                  >
-                    {qtName}
-                    {typeof qtCredits === "number" ? ` · ${qtCredits} credits` : ""} · QualiTaTi
-                  </div>
+                  accounts.map(([site, s]) => {
+                    const name = s.profile?.username ?? s.username ?? "";
+                    const credits = s.profile?.credits;
+                    return (
+                      <div
+                        key={site}
+                        className="px-3 py-1.5 mb-1 text-[11px] text-faint truncate border-b border-line"
+                        data-testid={site === "cn" ? "account-qt-header-cn" : "account-qt-header"}
+                        title={`${name} · ${QUALITATI_SITE_TITLE[site]}`}
+                      >
+                        {name}
+                        {typeof credits === "number" ? ` · ${credits} credits` : ""} · {QUALITATI_SITE_TITLE[site]}
+                      </div>
+                    );
+                  })
                 ) : (
                   <>
                     <div className="px-3 py-1.5 text-[11px] text-faint border-b border-line">
@@ -1450,20 +1464,20 @@ export function Sidebar(props: Props) {
                     opens in the browser, in the app's language. */}
                 {appMenuItem("book", t("Tutorial"), () => openExternal(tutorialUrl()))}
                 {appMenuItem("folder", t("Files"), props.onOpenFiles, props.filesActive)}
-                {qtSignedIn && (
-                  <>
+                {accounts.map(([site]) => (
+                  <Fragment key={site}>
                     <div className="h-px bg-line my-1 mx-2" />
-                    {/* Credits are bought on qualitati.com; the app only opens the page
+                    {/* Credits are bought on the site; the app only opens the page
                         (owner ask 2026-09-02). */}
-                    {appMenuItem("sparkle", t("Top up credits"), () =>
-                      openExternal("https://qualitati.com/recharge"),
+                    {appMenuItem("sparkle", site === "cn" ? "充值积分 · 质见中国" : t("Top up credits"), () =>
+                      openExternal(`${QUALITATI_SITE_URL[site]}/recharge`),
                     )}
-                    {appMenuItem("signOut", t("Sign out of QualiTaTi"), async () => {
-                      await qualitatiLogout().catch(() => {});
+                    {appMenuItem("signOut", site === "cn" ? "退出质见中国" : t("Sign out of QualiTaTi"), async () => {
+                      await qualitatiLogout(site).catch(() => {});
                       refreshQt();
                     })}
-                  </>
-                )}
+                  </Fragment>
+                ))}
               </div>
             </>
           )}

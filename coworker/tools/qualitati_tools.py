@@ -30,17 +30,12 @@ _TIMEOUT = 180.0  # Mimi turns can chain many tools server-side
 
 
 def _load_auth() -> dict[str, Any]:
-    from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+    """{base, jwt, api_key} for the site of the model answering the turn (tool_site)."""
+    from ..qualitati import site_credentials, tool_site
     from ..secrets import SecretStore
 
     secrets = SecretStore()
-    auth = secrets.get(AUTH_PROFILE) or {}
-    provider = secrets.get(PROVIDER_PROFILE) or {}
-    return {
-        "base": (auth.get("base_url") or DEFAULT_BASE).rstrip("/"),
-        "jwt": auth.get("access_token"),
-        "api_key": provider.get("api_key") if isinstance(provider, dict) else None,
-    }
+    return site_credentials(secrets, tool_site(secrets))
 
 
 _NOT_SIGNED_IN = {

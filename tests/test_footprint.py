@@ -31,10 +31,10 @@ def test_footprint_sums_this_month_only_and_survives_a_dead_measurement(monkeypa
     monkeypatch.setattr(
         mgr,
         "qualitati_credits",
-        lambda limit=50, offset=0: (seen.append(offset), {"ok": True, "entries": pages.get(offset // 200, [])})[1],
+        lambda limit=50, offset=0, site="global": (seen.append(offset), {"ok": True, "entries": pages.get(offset // 200, [])})[1],
     )
-    monkeypatch.setattr(mgr, "qualitati_region", lambda: {"ok": True, "region": "eu"})
-    monkeypatch.setattr(mgr, "_qualitati_get", lambda path, label: {"ok": False, "error": "503"})
+    monkeypatch.setattr(mgr, "qualitati_region", lambda site="global": {"ok": True, "region": "eu"})
+    monkeypatch.setattr(mgr, "_qualitati_get", lambda path, label, site="global": {"ok": False, "error": "503"})
 
     out = mgr.qualitati_footprint()
     assert out["ok"] and "error" not in out

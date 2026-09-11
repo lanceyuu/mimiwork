@@ -112,6 +112,7 @@ export function ModelsTab() {
     return (
       <div>
         <QualitatiAccountCard onChanged={() => { ps.refreshProviders(); refreshSettings(); }} />
+        <QualitatiAccountCard site="cn" onChanged={() => { ps.refreshProviders(); refreshSettings(); }} />
         <ProviderCards ps={ps} tp="set" gridClass="grid grid-cols-2 xl:grid-cols-3 gap-2.5" lastUsed />
         <ComposerPickerCard settings={settings} providers={ps.providers} onChanged={refreshSettings} />
       </div>

@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 // The registration password rule: a quiet grey hint until it is broken, then a red
 // notice with the field outlined (owner ask 2026-09-04: "more noticeable, like more red").
 test("a weak password turns the rule into a red notice and outlines the field", async ({ page }) => {
-  await page.route("**/v1/qualitati/status", async (route) => {
+  await page.route("**/v1/qualitati/status*", async (route) => {
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, signed_in: false }) });
   });
   await page.goto("/");

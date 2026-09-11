@@ -1905,15 +1905,15 @@ export interface QualitatiRegion {
   configured?: boolean;
   choices?: Record<string, string>;
 }
-export async function qualitatiRegion(): Promise<QualitatiRegion> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/region`);
+export async function qualitatiRegion(site: QualitatiSite = "global"): Promise<QualitatiRegion> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/region?site=${site}`);
   return res.json();
 }
-export async function qualitatiSetRegion(region: "eu" | "us"): Promise<QualitatiRegion> {
+export async function qualitatiSetRegion(region: "eu" | "us", site: QualitatiSite = "global"): Promise<QualitatiRegion> {
   const res = await fetch(`${httpBase()}/v1/qualitati/region`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ region }),
+    body: JSON.stringify({ region, site }),
   });
   return res.json();
 }
@@ -1971,13 +1971,13 @@ export interface QualitatiCredits {
     lifelong_credits: number;
   };
 }
-export async function qualitatiCredits(limit = 50): Promise<QualitatiCredits> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/credits?limit=${limit}`);
+export async function qualitatiCredits(limit = 50, site: QualitatiSite = "global"): Promise<QualitatiCredits> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/credits?limit=${limit}&site=${site}`);
   return res.json();
 }
 
-export async function qualitatiFootprint(): Promise<QualitatiFootprint> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/footprint`);
+export async function qualitatiFootprint(site: QualitatiSite = "global"): Promise<QualitatiFootprint> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/footprint?site=${site}`);
   return res.json();
 }
 
@@ -2589,9 +2589,25 @@ export class Session {
 
 // ── QualiTaTi account (credit-metered gateway) ─────────────────────────────
 
+/** The two QualiTaTi sites are isolated deployments (separate accounts, credits and
+ * model lineups — China runs DeepSeek/Qwen domestically). A sign-in belongs to one. */
+export type QualitatiSite = "global" | "cn";
+export const QUALITATI_SITE_URL: Record<QualitatiSite, string> = {
+  global: "https://qualitati.com",
+  cn: "https://qualitati.cn",
+};
+export const QUALITATI_SITE_TITLE: Record<QualitatiSite, string> = { global: "QualiTaTi", cn: "质见中国" };
+/** Each site is its own model provider, so a model id says which site a call spends on. */
+export const QUALITATI_SITE_PROVIDER: Record<QualitatiSite, string> = { global: "qualitati", cn: "qualitati_cn" };
+export function siteOfModel(model: string | null | undefined): QualitatiSite | null {
+  const provider = String(model || "").split(":")[0];
+  return provider === "qualitati" ? "global" : provider === "qualitati_cn" ? "cn" : null;
+}
+
 export type QualitatiStatus = {
   ok: boolean;
   signed_in: boolean;
+  site?: QualitatiSite;
   mfa_required?: boolean;
   provider_configured?: boolean;
   username?: string;
@@ -2601,16 +2617,20 @@ export type QualitatiStatus = {
   free_tier?: { model?: string; cap: number; remaining: number; resets_at: string } | null;
 };
 
-export async function qualitatiStatus(): Promise<QualitatiStatus> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/status`);
+export async function qualitatiStatus(site: QualitatiSite = "global"): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/status?site=${site}`);
   return res.json();
 }
 
-export async function qualitatiLogin(username: string, password: string): Promise<QualitatiStatus> {
+export async function qualitatiLogin(
+  username: string,
+  password: string,
+  site: QualitatiSite = "global",
+): Promise<QualitatiStatus> {
   const res = await fetch(`${httpBase()}/v1/qualitati/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, site }),
   });
   return res.json();
 }
@@ -2630,6 +2650,7 @@ export async function qualitatiRegister(body: {
   email: string;
   password: string;
   referrer_code?: string;
+  site?: QualitatiSite;
 }): Promise<QualitatiRegisterResult> {
   const res = await fetch(`${httpBase()}/v1/qualitati/register`, {
     method: "POST",
@@ -2639,28 +2660,28 @@ export async function qualitatiRegister(body: {
   return res.json();
 }
 
-export async function qualitatiVerifyMfa(code: string): Promise<QualitatiStatus> {
+export async function qualitatiVerifyMfa(code: string, site: QualitatiSite = "global"): Promise<QualitatiStatus> {
   const res = await fetch(`${httpBase()}/v1/qualitati/verify-mfa`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code }),
+    body: JSON.stringify({ code, site }),
   });
   return res.json();
 }
 
 /** Signed in but the Mimi models aren't offered — mint the gateway key again. */
-export async function qualitatiReconnect(): Promise<{
+export async function qualitatiReconnect(site: QualitatiSite = "global"): Promise<{
   ok: boolean;
   provider_configured?: boolean;
   error?: string;
   status?: QualitatiStatus;
 }> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/reconnect`, { method: "POST" });
+  const res = await fetch(`${httpBase()}/v1/qualitati/reconnect?site=${site}`, { method: "POST" });
   return res.json();
 }
 
-export async function qualitatiLogout(): Promise<QualitatiStatus> {
-  const res = await fetch(`${httpBase()}/v1/qualitati/logout`, { method: "POST" });
+export async function qualitatiLogout(site: QualitatiSite = "global"): Promise<QualitatiStatus> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/logout?site=${site}`, { method: "POST" });
   return res.json();
 }
 

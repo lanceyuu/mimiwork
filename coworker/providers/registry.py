@@ -484,6 +484,19 @@ DESCRIPTORS: list[ProviderDescriptor] = [
             "configured for you; model calls spend your QualiTaTi credits."
         ),
     ),
+    # The China site is a separate deployment with its own accounts and credits, so it
+    # is a separate provider: the picker then says which site a model spends on.
+    _compat(
+        "qualitati_cn",
+        "质见中国 (QualiTaTi China)",
+        base_url="https://qualitati.cn/api/llm/v1",
+        recommended_model="mimi-hound",
+        env_key="QUALITATI_CN_API_KEY",
+        endpoint_help=(
+            "质见中国 (qualitati.cn) 的积分计费网关。在设置中登录质见中国账户后自动配置；"
+            "模型调用消耗该账户的积分。"
+        ),
+    ),
     _compat(
         "deepseek",
         "DeepSeek",

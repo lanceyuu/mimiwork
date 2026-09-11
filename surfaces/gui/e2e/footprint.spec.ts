@@ -4,11 +4,11 @@ import { test, expect } from "./fixtures";
 // this month (owner ask 2026-09-07) and keeps Scaleway's service-wide measurement under it.
 test("footprint: personal estimate first, measured service figure second", async ({ page }) => {
   const json = (body: unknown) => ({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
-  await page.route("**/v1/qualitati/status", (r) =>
+  await page.route("**/v1/qualitati/status*", (r) =>
     r.fulfill(json({ ok: true, signed_in: true, provider_configured: true, profile: { username: "shubin", email: "s@x.com", credits: 420, plan: "scholar" } })),
   );
-  await page.route("**/v1/qualitati/region", (r) => r.fulfill(json({ ok: true, region: "eu", configured: true })));
-  await page.route("**/v1/qualitati/footprint", (r) =>
+  await page.route("**/v1/qualitati/region*", (r) => r.fulfill(json({ ok: true, region: "eu", configured: true })));
+  await page.route("**/v1/qualitati/footprint*", (r) =>
     r.fulfill(
       json({
         ok: true,

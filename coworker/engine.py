@@ -41,6 +41,7 @@ from .repetition import RepetitionGuard as _RepetitionGuard
 from .timesaved import TimeSaved
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
+from .tools.context import tool_model
 
 
 class ApprovalOutcome(str, Enum):
@@ -1481,9 +1482,11 @@ class TurnEngine:
         if stop is not None and stop.is_set():
             return {"error": "interrupted by user"}, "interrupted"
         token = tool_stop.set(stop or self._tool_cancel)
+        model_token = tool_model.set(self.model)
         try:
             return self._execute_tool_sync(tool_call)
         finally:
+            tool_model.reset(model_token)
             tool_stop.reset(token)
 
     def _execute_tool_sync(self, tool_call: ToolCall) -> tuple[Any, str]:

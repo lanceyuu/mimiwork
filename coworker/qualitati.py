@@ -32,11 +32,82 @@ PROVIDER_PROFILE = "provider:qualitati"
 KEY_NAME = "MimiWork desktop"
 _TIMEOUT = 20.0
 
+# The two QualiTaTi sites are isolated deployments — separate accounts, credits and
+# model lineups (质见中国 runs DeepSeek/Qwen domestically). Each is its own model
+# provider in the app, so a picked model says where a call goes and whose credits it
+# spends: "qualitati:mimi-puppy" is the global account, "qualitati_cn:mimi-puppy" the
+# China one. Both can be signed in at once; nothing is shared between them.
+SITES: dict[str, dict[str, str]] = {
+    "global": {
+        "base": DEFAULT_BASE,
+        "link": "https://qualitati.com",
+        "provider": "qualitati",
+        "auth": AUTH_PROFILE,
+        "keys": PROVIDER_PROFILE,
+        "title": "QualiTaTi",
+    },
+    "cn": {
+        "base": "https://qualitati.cn",
+        "link": "https://qualitati.cn",
+        "provider": "qualitati_cn",
+        "auth": "qualitati_cn:auth",
+        "keys": "provider:qualitati_cn",
+        "title": "质见中国",
+    },
+}
+MIMI_TIERS = ("mimi-puppy", "mimi-hound", "mimi-wolf", "mimi-werewolf")
+
+
+def site_for_model(model: Optional[str]) -> Optional[str]:
+    """The site a model id belongs to, or None for a non-QualiTaTi model."""
+    provider = str(model or "").split(":", 1)[0]
+    return next((site for site, d in SITES.items() if d["provider"] == provider), None)
+
+
+def site_credentials(secrets: Any, site: str) -> dict[str, Any]:
+    """{site, base, jwt, api_key} for one site from the stored sign-in — keys may be None."""
+    d = SITES.get(site) or SITES["global"]
+    auth = secrets.get(d["auth"]) or {}
+    keys = secrets.get(d["keys"]) or {}
+    auth = auth if isinstance(auth, dict) else {}
+    keys = keys if isinstance(keys, dict) else {}
+    return {
+        "site": site,
+        "base": str(auth.get("base_url") or d["base"]).rstrip("/"),
+        "jwt": auth.get("access_token"),
+        "api_key": keys.get("api_key"),
+    }
+
+
+def signed_in_sites(secrets: Any) -> list[str]:
+    return [
+        site for site in SITES
+        if (lambda c: c["jwt"] or c["api_key"])(site_credentials(secrets, site))
+    ]
+
+
+def tool_site(secrets: Any) -> str:
+    """Which site the QualiTaTi data tools talk to: the site of the model answering the
+    turn (owner rule 2026-09-11 — a conversation on 质见中国 reads 质见中国 projects, and
+    is told to sign in there if it is not), else the one site that is signed in."""
+    from .tools.context import tool_model
+
+    wanted = site_for_model(tool_model.get())
+    if wanted:
+        return wanted
+    signed = signed_in_sites(secrets)
+    return signed[0] if signed else "global"
+
 
 class QualitatiClient:
-    def __init__(self, secrets: Any, base_url: str = DEFAULT_BASE) -> None:
+    def __init__(self, secrets: Any, site: str = "global") -> None:
+        if site not in SITES:
+            raise ValueError(f"unknown QualiTaTi site {site!r}")
         self.secrets = secrets
-        self.base = base_url.rstrip("/")
+        self.site = site
+        self.base = SITES[site]["base"]
+        self.auth_profile = SITES[site]["auth"]
+        self.provider_profile = SITES[site]["keys"]
 
     # ── auth ────────────────────────────────────────────────────────────────
 
@@ -61,7 +132,7 @@ class QualitatiClient:
             return {"ok": False, "error": "unexpected response from QualiTaTi"}
         if body.get("mfa_required"):
             # No token yet; remember who is mid-MFA so verify_mfa needs only the code.
-            self.secrets.put(AUTH_PROFILE, {"pending_mfa_username": username, "base_url": self.base})
+            self.secrets.put(self.auth_profile, {"pending_mfa_username": username, "base_url": self.base})
             return {"ok": True, "mfa_required": True}
         token = body.get("access_token")
         if not token:
@@ -69,7 +140,7 @@ class QualitatiClient:
         return self._finish_login(username, token)
 
     def verify_mfa(self, code: str) -> dict[str, Any]:
-        pending = (self.secrets.get(AUTH_PROFILE) or {}).get("pending_mfa_username")
+        pending = (self.secrets.get(self.auth_profile) or {}).get("pending_mfa_username")
         if not pending:
             return {"ok": False, "error": "no sign-in awaiting an MFA code — start again"}
         try:
@@ -168,7 +239,7 @@ class QualitatiClient:
         import datetime
 
         self.secrets.put(
-            PROVIDER_PROFILE,
+            self.provider_profile,
             {
                 "api_key": api_key,
                 "base_url": f"{self.base}/api/llm/v1",
@@ -184,8 +255,8 @@ class QualitatiClient:
         sign-in itself succeeded, only the key did not, so there is no reason to make the
         user type their password again.
         """
-        auth = self.secrets.get(AUTH_PROFILE) or {}
-        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        auth = self.secrets.get(self.auth_profile) or {}
+        provider = self.secrets.get(self.provider_profile) or {}
         if provider.get("api_key"):
             return {"ok": True, "provider_configured": True}
         token = auth.get("access_token")
@@ -207,7 +278,7 @@ class QualitatiClient:
     def _finish_login(self, username: str, token: str) -> dict[str, Any]:
         """Store the JWT, mint the durable API key, configure the provider."""
         self.secrets.put(
-            AUTH_PROFILE, {"username": username, "access_token": token, "base_url": self.base}
+            self.auth_profile, {"username": username, "access_token": token, "base_url": self.base}
         )
         headers = {"Authorization": f"Bearer {token}"}
         api_key, key_id = self._mint_key(headers)
@@ -227,8 +298,8 @@ class QualitatiClient:
         }
 
     def logout(self) -> dict[str, Any]:
-        auth = self.secrets.get(AUTH_PROFILE) or {}
-        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        auth = self.secrets.get(self.auth_profile) or {}
+        provider = self.secrets.get(self.provider_profile) or {}
         key_id = provider.get("qualitati_key_id")
         token = auth.get("access_token")
         if key_id and token:
@@ -240,18 +311,18 @@ class QualitatiClient:
                 )
             except httpx.HTTPError:
                 pass
-        self.secrets.delete(AUTH_PROFILE)
-        self.secrets.delete(PROVIDER_PROFILE)
+        self.secrets.delete(self.auth_profile)
+        self.secrets.delete(self.provider_profile)
         return {"ok": True, "signed_in": False}
 
     # ── status ──────────────────────────────────────────────────────────────
 
     def status(self) -> dict[str, Any]:
         """Signed-in state + live profile (credits) for the Settings card."""
-        auth = self.secrets.get(AUTH_PROFILE) or {}
-        provider = self.secrets.get(PROVIDER_PROFILE) or {}
+        auth = self.secrets.get(self.auth_profile) or {}
+        provider = self.secrets.get(self.provider_profile) or {}
         if not auth.get("access_token") and not provider.get("api_key"):
-            return {"ok": True, "signed_in": False}
+            return {"ok": True, "signed_in": False, "site": self.site}
 
         # Prefer the durable API key; fall back to the JWT while it lives.
         headers: dict[str, str] = {}
@@ -265,6 +336,7 @@ class QualitatiClient:
             return {
                 "ok": True,
                 "signed_in": True,
+                "site": self.site,
                 "username": auth.get("username"),
                 "provider_configured": bool(provider.get("api_key")),
                 "error": "could not refresh the balance — check your connection",
@@ -272,6 +344,7 @@ class QualitatiClient:
         return {
             "ok": True,
             "signed_in": True,
+            "site": self.site,
             "provider_configured": bool(provider.get("api_key")),
             "profile": profile,
             # Mimi Puppy's remaining free requests today — so the app can warn before

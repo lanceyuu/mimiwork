@@ -62,7 +62,9 @@ def test_the_werewolf_tier_is_offered_and_adopted_like_its_siblings(tmp_path, mo
 
     entry = MATRIX["qualitati:mimi-werewolf"]
     assert entry.caps.vision and entry.caps.tools  # frontier legs read images themselves
-    assert "qualitati:mimi-werewolf" in SessionManager._MIMI_TIER_MODELS
+    from coworker.qualitati import MIMI_TIERS
+
+    assert "mimi-werewolf" in MIMI_TIERS and SessionManager._adopt_qualitati_models
 
 
 def test_signing_in_puts_every_tier_in_the_picker(tmp_path, monkeypatch):

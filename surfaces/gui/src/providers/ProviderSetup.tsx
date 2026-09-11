@@ -238,7 +238,7 @@ export function useProviderSetup(opts?: { onSaved?: () => void }): ProviderSetup
     // job (username + password → the gateway key is minted for you). Listing it here too
     // asked people to paste an API key that they never have (owner report 2026-08-23).
     ordered: [...providers]
-      .filter((p) => p.name !== "qualitati")
+      .filter((p) => p.name !== "qualitati" && p.name !== "qualitati_cn")
       .sort((a, b) => providerRank(a.name) - providerRank(b.name)),
     refreshProviders,
     sel,

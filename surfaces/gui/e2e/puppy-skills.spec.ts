@@ -31,7 +31,7 @@ test('recommended skills are discoverable and clearing search returns to the she
 
 test('Puppy shows the daily allowance before it is low', async ({ page }) => {
   await page.route('**/v1/settings', r => r.fulfill({json:{model:'qualitati:mimi-puppy',models:['qualitati:mimi-puppy'],model_labels:{'qualitati:mimi-puppy':'Mimi Puppy'},has_key:true,model_ready:true,onboarded:true,nav_layout:'flat'}}));
-  await page.route('**/v1/qualitati/status', r => r.fulfill({json:{ok:true,signed_in:true,profile:{username:'Demo',credits:420},free_tier:{model:'mimi-puppy',cap:500,remaining:300,resets_at:'2026-09-06T00:00:00Z'}}}));
+  await page.route('**/v1/qualitati/status*', r => r.fulfill({json:{ok:true,signed_in:true,profile:{username:'Demo',credits:420},free_tier:{model:'mimi-puppy',cap:500,remaining:300,resets_at:'2026-09-06T00:00:00Z'}}}));
   await page.goto('/');
   await page.getByRole('button', {name:'claude-opus-4-8',exact:true}).click();
   await page.locator('.dd-item').filter({hasText:'Mimi Puppy'}).click();

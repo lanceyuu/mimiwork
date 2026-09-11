@@ -209,8 +209,8 @@ def test_signing_in_again_makes_the_new_key_take_effect_now(tmp_path, monkeypatc
         def logout(self):
             return {"ok": True}
 
-    monkeypatch.setattr(mgr, "_qualitati", lambda: _Client())
-    monkeypatch.setattr(mgr, "_adopt_qualitati_models", lambda _s: None)
+    monkeypatch.setattr(mgr, "_qualitati", lambda site="global": _Client())
+    monkeypatch.setattr(mgr, "_adopt_qualitati_models", lambda _s, _site="global": None)
 
     mgr.qualitati_login("Test2", "pw")
     assert dropped == ["qualitati"], "a fresh sign-in must not leave the old key cached"

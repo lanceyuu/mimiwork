@@ -90,8 +90,8 @@ export function Onboarding({
     if (step !== 0 || qtSignedIn) return;
     let stop = false;
     const poll = () =>
-      qualitatiStatus()
-        .then((s) => !stop && s?.signed_in && setQtSignedIn(true))
+      Promise.all([qualitatiStatus(), qualitatiStatus("cn")])
+        .then((states) => !stop && states.some((s) => s?.signed_in) && setQtSignedIn(true))
         .catch(() => undefined);
     poll();
     const t = window.setInterval(poll, 2500);
@@ -174,6 +174,7 @@ export function Onboarding({
               /* ---- QualiTaTi account first (owner ask 2026-08-29) ---- */
               <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-qualitati">
                 <QualitatiAccountCard />
+                <QualitatiAccountCard site="cn" />
                 <button
                   className="mt-3 text-[12.5px] text-faint hover:text-muted underline"
                   data-testid="ob-byok"

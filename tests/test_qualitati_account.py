@@ -160,7 +160,7 @@ def test_key_mint_failure_still_signs_in(monkeypatch, secrets):
 
 def test_status_signed_out(monkeypatch, secrets):
     wire(monkeypatch, {})
-    assert QualitatiClient(secrets).status() == {"ok": True, "signed_in": False}
+    assert QualitatiClient(secrets).status() == {"ok": True, "signed_in": False, "site": "global"}
 
 
 def test_status_prefers_the_durable_api_key(monkeypatch, secrets):
@@ -528,3 +528,112 @@ def test_the_tour_flag_round_trips_like_onboarded(tmp_path):
 def test_another_models_allowance_or_missing_balance_is_not_puppy_exhaustion(monkeypatch, secrets, models):
     wire(monkeypatch, {("GET", "/api/llm/v1/models"): (200, {"data": models})})
     assert QualitatiClient(secrets)._free_tier({}) is None
+
+
+def test_china_site_sign_in_lives_in_its_own_profiles(monkeypatch, secrets):
+    """质见中国 is a separate provider: its sign-in mints a key on qualitati.cn and configures
+    provider:qualitati_cn, and the global profiles are untouched — both can be signed in."""
+    from coworker.qualitati import SITES
+
+    fake = wire(monkeypatch, {
+        ("POST", "/api/login"): (200, {"access_token": "jwt-cn", "token_type": "bearer"}),
+        ("POST", "/api/keys"): (200, {"id": 3, "key": "qt_cnkey"}),
+        ("GET", "/api/user/profile"): (200, PROFILE_BODY),
+    })
+    result = QualitatiClient(secrets, "cn").login("shubin", "pw")
+    assert result["ok"] and result["signed_in"]
+    assert all(url.startswith("https://qualitati.cn/") for _m, url, _kw in fake.calls)
+    assert secrets.store[SITES["cn"]["auth"]]["base_url"] == "https://qualitati.cn"
+    assert secrets.store[SITES["cn"]["keys"]]["base_url"] == "https://qualitati.cn/api/llm/v1"
+    assert AUTH_PROFILE not in secrets.store and PROVIDER_PROFILE not in secrets.store
+    assert QualitatiClient(secrets, "cn").status()["site"] == "cn"
+    assert QualitatiClient(secrets).status() == {"ok": True, "signed_in": False, "site": "global"}
+
+
+def test_the_data_tools_follow_the_models_site(secrets):
+    """Owner rule 2026-09-11: a conversation on a 质见中国 model reads 质见中国 projects, even
+    when only the global account is signed in (the tool then says to sign in there)."""
+    from coworker.qualitati import SITES, site_credentials, tool_site
+    from coworker.tools.context import tool_model
+
+    secrets.put(AUTH_PROFILE, {"access_token": "jwt-global", "base_url": "https://qt.example"})
+    assert tool_site(secrets) == "global"  # no model in flight → the signed-in site
+    token = tool_model.set("qualitati_cn:mimi-puppy")
+    try:
+        assert tool_site(secrets) == "cn"
+        assert site_credentials(secrets, "cn")["jwt"] is None
+        secrets.put(SITES["cn"]["auth"], {"access_token": "jwt-cn"})
+        creds = site_credentials(secrets, tool_site(secrets))
+        assert creds["base"] == "https://qualitati.cn" and creds["jwt"] == "jwt-cn"
+    finally:
+        tool_model.reset(token)
+    token = tool_model.set("openai:gpt-5.6-sol")
+    try:
+        assert tool_site(secrets) == "global"  # not a QualiTaTi model → whichever is signed in
+    finally:
+        tool_model.reset(token)
+
+
+async def test_the_engine_tells_tools_which_model_is_answering(tmp_path):
+    from test_engine_stop import OneTurnProvider, _tool_turn
+
+    from coworker.engine import ApprovalOutcome, TurnEngine
+    from coworker.permissions import PermissionEngine
+    from coworker.tools import ToolRegistry
+    from coworker.tools.context import tool_model
+
+    seen = []
+
+    def peek():
+        seen.append(tool_model.get())
+        return "ok"
+
+    registry = ToolRegistry()
+    registry.register(peek)
+
+    async def approve(_):
+        return ApprovalOutcome.ONCE
+
+    engine = TurnEngine(
+        provider=OneTurnProvider(_tool_turn([("peek", {})])), registry=registry,
+        permissions=PermissionEngine(workspace_root=tmp_path), model="qualitati_cn:mimi-hound",
+        approver=approve,
+    )
+    from coworker.events import EventType
+
+    async for event in engine.run("go"):
+        if event.type == EventType.TOOL_FINISHED:
+            engine.request_interrupt()  # the scripted provider would call the tool forever
+    assert seen[0] == "qualitati_cn:mimi-hound" and tool_model.get() is None
+
+
+def test_the_login_endpoint_hands_the_site_to_the_client(tmp_path, monkeypatch):
+    seen = {}
+
+    class _Client:
+        def login(self, username, password):
+            return {"ok": True, "signed_in": True, "provider_configured": True}
+
+    def fake_factory(self, site="global"):
+        seen["site"] = site
+        return _Client()
+
+    monkeypatch.setattr(SessionManager, "_qualitati", fake_factory)
+    monkeypatch.setattr(SessionManager, "_qualitati_key_changed", lambda self, site="global": None)
+    monkeypatch.setattr(SessionManager, "_adopt_qualitati_models", lambda self, state, site="global": None)
+    client = TestClient(create_app(SessionManager(workspace=tmp_path)))
+    r = client.post("/v1/qualitati/login", json={"username": "u", "password": "p", "site": "cn"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert seen["site"] == "cn"
+    assert client.get("/v1/qualitati/status", params={"site": "mars"}).status_code == 400
+
+
+def test_the_china_provider_and_its_tiers_exist():
+    from coworker.providers.matrix import MATRIX
+    from coworker.providers.registry import get_descriptor
+
+    d = get_descriptor("qualitati_cn")
+    assert d.title.startswith("质见中国")
+    assert [f.default for f in d.fields if f.key == "base_url"] == ["https://qualitati.cn/api/llm/v1"]
+    for tier in ("puppy", "hound", "wolf", "werewolf"):
+        assert "质见中国" in MATRIX[f"qualitati_cn:mimi-{tier}"].label

@@ -38,16 +38,12 @@ _POLL_EVERY = 5.0
 
 
 def _auth() -> dict[str, Any]:
-    from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+    """{base, api_key} for the site of the model answering the turn (tool_site)."""
+    from ..qualitati import site_credentials, tool_site
     from ..secrets import SecretStore
 
     secrets = SecretStore()
-    auth = secrets.get(AUTH_PROFILE) or {}
-    provider = secrets.get(PROVIDER_PROFILE) or {}
-    return {
-        "base": (auth.get("base_url") or DEFAULT_BASE).rstrip("/"),
-        "api_key": (provider.get("api_key") if isinstance(provider, dict) else None),
-    }
+    return site_credentials(secrets, tool_site(secrets))
 
 
 _NOT_SIGNED_IN = {

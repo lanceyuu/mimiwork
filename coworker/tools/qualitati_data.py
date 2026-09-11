@@ -29,10 +29,19 @@ from typing import Any, Optional
 import aisuite as ai
 import httpx
 
-from ..qualitati import AUTH_PROFILE, DEFAULT_BASE
+from ..qualitati import site_credentials, tool_site
 
 _TIMEOUT = 30.0
-_SITE = "https://qualitati.com"  # where the builder and respondent links live
+
+
+def _site_link() -> str:
+    """The website of the site this turn's model belongs to — where builder and
+    respondent links live (qualitati.com, or qualitati.cn for a 质见中国 model)."""
+    from ..qualitati import SITES, site_for_model
+    from .context import tool_model
+
+    return SITES[site_for_model(tool_model.get()) or "global"]["link"]
+
 _IMAGE_LIMIT = 2 * 1024 * 1024  # the upload endpoint's cap
 _IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 # QualiTaTi's question types (backend SurveyQuestionType), plus the words a model
@@ -77,12 +86,10 @@ _SIGNED_OUT = (
 
 
 def _auth(secrets: Any) -> tuple[Optional[str], str]:
-    profile = secrets.get(AUTH_PROFILE) or {}
-    if not isinstance(profile, dict):
-        return None, DEFAULT_BASE
-    token = str(profile.get("access_token") or "").strip() or None
-    base = str(profile.get("base_url") or DEFAULT_BASE).rstrip("/")
-    return token, base
+    """(jwt, base) for the site of the model answering the turn — see tool_site."""
+    creds = site_credentials(secrets, tool_site(secrets))
+    token = str(creds.get("jwt") or "").strip() or None
+    return token, creds["base"]
 
 
 def _trim(value: Any, budget: int = _MAX_TEXT) -> Any:
@@ -130,8 +137,8 @@ def _survey_row(s: dict, base_project: Optional[int] = None) -> dict:
         "status": s.get("status"),
         "responses": s.get("response_count", 0),
         "questions": len(s.get("questions") or []),
-        "builder_url": f"{_SITE}/survey/{pid}/{s.get('id')}/builder" if pid else None,
-        "share_url": f"{_SITE}/s/{s.get('id')}?t={token}" if token and s.get("status") == "published" else None,
+        "builder_url": f"{_site_link()}/survey/{pid}/{s.get('id')}/builder" if pid else None,
+        "share_url": f"{_site_link()}/s/{s.get('id')}?t={token}" if token and s.get("status") == "published" else None,
     }
 
 
@@ -650,7 +657,7 @@ def qualitati_data_tools(secrets: Any, workspace: Optional[str | Path] = None) -
             "questions": added,
             "blocks": block_ids,
             "problems": problems,
-            "builder_url": f"{_SITE}/survey/{pid}/{sid}/builder",
+            "builder_url": f"{_site_link()}/survey/{pid}/{sid}/builder",
             "next": "Review it in the builder, then qualitati_publish_survey to get the respondent link.",
         }
 

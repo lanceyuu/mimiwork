@@ -2542,34 +2542,30 @@ class SessionManager:
         return {"ok": True, "provider": provider}
 
     # -- QualiTaTi account (credit-metered gateway) -----------------------------
-    def _qualitati(self):
+    def _qualitati(self, site: str = "global"):
         from ..qualitati import QualitatiClient
 
-        return QualitatiClient(self.secrets)
+        return QualitatiClient(self.secrets, site or "global")
 
-    _MIMI_TIER_MODELS = (
-        "qualitati:mimi-puppy",
-        "qualitati:mimi-hound",
-        "qualitati:mimi-wolf",
-        "qualitati:mimi-werewolf",
-    )
-
-    def _adopt_qualitati_models(self, state: dict[str, Any]) -> None:
+    def _adopt_qualitati_models(self, state: dict[str, Any], site: str = "global") -> None:
         """After a successful sign-in, the three Mimi tiers belong in the picker, and a
         fresh install's never-configured default (gpt-5.6-sol with no key) gives way to
         the free tier — the model a new account can actually talk to (owner ask
         2026-08-29). A default that already works is never stolen."""
+        from ..qualitati import MIMI_TIERS, SITES
+
         if not (state.get("signed_in") and state.get("provider_configured")):
             return
-        for model in self._MIMI_TIER_MODELS:
+        provider = SITES[site]["provider"]
+        for tier in MIMI_TIERS:
             try:
-                self.add_model(model)
+                self.add_model(f"{provider}:{tier}")
             except Exception:
                 pass
         if not self._provider_configured(self._model_provider(self.model)):
-            self.set_default_model("qualitati:mimi-puppy")
+            self.set_default_model(f"{provider}:mimi-puppy")
 
-    def _qualitati_key_changed(self) -> None:
+    def _qualitati_key_changed(self, site: str = "global") -> None:
         """Drop the cached gateway client so the next turn reads the key we just wrote.
 
         Signing in mints a NEW key, and the router caches its client — key and all —
@@ -2581,52 +2577,54 @@ class SessionManager:
         Logout matters just as much in the other direction: the key is deleted from
         disk, and a cached client would happily keep spending on it.
         """
-        self._refresh_provider("qualitati")
+        from ..qualitati import SITES
 
-    def qualitati_login(self, username: str, password: str) -> dict[str, Any]:
-        out = self._qualitati().login(username, password)
-        self._qualitati_key_changed()
-        self._adopt_qualitati_models(out)
+        self._refresh_provider(SITES[site]["provider"])
+
+    def qualitati_login(self, username: str, password: str, site: str = "global") -> dict[str, Any]:
+        out = self._qualitati(site).login(username, password)
+        self._qualitati_key_changed(site)
+        self._adopt_qualitati_models(out, site)
         return out
 
     def qualitati_register(
-        self, username: str, email: str, password: str, referrer_code: str = ""
+        self, username: str, email: str, password: str, referrer_code: str = "", site: str = "global"
     ) -> dict[str, Any]:
-        return self._qualitati().register(username, email, password, referrer_code)
+        return self._qualitati(site).register(username, email, password, referrer_code)
 
-    def qualitati_verify_mfa(self, code: str) -> dict[str, Any]:
-        out = self._qualitati().verify_mfa(code)
-        self._qualitati_key_changed()
-        self._adopt_qualitati_models(out)
+    def qualitati_verify_mfa(self, code: str, site: str = "global") -> dict[str, Any]:
+        out = self._qualitati(site).verify_mfa(code)
+        self._qualitati_key_changed(site)
+        self._adopt_qualitati_models(out, site)
         return out
 
-    def qualitati_status(self) -> dict[str, Any]:
+    def qualitati_status(self, site: str = "global") -> dict[str, Any]:
         """Signed-in state for the account card. A session that is signed in but has no
         gateway key gets one here, silently: the user did everything right, and the only
         thing standing between them and the Mimi models is a key mint that failed once."""
-        client = self._qualitati()
+        client = self._qualitati(site)
         state = client.status()
         if state.get("signed_in") and not state.get("provider_configured"):
             if client.ensure_provider_key().get("ok"):
-                self._qualitati_key_changed()
+                self._qualitati_key_changed(site)
                 state = client.status()
-        self._adopt_qualitati_models(state)
+        self._adopt_qualitati_models(state, site)
         return state
 
-    def qualitati_reconnect(self) -> dict[str, Any]:
+    def qualitati_reconnect(self, site: str = "global") -> dict[str, Any]:
         """The account card's "Reconnect" — mint the gateway key without a fresh password."""
-        client = self._qualitati()
+        client = self._qualitati(site)
         out = client.ensure_provider_key()
         if out.get("ok"):
-            self._qualitati_key_changed()
+            self._qualitati_key_changed(site)
         return {**out, **({"status": client.status()} if out.get("ok") else {})}
 
-    def qualitati_logout(self) -> dict[str, Any]:
-        out = self._qualitati().logout()
-        self._qualitati_key_changed()
+    def qualitati_logout(self, site: str = "global") -> dict[str, Any]:
+        out = self._qualitati(site).logout()
+        self._qualitati_key_changed(site)
         return out
 
-    def _qualitati_get(self, path: str, *, label: str) -> dict[str, Any]:
+    def _qualitati_get(self, path: str, *, label: str, site: str = "global") -> dict[str, Any]:
         """GET a QualiTaTi API path with the stored credential.
 
         The personal API key comes first and the JWT second: keys don't expire,
@@ -2635,15 +2633,12 @@ class SessionManager:
         import json as _json
         from urllib import error, request
 
-        from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+        from ..qualitati import site_credentials
 
-        auth = self.secrets.get(AUTH_PROFILE) or {}
-        provider = self.secrets.get(PROVIDER_PROFILE) or {}
-        api_key = provider.get("api_key") if isinstance(provider, dict) else None
-        jwt = auth.get("access_token")
+        creds = site_credentials(self.secrets, site)
+        api_key, jwt, base = creds["api_key"], creds["jwt"], creds["base"]
         if not (api_key or jwt):
             return {"ok": False, "error": "not signed in"}
-        base = (auth.get("base_url") or DEFAULT_BASE).rstrip("/")
         headers = (
             {"X-API-Key": api_key} if api_key else {"Authorization": f"Bearer {jwt}"}
         )
@@ -2656,21 +2651,20 @@ class SessionManager:
         except Exception as e:
             return {"ok": False, "error": f"{label} unavailable: {e}"}
 
-    def _qualitati_send(self, path: str, payload: dict, *, label: str) -> dict[str, Any]:
+    def _qualitati_send(
+        self, path: str, payload: dict, *, label: str, site: str = "global"
+    ) -> dict[str, Any]:
         """PUT a small JSON body to a QualiTaTi API path with the stored credential —
         the write twin of _qualitati_get, same key-first auth order."""
         import json as _json
         from urllib import error, request
 
-        from ..qualitati import AUTH_PROFILE, DEFAULT_BASE, PROVIDER_PROFILE
+        from ..qualitati import site_credentials
 
-        auth = self.secrets.get(AUTH_PROFILE) or {}
-        provider = self.secrets.get(PROVIDER_PROFILE) or {}
-        api_key = provider.get("api_key") if isinstance(provider, dict) else None
-        jwt = auth.get("access_token")
+        creds = site_credentials(self.secrets, site)
+        api_key, jwt, base = creds["api_key"], creds["jwt"], creds["base"]
         if not (api_key or jwt):
             return {"ok": False, "error": "not signed in"}
-        base = (auth.get("base_url") or DEFAULT_BASE).rstrip("/")
         headers = {"Content-Type": "application/json"}
         headers.update(
             {"X-API-Key": api_key} if api_key else {"Authorization": f"Bearer {jwt}"}
@@ -2686,33 +2680,33 @@ class SessionManager:
         except Exception as e:
             return {"ok": False, "error": f"{label} unavailable: {e}"}
 
-    def qualitati_region(self) -> dict[str, Any]:
+    def qualitati_region(self, site: str = "global") -> dict[str, Any]:
         """The account's Mimi model region — where the models answering this app run.
         "us" (default, DigitalOcean, cheaper) or "eu" (strict GDPR, Scaleway Paris,
         pricier). Lives on the ACCOUNT, read by the gateway per request — so setting
         it here changes the very next message, on every device."""
-        return self._qualitati_get("/api/user/mimiwork-region", label="model region")
+        return self._qualitati_get("/api/user/mimiwork-region", label="model region", site=site)
 
-    def qualitati_set_region(self, region: str) -> dict[str, Any]:
+    def qualitati_set_region(self, region: str, site: str = "global") -> dict[str, Any]:
         region = str(region or "").strip().lower()
         if region not in ("eu", "us"):
             return {"ok": False, "error": "region must be 'eu' or 'us'"}
         return self._qualitati_send(
-            "/api/user/mimiwork-region", {"region": region}, label="model region"
+            "/api/user/mimiwork-region", {"region": region}, label="model region", site=site
         )
 
-    def qualitati_footprint(self) -> dict[str, Any]:
+    def qualitati_footprint(self, site: str = "global") -> dict[str, Any]:
         """The account's OWN estimated impact this month (`you`, from its ledger
         tokens — see footprint.py) on top of the service-wide figure Scaleway
         measures. The estimate stands on its own when the measurement is down."""
-        out = self._qualitati_get("/api/llm/v1/footprint", label="footprint")
-        you = self._my_footprint()
+        out = self._qualitati_get("/api/llm/v1/footprint", label="footprint", site=site)
+        you = self._my_footprint(site)
         if you:
             out = {**out, "ok": True, "you": you}
             out.pop("error", None)
         return out
 
-    def _my_footprint(self) -> Optional[dict[str, Any]]:
+    def _my_footprint(self, site: str = "global") -> Optional[dict[str, Any]]:
         """Month-to-date tokens from this account's MimiWork ledger rows, paged
         newest-first until the rows predate the month, then the rough estimate for
         the grid its models run on. None when the ledger cannot be read."""
@@ -2723,7 +2717,7 @@ class SessionManager:
         month = datetime.now(timezone.utc).strftime("%Y-%m")
         tokens_in = tokens_out = calls = 0
         for page in range(5):  # ponytail: 1000 calls/month ceiling; page further if it matters
-            body = self.qualitati_credits(200, offset=page * 200)
+            body = self.qualitati_credits(200, offset=page * 200, site=site)
             if not body.get("ok"):
                 return None
             rows = body.get("entries") or []
@@ -2736,7 +2730,7 @@ class SessionManager:
                 calls += 1
             if rows is None or len(rows) < 200:
                 break
-        region_body = self.qualitati_region()
+        region_body = self.qualitati_region(site)
         region = str(region_body.get("region") or "us") if region_body.get("ok") else "us"
         return {
             **estimate(tokens_in, tokens_out, region),
@@ -2746,7 +2740,7 @@ class SessionManager:
             "period_start": month + "-01",
         }
 
-    def qualitati_credits(self, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    def qualitati_credits(self, limit: int = 50, offset: int = 0, site: str = "global") -> dict[str, Any]:
         """What this app has spent from the QualiTaTi account, most recent first.
 
         Reads the account's own credit ledger, narrowed to the rows MimiWork
@@ -2760,6 +2754,7 @@ class SessionManager:
         body = self._qualitati_get(
             f"/api/user/credit-ledger?limit={limit}&offset={offset}&source=mimiwork*",
             label="credit history",
+            site=site,
         )
         if not body.get("ok"):
             return body

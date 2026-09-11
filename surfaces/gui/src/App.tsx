@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import {
   qualitatiStatus,
+  siteOfModel,
   type QualitatiStatus,
   compactSession,
   announceInboxUnlock,
@@ -226,14 +227,15 @@ export function App() {
   // refuses). Polled every minute and after every turn; the composer shows the banner.
   const [accountCredits, setAccountCredits] = useState<number | null>(null);
   const [freeTier, setFreeTier] = useState<QualitatiStatus["free_tier"]>(null);
+  // The banner follows the site of the selected model: Puppy on 质见中国 has its own allowance.
   const refreshFreeTier = useCallback(() => {
-    qualitatiStatus()
+    qualitatiStatus(siteOfModel(model) ?? "global")
       .then((st) => {
         setFreeTier(st.free_tier ?? null);
         setAccountCredits(typeof st.profile?.credits === "number" ? st.profile.credits : null);
       })
       .catch(() => { setFreeTier(null); setAccountCredits(null); });
-  }, []);
+  }, [model]);
   useEffect(() => {
     refreshFreeTier();
     const t = setInterval(refreshFreeTier, 60_000);

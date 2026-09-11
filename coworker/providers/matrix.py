@@ -137,6 +137,23 @@ MATRIX: dict[str, ModelEntry] = {
         label="Mimi Puppy · free for use",
         caps=_AGENTIC,
     ),
+    # 质见中国 — the same four tiers on the China site (qualitati.cn), DeepSeek/Qwen
+    # served domestically. A separate provider so the picker says where a call goes and
+    # whose credits it spends; both sites can be signed in at once.
+    "qualitati_cn:mimi-puppy": ModelEntry(label="Mimi Puppy · 质见中国 · 每日免费", caps=_AGENTIC),
+    "qualitati_cn:mimi-hound": ModelEntry(
+        label="Mimi Hound · 质见中国 · 免费·快速",
+        caps=ModelCapabilities(tools=True, vision=True, parallel_tool_calls=True, streaming=True),
+    ),
+    "qualitati_cn:mimi-wolf": ModelEntry(
+        label="Mimi Wolf · 质见中国 · 强大",
+        caps=ModelCapabilities(tools=True, vision=True, parallel_tool_calls=True, streaming=True),
+    ),
+    "qualitati_cn:mimi-werewolf": ModelEntry(
+        label="Mimi Werewolf · 质见中国 · 旗舰",
+        caps=ModelCapabilities(tools=True, vision=True, parallel_tool_calls=True, streaming=True),
+        context_window=1_000_000,
+    ),
     "deepseek:deepseek-v4-flash": ModelEntry(
         "DeepSeek V4 Flash · DeepSeek", _AGENTIC, 128_000
     ),

@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -1281,40 +1281,48 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.set_web_search(provider, (body or {}).get("api_key"))
 
     # -- QualiTaTi account ------------------------------------------------------
-    # Sign in once; a personal API key is minted and the `qualitati` model provider
-    # is configured to spend the account's credits. All calls run off the event
-    # loop — they do blocking network I/O against the QualiTaTi API.
+    # Sign in once per SITE (QualiTaTi global, 质见中国); a personal API key is minted
+    # and that site's model provider is configured to spend the account's credits.
+    # All calls run off the event loop — they do blocking network I/O.
+    def _qt_site(value: Any) -> str:
+        from ..qualitati import SITES
+
+        site = str(value or "global").strip().lower()
+        if site not in SITES:
+            raise HTTPException(status_code=400, detail="unknown QualiTaTi site")
+        return site
+
     @app.get("/v1/qualitati/status")
-    async def qualitati_status() -> dict[str, Any]:
-        return await asyncio.to_thread(manager.qualitati_status)
+    async def qualitati_status(site: str = "global") -> dict[str, Any]:
+        return await asyncio.to_thread(manager.qualitati_status, _qt_site(site))
 
     @app.get("/v1/qualitati/footprint")
-    async def qualitati_footprint() -> dict[str, Any]:
+    async def qualitati_footprint(site: str = "global") -> dict[str, Any]:
         """Measured carbon/water footprint of the Mimi service (Scaleway data)."""
-        return await asyncio.to_thread(manager.qualitati_footprint)
+        return await asyncio.to_thread(manager.qualitati_footprint, _qt_site(site))
 
     @app.get("/v1/qualitati/credits")
-    async def qualitati_credits(limit: int = 50) -> dict[str, Any]:
+    async def qualitati_credits(limit: int = 50, site: str = "global") -> dict[str, Any]:
         """What MimiWork has spent from the signed-in QualiTaTi account."""
-        return await asyncio.to_thread(manager.qualitati_credits, limit)
+        return await asyncio.to_thread(manager.qualitati_credits, limit, 0, _qt_site(site))
 
     @app.get("/v1/qualitati/region")
-    async def qualitati_region() -> dict[str, Any]:
+    async def qualitati_region(site: str = "global") -> dict[str, Any]:
         """The account's Mimi model region (GDPR Paris vs default US)."""
-        return await asyncio.to_thread(manager.qualitati_region)
+        return await asyncio.to_thread(manager.qualitati_region, _qt_site(site))
 
     @app.put("/v1/qualitati/region")
     async def qualitati_set_region(body: dict) -> dict[str, Any]:
+        b = body or {}
         return await asyncio.to_thread(
-            manager.qualitati_set_region, (body or {}).get("region", "")
+            manager.qualitati_set_region, b.get("region", ""), _qt_site(b.get("site"))
         )
 
     @app.post("/v1/qualitati/login")
     async def qualitati_login(body: dict) -> dict[str, Any]:
+        b = body or {}
         return await asyncio.to_thread(
-            manager.qualitati_login,
-            (body or {}).get("username", ""),
-            (body or {}).get("password", ""),
+            manager.qualitati_login, b.get("username", ""), b.get("password", ""), _qt_site(b.get("site"))
         )
 
     @app.post("/v1/qualitati/register")
@@ -1326,22 +1334,22 @@ def create_app(manager: SessionManager) -> FastAPI:
             b.get("email", ""),
             b.get("password", ""),
             b.get("referrer_code", "") or "",
+            _qt_site(b.get("site")),
         )
 
     @app.post("/v1/qualitati/verify-mfa")
     async def qualitati_verify_mfa(body: dict) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            manager.qualitati_verify_mfa, (body or {}).get("code", "")
-        )
+        b = body or {}
+        return await asyncio.to_thread(manager.qualitati_verify_mfa, b.get("code", ""), _qt_site(b.get("site")))
 
     @app.post("/v1/qualitati/reconnect")
-    def qualitati_reconnect() -> dict[str, Any]:
+    def qualitati_reconnect(site: str = "global") -> dict[str, Any]:
         """Signed in but the Mimi models aren't offered: mint the gateway key again."""
-        return manager.qualitati_reconnect()
+        return manager.qualitati_reconnect(_qt_site(site))
 
     @app.post("/v1/qualitati/logout")
-    async def qualitati_logout() -> dict[str, Any]:
-        return await asyncio.to_thread(manager.qualitati_logout)
+    async def qualitati_logout(site: str = "global") -> dict[str, Any]:
+        return await asyncio.to_thread(manager.qualitati_logout, _qt_site(site))
 
     # -- model providers (OpenAI, Ollama, …) ------------------------------------
     @app.get("/v1/providers")
