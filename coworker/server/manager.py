@@ -3150,12 +3150,18 @@ class SessionManager:
         return alive
 
     def _ollama_models(self) -> list[str]:
-        """Live list of models pulled into the configured Ollama server (via its native
-        `/api/tags`), as `ollama:<name>` so they're directly selectable. Empty if Ollama isn't
-        configured or unreachable — best-effort, never raises."""
-        profile = self.secrets.get("provider:ollama")
-        if not profile:
-            return []
+        """Live list of models pulled into the local Ollama (its native `/api/tags`), as
+        `ollama:<name>` so they're directly selectable. Like `_ollama_alive`, a missing
+        profile means the default localhost server — an Ollama that was never "saved" in
+        Settings still counts (owner-hit 2026-09-11: Ollama running, model invisible).
+        Cached 30s alongside the liveness probe; empty if unreachable — never raises."""
+        import time
+
+        now = time.monotonic()
+        cached = getattr(self, "_ollama_models_cache", None)
+        if cached and now - cached[0] < 30:
+            return cached[1]
+        profile = self.secrets.get("provider:ollama") or {}
         base = (profile.get("base_url") or "http://localhost:11434").strip().rstrip("/")
         if base.endswith("/v1"):
             base = base[: -len("/v1")]
@@ -3163,11 +3169,13 @@ class SessionManager:
             import httpx
 
             data = httpx.get(base + "/api/tags", timeout=2.0).json()
-            return [
+            models = [
                 f"ollama:{m['name']}" for m in data.get("models", []) if m.get("name")
             ]
         except Exception:
-            return []
+            models = []
+        self._ollama_models_cache = (now, models)
+        return models
 
     def _curated_models(self) -> list[str]:
         """The models offered in the composer's selector: every curated-matrix model
@@ -3215,7 +3223,9 @@ class SessionManager:
         models = self._prefs.get("models")
         models = models if isinstance(models, list) else []
         self._prefs["models"] = [m for m in models if m != model]
-        if model in MATRIX:
+        # Matrix models and live Ollama models are derived, not stored: hide by id or the
+        # next read resurrects them.
+        if model in MATRIX or model.startswith("ollama:"):
             hidden = self._prefs.get("hidden_models") or []
             if model not in hidden:
                 self._prefs["hidden_models"] = [*hidden, model]
@@ -3240,6 +3250,14 @@ class SessionManager:
             return self._provider_configured(provider)
 
         selectable = [m for m in self._curated_models() if _selectable(m)]
+        # Whatever the local Ollama has pulled is offered as-is: nobody should have to
+        # type "ollama:gemma4:26b" into an add-model form for a model already on disk.
+        # A model the user removed stays hidden until they add it back.
+        if self._ollama_alive():
+            hidden = set(self._prefs.get("hidden_models") or [])
+            for m in self._ollama_models():
+                if m not in selectable and m not in hidden:
+                    selectable.append(m)
         if self.model not in selectable:
             selectable.insert(0, self.model)
         from ..providers.matrix import model_context_windows, model_labels
