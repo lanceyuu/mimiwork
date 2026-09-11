@@ -523,7 +523,10 @@ def test_ws_allows_only_one_inflight_turn_per_session(tmp_path):
 
     assert "steer_queued" in types
     assert "input_rejected" not in types
-    assert provider.max_active == 1  # still strictly one model call at a time
+    # A priority steer abandons the in-flight model call instead of waiting for it
+    # (2026-09-10), so two calls can overlap for an instant on a slow runner. What must
+    # hold is that the second message never opened a second TURN.
+    assert types.count("turn_start") == 1
     assert _user_texts() == ["first", "second"]
 
 
