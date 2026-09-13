@@ -116,6 +116,12 @@ class _BackgroundTask:
             self._cursor = len(self._lines)
         return new
 
+    def drain(self, timeout: float = 2.0) -> None:
+        """Once the process has exited, wait for the reader to reach EOF so the buffer
+        holds every line before the caller reads it (a pipe's last lines can land after
+        poll() reports the exit — CI flake on Ubuntu, 2026-09-13)."""
+        self._reader.join(timeout)
+
     def kill(self) -> None:
         if self.proc.poll() is not None:
             return
@@ -344,11 +350,16 @@ class LocalExecutor(Executor):
         task = self._bg_tasks.get(task_id)
         if task is None:
             return {"error": f"unknown task: {task_id}"}
+        # Exit status first, then the buffer: a task that writes and exits between the
+        # two calls would otherwise report "exited" with its last output still in the
+        # pipe — and a reader that stops on "exited" never sees it.
+        exit_code = task.proc.poll()
+        if exit_code is not None:
+            task.drain()
         output = task.read_new()
         truncated = len(output) > self.max_output_chars
         if truncated:
             output = output[-self.max_output_chars :]
-        exit_code = task.proc.poll()
         return {
             "task_id": task_id,
             "status": "running" if exit_code is None else "exited",

@@ -208,3 +208,30 @@ def test_background_unknown_task_errors(executor):
     assert (
         "unknown task" in reg.execute("shell_task_kill", {"task_id": "bg-99"})["error"]
     )
+
+
+def test_an_exited_task_reports_its_last_line_even_if_the_pipe_drains_late(executor):
+    """The exit status can be visible before the reader thread has stored the final
+    line. "exited" must come with the complete output, or a caller that stops reading
+    on exit loses it (flaky on Ubuntu CI until 2026-09-13)."""
+    import threading
+    import time
+    from types import SimpleNamespace
+
+    from coworker.tools.shell import _BackgroundTask
+
+    task = _BackgroundTask.__new__(_BackgroundTask)
+    task.id, task.command = "late", "echo late"
+    task._lock, task._lines, task._cursor = threading.Lock(), [], 0
+    task.proc = SimpleNamespace(poll=lambda: 0)
+
+    def slow_reader():
+        time.sleep(0.3)
+        with task._lock:
+            task._lines.append("late_line\n")
+
+    task._reader = threading.Thread(target=slow_reader, daemon=True)
+    task._reader.start()
+    executor._bg_tasks["late"] = task
+    res = executor.background_output("late")
+    assert res["status"] == "exited" and "late_line" in res["output"]
