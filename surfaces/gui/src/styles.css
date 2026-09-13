@@ -320,6 +320,10 @@ body {
    .main-scroll). The user bubble is restyled inline with Tailwind utilities on the element. */
 .transcript { max-width: 768px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
 .bubble-assistant { font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+/* A long unbroken token (a pasted URL, a path) must wrap inside the bubble: without this the
+   right-aligned user bubble grows past the transcript and its start hides under the sidebar
+   (owner report 2026-09-13). */
+.bubble-user, .bubble-assistant { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 .bubble-assistant .who { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
 
 /* markdown-rendered assistant content (the bubble's pre-wrap would double-space block output) */
