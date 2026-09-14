@@ -24,8 +24,8 @@
       calls sys.exit() at import if typer is absent, which aborts the freeze.
         py -m venv .venv ; .\.venv\Scripts\pip install -e ".[bedrock]" pyinstaller tzdata typer
 
-  The result is UNSIGNED — first launch shows a SmartScreen warning ("More info" -> "Run anyway").
-  Authenticode signing is a later step.
+  Release builds require Azure Artifact Signing. See WINDOWS_SIGNING.md.
+  Local builds without signing configuration remain unsigned for development.
 
   Experimental (use-at-your-own-risk) connectors are EXCLUDED from this build by default —
   the spec strips coworker.connectors.experimental. Self-builders can opt in with:
@@ -34,7 +34,8 @@
 [CmdletBinding()]
 param(
     # Which installer bundles to produce. See the MSI note above before adding "msi".
-    [string]$Bundles = "nsis"
+    [string]$Bundles = "nsis",
+    [switch]$RequireSigning
 )
 $ErrorActionPreference = "Stop"
 
@@ -43,6 +44,19 @@ $Platform = Split-Path -Parent $Here
 $Gui      = Join-Path $Platform "surfaces\gui"
 $Venv     = Join-Path $Platform ".venv"
 $PyInst   = Join-Path $Venv "Scripts\pyinstaller.exe"
+$SignScript = Join-Path $Here "sign_windows.ps1"
+$SigningNames = @("AZURE_SIGNING_ENDPOINT", "AZURE_SIGNING_ACCOUNT", "AZURE_SIGNING_PROFILE", "WINDOWS_PUBLISHER")
+$Configured = @($SigningNames | Where-Object { -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) })
+$SignWindows = $Configured.Count -eq $SigningNames.Count
+if (($RequireSigning -or $Configured.Count -gt 0) -and -not $SignWindows) {
+    throw "Windows signing configuration is incomplete. See packaging/WINDOWS_SIGNING.md."
+}
+if ($RequireSigning -and -not $env:TAURI_SIGNING_PRIVATE_KEY) {
+    throw "Release builds require the auto-update signing key as well as Authenticode signing."
+}
+if ($SignWindows) {
+    if (-not (Get-Command pwsh -ErrorAction SilentlyContinue)) { throw "Signing requires PowerShell 7 (pwsh)." }
+}
 
 function Require-Cmd($name) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {
@@ -88,20 +102,56 @@ Remove-Item -Force (Join-Path $BinDir "openworker-server-$Triple.exe") -ErrorAct
 Copy-Item -Recurse -Force $Src $Dst
 Write-Host "    -> $Dst"
 
+if ($SignWindows) {
+    # PyInstaller resources are not covered by Tauri's executable signing hook.
+    # Keep valid vendor signatures; sign unsigned native modules for Smart App Control.
+    $NativeFiles = @(Get-ChildItem -LiteralPath $Dst -Recurse -File |
+        Where-Object { $_.Extension -in @(".exe", ".dll", ".pyd") })
+    if (-not (Test-Path -LiteralPath (Join-Path $Dst "openworker-server.exe"))) {
+        throw "The staged Python sidecar executable is missing."
+    }
+    foreach ($NativeFile in $NativeFiles) {
+        $Signature = Get-AuthenticodeSignature -LiteralPath $NativeFile.FullName
+        if ($Signature.Status -eq "NotSigned" -or $NativeFile.Name -eq "openworker-server.exe") {
+            & pwsh -NoProfile -File $SignScript -Path $NativeFile.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Sidecar signing failed: $($NativeFile.FullName)" }
+        } elseif ($Signature.Status -ne "Valid") {
+            throw "Invalid vendor signature: $($NativeFile.FullName) ($($Signature.Status))"
+        }
+    }
+}
+
 Write-Host "==> [3/3] tauri build (--bundles $Bundles)" -ForegroundColor Cyan
 # Auto-update artifacts (NSIS setup .exe + minisign .sig): produced only when the updater
 # signing key env is present (CI secret TAURI_SIGNING_PRIVATE_KEY). Keyless builds skip
 # the overlay so dev builds keep working; keyless RELEASES strand installs without
 # auto-update.
 $UpdaterArgs = @()
+$BundleOverlay = @{}
 if ($env:TAURI_SIGNING_PRIVATE_KEY) {
     # Pass the overlay as a FILE: inline JSON loses its quotes through the
     # PowerShell -> npm.cmd -> cmd hop ("key must be a string", v0.1.3 run).
-    $Overlay = Join-Path ([IO.Path]::GetTempPath()) "ocw-updater-overlay.json"
-    Set-Content -Path $Overlay -Value '{"bundle":{"createUpdaterArtifacts":true}}' -Encoding ascii
-    $UpdaterArgs = @("--config", $Overlay)
+    $BundleOverlay.createUpdaterArtifacts = $true
 } else {
     Write-Host "    WARNING: no updater signing key - building WITHOUT auto-update artifacts (not releasable)." -ForegroundColor Yellow
+}
+if ($SignWindows) {
+    $BundleOverlay.publisher = $env:WINDOWS_PUBLISHER
+    # Object arguments preserve spaces in checkout paths. Tauri signs its executable,
+    # uninstaller and installer before producing the updater's content signature.
+    $BundleOverlay.windows = @{
+        signCommand = @{
+            cmd = "pwsh"
+            args = @("-NoProfile", "-File", $SignScript, "-Path", "%1")
+        }
+    }
+}
+$Overlay = $null
+if ($BundleOverlay.Count -gt 0) {
+    $Overlay = Join-Path ([IO.Path]::GetTempPath()) ("mimiwork-windows-" + [guid]::NewGuid() + ".json")
+    @{ bundle = $BundleOverlay } | ConvertTo-Json -Depth 6 |
+        Set-Content -LiteralPath $Overlay -Encoding utf8
+    $UpdaterArgs = @("--config", $Overlay)
 }
 Push-Location $Gui
 try {
@@ -120,9 +170,23 @@ try {
 }
 finally {
     Pop-Location
+    if ($Overlay) { Remove-Item -LiteralPath $Overlay -Force }
 }
 
 $BundleDir = Join-Path $Gui "src-tauri\target\release\bundle"
+if ($SignWindows) {
+    $Installers = @(Get-ChildItem -Path $BundleDir -Recurse -File -Include *.exe, *.msi)
+    if ($Installers.Count -eq 0) { throw "No signed installers were produced." }
+    foreach ($Installer in $Installers) {
+        $Signature = Get-AuthenticodeSignature -LiteralPath $Installer.FullName
+        if ($Signature.Status -ne "Valid" -or -not $Signature.TimeStamperCertificate) {
+            throw "Installer is not validly signed and timestamped: $($Installer.FullName)"
+        }
+        if ($RequireSigning -and -not (Test-Path -LiteralPath ($Installer.FullName + ".sig"))) {
+            throw "Installer is missing its auto-update signature: $($Installer.FullName)"
+        }
+    }
+}
 Write-Host ""
 Write-Host "Done. Installers under: $BundleDir" -ForegroundColor Green
 Get-ChildItem -Path $BundleDir -Recurse -Include *.exe, *.msi -ErrorAction SilentlyContinue |

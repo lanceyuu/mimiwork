@@ -58,6 +58,8 @@ test("ready rows reveal Start → on hover and prefill the composer", async ({ p
   await page.getByText("More ways to start", { exact: true }).click();
   const canva = page.getByTestId("intro-task-canva");
   await expect(canva).toContainText("Start →");
+  // Expanding the section can place a task beneath the pointer left by the click.
+  await page.mouse.move(0, 0);
   // The action is hover-revealed on ready rows (hidden at rest).
   await expect(canva.locator(".task-card-act")).toHaveCSS("opacity", "0");
   await canva.hover();
