@@ -1,0 +1,44 @@
+name: Validate Store installer
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Successful Release workflow run containing the Windows artifact
+        required: true
+        default: '34992424765'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify candidate provenance
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run }}
+        run: |
+          if ($env:BUILD_RUN -notmatch '^\d+$') { throw 'Invalid build run' }
+          $run = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:BUILD_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $run.conclusion -ne 'success' -or $run.path -ne '.github/workflows/release.yml' -or $run.event -ne 'workflow_dispatch') {
+            throw 'Candidate must come from a successful manual Release run'
+          }
+          "Source commit: $($run.head_sha)" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows
+          path: candidate
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+      - name: Check signature and silent installation
+        shell: pwsh
+        run: ./packaging/test_store_installer.ps1 -ArtifactDirectory candidate
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-validation-evidence
+          path: store-validation.json
+          if-no-files-found: warn
