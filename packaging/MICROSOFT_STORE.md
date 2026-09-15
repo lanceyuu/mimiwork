@@ -31,6 +31,25 @@ Publish the verified candidate at a new immutable HTTPS URL. Never replace a rel
 installer with this different binary under the same filename and URL. Submit that
 specific URL and the tested silent arguments to Partner Center.
 
+Partner Center rejects redirecting URLs, including GitHub release download links.
+The approved direct-download host is Azure Storage account `mimiworkdownloads`
+(North Europe, Standard/LRS, Hot), container `installers`. Only individual blobs
+are anonymously readable; the container cannot be listed anonymously and `$logs`
+remains private. Upload only public installers. Use a version-and-build-specific
+filename, preserve the exact validated bytes, and never overwrite an existing blob.
+Verify HTTP 200 without redirects, length and SHA-256 after upload. Storage and
+download traffic incur metered Azure charges.
+
+The `Validate Store installer` workflow records signature, silent install/uninstall
+and authenticated startup of the installed Python sidecar. Its evidence explicitly
+distinguishes these checks from clean offline runtime installation and interactive
+document workflows. Do not silently relabel those remaining checks as passed.
+
+Version 0.6.16 adds the [application content policy](../CONTENT_POLICY.md), explicit
+request/tool guards and supported SafeSearch settings. These restrictions do not
+classify every external image or guarantee that custom providers are child-safe.
+Keep that distinction in reviewer notes and age-rating answers.
+
 Finish the Store logo, actual app screenshots, descriptions, reviewer access,
 accurate IARC questionnaire and desktop-specific privacy disclosures. A saved draft
 is not a submission and a submission is not approval.
