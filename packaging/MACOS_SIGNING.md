@@ -1,13 +1,17 @@
 # macOS signing and notarization
 
-Preparation status, 15 September 2026: the Apple Developer app displayed a paid
-membership under Fengming Liu, valid through 15 September 2027. The browser account
-did not have certificate access. The enrolled team's ID, membership type, and
-certificate identity remain unverified. `security find-identity -v -p codesigning`
-found zero valid identities on this Mac. No Apple secrets were configured in GitHub
-at the last check. No newly signed or notarized Mac build has been verified.
+Status, 15 September 2026: configured; first notarized build pending. Confirmed
+Fengming Liu's individual team `7CH28564U7`. Developer ID Application certificate
+`V55BN33DA2` was issued and matched to its private key; it expires 16 September
+2031. Exact identity: `Developer ID Application: Fengming Liu (7CH28564U7)`.
+All six Apple secrets below are configured in GitHub. Team API key
+`MimiWork Notarization` has Developer access, key ID `YJDDD3TJ7U`, issuer
+`85956d12-edca-4850-b8a2-c4c83555216e`. A read-only `notarytool history` request
+succeeded. Private material is kept outside the repository in a restricted local
+signing directory and GitHub encrypted secrets. No newly signed or notarized Mac
+build has yet been verified.
 
-## Resume when the account is available
+## Credential setup reference
 
 1. Sign in to the Apple Developer account that owns the membership. Confirm its
    team ID and whether the team is an individual or QUALITATI organization.
