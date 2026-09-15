@@ -12,7 +12,9 @@ vi.mock("../api", () => ({
   askApp: (...a: unknown[]) => askApp(...(a as [])),
   getAppState: async () => ({ tone: "warm" }),
   setAppState: (...a: unknown[]) => setAppState(...(a as [])),
+  saveAppFile: (...a: unknown[]) => saveAppFile(...(a as [])),
 }));
+const saveAppFile = vi.fn(async () => ({ ok: true, path: "/Users/me/Downloads/meeting.ics" }));
 
 import { AppFrame, frameDocument } from "./AppFrame";
 
@@ -96,5 +98,18 @@ describe("AppFrame — the creator's log and suggestion chips", () => {
     expect(into).toHaveBeenCalledWith({ mimi: 1, kind: "suggestion", text: "Into French" }, "*");
     // The bridge inside the page knows the shape and offers Mimi.onSuggestion.
     expect(frameDocument(APP, "<html><head></head></html>")).toContain("onSuggestion");
+  });
+});
+
+describe("AppFrame — saving a file", () => {
+  it("hands the file to the sidecar and answers with where it landed", async () => {
+    render(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" />);
+    const win = (screen.getByTestId("app-frame") as HTMLIFrameElement).contentWindow!;
+    const reply = vi.spyOn(win, "postMessage");
+    post(win, { mimi: 1, id: 11, kind: "file.save", payload: { name: "meeting.ics", text: "BEGIN:VCALENDAR" } });
+    await waitFor(() => expect(reply).toHaveBeenCalled());
+    expect(saveAppFile).toHaveBeenCalledWith("app-0000aaaa", "meeting.ics", "BEGIN:VCALENDAR");
+    expect(reply.mock.calls[0][0]).toEqual({ mimi: 1, id: 11, result: "/Users/me/Downloads/meeting.ics" });
+    expect(frameDocument(APP, "<html><head></head></html>")).toContain("saveFile");
   });
 });

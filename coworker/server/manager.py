@@ -6019,18 +6019,50 @@ class SessionManager:
         if app is None:
             return {"ok": False, "error": "not found"}
         slug = _re.sub(r"[^a-z0-9]+", "-", app.title.lower()).strip("-") or app.id
-        out_dir = Path.home() / "Downloads"
         try:
-            out_dir.mkdir(parents=True, exist_ok=True)
-            path = out_dir / f"{slug}.mimiapp.html"
-            n = 2
-            while path.exists():
-                path = out_dir / f"{slug}-{n}.mimiapp.html"
-                n += 1
+            path = self._free_download_path(slug, ".mimiapp.html")
             path.write_text(pack(app, self.app_store.html(app_id)), encoding="utf-8")
         except OSError as e:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "path": str(path)}
+
+    # Text formats an app may hand the user. Nothing a double-click would run (.command,
+    # .sh, .app): the sandbox exists so an app cannot act on the Mac, and a script in
+    # ~/Downloads written by the sidecar carries no quarantine flag.
+    _APP_FILE_EXTS = {".ics", ".csv", ".tsv", ".txt", ".json", ".md", ".xml", ".vcf"}
+    _APP_FILE_MAX = 2 * 1024 * 1024
+
+    def save_app_file(self, app_id: str, name: str, text: str) -> dict[str, Any]:
+        """Mimi.saveFile: the sandboxed frame cannot download, so the sidecar writes it."""
+        import re as _re
+
+        if self.app_store.get(app_id) is None:
+            return {"ok": False, "error": "not found"}
+        base = Path(str(name).replace("\\", "/")).name
+        stem, ext = Path(base).stem, Path(base).suffix.lower()
+        if ext not in self._APP_FILE_EXTS:
+            return {"ok": False, "error": f"apps can save {', '.join(sorted(self._APP_FILE_EXTS))} files only"}
+        data = str(text).encode("utf-8")
+        if len(data) > self._APP_FILE_MAX:
+            return {"ok": False, "error": "the file is larger than 2 MB"}
+        stem = _re.sub(r"[^\w.-]+", "-", stem).strip("-.")[:80] or "file"
+        try:
+            path = self._free_download_path(stem, ext)
+            path.write_bytes(data)  # bytes: .ics needs its CRLF line ends kept as written
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
+    @staticmethod
+    def _free_download_path(stem: str, ext: str) -> Path:
+        out_dir = Path.home() / "Downloads"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = out_dir / f"{stem}{ext}"
+        n = 2
+        while path.exists():
+            path = out_dir / f"{stem}-{n}{ext}"
+            n += 1
+        return path
 
     # -- manuscript workbench ----------------------------------------------------
     # Proofread + version history for the Files pane's editor. Containment is the

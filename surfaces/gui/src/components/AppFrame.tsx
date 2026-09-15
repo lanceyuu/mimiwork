@@ -9,7 +9,7 @@
  * hosting on QualiTaTi possible later without touching the apps themselves.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { askApp, getAppState, setAppState } from "../api";
+import { askApp, getAppState, saveAppFile, setAppState } from "../api";
 
 /** One model call the app made, for the creator's log (Coze shows each call in its
  *  preview; "why did it answer that" is otherwise unanswerable). */
@@ -26,7 +26,7 @@ const CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
   "img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'";
 
-const KINDS = new Set(["ask", "state.get", "state.set"]);
+const KINDS = new Set(["ask", "state.get", "state.set", "file.save"]);
 const MAX_PROMPT = 32 * 1024;
 
 /** What the app sees. Kept tiny and dependency-free on purpose: it is source text that
@@ -40,6 +40,7 @@ function call(kind,payload){return new Promise(function(res,rej){var id=++seq;pe
 window.Mimi={app:${JSON.stringify({ id: app.id, title: app.title })},
 ask:function(prompt,o){o=o||{};return call("ask",{prompt:String(prompt),system:o.system?String(o.system):""}).then(function(t){if(!o.json)return t;return JSON.parse(String(t).replace(/^\\s*\`\`\`(?:json)?\\s*|\\s*\`\`\`\\s*$/g,""));});},
 state:{get:function(){return call("state.get",{});},set:function(v){return call("state.set",{value:v});}},
+saveFile:function(name,text){return call("file.save",{name:String(name),text:String(text)});},
 onSuggestion:function(fn){onSug=typeof fn==="function"?fn:null;}};})();</script>`;
 }
 
@@ -98,6 +99,11 @@ export function AppFrame({
             ms: Date.now() - started,
           });
           return reply(r.ok ? { result: r.text ?? "" } : { error: r.error || "Mimi could not answer" });
+        }
+        if (d.kind === "file.save") {
+          // The sandbox (and WKWebView) drop <a download>, so the sidecar writes the file.
+          const r = await saveAppFile(app.id, String(payload.name ?? ""), String(payload.text ?? ""));
+          return reply(r.ok ? { result: r.path } : { error: r.error || "could not save the file" });
         }
         if (d.kind === "state.get") return reply({ result: await getAppState(app.id) });
         const value = payload.value;

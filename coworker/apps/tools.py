@@ -21,7 +21,9 @@ _CREATE = {
             "Save a new app: ONE self-contained HTML file the user runs inside MimiWork. "
             "No external scripts, styles, fonts or images — the app has no network. Use "
             "window.Mimi.ask(prompt) for anything that needs a model and "
-            "Mimi.state.get()/set(obj) to remember things. Appears in the Apps section at once."
+            "Mimi.state.get()/set(obj) to remember things, and Mimi.saveFile(name, text) to give "
+            "the user a file (.ics, .csv, .txt …) — browser downloads do not work in the app. "
+            "Appears in the Apps section at once."
         ),
         "parameters": {
             "type": "object",

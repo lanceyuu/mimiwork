@@ -1592,6 +1592,11 @@ def create_app(manager: SessionManager) -> FastAPI:
     def app_export(app_id: str) -> dict[str, Any]:
         return manager.export_app(app_id)
 
+    @app.post("/v1/apps/{app_id}/file")
+    def app_save_file(app_id: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.save_app_file(app_id, str(body.get("name") or ""), str(body.get("text") or ""))
+
     @app.post("/v1/automations/{task_id}/revise")
     def automation_revise(task_id: str, body: dict) -> dict[str, Any]:
         """Feedback on one node of the flow diagram, folded into the instructions."""

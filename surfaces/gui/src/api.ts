@@ -2926,6 +2926,17 @@ export async function revertApp(id: string): Promise<{ ok: boolean; app?: MimiAp
   return res.json();
 }
 
+/** The bridge's `Mimi.saveFile` — the frame cannot download, so the sidecar writes the
+ *  file into ~/Downloads and answers with its path. */
+export async function saveAppFile(id: string, name: string, text: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/file`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, text }),
+  });
+  return res.json();
+}
+
 export async function exportApp(id: string): Promise<{ ok: boolean; path?: string; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/export`, { method: "POST" });
   return res.json();

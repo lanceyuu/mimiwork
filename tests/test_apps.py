@@ -172,3 +172,21 @@ def test_the_gallery_has_categorised_working_templates():
         assert s["intro"] and 2 <= len(s["suggestions"]) <= 6, s["name"]
         assert "Mimi.onSuggestion" in s["html"], s["name"]
     assert [s["category"] for s in starters] == sorted(s["category"] for s in starters)
+
+
+def test_an_app_saves_a_text_file_into_downloads_but_nothing_runnable(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    m = _manager(tmp_path, monkeypatch)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    app = m.app_store.create(title="Cal", html=HTML)
+    ics = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"
+    r = m.save_app_file(app.id, "../../Team meeting.ics", ics)
+    assert r["ok"], r
+    p = Path(r["path"])
+    assert p.parent == tmp_path / "home" / "Downloads" and p.name == "Team-meeting.ics"
+    assert p.read_bytes() == ics.encode()
+    assert Path(m.save_app_file(app.id, "Team meeting.ics", "x")["path"]).name == "Team-meeting-2.ics"
+    assert not m.save_app_file(app.id, "run.command", "echo hi")["ok"]
+    assert not m.save_app_file(app.id, "big.txt", "x" * (2 * 1024 * 1024 + 1))["ok"]
+    assert not m.save_app_file("app-missing", "a.ics", "x")["ok"]

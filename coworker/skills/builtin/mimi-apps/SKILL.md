@@ -26,6 +26,10 @@ wants a change. Never write the file anywhere else.
   - `Mimi.app` → `{ id, title }`.
   - `Mimi.onSuggestion(fn)` → `fn(text)` runs when the user clicks one of the app's
     suggestion chips (see below). Use it to fill the main input and run.
+  - `await Mimi.saveFile(name, text)` → saves a text file (`.ics`, `.csv`, `.tsv`,
+    `.txt`, `.json`, `.md`, `.xml`, `.vcf`, up to 2 MB) into the user's Downloads folder
+    and returns its path. Browser downloads (`<a download>`, blob URLs) do nothing in
+    the frame — always use this. Call it from a button, then show "Saved to <path>".
 - Keep the file under 100 KB. If a feature needs a library, it needs a different design.
 
 ## How to build one
