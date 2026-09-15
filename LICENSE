@@ -1,18 +1,27 @@
-MIT License
+PolyForm Noncommercial License 1.0.0
 
-Copyright (c) 2024 Andrew Ng
+Copyright (c) 2024 lanceyuu
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
-associated documentation files (the "Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
-following conditions:
+This software and associated documentation files (the "Software") may be used,
+copied, modified, and distributed for noncommercial purposes only, subject to
+the following conditions:
 
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
-LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+2. Noncommercial Use Only. You may not use the Software, or any derivative
+   works, for any commercial purpose. "Commercial purpose" means any activity
+   intended for or directed toward commercial advantage or monetary
+   compensation, including but not limited to selling, licensing, or
+   incorporating the Software into a commercial product or service.
+
+3. Redistribution of the Software, in source or binary form, must reproduce
+   the above copyright notice, this license, and the following disclaimer.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
