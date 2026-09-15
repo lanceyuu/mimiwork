@@ -35,9 +35,12 @@
 param(
     # Which installer bundles to produce. See the MSI note above before adding "msi".
     [string]$Bundles = "nsis",
-    [switch]$RequireSigning
+    [switch]$RequireSigning,
+    # Store EXE submissions must install without downloading prerequisites.
+    [switch]$StoreInstaller
 )
 $ErrorActionPreference = "Stop"
+if ($StoreInstaller) { $RequireSigning = $true }
 
 $Here     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Platform = Split-Path -Parent $Here
@@ -144,6 +147,12 @@ if ($SignWindows) {
             cmd = "pwsh"
             args = @("-NoProfile", "-File", $SignScript, "-Path", "%1")
         }
+    }
+}
+if ($StoreInstaller) {
+    $BundleOverlay.windows.webviewInstallMode = @{
+        type = "offlineInstaller"
+        silent = $true
     }
 }
 $Overlay = $null
