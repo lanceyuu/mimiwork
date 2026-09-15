@@ -11,7 +11,7 @@ anything consequential.
 [![Download for Mac](https://img.shields.io/badge/Download-macOS-000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-arm64.dmg)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe)
 [![Latest release](https://img.shields.io/github/v/release/lanceyuu/mimiwork?style=for-the-badge&label=version&color=0d9488)](https://github.com/lanceyuu/mimiwork/releases/latest)
-[![MIT](https://img.shields.io/badge/license-MIT-555?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/license-MimiWork_Application-555?style=for-the-badge)](LICENSE)
 
 </div>
 
@@ -364,5 +364,8 @@ was taken from each — is in [CREDITS.md](CREDITS.md), and in the app under Set
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Original work © 2024 Andrew Ng; modifications © 2026 MimiWork
+Personal and business use are allowed. Creating another application from covered
+MimiWork-specific code requires permission — see [LICENSE](LICENSE).
+OpenWorker and other third-party components retain their own licenses; see
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt). Original work © 2024 Andrew Ng; modifications © 2026 MimiWork
 contributors.

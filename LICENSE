@@ -1,27 +1,59 @@
-PolyForm Noncommercial License 1.0.0
+MimiWork Application License 1.0
+15 September 2026
 
-Copyright (c) 2024 lanceyuu
+1. Scope
 
-This software and associated documentation files (the "Software") may be used,
-copied, modified, and distributed for noncommercial purposes only, subject to
-the following conditions:
+These terms apply only to copyrightable MimiWork-specific code and materials
+that QUALITATI owns or is authorized to license under these terms (the
+"Covered Materials"). They do not replace the licenses of OpenWorker, other
+third-party components, or materials previously received under another license.
+See THIRD_PARTY_NOTICES.txt. Rights already granted under an earlier license
+are not revoked by these terms.
 
-1. The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
+2. Permitted use
 
-2. Noncommercial Use Only. You may not use the Software, or any derivative
-   works, for any commercial purpose. "Commercial purpose" means any activity
-   intended for or directed toward commercial advantage or monetary
-   compensation, including but not limited to selling, licensing, or
-   incorporating the Software into a commercial product or service.
+You may download, install, run, and make backup copies of MimiWork for personal,
+educational, research, professional, and commercial purposes, including use by
+businesses and their employees. You may inspect the source and build an
+unmodified copy for those purposes. You may distribute unmodified copies with
+this license and all required third-party notices intact.
 
-3. Redistribution of the Software, in source or binary form, must reproduce
-   the above copyright notice, this license, and the following disclaimer.
+You may use the application's features, configure it, connect services, and
+create documents, analyses, code, and other outputs for yourself or others,
+including for paid work. This license does not impose the restrictions in
+section 3 on your own inputs, outputs, or independently written integrations.
+It does not grant rights to third-party content or guarantee ownership of AI
+outputs. AI services and other connected services may have separate terms and fees.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+3. Modified or rebranded applications
+
+Except as permitted by section 4 or separate written permission from QUALITATI,
+you may not modify, adapt, translate, or incorporate the Covered Materials to
+create another application, a fork, or a rebranded version of MimiWork, whether
+for distribution, hosting as a service, or internal use. This restriction applies
+to both commercial and noncommercial derivative applications.
+
+No permission to use the MimiWork or QUALITATI names or logos as the branding of
+another product, or to imply endorsement, is granted by this license.
+
+4. Third-party rights and mandatory law
+
+Third-party components remain governed by their own licenses. Where those
+licenses grant rights to use, modify, redistribute, or sell those components,
+this license does not restrict those rights. In particular, OpenWorker's MIT
+license remains applicable to its original code. Nothing here limits rights
+that applicable law does not permit a license to exclude or restrict.
+
+5. Warranty and liability
+
+To the extent permitted by applicable law, the Covered Materials are provided
+"AS IS", without warranties of merchantability, fitness for a particular purpose,
+or noninfringement. To that extent, their copyright holders and licensors are
+not liable for claims, damages, or other liability arising from their use.
+This section does not exclude mandatory consumer rights or liability that
+cannot lawfully be excluded.
+
+6. Contact
+
+For permission to create a derivative application, contact contact@qualitati.com.
+QUALITATI, 47 rue Vivienne, 75002 Paris, France.

@@ -29,7 +29,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "binaries/sidecar": "sidecar"
+      "binaries/sidecar": "sidecar",
+      "../../../LICENSE": "licenses/MimiWork-LICENSE.txt",
+      "../../../THIRD_PARTY_NOTICES.txt": "licenses/THIRD_PARTY_NOTICES.txt"
     },
     "macOS": {
       "entitlements": "entitlements.plist",
