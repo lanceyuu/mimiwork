@@ -1,5 +1,5 @@
 /** Memory graph: data states — the canvas simulation itself is visual. */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryGraph } from "./MemoryGraph";
 
@@ -47,6 +47,18 @@ describe("MemoryGraph", () => {
 });
 
 describe("MemoryGraph — right-click a dot to forget it (owner ask 2026-08-31)", () => {
+  let frames: Map<number, FrameRequestCallback>;
+  beforeEach(() => {
+    // Freeze the force simulation until a test advances a frame. Otherwise CI
+    // scheduling can move the dot before the fixed-coordinate pointer event.
+    frames = new Map();
+    let nextFrame = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  });
   const GRAPH = {
     nodes: [
       { id: "m:1", kind: "memory", label: "Participants are coded P01–P24", scope: "global", memory_id: 1, degree: 1 },
@@ -72,9 +84,7 @@ describe("MemoryGraph — right-click a dot to forget it (owner ask 2026-08-31)"
    *  (W/2 + cos(θ)·r, H/2 + sin(θ)·r) with r = 90 + (i%5)·26 — and jsdom reports the
    *  parent as zero-width, so the first memory node lands at (90, 210). */
   const rightClickFirstNode = (canvas: HTMLElement) => {
-    canvas.dispatchEvent(
-      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 90, clientY: 210 }),
-    );
+    fireEvent.contextMenu(canvas, { clientX: 90, clientY: 210 });
   };
 
   it("offers Forget, asks with the memory's own words, and deletes on confirm", async () => {
@@ -122,8 +132,10 @@ describe("MemoryGraph — right-click a dot to forget it (owner ask 2026-08-31)"
     await screen.findByTestId("memory-graph-menu");
     // The dismiss listeners are armed on the NEXT frame (so the contextmenu that opened
     // the menu does not immediately close it), so wait one out before pressing Escape.
-    await act(async () => {
-      await new Promise((r) => requestAnimationFrame(() => r(null)));
+    act(() => {
+      const ready = [...frames.values()];
+      frames.clear();
+      ready.forEach((callback) => callback(16));
     });
     fireEvent.keyDown(window, { key: "Escape" });
 
