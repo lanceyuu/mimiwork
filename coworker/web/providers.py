@@ -41,7 +41,7 @@ class DuckDuckGoProvider(WebSearchProvider):
     def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
         from ddgs import DDGS
 
-        rows = DDGS().text(query, max_results=max_results) or []
+        rows = DDGS().text(query, max_results=max_results, safesearch="on") or []
         return [
             SearchResult(
                 title=r.get("title", ""),
@@ -94,7 +94,7 @@ class BraveProvider(WebSearchProvider):
                 "X-Subscription-Token": self.api_key,
                 "Accept": "application/json",
             },
-            params={"q": query, "count": max_results},
+            params={"q": query, "count": max_results, "safesearch": "strict"},
             timeout=_TIMEOUT,
         )
         data = resp.json()

@@ -24,6 +24,9 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from . import compaction as _compaction
 from . import repetition as _repetition
+from .content_policy import INSTRUCTION as CONTENT_INSTRUCTION
+from .content_policy import REFUSAL as CONTENT_REFUSAL
+from .content_policy import prohibited_request
 from .events import Event, EventType
 from .fivea import classify_turn
 from .permissions import Mode, PermissionEngine
@@ -502,6 +505,17 @@ class TurnEngine:
             if self._steer_signal.is_set():
                 self._inject_steering()
                 yield Event(EventType.NOTICE, {"kind": "steering", "text": "Following your updated instruction."})
+            latest_user = next(
+                (m.get("content", "") for m in reversed(self.messages) if m.get("role") == "user"),
+                "",
+            )
+            if prohibited_request(latest_user):
+                self.messages.append(_assistant_message(AssistantTurn(text=CONTENT_REFUSAL)))
+                yield Event(EventType.ASSISTANT_MESSAGE, {"text": CONTENT_REFUSAL, "tool_calls": []})
+                yield Event(EventType.TURN_END, {
+                    "status": "completed", "iterations": iterations, "time_saved": self._close_turn(),
+                })
+                return
             if iterations >= self.max_iterations:
                 yield Event(
                     EventType.TURN_END,
@@ -993,6 +1007,13 @@ class TurnEngine:
             self.model_settings,
         )
         provider = self.provider
+        # Reapply on every request, including resumed conversations and custom
+        # providers. Workspace instructions and tool approvals cannot turn it off.
+        messages = [dict(message) for message in messages]
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = f"{messages[0].get('content', '')}\n\n{CONTENT_INSTRUCTION}"
+        else:
+            messages.insert(0, {"role": "system", "content": CONTENT_INSTRUCTION})
         cancel = self._cancel
         steer = self._steer_signal
         # Set when the consumer walks away early (a degenerate stream): the producer
@@ -1491,6 +1512,8 @@ class TurnEngine:
 
     def _execute_tool_sync(self, tool_call: ToolCall) -> tuple[Any, str]:
         """Execute one authorized call (runs in a worker thread)."""
+        if prohibited_request(tool_call.arguments):
+            return {"error": CONTENT_REFUSAL, "error_type": "ContentPolicyError"}, "error"
         journal_key = self._tool_run_position(tool_call)
         journal = self.tool_journal if self.session_id and journal_key else None
         if journal is not None:
