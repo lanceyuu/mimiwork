@@ -18,6 +18,7 @@ $evidence = [ordered]@{
     environment = 'GitHub-hosted windows-latest; networking and preinstalled WebView2 unchanged'
     cleanOfflineRuntimeTest = 'NOT TESTED'
     guiAndDocumentWorkflow = 'NOT TESTED'
+    installedSidecarHealth = 'NOT TESTED'
 }
 try {
     $p = Start-Process $installer.FullName -ArgumentList "/S /D=$installDir" -PassThru
@@ -37,6 +38,38 @@ try {
     $license = Join-Path $installDir 'licenses\MimiWork-LICENSE.txt'
     if (-not (Test-Path $license) -or (Get-Content $license -Raw) -notmatch 'MimiWork Application License') {
         throw 'Application license missing from installed resources'
+    }
+    # Exercise the installed frozen backend, not the source checkout. This catches
+    # missing PyInstaller modules without spending model credits or touching user state.
+    $oldState = $env:COWORKER_STATE_DIR
+    $oldToken = $env:COWORKER_API_TOKEN
+    $serverProcess = $null
+    try {
+        $env:COWORKER_STATE_DIR = Join-Path $env:RUNNER_TEMP 'MimiWorkStoreValidationState'
+        $env:COWORKER_API_TOKEN = [guid]::NewGuid().ToString('N')
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        $port = $listener.LocalEndpoint.Port
+        $listener.Stop()
+        $serverProcess = Start-Process $sidecar[0].FullName -ArgumentList "--host 127.0.0.1 --port $port" -PassThru
+        $ready = $false
+        $deadline = [DateTime]::UtcNow.AddSeconds(90)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ($serverProcess.HasExited) { throw 'Installed sidecar exited during startup' }
+            try {
+                $health = Invoke-RestMethod "http://127.0.0.1:$port/v1/health" -Headers @{'x-openworker-token'=$env:COWORKER_API_TOKEN} -TimeoutSec 2
+                if ($health.status -eq 'ok' -and $health.PSObject.Properties.Name -contains 'model') { $ready = $true; break }
+            } catch { Start-Sleep -Milliseconds 500 }
+        }
+        if (-not $ready) { throw 'Installed sidecar did not become healthy' }
+        $evidence.installedSidecarHealth = 'PASS'
+    } finally {
+        if ($serverProcess -and -not $serverProcess.HasExited) {
+            & taskkill /PID $serverProcess.Id /T /F | Out-Null
+            $serverProcess.WaitForExit(10000) | Out-Null
+        }
+        $env:COWORKER_STATE_DIR = $oldState
+        $env:COWORKER_API_TOKEN = $oldToken
     }
     $uninstallers = @(Get-ChildItem $installDir -Filter '*uninstall*.exe')
     if ($uninstallers.Count -ne 1) { throw 'Expected one uninstaller' }
