@@ -13,6 +13,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { connectEvents, getActivity, type Activity } from "../api";
+import { useCompanionStyle } from "../companionStyle";
+import { TealMimiSprite } from "./TealMimiSprite";
 import sleepSheet from "../assets/mimi-pet/mimi-sleep.png";
 import wakeSheet from "../assets/mimi-pet/mimi-wake-16.png";
 import idleSheet from "../assets/mimi-pet/mimi-idle-stable-48.png";
@@ -93,6 +95,7 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
     <div
       data-testid="companion-sprite"
       data-phase={phase}
+      data-style="classic"
       style={{
         width: SIZE,
         height: SIZE,
@@ -125,8 +128,14 @@ const BUSY_LINES = [
 ];
 const DONE_LINE = "All done! Click me to take a look 🎉";
 const ALERT_LINE = "I need your OK to continue — click me ✋";
+const TEAL_BUSY_LINES = [
+  (what: string) => `Working on ${what}…`,
+  (what: string) => `Making progress on ${what}…`,
+  (what: string) => `Still working on ${what}…`,
+];
 
 export function MimiCompanion() {
+  const [petStyle] = useCompanionStyle();
   const [busy, setBusy] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [snap, setSnap] = useState<Activity | null>(null);
@@ -297,7 +306,7 @@ export function MimiCompanion() {
     phase === "alert"
       ? ALERT_LINE
       : busy
-        ? BUSY_LINES[lineIdx](what)
+        ? (petStyle === "teal" ? TEAL_BUSY_LINES : BUSY_LINES)[lineIdx](what)
         : showDone
           ? DONE_LINE
           : null;
@@ -334,7 +343,7 @@ export function MimiCompanion() {
       width: right - left,
       height: bottom - top,
     });
-  }, [bubble, phase, hovered]);
+  }, [bubble, phase, hovered, petStyle]);
 
   return (
     <div
@@ -410,7 +419,7 @@ export function MimiCompanion() {
           />
         </div>
       )}
-      {busy && phase !== "alert" && (
+      {busy && phase !== "alert" && petStyle === "classic" && (
         <div
           data-testid="companion-zzz"
           style={{
@@ -439,7 +448,11 @@ export function MimiCompanion() {
         style={{ position: "relative", width: SIZE + 84, height: SIZE, cursor: "pointer" }}
       >
         <div style={{ position: "absolute", bottom: 0, left: "50%", marginLeft: -SIZE / 2 }}>
-          <Sprite phase={phase} onDone={() => setPhase("idle")} />
+          {petStyle === "teal" ? (
+            <TealMimiSprite key={phase} phase={phase} onDone={() => setPhase("idle")} />
+          ) : (
+            <Sprite phase={phase} onDone={() => setPhase("idle")} />
+          )}
         </div>
         <button
           data-testid="companion-dismiss"

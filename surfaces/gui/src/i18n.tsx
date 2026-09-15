@@ -22,6 +22,11 @@ export const LANGS: { value: Lang; label: string }[] = [
 
 // [zh, no, fr] — en is the key itself.
 const D: Record<string, [string, string, string]> = {
+  "Mimi style": ["Mimi 外观", "Mimi-utseende", "Apparence de Mimi"],
+  "Classic Mimi": ["经典 Mimi", "Klassisk Mimi", "Mimi classique"],
+  "Teal Mimi": ["青绿 Mimi", "Turkis Mimi", "Mimi turquoise"],
+  "Choose the look of your floating desktop companion.": ["选择桌面悬浮伙伴的外观。", "Velg utseendet til den flytende skrivebordsvennen din.", "Choisissez l’apparence de votre compagnon flottant."],
+  "Show Mimi when the app is minimized, with a signal when work finishes or needs your attention.": ["应用最小化时显示 Mimi，并在工作完成或需要你处理时提醒。", "Vis Mimi når appen er minimert, med et signal når arbeidet er ferdig eller trenger din oppmerksomhet.", "Affichez Mimi lorsque l’application est réduite, avec un signal lorsque le travail est terminé ou demande votre attention."],
   "Stop task": ["停止任务", "Stopp oppgaven", "Arrêter la tâche"],
   "Force stop": ["强制停止", "Tving stopp", "Forcer l’arrêt"],
   "Stopping…": ["正在停止…", "Stopper…", "Arrêt en cours…"],

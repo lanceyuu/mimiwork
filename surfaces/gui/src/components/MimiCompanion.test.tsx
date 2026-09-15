@@ -17,15 +17,46 @@ vi.mock("../api", () => ({
 }));
 
 import { MimiCompanion } from "./MimiCompanion";
+import { COMPANION_STYLE_KEY, setCompanionStyle } from "../companionStyle";
 
 describe("MimiCompanion", () => {
   beforeEach(() => {
+    localStorage.removeItem(COMPANION_STYLE_KEY);
     activityHandler = null;
     getActivity.mockReset();
   });
   afterEach(() => {
     cleanup();
+    localStorage.removeItem(COMPANION_STYLE_KEY);
     delete (globalThis as any).__TAURI__;
+  });
+
+  it("changes pet styles live while preserving busy and approval state", async () => {
+    getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
+    render(<MimiCompanion />);
+    await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep"));
+    expect(screen.getByTestId("companion-sprite").dataset.style).toBe("classic");
+    act(() => setCompanionStyle("teal"));
+    expect(screen.getByTestId("companion-sprite").dataset.row).toBe("7");
+    expect(screen.queryByTestId("companion-zzz")).toBeNull();
+    act(() => activityHandler?.({ type: "activity", data: { busy: true, pending_input: 1 } }));
+    expect(screen.getByTestId("companion-sprite").dataset.row).toBe("6");
+    expect(screen.getByTestId("companion-bubble").textContent).toContain("need your OK");
+    act(() => setCompanionStyle("classic"));
+    expect(screen.getByTestId("companion-sprite").dataset.style).toBe("classic");
+    expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("alert");
+  });
+
+  it("loads the saved pet and follows style changes from another window", async () => {
+    localStorage.setItem(COMPANION_STYLE_KEY, "teal");
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    render(<MimiCompanion />);
+    await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.style).toBe("teal"));
+    act(() => {
+      localStorage.setItem(COMPANION_STYLE_KEY, "unknown-future-pet");
+      window.dispatchEvent(new StorageEvent("storage", { key: COMPANION_STYLE_KEY }));
+    });
+    expect(screen.getByTestId("companion-sprite").dataset.style).toBe("classic");
   });
 
   it("sleeps while the coworker is busy, with the zzz bubble", async () => {

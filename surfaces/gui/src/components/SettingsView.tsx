@@ -43,6 +43,9 @@ import {
   type DictationStatus,
 } from "../tauri";
 import { useThemePref } from "../theme";
+import { useCompanionStyle } from "../companionStyle";
+import classicMimiPreview from "../assets/mimi-pet/mimi-static.png";
+import tealMimiPreview from "../assets/mimi-teal/preview.png";
 import { Icon } from "./Icon";
 import { PanelHead } from "./IntegrationsView";
 import { AliveCard } from "./AliveCard";
@@ -454,6 +457,7 @@ function AppearanceSection() {
   const tr = useT();
   const [lang, setLangState] = useState(getLang());
   const [theme, setTheme] = useThemePref();
+  const [petStyle, setPetStyle] = useCompanionStyle();
   const [autostart, setAuto] = useState(false);
   const [keepAwake, setKeep] = useState(false);
   const [companion, setCompanion] = useState(true);
@@ -492,6 +496,23 @@ function AppearanceSection() {
 
       <SidebarCard />
 
+      <div className={CARD + " p-4 mb-4"} data-testid="companion-style-card">
+        <div className={FIELD_LABEL}>{tr("Mimi style")}</div>
+        <p className={FIELD_HELP}>{tr("Choose the look of your floating desktop companion.")}</p>
+        <div className="flex flex-wrap gap-3 mt-3" role="radiogroup" aria-label={tr("Mimi style")}>
+          {([
+            { id: "classic", name: "Classic Mimi", image: classicMimiPreview },
+            { id: "teal", name: "Teal Mimi", image: tealMimiPreview },
+          ] as const).map((pet) => (
+            <label key={pet.id} className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer ${petStyle === pet.id ? "border-accent bg-paper" : "border-line"}`}>
+              <input type="radio" name="companion-style" value={pet.id} checked={petStyle === pet.id} onChange={() => setPetStyle(pet.id)} />
+              <img src={pet.image} alt="" className="w-14 h-14 object-contain" />
+              <span className="text-[13px] text-ink">{tr(pet.name)}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <ContextBarCard />
 
       <FilesCard />
@@ -529,7 +550,7 @@ function AppearanceSection() {
             <span>
               <span className="block text-[13px] text-ink">Floating Mimi</span>
               <span className="block text-[12px] text-muted">
-                Show Mimi in the screen corner when the app is minimized — she sleeps while work runs and wakes when it&rsquo;s done.
+                {tr("Show Mimi when the app is minimized, with a signal when work finishes or needs your attention.")}
               </span>
             </span>
           </label>
