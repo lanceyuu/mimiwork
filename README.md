@@ -138,52 +138,35 @@ The app updates itself from then on.
 | **Mac — Intel** | [**MimiWork-macos-x64.dmg**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-macos-x64.dmg) |
 | **Windows 10/11** | [**MimiWork-windows-setup.exe**](https://github.com/lanceyuu/mimiwork/releases/latest/download/MimiWork-windows-setup.exe) |
 
-MimiWork is not yet signed with Apple or Microsoft, so both systems warn about it the
-first time. Nothing is wrong with the file — the warning only means the publisher is
-unknown to them. Here is what you will see and what to click, on current macOS
-(Sequoia 15 and Tahoe 26) and Windows 11. It is a one-time thing: updates install from
-inside the app and never trigger it again.
+Starting with **v0.6.15**, Windows installers are signed by **QUALITATI**, and both
+Mac builds are signed by **Fengming Liu** and notarized by Apple. Publisher signatures
+identify who distributed the app and protect its integrity. New Windows downloads
+can still receive SmartScreen reputation warnings, and company device policies
+still apply.
 
 ### Mac — the first launch
 
-1. Open the `.dmg` and drag **MimiWork** into **Applications**.
-2. Double-click MimiWork. macOS says *“MimiWork” Not Opened — Apple could not verify…* or
-   *“MimiWork” is damaged and can’t be opened*. Click **Done** (never *Move to Trash*).
-3. Open **System Settings ▸ Privacy & Security** and scroll down to **Security**. Under
-   *“MimiWork” was blocked to protect your Mac*, click **Open Anyway**. The button stays
-   for about an hour after step 2; if it is not there, double-click MimiWork once more and
-   come back.
-4. Double-click MimiWork again, click **Open Anyway** in the dialog and enter your Mac
-   password. macOS remembers the choice.
+1. Download the Apple Silicon or Intel `.dmg` for your Mac.
+2. Open it and drag **MimiWork** into **Applications**.
+3. Open MimiWork from Applications. macOS may ask you to confirm opening an app
+   downloaded from the internet.
 
-**If the Security section shows nothing, or the Mac is managed by your organisation:**
-open Terminal (⌘ Space, type *Terminal*) and paste
-
-```bash
-xattr -cr /Applications/MimiWork.app
-```
-
-then open MimiWork normally. That removes the “downloaded from the internet” flag the
-browser put on the file, which is all the “damaged” message is about.
+If macOS reports a damaged app or a security block, download the latest release
+again and contact support or your IT team if the problem persists. Do not disable
+Gatekeeper or remove security protections to install it.
 
 ### Windows — the first launch
 
-1. Download **MimiWork-windows-setup.exe**. The browser may hold the download back:
-   - **Edge:** click the download at the top right, then **⋯ ▸ Keep ▸ Show more ▸ Keep anyway**.
-   - **Chrome:** click the download arrow, then **Keep** (sometimes behind *Show more*).
-2. Run the installer. Windows shows the blue **Windows protected your PC** screen. Click
-   **More info**, check that the app is *MimiWork-windows-setup.exe*, then **Run anyway**.
-3. Finish the installer. MimiWork opens.
+1. Download **MimiWork-windows-setup.exe**.
+2. Right-click the file and open **Properties ▸ Digital Signatures** to check the
+   **QUALITATI** publisher signature.
+3. Run the installer and follow its prompts. MimiWork opens when installation finishes.
 
-**If *Run anyway* is missing (a work PC where SmartScreen is locked by policy):**
-right-click the downloaded file ▸ **Properties** ▸ **General** ▸ tick **Unblock** ▸ **OK**,
-then run it. If that box is missing too, your IT team has to allow it (a Microsoft Defender
-SmartScreen exception or an allow-list entry for MimiWork).
+If Windows or your browser blocks installation, check the exact warning and contact
+support or your IT team. A signed installer does not override organizational policy.
 
-Apple’s and Microsoft’s publisher certificates are paid, yearly things; the release
-pipeline already signs and notarizes the moment QualiTaTi has them, and these steps go
-away. Every release, with checksums and older versions, is on the
-[Releases page](https://github.com/lanceyuu/mimiwork/releases).
+Every release is on the [Releases page](https://github.com/lanceyuu/mimiwork/releases).
+Versions before v0.6.15 may have different signing status; use the latest verified release.
 
 ### The ten-minute tutorial
 

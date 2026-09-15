@@ -23,8 +23,8 @@
 #   APPLE_API_KEY_CONTENT        base64 App Store Connect API .p8 (notarytool)
 #   APPLE_API_KEY                the API key id
 #   APPLE_API_ISSUER             the API issuer id
-# When the secrets are absent (forks, scratch runs) the build degrades to unsigned —
-# installable via `xattr -cr`. Windows requires Artifact Signing; see
+# Release jobs require complete Apple credentials. Local build scripts can still
+# produce unsigned development artifacts. Windows requires Artifact Signing; see
 # packaging/WINDOWS_SIGNING.md for the company verification and OIDC setup.
 
 name: Release
@@ -164,6 +164,24 @@ jobs:
         working-directory: surfaces/gui
         run: npm ci
 
+      - name: Check Apple release credentials
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_API_KEY_CONTENT APPLE_API_KEY APPLE_API_ISSUER TAURI_SIGNING_PRIVATE_KEY; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing $name; signed Mac releases require complete credentials."
+              exit 1
+            fi
+          done
+
       - name: Build .dmg (macOS)
         if: runner.os == 'macOS'
         env:
@@ -271,13 +289,11 @@ jobs:
           draft: true
           files: dist/*
           generate_release_notes: true
-          # Until the APPLE_* secrets exist the Mac builds are not notarized, and macOS
-          # calls an un-notarized download "damaged". Say what to do at the top of every
-          # release, where people who hit it look first (owner report 2026-09-04).
           body: |
-            **First launch.** The Windows installer is signed by our verified publisher. Windows may still show a SmartScreen reputation warning for a new release.
+            MimiWork now ships with verified publisher signatures on Windows and Mac, plus Apple's notarization on both Mac architectures. This version also adds a choice of Classic or Teal Mimi for the floating companion.
 
-            - **Mac** — if macOS says it could not verify the app or that it is "damaged": click **Done**, open **System Settings ▸ Privacy & Security**, scroll to *Security*, click **Open Anyway**, then open MimiWork again and enter your password. No button there? In Terminal: `xattr -cr /Applications/MimiWork.app`, then open it normally.
-            - **Windows** — check the installer's **Properties ▸ Digital Signatures** for its verified publisher. On a managed work PC, ask your IT team to approve installation if company policy blocks it.
+            - **Windows** — signed by **QUALITATI**. A new download can still receive a SmartScreen reputation warning. Check the installer's **Properties ▸ Digital Signatures** for its publisher.
+            - **Mac** — signed by **Fengming Liu** and notarized by Apple. Choose Apple Silicon or Intel to match your Mac, open the DMG, and drag MimiWork to Applications.
+            - **Updates** — existing users can update from inside MimiWork. On a managed work computer, company installation policies still apply.
 
-            Installation help: [Install](https://github.com/lanceyuu/mimiwork#install). Updates install from inside the app.
+            Installation help: [Install](https://github.com/lanceyuu/mimiwork#install).
