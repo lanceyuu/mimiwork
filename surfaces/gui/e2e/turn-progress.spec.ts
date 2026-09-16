@@ -8,7 +8,7 @@ test("a live turn shows its narration, folded activity and the current step; the
   await page.goto("/");
   await page.locator(".app:not(.boot-splash)").waitFor();
   await page.getByTitle("Weekly plan 1").first().click();
-  await page.getByPlaceholder(/Ask the coworker/).fill("work the report");
+  await page.getByPlaceholder(/Ask Mimi/).fill("work the report");
   await page.keyboard.press("Enter");
 
   const head = page.getByTestId("turn-head");

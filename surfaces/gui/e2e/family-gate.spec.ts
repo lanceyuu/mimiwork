@@ -15,16 +15,16 @@ async function startAs(page: import("@playwright/test").Page, persona: RegExp) {
 
 test("knowledge persona: new session starts instantly, no folder gate", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toBeVisible();
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toBeVisible();
 
   await startAs(page, /Ops/);
   await expect(page.locator(".gate-overlay")).toHaveCount(0);
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toBeVisible();
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toBeVisible();
 });
 
 test("code persona: the folder gate blocks until a project is chosen", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toBeVisible();
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toBeVisible();
 
   await startAs(page, /Code/);
 

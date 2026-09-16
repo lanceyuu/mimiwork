@@ -194,8 +194,11 @@ def test_revise_document_writes_tracked_changes_and_a_plain_review(tools):
     xml = _xml(ws, "draft.docx")
     assert '<w:del ' in xml and '<w:ins ' in xml
     assert 'w:author="Mimi"' in xml
-    assert "<w:delText" in xml and "Sales went up a lot." in xml
-    assert "Sales rose 12% year on year." in xml
+    # Word by word, like a person's Track Changes: the words that stay are not touched
+    # (a user reported every edit deleting the whole paragraph, 2026-09-16).
+    assert '<w:t xml:space="preserve">Sales </w:t>' in xml
+    assert "<w:delText" in xml and ">went up a lot<" in xml and "Sales went up a lot." not in xml
+    assert ">rose 12% year on year<" in xml
 
     # The plain read shows the accepted view; revisions=True lists the pending change.
     doc = read("draft.docx", revisions=True)
@@ -204,11 +207,60 @@ def test_revise_document_writes_tracked_changes_and_a_plain_review(tools):
         {
             "index": 1,
             "author": "Mimi",
-            "deleted": "Sales went up a lot.",
-            "inserted": "Sales rose 12% year on year.",
+            "deleted": "went up a lot",
+            "inserted": "rose 12% year on year",
+        }
+    ]
+    # Dropping a word in the middle: one deletion, nothing else touched.
+    revise("draft.docx", [{"index": 1, "text": "Sales rose year on year."}])
+    assert read("draft.docx", revisions=True)["revisions"] == [
+        {
+            "index": 1,
+            "author": "Mimi",
+            "deleted": "went up a lot12% ",
+            "inserted": "rose year on year",
         }
     ]
     assert "revisions" not in read("draft.docx")
+
+
+def test_revise_document_keeps_formatting_and_falls_back_for_a_rewrite(tools):
+    toolbox, ws = tools
+    revise, read = toolbox["revise_document"], toolbox["read_document"]
+    import docx
+
+    d = docx.Document()
+    p = d.add_paragraph("The results were ")
+    p.add_run("very").bold = True
+    p.add_run(" promising overall.")
+    d.add_paragraph("Old sentence here.")
+    d.save(str(ws / "f.docx"))
+    revise(
+        "f.docx",
+        [
+            {"index": 0, "text": "The results were very encouraging overall."},
+            {"index": 1, "text": "Completely different words."},
+        ],
+    )
+    xml = _xml(ws, "f.docx")
+    # The bold run survives untouched; only one word is swapped, in that run's formatting.
+    assert "<w:b/>" in xml.split(">very<")[0].rsplit("<w:r>", 1)[1]
+    assert ">promising <" in xml and ">encouraging <" in xml
+    assert "<w:del " in xml.split("encouraging")[0]
+    doc = read("f.docx", revisions=True)
+    assert doc["revisions"][0] == {"index": 0, "author": "Mimi", "deleted": "promising ", "inserted": "encouraging "}
+    # No word in common → one replacement, not a change per word.
+    assert doc["revisions"][1] == {
+        "index": 1, "author": "Mimi", "deleted": "Old sentence here.", "inserted": "Completely different words."
+    }
+    assert [b["text"] for b in doc["blocks"]] == [
+        "The results were very encouraging overall.", "Completely different words."
+    ]
+    # A second pass over the same paragraph revises the revision, and the file still opens.
+    revise("f.docx", [{"index": 0, "text": "The results were very encouraging."}])
+    doc = read("f.docx", revisions=True)
+    assert doc["blocks"][0]["text"] == "The results were very encouraging."
+    assert "overall" in doc["revisions"][0]["deleted"]
 
 
 def test_revise_document_ids_stay_unique_across_calls(tools):

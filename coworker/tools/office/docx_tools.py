@@ -12,7 +12,8 @@ edit — the failure mode of "rewrite the whole file" is losing all of it.
 
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Optional
 
 from ... import deliverable_check
 from ._common import MAX_TEXT_CHARS, clip, decorate, guard, require
@@ -249,9 +250,10 @@ def _add_block(document: Any, block: Any) -> None:
 
 
 # -- tracked changes (WordprocessingML revisions) ---------------------------------------------
-# A replacement becomes <w:del> around the paragraph's existing runs (their w:t → w:delText)
-# followed by one <w:ins> run carrying the first run's formatting. Word, LibreOffice and Pages
-# all render these as review marks with accept/reject. Ids must be unique per document.
+# A revision is marked word by word: the words that stay are left alone, a changed word
+# becomes <w:del> (its w:t → w:delText) followed by <w:ins> carrying the formatting of the
+# run it replaces — what a person's Track Changes produces. Word, LibreOffice and Pages all
+# render these as review marks with accept/reject. Ids must be unique per document.
 _REV_AUTHOR = "Mimi"
 
 
@@ -298,53 +300,182 @@ def _next_revision_id(document: Any) -> int:
     return highest + 1
 
 
-def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> int:
-    """Wrap the paragraph's runs in <w:del>, append <w:ins> with the new text. Returns the
-    next free revision id."""
+# A word (or a punctuation mark) with the spaces after it, so a space never counts as
+# "unchanged" between two changed words and splits one edit into confetti.
+_TOKEN = re.compile(r"\w+\s*|[^\w\s]\s*|\s+")
+
+
+def _word_ops(old: str, new: str) -> Optional[list[tuple[str, int, int, int, int]]]:
+    """difflib opcodes over words, mapped back to character offsets. None when the two
+    texts share no word — a rewritten paragraph reads better as one replacement."""
+    from difflib import SequenceMatcher
+
+    a, b = _TOKEN.findall(old), _TOKEN.findall(new)
+    raw = SequenceMatcher(None, a, b, autojunk=False).get_opcodes()
+    # A single kept word between two changes is folded into one change: "the" surviving
+    # in the middle of a rewritten clause is noise to a reviewer, not information.
+    ops: list[list] = []
+    for op in raw:
+        tag, i1, i2, j1, j2 = op
+        if ops and tag != "equal" and ops[-1][0] == "equal" and ops[-1][2] - ops[-1][1] == 1 and len(ops) >= 2 and ops[-2][0] != "equal":
+            ops.pop()
+            prev = ops.pop()
+            ops.append(["replace", prev[1], i2, prev[3], j2])
+        elif ops and tag != "equal" and ops[-1][0] != "equal":
+            prev = ops.pop()
+            ops.append(["replace", prev[1], i2, prev[3], j2])
+        else:
+            ops.append(list(op))
+    if not any(
+        tag == "equal" and any(re.search(r"\w", a[k]) for k in range(i1, i2))
+        for tag, i1, i2, _, _ in ops
+    ):
+        return None
+    pa = [0]
+    for tok in a:
+        pa.append(pa[-1] + len(tok))
+    pb = [0]
+    for tok in b:
+        pb.append(pb[-1] + len(tok))
+    return [(tag, pa[i1], pa[i2], pb[j1], pb[j2]) for tag, i1, i2, j1, j2 in ops]
+
+
+def _revision(tag: str, rev_id: int, stamp: str) -> Any:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    el = OxmlElement(tag)
+    el.set(qn("w:id"), str(rev_id))
+    el.set(qn("w:author"), _REV_AUTHOR)
+    el.set(qn("w:date"), stamp)
+    return el
+
+
+def _text_run(text: str, rpr: Any) -> Any:
     import copy
 
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
 
+    run = OxmlElement("w:r")
+    if rpr is not None:
+        run.append(copy.deepcopy(rpr))
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = text
+    run.append(t)
+    return run
+
+
+def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> int:
+    """Mark how the paragraph's text differs from `new_text` as tracked changes, word by
+    word. Returns the next free revision id."""
+    import copy
+
+    from docx.oxml.ns import qn
+
     p = para._element
     # Live runs = direct children plus runs inside earlier <w:ins> (a second revision of the
-    # same paragraph deletes the previously inserted text); runs already under <w:del> stay.
+    # same paragraph revises the previously inserted text); runs already under <w:del> stay.
     runs = [
         r
         for r in p.iter(qn("w:r"))
         if r.getparent() is p or r.getparent().tag == qn("w:ins")
     ]
-    rpr = None
-    if runs:
-        first_rpr = runs[0].find(qn("w:rPr"))
-        rpr = copy.deepcopy(first_rpr) if first_rpr is not None else None
+    # Only runs made of text can be split at a word. Anything else in a run (a tab, a
+    # break, a picture, a field), or text outside the live runs (a hyperlink), falls back
+    # to replacing the paragraph whole — what the old code always did.
+    simple = all(
+        child.tag in (qn("w:rPr"), qn("w:t")) for r in runs for child in r
+    )
+    old_text = "".join((t.text or "") for r in runs for t in r.findall(qn("w:t")))
+    ops = None
+    if runs and simple and old_text == _para_text(para):
+        ops = _word_ops(old_text, new_text)
+    if ops is None:
+        ops = [("replace", 0, len(old_text), 0, len(new_text))] if runs else [
+            ("insert", 0, 0, 0, len(new_text))
+        ]
+    # Which run each character of the old text came from.
+    spans: list[tuple[int, int, Any]] = []
+    pos = 0
+    for r in runs:
+        n = sum(len(t.text or "") for t in r.findall(qn("w:t")))
+        spans.append((pos, pos + n, r))
+        pos += n
 
-    if runs:
-        deletion = OxmlElement("w:del")
-        deletion.set(qn("w:id"), str(rev_id))
-        deletion.set(qn("w:author"), _REV_AUTHOR)
-        deletion.set(qn("w:date"), stamp)
-        rev_id += 1
-        runs[0].addprevious(deletion)
-        for run in runs:
-            for t in run.findall(qn("w:t")):
-                t.tag = qn("w:delText")
-            deletion.append(run)  # moves the run under <w:del>
+    def rpr_at(i: int) -> Any:
+        # The formatting of the run a new word lands in: the run holding the character
+        # before it, else the first run.
+        for a, b, r in spans:
+            if a <= max(i - 1, 0) < b or (a == b == i):
+                return r.find(qn("w:rPr"))
+        return runs[0].find(qn("w:rPr")) if runs else None
 
-    insertion = OxmlElement("w:ins")
-    insertion.set(qn("w:id"), str(rev_id))
-    insertion.set(qn("w:author"), _REV_AUTHOR)
-    insertion.set(qn("w:date"), stamp)
-    rev_id += 1
-    new_run = OxmlElement("w:r")
-    if rpr is not None:
-        new_run.append(rpr)
-    t = OxmlElement("w:t")
-    t.set(qn("xml:space"), "preserve")
-    t.text = new_text
-    new_run.append(t)
-    insertion.append(new_run)
-    p.append(insertion)
+    def top(r: Any) -> Any:
+        return r if r.getparent() is p else r.getparent()
+
+    # Each piece goes right before the run it came from, so what sits between the runs
+    # (an earlier <w:del>, a bookmark) keeps its place; inserted words follow the piece
+    # placed last. `last` is that piece.
+    last: Optional[Any] = None
+
+    def place(el: Any, source: Any = None) -> None:
+        nonlocal last
+        if source is not None:
+            top(source).addprevious(el)
+        elif last is not None:
+            last.addnext(el)
+        elif runs:
+            top(runs[0]).addprevious(el)
+        else:
+            p.append(el)
+        last = el
+
+    def pieces(a: int, b: int, deleted: bool) -> list[tuple[Any, Any]]:
+        out: list[tuple[Any, Any]] = []
+        for s, e, r in spans:
+            lo, hi = max(a, s), min(b, e)
+            if lo >= hi:
+                continue
+            frag = _text_run(old_text[lo:hi], r.find(qn("w:rPr")))
+            if deleted:
+                frag.find(qn("w:t")).tag = qn("w:delText")
+            elif r.getparent().tag == qn("w:ins"):
+                # A word kept from an earlier insertion stays an insertion.
+                keep = copy.deepcopy(r.getparent())
+                for child in list(keep):
+                    keep.remove(child)
+                keep.append(frag)
+                frag = keep
+            out.append((frag, r))
+        return out
+
+    for tag, i1, i2, j1, j2 in ops:
+        if tag == "equal":
+            for frag, r in pieces(i1, i2, deleted=False):
+                place(frag, r)
+            continue
+        if tag in ("delete", "replace") and i2 > i1:
+            deletion = _revision("w:del", rev_id, stamp)
+            rev_id += 1
+            source = None
+            for frag, r in pieces(i1, i2, deleted=True):
+                deletion.append(frag)
+                source = source or r
+            place(deletion, source)
+        if tag in ("insert", "replace") and j2 > j1:
+            insertion = _revision("w:ins", rev_id, stamp)
+            rev_id += 1
+            insertion.append(_text_run(new_text[j1:j2], rpr_at(i1)))
+            place(insertion)
+
+    # Drop the old runs (and any earlier <w:ins> they emptied).
+    for r in runs:
+        parent = r.getparent()
+        parent.remove(r)
+        if parent is not p and len(parent) == 0:
+            parent.getparent().remove(parent)
     return rev_id
 
 

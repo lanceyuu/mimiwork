@@ -1,0 +1,189 @@
+<script type="application/json" id="mimi-app">{"mimiwork_app": 1, "title": "Radio", "icon": "📻", "category": "Everyday", "description": "Live radio while you work: BBC World Service, NPR, France Inter, FIP, Classic FM and more. Ask Mimi to pick a station for the moment.", "intro": "Pick a station and press play. Or tell Mimi what you are doing and let her choose one.", "suggestions": ["Play BBC World Service", "Something calm for writing", "Jazz, please", "The news in French"]}</script>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Radio</title>
+<style>
+  :root { --accent: #0d9488; --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --paper: #f9fafb; --soft: #ccfbf1; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: #fff; }
+  main { max-width: 780px; margin: 0 auto; padding: 24px 20px 120px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  .ask { display: flex; gap: 8px; margin-bottom: 18px; }
+  .ask input { flex: 1; font: inherit; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; }
+  .ask input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+  button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: #fff; color: var(--ink); padding: 9px 14px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .55; cursor: default; }
+  .note { min-height: 20px; color: var(--muted); font-size: 13px; margin: -8px 0 12px; }
+  .note.error { color: #b91c1c; }
+  .region { font-size: 12px; color: var(--muted); margin: 14px 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .station { text-align: left; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .station b { font-size: 14px; }
+  .station span { font-size: 12px; color: var(--muted); }
+  .station.on { border-color: var(--accent); background: var(--soft); }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid var(--line); padding: 12px 20px; }
+  .bar .inner { max-width: 780px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+  .now { flex: 1; min-width: 0; }
+  .now b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now span { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 480px) { .bar label > span { display: none; } input[type=range] { width: 80px; } }
+  .play { width: 44px; height: 44px; border-radius: 50%; padding: 0; font-size: 16px; }
+  input[type=range] { width: 110px; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Radio</h1>
+  <p class="lead">Live stations from around the world. Everything plays from the station's own stream.</p>
+
+  <form class="ask" id="askForm">
+    <input id="mood" placeholder="What are you doing? e.g. writing a paper, cooking, need the news" aria-label="What are you doing">
+    <button class="primary" id="askBtn" type="submit">Pick a station</button>
+  </form>
+  <div class="note" id="note"></div>
+
+  <div id="list"></div>
+</main>
+
+<div class="bar">
+  <div class="inner">
+    <button class="play" id="playBtn" aria-label="Play" disabled>▶</button>
+    <div class="now">
+      <b id="nowName">Nothing playing</b>
+      <span id="nowStatus">Choose a station above.</span>
+    </div>
+    <label><span style="font-size:12px;color:var(--muted)">Volume</span>
+      <input type="range" id="vol" min="0" max="1" step="0.05" value="0.8"></label>
+  </div>
+</div>
+
+<audio id="audio" preload="none"></audio>
+
+<script>
+  // Opened outside MimiWork (a preview, a shared file) there is no bridge: play still works,
+  // only Mimi's picks and the remembered station need the real thing.
+  var Mimi = window.Mimi || {
+    ask: function () { return Promise.reject(new Error("open this app inside MimiWork")); },
+    state: { get: function () { return Promise.resolve({}); }, set: function () { return Promise.resolve(); } },
+    onSuggestion: function () {}
+  };
+  // Stations with plain MP3/AAC streams (they play in every browser engine — HLS does not
+  // play on Windows). Checked live 2026-09-16.
+  var STATIONS = [
+    { id: "bbcws", name: "BBC World Service", region: "United Kingdom", kind: "News & talk", url: "https://stream.live.vc.bbcmedia.co.uk/bbc_world_service" },
+    { id: "classicfm", name: "Classic FM", region: "United Kingdom", kind: "Classical", url: "https://media-ssl.musicradio.com/ClassicFM" },
+    { id: "npr", name: "NPR", region: "United States", kind: "News & talk", url: "https://npr-ice.streamguys1.com/live.mp3" },
+    { id: "wnyc", name: "WNYC", region: "United States", kind: "News & talk", url: "https://fm939.wnyc.org/wnycfm" },
+    { id: "wqxr", name: "WQXR", region: "United States", kind: "Classical", url: "https://stream.wqxr.org/wqxr" },
+    { id: "kexp", name: "KEXP", region: "United States", kind: "Indie & alternative", url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3" },
+    { id: "paradise", name: "Radio Paradise", region: "United States", kind: "Eclectic mix", url: "https://stream.radioparadise.com/mp3-128" },
+    { id: "inter", name: "France Inter", region: "France", kind: "News & talk", url: "https://icecast.radiofrance.fr/franceinter-midfi.mp3" },
+    { id: "culture", name: "France Culture", region: "France", kind: "Ideas & culture", url: "https://icecast.radiofrance.fr/franceculture-midfi.mp3" },
+    { id: "fip", name: "FIP", region: "France", kind: "Eclectic, jazz & world", url: "https://icecast.radiofrance.fr/fip-midfi.mp3" },
+    { id: "musique", name: "France Musique", region: "France", kind: "Classical & jazz", url: "https://icecast.radiofrance.fr/francemusique-midfi.mp3" },
+    { id: "rsj", name: "Radio Swiss Jazz", region: "Switzerland", kind: "Jazz", url: "https://stream.srg-ssr.ch/m/rsj/mp3_128" },
+    { id: "rsc", name: "Radio Swiss Classic", region: "Switzerland", kind: "Classical", url: "https://stream.srg-ssr.ch/m/rsc_de/mp3_128" },
+    { id: "rsp", name: "Radio Swiss Pop", region: "Switzerland", kind: "Pop", url: "https://stream.srg-ssr.ch/m/rsp/mp3_128" },
+    { id: "nrkp1", name: "NRK P1", region: "Norway", kind: "News & talk", url: "https://lyd.nrk.no/nrk_radio_p1_ostlandssendingen_mp3_h" },
+    { id: "nrkp2", name: "NRK P2", region: "Norway", kind: "Culture & talk", url: "https://lyd.nrk.no/nrk_radio_p2_mp3_h" }
+  ];
+
+  var audio = document.getElementById("audio");
+  var list = document.getElementById("list");
+  var note = document.getElementById("note");
+  var playBtn = document.getElementById("playBtn");
+  var nowName = document.getElementById("nowName");
+  var nowStatus = document.getElementById("nowStatus");
+  var vol = document.getElementById("vol");
+  var current = null;
+  var wantPlay = false;
+
+  function byId(id) { for (var i = 0; i < STATIONS.length; i++) if (STATIONS[i].id === id) return STATIONS[i]; return null; }
+  function say(text, isError) { note.textContent = text || ""; note.className = "note" + (isError ? " error" : ""); }
+
+  function render() {
+    var regions = [];
+    STATIONS.forEach(function (s) { if (regions.indexOf(s.region) < 0) regions.push(s.region); });
+    list.innerHTML = "";
+    regions.forEach(function (region) {
+      var h = document.createElement("div"); h.className = "region"; h.textContent = region; list.appendChild(h);
+      var grid = document.createElement("div"); grid.className = "grid";
+      STATIONS.filter(function (s) { return s.region === region; }).forEach(function (s) {
+        var b = document.createElement("button");
+        b.className = "station" + (current && current.id === s.id ? " on" : "");
+        b.innerHTML = "<b></b><span></span>";
+        b.querySelector("b").textContent = s.name;
+        b.querySelector("span").textContent = s.kind;
+        b.onclick = function () { play(s); };
+        grid.appendChild(b);
+      });
+      list.appendChild(grid);
+    });
+  }
+
+  function play(s) {
+    current = s; wantPlay = true;
+    nowName.textContent = s.name; nowStatus.textContent = "Connecting…";
+    playBtn.disabled = false; playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-label", "Pause");
+    audio.src = s.url; audio.load();
+    var p = audio.play(); if (p && p.catch) p.catch(function () {});
+    render();
+    Mimi.state.set({ station: s.id, volume: audio.volume }).catch(function () {});
+  }
+  function pause() {
+    wantPlay = false; audio.pause();
+    playBtn.textContent = "▶"; playBtn.setAttribute("aria-label", "Play");
+    nowStatus.textContent = "Paused";
+  }
+  playBtn.onclick = function () { if (!current) return; if (wantPlay) pause(); else play(current); };
+  audio.addEventListener("playing", function () { nowStatus.textContent = "Live · " + current.kind; });
+  audio.addEventListener("waiting", function () { nowStatus.textContent = "Buffering…"; });
+  audio.addEventListener("error", function () {
+    if (!wantPlay) return;
+    nowStatus.textContent = "This station is not answering right now. Try another.";
+    playBtn.textContent = "▶"; wantPlay = false;
+  });
+  vol.oninput = function () { audio.volume = Number(vol.value); Mimi.state.set({ station: current ? current.id : null, volume: audio.volume }).catch(function () {}); };
+
+  // "Something calm for writing" → Mimi picks from the list above; the page never guesses.
+  function pick(mood) {
+    mood = (mood || "").trim(); if (!mood) return;
+    var askBtn = document.getElementById("askBtn");
+    askBtn.disabled = true; say("Asking Mimi…");
+    var menu = STATIONS.map(function (s) { return s.id + ": " + s.name + " (" + s.region + ", " + s.kind + ")"; }).join("\n");
+    var prompt = "A person says: \"" + mood + "\".\nPick the one radio station from this list that fits best:\n" + menu +
+      "\nReply with JSON only, like {\"id\": \"fip\", \"why\": \"one short sentence\"}. The id must be from the list.";
+    Mimi.ask(prompt, { json: true }).then(function (r) {
+      var s = r && byId(String(r.id || "").trim());
+      if (!s) { say("Mimi did not name a station on the list. Pick one below.", true); return; }
+      say(s.name + " — " + (r.why || "Mimi's pick."));
+      play(s);
+    }).catch(function (e) {
+      say("Mimi could not answer: " + (e && e.message ? e.message : "try again"), true);
+    }).then(function () { askBtn.disabled = false; });
+  }
+  document.getElementById("askForm").onsubmit = function (e) { e.preventDefault(); pick(document.getElementById("mood").value); };
+
+  // A chip: a station named directly plays at once; anything else is a mood for Mimi.
+  Mimi.onSuggestion(function (text) {
+    var t = text.toLowerCase();
+    for (var i = 0; i < STATIONS.length; i++) {
+      if (t.indexOf(STATIONS[i].name.toLowerCase()) >= 0) { play(STATIONS[i]); return; }
+    }
+    document.getElementById("mood").value = text;
+    pick(text);
+  });
+
+  render();
+  Mimi.state.get().then(function (st) {
+    if (st && typeof st.volume === "number") { audio.volume = st.volume; vol.value = String(st.volume); }
+    var s = st && st.station ? byId(st.station) : null;
+    if (s) { current = s; nowName.textContent = s.name; nowStatus.textContent = "Press play to resume"; playBtn.disabled = false; render(); }
+  }).catch(function () {});
+</script>
+</body>
+</html>

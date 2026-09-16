@@ -69,7 +69,36 @@ const STARTERS = [
   },
 ] as const;
 
-export type OnboardingStarter = { workspace: string; writable: boolean; prompt: string };
+// Without a folder (the default since 2026-09-16 — setup no longer asks for one) the first
+// task is something Mimi can do from the chat alone; files arrive by drag and drop.
+const QUICK_STARTERS = [
+  {
+    key: "summarize",
+    icon: "📋",
+    label: "Summarize a document",
+    prompt:
+      "I'll drop a document into this chat. Give me a short overview: what it says, what " +
+      "matters most, and anything that looks unfinished.",
+  },
+  {
+    key: "email",
+    icon: "✉️",
+    label: "Draft an email",
+    prompt:
+      "Help me draft an email. Ask me who it is for and what I want to achieve, then write " +
+      "it in my voice.",
+  },
+  {
+    key: "plan",
+    icon: "🗓️",
+    label: "Plan my week",
+    prompt:
+      "Help me plan my week. Ask me what is on my plate and when things are due, then " +
+      "propose an order of attack.",
+  },
+] as const;
+
+export type OnboardingStarter = { workspace?: string; writable?: boolean; prompt: string };
 
 export function Onboarding({
   onDone,
@@ -239,7 +268,7 @@ export function Onboarding({
           <section data-testid="ob-step-tools" className="flex-1 min-h-0 flex flex-col">
             <h1 className="text-[19px] font-semibold">Connect your everyday tools</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-3">
-              Chat can only advise. Connected, your coworker does the actual work:
+              Chat can only advise. Connected, Mimi does the actual work:
             </p>
 
             <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-tool-gallery">
@@ -320,28 +349,11 @@ export function Onboarding({
           <section data-testid="ob-step-first-task" className="flex-1 min-h-0 flex flex-col overflow-y-auto">
             <h1 className="text-[19px] font-semibold">Give Mimi her first task</h1>
             <p className="text-[13px] text-muted mt-0.5 mb-4">
-              Pick a folder Mimi may look at — everything stays on this computer, and she
-              only ever sees folders you hand her.
+              Nothing to set up — everything stays on this computer. Drop files into the chat
+              when you need to, or hand Mimi a folder later from the Access panel.
             </p>
 
-            {!folder ? (
-              <button
-                className="w-full flex items-center gap-3 rounded-xl2 border border-dashed border-line hover:border-accent bg-panel px-4 py-3.5"
-                onClick={pickFolder}
-                data-testid="ob-pick-folder"
-              >
-                <span className="w-9 h-9 rounded-lg bg-accentSoft text-accent grid place-items-center text-[15px] shrink-0">
-                  📁
-                </span>
-                <span className="flex-1 min-w-0 text-left">
-                  <b className="block text-[13.5px]">Choose a folder</b>
-                  <span className="text-[12px] text-muted">
-                    Your course folder, a project, this week's mess — any folder works.
-                  </span>
-                </span>
-                <span className="text-faint self-center">›</span>
-              </button>
-            ) : (
+            {folder && (
               <div
                 className="flex items-center gap-3 rounded-xl2 border border-line bg-paper px-4 py-3"
                 data-testid="ob-folder-picked"
@@ -370,11 +382,12 @@ export function Onboarding({
             )}
 
             <p className="text-[12.5px] text-muted mt-4 mb-1.5">
-              {folder ? "Now pick her first task:" : "Then pick her first task:"}
+              {folder ? "Now pick her first task:" : "Pick her first task:"}
             </p>
             <div className="space-y-2">
-              {STARTERS.map((s) => {
-                const blocked = !folder || (s.needsWrite && !writable);
+              {(folder ? STARTERS : QUICK_STARTERS).map((s) => {
+                const needsWrite = "needsWrite" in s && s.needsWrite;
+                const blocked = needsWrite && !writable;
                 return (
                   <button
                     key={s.key}
@@ -385,22 +398,19 @@ export function Onboarding({
                         : "border-line hover:border-accent bg-panel")
                     }
                     disabled={blocked}
-                    title={
-                      !folder
-                        ? "Choose a folder first"
-                        : s.needsWrite && !writable
-                          ? "Needs the edit permission above"
-                          : undefined
-                    }
+                    title={blocked ? "Needs the edit permission above" : undefined}
                     onClick={() =>
-                      folder && finish("work", { workspace: folder, writable, prompt: s.prompt })
+                      finish(
+                        "work",
+                        folder ? { workspace: folder, writable, prompt: s.prompt } : { prompt: s.prompt },
+                      )
                     }
                     data-testid={`ob-starter-${s.key}`}
                   >
                     <span className="text-[16px] shrink-0">{s.icon}</span>
                     <span className="flex-1 min-w-0">
                       <b className="block text-[13.5px]">{s.label}</b>
-                      {s.needsWrite && (
+                      {needsWrite && (
                         <span className="text-[11.5px] text-faint">Uses the edit permission</span>
                       )}
                     </span>
@@ -409,6 +419,16 @@ export function Onboarding({
                 );
               })}
             </div>
+
+            {!folder && (
+              <button
+                className="text-[12.5px] text-accent mt-3 self-start"
+                onClick={pickFolder}
+                data-testid="ob-pick-folder"
+              >
+                Or start from a folder Mimi may look at
+              </button>
+            )}
 
             <div className="flex items-center justify-center gap-4 mt-auto pt-5">
               <button

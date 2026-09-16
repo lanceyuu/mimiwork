@@ -10,7 +10,7 @@ test("skills-forcerun: popup pick → inline /name → skill rides the frame →
 
   // A two-letter search opens the skill results; picking inserts the inline prefix
   // (no chip) and keeps focus.
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("/we");
   await expect(page.getByTestId("skill-popup")).toBeVisible();
   await page.getByText("/weekly-report").click();

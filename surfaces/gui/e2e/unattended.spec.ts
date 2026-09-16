@@ -15,7 +15,7 @@ async function openModeMenu(page) {
 
 test("attended (default): a tool request surfaces the inline approval card", async ({ page }) => {
   await page.goto("/");
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("please run a tool");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
@@ -47,7 +47,7 @@ test("unattended: a tool request parks (no inline approval card)", async ({ page
   // The menu's full-screen overlay closes it on any outside click.
   await page.mouse.click(5, 5);
 
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("please run a tool");
   await page.getByRole("button", { name: "Send", exact: true }).click();
 
@@ -94,7 +94,7 @@ test("answering the live approval never re-flashes its parked Inbox mirror", asy
   });
 
   await page.goto("/");
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("please run a tool");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();

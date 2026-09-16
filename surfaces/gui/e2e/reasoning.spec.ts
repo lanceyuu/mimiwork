@@ -9,7 +9,7 @@ test("thinking streams live, then persists as a collapsed disclosure on the answ
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("think hard about this");
   await box.press("Enter");
 

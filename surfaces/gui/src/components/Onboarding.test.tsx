@@ -36,22 +36,24 @@ describe("Onboarding first-task step", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(undefined, undefined));
   });
 
-  it("starter cards gate on the folder + write permission, then hand over the grant", async () => {
+  it("a first task needs no folder; with one, cards gate on write permission and hand over the grant", async () => {
     const onDone = vi.fn();
     stubFetch();
     render(<Onboarding onDone={onDone} __startStep={2} />);
 
-    expect((screen.getByTestId("ob-starter-summarize") as HTMLButtonElement).disabled).toBe(true);
+    // No folder asked for (owner ask 2026-09-16): the cards work from the chat alone.
+    expect((screen.getByTestId("ob-starter-summarize") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("ob-starter-email"));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(onDone.mock.calls[0]).toEqual(["work", { prompt: expect.stringContaining("email") }]);
+    onDone.mockClear();
 
     chooseFolder.mockResolvedValue("/Users/me/Course");
     fireEvent.click(screen.getByTestId("ob-pick-folder"));
-    await waitFor(() =>
-      expect(
-        (screen.getByTestId("ob-starter-summarize") as HTMLButtonElement).disabled,
-      ).toBe(false),
-    );
     // Write-needing starter stays gated until the permission is granted.
-    expect((screen.getByTestId("ob-starter-tidy") as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() =>
+      expect((screen.getByTestId("ob-starter-tidy") as HTMLButtonElement).disabled).toBe(true),
+    );
     fireEvent.click(screen.getByTestId("ob-folder-writable"));
     expect((screen.getByTestId("ob-starter-tidy") as HTMLButtonElement).disabled).toBe(false);
 

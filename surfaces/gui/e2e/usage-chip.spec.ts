@@ -13,7 +13,7 @@ test("usage chip appears after a turn and opens the breakdown popover", async ({
   // Fresh session: no usage yet — the chip is hidden entirely.
   await expect(page.getByTestId("usage-chip")).toHaveCount(0);
 
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello");
   await box.press("Enter");
   await expect(page.getByText("Echo: hello", { exact: false }).first()).toBeVisible({
@@ -56,7 +56,7 @@ test("usage chip appears after a turn and opens the breakdown popover", async ({
 test("usage resets on a new session", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello");
   await box.press("Enter");
   await expect(page.getByTestId("usage-chip")).toBeVisible({ timeout: 10_000 });
@@ -69,7 +69,7 @@ test("usage resets on a new session", async ({ page }) => {
 test("Settings toggle turns the context bar on; default is the session total", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello");
   await box.press("Enter");
   const chip = page.getByTestId("usage-chip");
@@ -90,8 +90,8 @@ test("Settings toggle turns the context bar on; default is the session total", a
   // Reload so the app re-reads settings: the chip is now the fill bar, not a number.
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  await page.getByPlaceholder(/Ask the coworker/).fill("hello");
-  await page.getByPlaceholder(/Ask the coworker/).press("Enter");
+  await page.getByPlaceholder(/Ask Mimi/).fill("hello");
+  await page.getByPlaceholder(/Ask Mimi/).press("Enter");
   const bar = page.getByTestId("usage-chip");
   await expect(bar).toBeVisible({ timeout: 10_000 });
   await expect(bar).not.toContainText("10k");

@@ -165,7 +165,7 @@ def test_the_opening_line_and_suggestions_round_trip_and_are_capped(tmp_path, mo
 def test_the_gallery_has_categorised_working_templates():
     starters = builtin_starters()
     assert len(starters) >= 8
-    assert {s["category"] for s in starters} >= {"Writing", "Research", "Teaching", "Meetings"}
+    assert {s["category"] for s in starters} >= {"Writing", "Research", "Teaching", "Meetings", "Everyday"}
     for s in starters:
         assert validate_html(s["html"]) is None, s["name"]
         assert "Mimi.ask(" in s["html"], s["name"]
@@ -190,3 +190,16 @@ def test_an_app_saves_a_text_file_into_downloads_but_nothing_runnable(tmp_path, 
     assert not m.save_app_file(app.id, "run.command", "echo hi")["ok"]
     assert not m.save_app_file(app.id, "big.txt", "x" * (2 * 1024 * 1024 + 1))["ok"]
     assert not m.save_app_file("app-missing", "a.ics", "x")["ok"]
+
+
+def test_the_radio_app_is_installed_once_on_first_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("COWORKER_SEED_BUILTIN_APPS", "1")
+    store = AppStore(tmp_path / "apps", seed_builtin=True)
+    (radio,) = store.list()
+    assert radio.title == "Radio" and radio.icon == "📻" and len(radio.suggestions) == 4
+    assert "bbc_world_service" in store.html(radio.id)
+    # Deleting it is respected: a restart does not bring it back.
+    store.delete(radio.id)
+    assert AppStore(tmp_path / "apps", seed_builtin=True).list() == []
+    # The plain constructor (tests, tools) never seeds.
+    assert AppStore(tmp_path / "apps2").list() == []

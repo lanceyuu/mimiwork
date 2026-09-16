@@ -1677,15 +1677,19 @@ export function App() {
               // Starter task (§42): grant the picked folder to the fresh session (retry
               // until the server has the session), then PREFILL the prompt — the user
               // presses Enter themselves, so the first action stays theirs.
-              if (starter) {
+              if (starter && !starter.workspace) {
+                // No folder: only the prompt to prefill, once the composer is up.
+                setTimeout(() => prefillComposer(starter.prompt), 400);
+              } else if (starter?.workspace) {
+                const workspace = starter.workspace;
                 // Remember it, not just grant it. Folder access lives on the session, so
                 // granting alone reached this one conversation and every later one opened
                 // blind — the whole point of picking a folder at setup (owner report
                 // 2026-09-02: "even i have already set the folder at the beginning").
-                void setDefaultFolder(starter.workspace, true).catch(() => {});
+                void setDefaultFolder(workspace, true).catch(() => {});
                 let tries = 0;
                 const attach = () => {
-                  addRoot(id, starter.workspace, true)
+                  addRoot(id, workspace, true)
                     .then((r) => {
                       if (r.ok && starter.prompt) prefillComposer(starter.prompt);
                       else if (++tries < 15) setTimeout(attach, 400);
@@ -2102,7 +2106,7 @@ export function App() {
                   ? "Ask the coder to build, fix, or explain…  (drop or paste files)"
                   : agent === "chat"
                     ? "Ask anything…  (drop or paste files)"
-                    : "Ask the coworker…  (drop or paste files)"
+                    : "Ask Mimi…  (drop or paste files)"
               }
               approvalSlot={
                 // Live inline cards are for ATTENDED sessions only; when Unattended the prompt is

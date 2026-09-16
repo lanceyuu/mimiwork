@@ -6,7 +6,7 @@ for (const [task, format] of [["word", ".docx"], ["spreadsheet", ".xlsx"], ["sli
     await expect(page.getByTestId(`intro-task-${task}`)).toBeVisible();
     await expect(page.getByTestId("intro-task-canva")).not.toBeVisible();
     await page.getByTestId(`intro-task-${task}`).click();
-    const composer = page.getByPlaceholder(/Ask the coworker/);
+    const composer = page.getByPlaceholder(/Ask Mimi/);
     await expect(composer).toHaveValue(new RegExp(format.replace(".", "\\.")));
     await expect(composer).toBeFocused();
     await expect(page.locator(".msg.user")).toHaveCount(0);
@@ -35,8 +35,8 @@ for (const ext of ["docx", "xlsx", "pptx"]) {
     await expect.poll(() => actions.length).toBe(1);
     expect(actions[0]).toEqual({ path, mode: "reveal" });
     await page.getByRole("button", { name: `Revise: Finished report.${ext}`, exact: true }).click();
-    await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(new RegExp(`Finished report\\.${ext}`));
-    await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/Keep the original and save a revised copy/);
+    await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue(new RegExp(`Finished report\\.${ext}`));
+    await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue(/Keep the original and save a revised copy/);
     if (ext === "docx") await page.screenshot({ path: testInfo.outputPath("saved-file-actions.png"), animations: "disabled" });
     await page.locator(".artifact-row").click();
     await expect(page.getByText("Preview of the saved file")).toBeVisible();

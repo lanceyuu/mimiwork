@@ -3,7 +3,7 @@ import { test, expect } from "./fixtures";
 test("a silent task shows a live status and can be stopped with Escape", async ({ page }) => {
   await page.goto("/");
   await page.getByTitle("Weekly plan 1").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker|steer it mid-run/);
+  const box = page.getByPlaceholder(/Ask Mimi|steer it mid-run/);
   await box.fill("wait silently");
   await box.press("Enter");
   const status = page.getByTestId("task-status");
@@ -20,7 +20,7 @@ test("a silent task shows a live status and can be stopped with Escape", async (
 test("Steer is visible alongside Stop task while typing a newer instruction", async ({ page }) => {
   await page.goto("/");
   await page.getByTitle("Weekly plan 1").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker|steer it mid-run/);
+  const box = page.getByPlaceholder(/Ask Mimi|steer it mid-run/);
   await box.fill("stream the epic");
   await box.press("Enter");
   await expect(page.getByText("The epic scrolls ever onward", { exact: false }).first()).toBeVisible();
@@ -71,7 +71,7 @@ test("Force stop uses a separate connection and reports a failed delivery before
   });
   await page.goto("/");
   await page.getByTitle("Weekly plan 1").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("check my connected service");
   await box.press("Enter");
   await page.getByRole("button", { name: "Stop task" }).click();

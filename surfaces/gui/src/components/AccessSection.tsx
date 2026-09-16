@@ -432,7 +432,7 @@ function ConnectInline({
       {/* Scope semantics, stated once (owner ask 2026-07-13): connecting is account-level,
           the toggle above is what scopes it to a session. */}
       <p className="text-[10.5px] text-faint mt-2 leading-snug">
-        Connecting makes {c.title} available to all your coworkers — the toggle in this list
+        Connecting makes {c.title} available in every conversation — the toggle in this list
         controls just this session.
       </p>
     </div>

@@ -46,7 +46,7 @@ test("facts subtitle: absent on a fresh session, model-only after the first turn
 
   // First turn → the facts move up to the subtitle; the picker STAYS in the composer
   // (§17 rev 2026-07-22: mid-session model switching shipped, so it remains actionable).
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText(/Echo: hello/)).toBeVisible();

@@ -16,7 +16,7 @@ const scrollerState = `(() => {
 test("scrolling up mid-stream pins the viewport; jump-to-latest re-engages", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("stream the epic");
   await box.press("Enter");
 
@@ -65,7 +65,7 @@ test("scrolling up mid-stream pins the viewport; jump-to-latest re-engages", asy
 test("bubbles carry hover copy + timestamp without layout shift", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello meta");
   await box.press("Enter");
   await expect(page.getByText("Echo: hello meta", { exact: false }).first()).toBeVisible();

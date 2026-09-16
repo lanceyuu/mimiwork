@@ -181,11 +181,11 @@ export function Composer(props: Props) {
     !prefixIntact && props.sessionId && text.startsWith("/") && !/\s/.test(text.slice(1))
       ? text.slice(1).toLowerCase()
       : null;
-  // Keep the first impression small: "/" is the short app-command menu. Saved commands
-  // join after one typed character; skills join after two, when the user has
-  // expressed enough intent to make a broader search useful.
-  const wantsSavedCommands = slashQuery !== null && slashQuery.length >= 1;
-  const wantsSkills = slashQuery !== null && slashQuery.length >= 2;
+  // "/" lists everything at once — app commands, saved commands, then the installed
+  // skills — so a skill can be picked from the menu without knowing its name (owner
+  // ask 2026-09-16; the old two-characters-first rule hid the skills entirely).
+  const wantsSavedCommands = slashQuery !== null;
+  const wantsSkills = slashQuery !== null;
   const paletteRows: PaletteRow[] = [
     ...(props.onAppCommand
       ? APP_COMMANDS.map((c) => ({ kind: "app" as const, ...c }))
@@ -813,7 +813,7 @@ export function Composer(props: Props) {
             skills as the user types. */}
         {slashQuery !== null && (
           <div
-            className="px-2 pt-2"
+            className="px-2 pt-2 max-h-72 overflow-y-auto"
             data-testid="skill-popup"
             role="listbox"
             aria-label="Commands and skills"
@@ -842,14 +842,6 @@ export function Composer(props: Props) {
             ) : slashLoading ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
                 Looking for commands and skills…
-              </div>
-            ) : slashQuery.length === 0 ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">
-                Type a command, or keep typing to find saved commands and skills.
-              </div>
-            ) : slashQuery.length === 1 ? (
-              <div className="px-2 py-1.5 text-[12px] text-faint">
-                Keep typing to search skills.
               </div>
             ) : slashMatches.length === 0 ? (
               <div className="px-2 py-1.5 text-[12px] text-faint">
@@ -898,7 +890,7 @@ export function Composer(props: Props) {
           placeholder={
             props.running
               ? "Mimi is working — type to steer it mid-run…"
-              : props.placeholder || t("Ask the coworker…  (drop or paste files)")
+              : props.placeholder || t("Ask Mimi…  (drop or paste files)")
           }
           value={text}
           onChange={(e) => {

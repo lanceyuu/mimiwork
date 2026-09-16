@@ -5,7 +5,7 @@ import { test, expect } from "./fixtures";
 // with is drawn inline, not shown as code.
 test("visualize this task: button after a working turn → diagram drawn in the reply", async ({ page }) => {
   await page.goto("/");
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await expect(box).toBeVisible();
   // A plain chat turn offers nothing to draw.
   await box.fill("hello");

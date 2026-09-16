@@ -289,7 +289,7 @@ class SessionManager:
         # Apps: Mimi-written HTML tools, one folder each (Apps section).
         from ..apps import AppStore
 
-        self.app_store = AppStore(base / "apps")
+        self.app_store = AppStore(base / "apps", seed_builtin=True)
         self.scheduler = Scheduler(
             self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
         )

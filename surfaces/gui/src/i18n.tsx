@@ -211,10 +211,10 @@ const D: Record<string, [string, string, string]> = {
     "Tout exécuter sans demander",
   ],
   // ── composer ──
-  "Ask the coworker…  (drop or paste files)": [
-    "向同事提问……(可拖入或粘贴文件)",
-    "Spør medarbeideren …  (slipp eller lim inn filer)",
-    "Demandez au coéquipier…  (déposez ou collez des fichiers)",
+  "Ask Mimi…  (drop or paste files)": [
+    "向 Mimi 提问……(可拖入或粘贴文件)",
+    "Spør Mimi …  (slipp eller lim inn filer)",
+    "Demandez à Mimi…  (déposez ou collez des fichiers)",
   ],
   "Stop": ["停止", "Stopp", "Arrêter"],
   "Today's free allowance for Mimi Puppy and Mimi Hound is used up": ["Mimi Puppy 和 Mimi Hound 今天的免费额度已用完", "Dagens gratiskvote for Mimi Puppy og Mimi Hound er brukt opp", "L’allocation gratuite du jour pour Mimi Puppy et Mimi Hound est épuisée"],
@@ -357,10 +357,10 @@ const D: Record<string, [string, string, string]> = {
     "Les modèles peuvent être activés ou masqués à tout moment dans Réglages ▸ Modèles.",
   ],
   "Connect your everyday tools": ["连接常用工具", "Koble til verktøyene du bruker", "Connectez vos outils du quotidien"],
-  "Chat can only advise. Connected, your coworker does the actual work:": [
-    "聊天只能提供建议。连接后,你的 AI 同事就能实际执行工作:",
-    "Chat kan bare gi råd. Når verktøyene er koblet til, gjør medarbeideren selve arbeidet:",
-    "Le chat ne peut que conseiller. Une fois connecté, votre coéquipier effectue réellement le travail :",
+  "Chat can only advise. Connected, Mimi does the actual work:": [
+    "聊天只能提供建议。连接后,Mimi 就能实际执行工作:",
+    "Chat kan bare gi råd. Når verktøyene er koblet til, gjør Mimi selve arbeidet:",
+    "Le chat ne peut que conseiller. Une fois connecté, Mimi effectue réellement le travail :",
   ],
   "Stay on top of email": ["掌握邮件动态", "Hold oversikt over e-post", "Gardez le contrôle de vos e-mails"],
   "Keep up with Slack": ["跟进 Slack 消息", "Følg med på Slack", "Suivez ce qui se passe sur Slack"],
@@ -465,7 +465,7 @@ const D: Record<string, [string, string, string]> = {
   "Composer": ["输入框", "Meldingsfelt", "Zone de message"],
   "Show the context window bar": ["显示上下文窗口栏", "Vis kontekstvindu-linjen", "Afficher la barre de fenêtre de contexte"],
   "Sidebar": ["侧边栏", "Sidefelt", "Barre latérale"],
-  "Conversations shown per coworker": ["每位 AI 同事显示的对话数", "Samtaler som vises per medarbeider", "Conversations affichées par coéquipier"],
+  "Conversations shown per assistant": ["每位助手显示的对话数", "Samtaler som vises per assistent", "Conversations affichées par assistant"],
   "Pick a folder": ["选择文件夹", "Velg en mappe", "Choisir un dossier"],
   "Providers and the models offered in the composer's picker. Keys are stored only on this computer.": ["提供商及输入框模型选择器中显示的模型。密钥仅存储在这台电脑上。", "Tilbydere og modellene som vises i meldingsfeltets modellvelger. Nøkler lagres bare på denne maskinen.", "Fournisseurs et modèles proposés dans le sélecteur de la zone de message. Les clés sont stockées uniquement sur cet ordinateur."],
   "Voice Input setup is available in the MimiWork desktop app.": ["语音输入设置仅在 MimiWork 桌面应用中提供。", "Oppsett av taleinndata er tilgjengelig i MimiWork-skrivebordsappen.", "La configuration de la saisie vocale est disponible dans l'application de bureau MimiWork."],

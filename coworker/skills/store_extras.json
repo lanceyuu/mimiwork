@@ -101,5 +101,117 @@
     "expected_output": "Edited copy with a concise explanation of changes.",
     "requirements": "The original draft and, optionally, brand or audience guidance.",
     "install_checked_at": "2026-09-05"
+  },
+  {
+    "name": "data-manager-api-audience-ingestion",
+    "description": "Guides developers through managing (adding, removing, and clearing) audience members for Google products using the Data Manager API and its associated client libraries. Use this skill when the user wants to upload audience members, remove specific users, or clear/replace an entire audience for Customer Match, mobile device ID audiences, or any other audience use case supported by the Data Manager ",
+    "repo": "google/skills",
+    "path": "skills/ads/data-manager-api-audience-ingestion",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "data-manager-api-event-ingestion",
+    "description": "Guides developers through implementing event and conversion ingestion to Google products using the Data Manager API /v1/events/ingest endpoint and its associated client libraries. Use this skill when the user wants to upload offline conversions, enhanced conversions for leads, click conversions, Google Analytics web or app events, or any other event ingestion use case supported by the Data Manager",
+    "repo": "google/skills",
+    "path": "skills/ads/data-manager-api-event-ingestion",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "data-manager-api-setup",
+    "description": "Guides developers through client library installation and authentication setup steps for the Data Manager API. Use this skill when a user is getting started with the Data Manager API and needs to setup their local environment, install the client library, or setup access to the API. Don't use for implementing audience or event ingestion logic (use the data-manager-api-audience-ingestion or data-man",
+    "repo": "google/skills",
+    "path": "skills/ads/data-manager-api-setup",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-ads-api-account-diagnostics",
+    "description": "Diagnoses Google Ads account performance issues such as conversion loss (value or volume), low lead flow/volume, and lost impression share (opportunities) due to ad rank, bids, or budgets. Use when troubleshooting sudden performance drops, analyzing campaign impression share metrics, investigating low lead flow, or searching for bidding and budget constraints. Don't use for setting up new campaign",
+    "repo": "google/skills",
+    "path": "skills/ads/google-ads-api-account-diagnostics",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-ads-api-mcp-setup",
+    "description": "Guides developers through downloading, configuring, and installing the official open-source Google Ads MCP Server. Use this skill when a user wants to connect their AI assistant (such as Gemini, Claude Code, or Cursor) to their Google Ads account to query campaigns or retrieve reporting metrics using natural language.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-ads-api-mcp-setup",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-ads-api-quickstart",
+    "description": "Guides developers through Google Ads API quickstart: credential setup, choosing from 6 client libraries/REST, configuring environments, and running a \"retrieve campaigns\" script. Troubleshoots common setup errors: USER_PERMISSION_DENIED, login_customer_id issues, and DEVELOPER_TOKEN_NOT_APPROVED.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-ads-api-quickstart",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-android-migrate-to-next-gen",
+    "description": "Migrates Android applications from the old, legacy Google Mobile",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-android-migrate-to-next-gen",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-banner",
+    "description": "Provides instructions to implement, integrate, or configure Google Mobile Ads (GMA) banner ads in Android, iOS, or Unity mobile applications. Use when the task involves setting up banner ads in a mobile application. Don't use for other ad formats like interstitial or rewarded ads.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-banner",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-get-started",
+    "description": "Provides instructions for integrating the Google Mobile Ads (GMA) SDK. Use this skill when the user wants to get started with, install, integrate, set up, or configure the SDK for AdMob or Ad Manager, GMA Next-Gen SDK or mobile ads framework in an Android, iOS, or Unity application.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-get-started",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-interstitial",
+    "description": "Provides instructions for implementing, integrating, or configuring Google Mobile Ads (GMA) SDK interstitial ads in Android, iOS, or Unity mobile applications. Use when the task involves setting up interstitial ads. Don't use for \"rewarded interstitial\" ads.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-interstitial",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-rewarded",
+    "description": "Provides instructions for implementing, integrating, or configuring Google Mobile Ads (GMA) SDK rewarded ads in Android, iOS, or Unity mobile applications. Use when the task involves setting up rewarded ads. Don't use for \"rewarded interstitial\" ads.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-rewarded",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-mobile-ads-validate",
+    "description": "Validates a project's Google Mobile Ads (GMA) SDK integration for iOS, Android, or Unity projects. Use when conducting a full pre-launch audit of an app that integrates GMA SDK or when validating any individual GMA SDK integration checks, such as when validating ad unit IDs and ad formats, SKAdNetwork IDs, mediation adapter SDK version compatibility, or ad preloading.",
+    "repo": "google/skills",
+    "path": "skills/ads/google-mobile-ads-validate",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "ima-dai-sdk",
+    "description": "Integrates the Google Interactive Media Ads (IMA) Dynamic Ad Insertion (DAI) SDK into websites, web apps, mobile apps, or TV apps. Use when: - A video player needs to load and play HLS or DASH streams in web apps, Android apps, iOS apps, tvOS apps, Cast (CAF) receivers, or Roku channels. - The app needs to make use of a Google DAI livestream event asset key, or content source CMS ID, video ID for ",
+    "repo": "google/skills",
+    "path": "skills/ads/ima-dai-sdk",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "ima-sdk-client-side",
+    "description": "Supports Interactive Media Ads (IMA) SDK. Use this skill for client-side ad insertion when you are requesting video ads for websites, apps, TVs or other platforms using VAST or VMAP. Do not use for Dynamic Ad Insertion (DAI), SSAI, or SGAI.",
+    "repo": "google/skills",
+    "path": "skills/ads/ima-sdk-client-side",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-analytics-admin-api-basics",
+    "description": "Manages Google Analytics account and property settings, enables the Analytics Admin API via the Cloud CLI, lists accounts and properties, and manages data streams, custom dimensions, conversion events, and integrations. Use when you need to programmatically configure Google Analytics accounts, provision properties, manage data retention, configure Measurement Protocol secrets, or manage Firebase a",
+    "repo": "google/skills",
+    "path": "skills/analytics/google-analytics-admin-api-basics",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
+  },
+  {
+    "name": "google-analytics-data-api-basics",
+    "description": "Manages Google Analytics reporting data, enables the Analytics Data API via the Cloud CLI, and creates reports using the Google Analytics Data API (v1beta). Use when you need to interact with Google Analytics properties, run customized analytics reports, query metrics (like activeUsers, screenPageViews) and dimensions (like city, date), check metrics and dimensions compatibility, or verify API ena",
+    "repo": "google/skills",
+    "path": "skills/analytics/google-analytics-data-api-basics",
+    "ref": "569cb1d55ac388c2d1939104a4c52bc594fbb162"
   }
 ]

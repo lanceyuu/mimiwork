@@ -10,7 +10,7 @@ test("mid-session model switch shows the marker and later turns use the new mode
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("hello there");
   await box.press("Enter");
   await expect(page.getByText("Echo: hello there", { exact: false }).first()).toBeVisible();

@@ -34,7 +34,7 @@ test("three rows, no Set-me-up; gated rows show Configure › and expand the rai
   await canva.click();
   await expect(page.getByRole("region", { name: "Session access" })).toBeVisible();
   // No composer prefill happened on the gated click.
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue("");
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue("");
 });
 
 test("ready rows reveal Start → on hover and prefill the composer", async ({ page }) => {
@@ -66,13 +66,13 @@ test("ready rows reveal Start → on hover and prefill the composer", async ({ p
   await expect(canva.locator(".task-card-act")).toHaveCSS("opacity", "1");
 
   await canva.click();
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/Canva designs/);
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue(/Canva designs/);
 
   // The skill row needs no source; its prefill is the fill-in-the-blanks brand brief.
   const skill = page.getByTestId("intro-task-skill");
   await expect(skill).toContainText("Start →");
   await skill.click();
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(/Package my style guidelines/);
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue(/Package my style guidelines/);
 });
 
 test("folder task opens the inline add-folder form; adding a folder prefills the composer", async ({
@@ -88,7 +88,7 @@ test("folder task opens the inline add-folder form; adding a folder prefills the
   await path.fill("/Users/me/Reports");
   await page.getByRole("button", { name: "Add", exact: true }).click();
 
-  await expect(page.getByPlaceholder(/Ask the coworker/)).toHaveValue(
+  await expect(page.getByPlaceholder(/Ask Mimi/)).toHaveValue(
     /Work in this folder/,
   );
 });

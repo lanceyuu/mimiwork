@@ -59,7 +59,7 @@ const props = (extra: Partial<Parameters<typeof Composer>[0]> = {}) => ({
   ...extra,
 });
 
-const box = () => screen.getByPlaceholderText(/Ask the coworker/);
+const box = () => screen.getByPlaceholderText(/Ask Mimi/);
 
 afterEach(() => {
   cleanup();
@@ -67,30 +67,23 @@ afterEach(() => {
 });
 
 describe("Composer / skills popup", () => {
-  it("keeps a bare '/' to app commands and does not fetch broader menus", async () => {
+  it("a bare '/' lists app commands, saved commands and every enabled skill at once", async () => {
+    // The old two-characters-first rule hid the skills; a skill is now picked from the
+    // menu without knowing its name (owner ask 2026-09-16).
     const calls = stubFetch();
     render(<Composer {...props({ onAppCommand: vi.fn() })} />);
     fireEvent.change(box(), { target: { value: "/" } });
     expect(await screen.findByRole("listbox", { name: "Commands and skills" })).toBeTruthy();
     expect(screen.getByText("/help")).toBeTruthy();
-    expect(screen.queryByText("/weekly-report")).toBeNull();
-    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
-    expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(false);
-  });
-
-  it("waits for two typed characters before fetching skills", async () => {
-    const calls = stubFetch();
-    render(<Composer {...props()} />);
-    fireEvent.change(box(), { target: { value: "/g" } });
-    await waitFor(() =>
-      expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(true),
-    );
-    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
-    expect(screen.queryByText("/greet")).toBeNull();
-
-    fireEvent.change(box(), { target: { value: "/gr" } });
+    expect(await screen.findByText("/weekly-report")).toBeTruthy();
     expect(await screen.findByText("/greet")).toBeTruthy();
+    expect(screen.queryByText("/muted-one")).toBeNull();
     expect(calls.some((c) => c.url.includes("/skills"))).toBe(true);
+    expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(true);
+    // App commands stay first, so the muscle memory for /help, /model … still works.
+    const kinds = screen.getAllByRole("option").map((el) => (el as HTMLElement).dataset.kind);
+    expect(kinds[0]).toBe("app");
+    expect(kinds).toContain("skill");
   });
 
   it("searches skill names and descriptions but never exposes QualiTaTi tools", async () => {

@@ -8,7 +8,7 @@ test("the turn's clock counts up while a step is in flight", async ({ page }) =>
   await page.goto("/");
   await page.locator(".app:not(.boot-splash)").waitFor();
   await page.getByTitle("Weekly plan 1").first().click();
-  await page.getByPlaceholder(/Ask the coworker/).fill("please run a tool");
+  await page.getByPlaceholder(/Ask Mimi/).fill("please run a tool");
   await page.keyboard.press("Enter");
   const head = page.getByTestId("turn-head");
   await expect(head).toHaveText(/^Working for \d+s$/);

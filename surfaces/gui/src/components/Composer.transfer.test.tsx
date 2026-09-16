@@ -52,7 +52,7 @@ const props = (extra: Partial<Parameters<typeof Composer>[0]> = {}) => ({
   ...extra,
 });
 
-const box = () => screen.getByPlaceholderText(/Ask the coworker/);
+const box = () => screen.getByPlaceholderText(/Ask Mimi/);
 
 afterEach(() => {
   cleanup();
@@ -60,35 +60,18 @@ afterEach(() => {
 });
 
 describe("the / palette", () => {
-  it("starts with only the short app-command menu", async () => {
-    const calls = stubFetch();
+  it("starts with all three kinds, app commands first", async () => {
+    stubFetch();
     render(<Composer {...props()} />);
     fireEvent.change(box(), { target: { value: "/" } });
     expect(screen.getByText("/help")).toBeTruthy(); // built-in, same name as Claude Code
-    expect(screen.queryByText("/digest")).toBeNull();
-    expect(screen.queryByText("/weekly-report")).toBeNull();
-    const kinds = screen
-      .getAllByRole("option")
-      .map((el) => (el as HTMLElement).dataset.kind);
-    expect(new Set(kinds)).toEqual(new Set(["app"]));
-    expect(calls.some((c) => c.url.includes("/v1/commands"))).toBe(false);
-    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
-  });
-
-  it("offers saved commands after one character and skills after two", async () => {
-    const calls = stubFetch();
-    render(<Composer {...props()} />);
-    fireEvent.change(box(), { target: { value: "/d" } });
     await waitFor(() => expect(screen.getByText("/digest")).toBeTruthy());
-    expect(screen.queryByText("/weekly-report")).toBeNull();
-    expect(calls.some((c) => c.url.includes("/skills"))).toBe(false);
-
-    fireEvent.change(box(), { target: { value: "/we" } });
     await waitFor(() => expect(screen.getByText("/weekly-report")).toBeTruthy());
     const kinds = screen
       .getAllByRole("option")
       .map((el) => (el as HTMLElement).dataset.kind);
-    expect(kinds).toContain("skill");
+    expect(kinds[0]).toBe("app");
+    expect(new Set(kinds)).toEqual(new Set(["app", "command", "skill"]));
   });
 
   it("filters as you type, across all three kinds", async () => {
@@ -219,7 +202,7 @@ describe("permission modes", () => {
     // about a document the coworker reads perfectly well from disk.
     const calls = stubFetch();
     render(<Composer {...props()} />);
-    drop(screen.getByPlaceholderText(/Ask the coworker/).closest("div")!, [
+    drop(screen.getByPlaceholderText(/Ask Mimi/).closest("div")!, [
       { name: "intro.docx" },
     ]);
     await waitFor(() =>

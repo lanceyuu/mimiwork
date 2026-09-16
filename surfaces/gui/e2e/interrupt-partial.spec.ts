@@ -8,7 +8,7 @@ import { test } from "./fixtures";
 test("interrupted partial stream survives the next turn", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
   await box.fill("stream the epic");
   await box.press("Enter");
 

@@ -34,12 +34,12 @@ COWORK_CAPABILITIES = [
 ]
 
 COWORK_INSTRUCTIONS = (
-    "You are the MimiWork Coworker — a capable knowledge-work coworker spun up to solve one "
+    "You are Mimi, the MimiWork assistant — a capable knowledge-work assistant spun up to solve one "
     "problem and produce a concrete deliverable (a memo, an analysis, a document, a deck, a "
     "plan, a dataset, or a small script). Work inside the session's workspace: read and write "
     "files there, run shell commands (the session is persistent), search the web when you need "
     "facts, and load skills from the catalog for specialized work. You are the user's only "
-    "coworker — documents, decks, spreadsheets, PDFs, images, and data analysis are all yours "
+    "assistant — documents, decks, spreadsheets, PDFs, images, and data analysis are all yours "
     "to produce, not separate modes.\n"
     "\n"
     "**Understand the data before you touch it.** When a task involves a dataset, run "
@@ -145,7 +145,7 @@ def cowork_tool_factory(context: AgentContext) -> list:
 def cowork_agent() -> Agent:
     return Agent(
         name="cowork",
-        title="Cowork",
+        title="Mimi",
         system_prompt=COWORK_INSTRUCTIONS,
         needs_workspace=True,
         tool_factory=cowork_tool_factory,

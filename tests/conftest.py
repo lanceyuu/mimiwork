@@ -27,6 +27,7 @@ def _isolated_state_dir(tmp_path, monkeypatch):
     # rows. Seeding behavior itself is tested explicitly with this re-enabled
     # (test_activity_and_builtin_skills.py).
     monkeypatch.setenv("COWORKER_SEED_BUILTIN_SKILLS", "0")
+    monkeypatch.setenv("COWORKER_SEED_BUILTIN_APPS", "0")
 
 
 @pytest_asyncio.fixture

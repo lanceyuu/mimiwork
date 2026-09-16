@@ -53,10 +53,45 @@ class App:
         return asdict(self)
 
 
+# Starters installed as real apps on first run, so the Apps section is not empty on day
+# one (owner ask 2026-09-16: a radio app). Once each — deleting one is respected.
+_PREINSTALLED = ("radio",)
+
+
 class AppStore:
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, seed_builtin: bool = False) -> None:
+        import os
+
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        if seed_builtin and os.getenv("COWORKER_SEED_BUILTIN_APPS", "1") != "0":
+            self._seed_builtin()
+
+    def _seed_builtin(self) -> None:
+        marker = self.root / ".builtin-seeded.json"
+        try:
+            seeded = set(json.loads(marker.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            seeded = set()
+        todo = [s for s in builtin_starters() if s["name"] in _PREINSTALLED and s["name"] not in seeded]
+        for s in todo:
+            try:
+                self.create(
+                    title=s["title"],
+                    html=s["html"],
+                    icon=s["icon"],
+                    description=s["description"],
+                    intro=s["intro"],
+                    suggestions=s["suggestions"],
+                )
+            except (OSError, ValueError):
+                continue
+            seeded.add(s["name"])
+        if todo:
+            try:
+                marker.write_text(json.dumps(sorted(seeded)), encoding="utf-8")
+            except OSError:
+                pass
 
     # -- paths ------------------------------------------------------------------
     def _dir(self, app_id: str) -> Path:

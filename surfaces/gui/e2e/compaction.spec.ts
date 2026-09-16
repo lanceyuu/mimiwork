@@ -53,7 +53,7 @@ test("the compacted divider renders mid-session and the transcript stays intact"
 }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
-  const box = page.getByPlaceholder(/Ask the coworker/);
+  const box = page.getByPlaceholder(/Ask Mimi/);
 
   // An earlier exchange that must survive the compaction marker (transcript intact).
   await box.fill("remember the launch date");
