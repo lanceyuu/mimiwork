@@ -393,3 +393,42 @@ def test_pending_inbox_items_flip_the_activity_signal(tmp_path):
     _asyncio.run(scenario())
     signals = [(f["data"]["busy"], f["data"]["pending_input"]) for f in frames if f["type"] == "activity"]
     assert (False, 1) in signals and (False, 0) in signals
+
+
+def test_an_unedited_builtin_follows_the_app_but_an_edited_one_does_not(tmp_path, monkeypatch):
+    """v0.6.16 changed mimi-apps, but installs seeded earlier kept the old text for ever
+    (owner-hit 2026-09-16). A copy the app shipped is refreshed; a user's edit is not."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    import coworker.skills.store as store_mod
+
+    root = tmp_path / "skills"
+    SkillStore(root, seed_builtin=True)
+    old = "---\nname: mimi-apps\ndescription: old\n---\nNo network.\n"
+    (root / "mimi-apps" / "SKILL.md").write_text(old, encoding="utf-8")
+    (root / "academic-writing" / "SKILL.md").write_text(old + "MY EDIT\n", encoding="utf-8")
+    # A marker from before hashes were recorded, and a history that knows the old text.
+    names = list(_json.loads((root / ".builtin-seeded.json").read_text()))
+    (root / ".builtin-seeded.json").write_text(_json.dumps(names))
+    old_hash = store_mod._skill_hash(root / "mimi-apps" / "SKILL.md")
+    monkeypatch.setattr(
+        store_mod, "_builtin_history", lambda: {"mimi-apps": [old_hash], "academic-writing": [old_hash]}
+    )
+
+    SkillStore(root, seed_builtin=True)
+
+    bundled = _Path(store_mod.__file__).parent / "builtin" / "mimi-apps" / "SKILL.md"
+    assert (root / "mimi-apps" / "SKILL.md").read_text() == bundled.read_text()
+    assert (root / "academic-writing" / "SKILL.md").read_text().endswith("MY EDIT\n")
+    assert not list(root.glob("*.updating"))
+    marker = _json.loads((root / ".builtin-seeded.json").read_text())
+    assert marker["mimi-apps"] == store_mod._skill_hash(bundled)
+
+
+def test_the_frozen_history_knows_every_mimi_apps_version_that_shipped():
+    import coworker.skills.store as store_mod
+
+    history = store_mod._builtin_history()
+    # The owner's own install carried this one (seeded 2026-09-02).
+    assert "c0af5be449be5ca85e25e2e15bb52990097f3dd4" in history["mimi-apps"]

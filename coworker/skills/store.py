@@ -100,46 +100,88 @@ class SkillStore:
             self._seed_builtin()
 
     def _seed_builtin(self) -> None:
-        """Copy the app's bundled skills into the global dir, once each.
+        """Copy the app's bundled skills into the global dir, and keep unedited copies current.
 
         Folder-is-truth stays intact: after seeding these are ordinary global
         skills the user can edit, disable, or delete. The marker records what
         was ever seeded so a deleted builtin is respected as intent — it never
         comes back on restart (a fresh install of a NEW builtin still lands).
+
+        A builtin the app has since changed is refreshed only while the user's copy is
+        still one the app shipped — the hash the marker recorded, or, for markers
+        written before hashes, any version in ``builtin_history.json``. An edit is
+        never overwritten. (v0.6.16 taught mimi-apps about Mimi.saveFile and the web;
+        installs seeded earlier kept "No network" for ever — owner-hit 2026-09-16.)
         """
         import json as _json
-        import shutil
 
         source = Path(__file__).parent / "builtin"
         if not source.is_dir():
             return  # source-stripped build
         marker = self.global_dir / ".builtin-seeded.json"
         try:
-            seeded = set(_json.loads(marker.read_text(encoding="utf-8")))
+            raw = _json.loads(marker.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            seeded = set()
+            raw = {}
+        # Old markers are a bare list of names: seeded, hash unknown.
+        seeded: dict[str, Optional[str]] = (
+            {n: None for n in raw} if isinstance(raw, list) else dict(raw)
+        )
+        history: Optional[dict] = None
         changed = False
         for folder in sorted(source.iterdir()):
             if not (folder / "SKILL.md").is_file():
                 continue
             name = folder.name
-            if name in seeded:
-                continue
+            bundled = _skill_hash(folder / "SKILL.md")
             target = self.global_dir / name
-            if not target.exists():
-                try:
-                    shutil.copytree(folder, target)
-                    self._expand_bundles(target)
-                except OSError:
+            if name not in seeded:
+                if not target.exists() and not self._copy_builtin(folder, target):
                     continue  # unwritable state dir — skills UI still works without seeds
-            seeded.add(name)
+                seeded[name] = bundled if (target / "SKILL.md").is_file() else None
+                changed = True
+                continue
+            if seeded[name] == bundled or not (target / "SKILL.md").is_file():
+                continue  # current, or deleted by the user
+            current = _skill_hash(target / "SKILL.md")
+            if current != bundled:
+                if history is None:
+                    history = _builtin_history()
+                shipped = set(history.get(name, [])) | {seeded[name]}
+                if current not in shipped:
+                    continue  # the user's own edit
+                # ponytail: only SKILL.md is compared; a change to a skill's other files
+                # alone does not trigger a refresh.
+                if not self._copy_builtin(folder, target, replace=True):
+                    continue
+            seeded[name] = bundled
             changed = True
         if changed:
             try:
                 self.global_dir.mkdir(parents=True, exist_ok=True)
-                marker.write_text(_json.dumps(sorted(seeded)), encoding="utf-8")
+                marker.write_text(_json.dumps(seeded, sort_keys=True), encoding="utf-8")
             except OSError:
                 pass
+
+    def _copy_builtin(self, folder: Path, target: Path, *, replace: bool = False) -> bool:
+        """Copy a bundled skill into place; with ``replace``, swap it in only once the
+        new copy is complete, so a failure never leaves the skill missing."""
+        import shutil
+
+        staging = target.with_name(target.name + ".updating") if replace else target
+        try:
+            if replace:
+                shutil.rmtree(staging, ignore_errors=True)
+            shutil.copytree(folder, staging)
+            self._expand_bundles(staging)
+            if replace:
+                shutil.rmtree(target)
+                staging.rename(target)
+        except OSError:
+            if replace:
+                shutil.rmtree(staging, ignore_errors=True)
+            return False
+        return True
 
     # -- scope dirs ---------------------------------------------------------------
     @staticmethod
@@ -699,3 +741,23 @@ def save_skill_tool(
     )
     save_skill.__coworker_schema__ = _SAVE_SKILL_SCHEMA
     return save_skill
+
+
+def _skill_hash(path: Path) -> str:
+    """Git's blob id of the file with LF line ends — the same id ``builtin_history.json``
+    was built from, so a CRLF checkout (Windows) still recognises a shipped version."""
+    import hashlib
+
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _builtin_history() -> dict:
+    """Every SKILL.md version ever bundled, by skill name (git blob ids). Frozen at
+    v0.6.17: markers written since record their own hash, so it needs no upkeep."""
+    import json as _json
+
+    try:
+        return _json.loads((Path(__file__).parent / "builtin_history.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}

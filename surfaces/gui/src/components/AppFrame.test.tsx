@@ -16,6 +16,9 @@ vi.mock("../api", () => ({
 }));
 const saveAppFile = vi.fn(async () => ({ ok: true, path: "/Users/me/Downloads/meeting.ics" }));
 
+const openExternal = vi.fn();
+vi.mock("../tauri", () => ({ openExternal: (...a: unknown[]) => openExternal(...(a as [])) }));
+
 import { AppFrame, frameDocument } from "./AppFrame";
 
 const APP = { id: "app-0000aaaa", title: "Translator" };
@@ -112,5 +115,20 @@ describe("AppFrame — saving a file", () => {
     expect(saveAppFile).toHaveBeenCalledWith("app-0000aaaa", "meeting.ics", "BEGIN:VCALENDAR");
     expect(reply.mock.calls[0][0]).toEqual({ mimi: 1, id: 11, result: "/Users/me/Downloads/meeting.ics" });
     expect(frameDocument(APP, "<html><head></head></html>")).toContain("saveFile");
+  });
+});
+
+describe("AppFrame — opening a link", () => {
+  it("opens http(s) links in the browser and refuses every other scheme", async () => {
+    render(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" />);
+    const win = (screen.getByTestId("app-frame") as HTMLIFrameElement).contentWindow!;
+    const reply = vi.spyOn(win, "postMessage");
+    post(win, { mimi: 1, id: 21, kind: "link.open", payload: { url: "https://calendar.google.com/render?action=TEMPLATE" } });
+    await waitFor(() => expect(reply).toHaveBeenCalledTimes(1));
+    expect(openExternal).toHaveBeenCalledWith("https://calendar.google.com/render?action=TEMPLATE");
+    post(win, { mimi: 1, id: 22, kind: "link.open", payload: { url: "file:///etc/passwd" } });
+    await waitFor(() => expect(reply).toHaveBeenCalledTimes(2));
+    expect(reply.mock.calls[1][0]).toMatchObject({ id: 22, error: "only http(s) links can be opened" });
+    expect(openExternal).toHaveBeenCalledTimes(1);
   });
 });

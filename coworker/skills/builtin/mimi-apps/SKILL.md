@@ -19,7 +19,7 @@ wants a change. Never write the file anywhere else.
   by http(s) URL (radio streams, podcasts), and libraries from a CDN such as
   cdn.jsdelivr.net or cdnjs.cloudflare.com. Prefer https URLs.
 - Not this computer: no plain-http `fetch`, no access to the user's files or MimiWork
-  itself, and no browser downloads. Links cannot navigate the app away.
+  itself, no browser downloads, and no new tabs — use the bridge calls below.
 - The bridge is the way to the user's side:
   - `await Mimi.ask(prompt, { system?, json? })` → the model's reply as text
     (`json: true` parses it). This spends the user's credits like a chat turn, so ask
@@ -33,6 +33,9 @@ wants a change. Never write the file anywhere else.
     `.txt`, `.json`, `.md`, `.xml`, `.vcf`, up to 2 MB) into the user's Downloads folder
     and returns its path. Browser downloads (`<a download>`, blob URLs) do nothing in
     the frame — always use this. Call it from a button, then show "Saved to <path>".
+  - `await Mimi.openLink(url)` → opens an http(s) link in the user's browser (an "Add
+    to Google Calendar" link, a source page). `window.open` and `target="_blank"` do
+    nothing in the frame.
 - Keep the file under 100 KB; load big libraries from a CDN instead of pasting them in.
 
 ## How to build one

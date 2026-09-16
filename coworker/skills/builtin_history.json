@@ -1,0 +1,121 @@
+{
+ "academic-writing": [
+  "e52955245ff7032266b06a7011e8907388e275d9"
+ ],
+ "agentic-architect": [
+  "14992de8109dd457c14814be413109c4103d4f9d"
+ ],
+ "apple-design": [
+  "4de24f48c0572d83140d368ace31805f21325c11"
+ ],
+ "avoid-ai-writing": [
+  "b248963cd46885f81fc7ac166e1f26f43073ae25"
+ ],
+ "business-communication": [
+  "bd4308ce807969e1bda4231c12b77e3306ed6c80"
+ ],
+ "consumer-paper-writing": [
+  "f9bd38fbee5fac7bbecc20f6fe8df0173743edf3"
+ ],
+ "content-research-writer": [
+  "1513c43349decf5bcc6b2bb54523f39d840d8b2a"
+ ],
+ "data-storytelling": [
+  "b6e01fa817c62896179497ee491e743d63edaacf"
+ ],
+ "deep-research": [
+  "029b94cc786ba5698c995f1359765e9b011d5bea"
+ ],
+ "file-organizer": [
+  "782c61466e4197e0c8817c330a58d687784d3e9d"
+ ],
+ "idea-refine": [
+  "1c21e117a0eb0b44be91b965266063d5ccc6b62d"
+ ],
+ "internal-comms": [
+  "72b3248666fb7feae5f3b7867829854f0baaf0d4"
+ ],
+ "invoice-organizer": [
+  "d05fc224adfde35159055b8305b05d38bd97b5a5"
+ ],
+ "lead-research-assistant": [
+  "221855aa338adc3dbf04a7c75b9aec146327e437"
+ ],
+ "meeting-insights-analyzer": [
+  "2d0cead82a80777c28355aaa5c5a9eb9e9f28346"
+ ],
+ "mimi-apps": [
+  "42534d118fbc01e6cf69b38a630ec110e73f07e7",
+  "87aeffadcdc3d9060313f8636740f7b6fe605f73",
+  "c0af5be449be5ca85e25e2e15bb52990097f3dd4",
+  "f6cc34fdaa66bae1693f724a198261a088ef3f9e"
+ ],
+ "mimi-style": [
+  "627129ab8ae7708994e60a594142d1ccf98d2b04"
+ ],
+ "mono-color": [
+  "b7fcd5a23456bc0f0508f662a1d3fe27f2e0ceb9"
+ ],
+ "planning-and-task-breakdown": [
+  "f3a18b1aef61a3f92c3e63f61ebca9772bdbc08f"
+ ],
+ "ponytail": [
+  "02c0712c86277d49d18a77da3a2b825657bf02d1"
+ ],
+ "ponytail-review": [
+  "e137a855bd87119a4517895a1000a59b0999e1b8"
+ ],
+ "ppt-master": [
+  "4b4c88e12d063cfc0743b285a778d5fa1b204532"
+ ],
+ "qualitati-create-survey": [
+  "832bea393e6772864ef9100464573984e6d68b1c"
+ ],
+ "qualitati-edit-survey": [
+  "188bcf525296b6c28d4e7c4043f03505936b64e8"
+ ],
+ "qualitati-export-survey": [
+  "dd6b81840cb43c4623134d4a6e77a996424219df"
+ ],
+ "qualitati-interview-transcript": [
+  "8045131f3860fe8521b07410451d82c0a7fc20be"
+ ],
+ "qualitati-interviews": [
+  "ea69014a74bcca776a9440188b226bf88cbd1d5a"
+ ],
+ "qualitati-mimi": [
+  "d1427acee3d177d949fc98c4ac96f42469aef420"
+ ],
+ "qualitati-projects": [
+  "71b4032a4c60d5b765f4f0cf36dfbfa4622440cb"
+ ],
+ "qualitati-publish-survey": [
+  "9603a240a205fbddf5e47adc8d54635497ee6f96"
+ ],
+ "qualitati-survey-responses": [
+  "70a64deba621226ab70a9eb3b0866267bae5ae36"
+ ],
+ "qualitati-surveys": [
+  "935a9e8a49a7069470727a2bbf78afa81dd15ba8",
+  "a8861aca093a6edb1e72ae9918b4324f4a99b8fa"
+ ],
+ "show-me": [
+  "04da79108a91a227660d3734c4bc4ed84a78801e",
+  "f53f8ea3455e9a287bfc4e96ebc5afb1d8b6bb52"
+ ],
+ "slide-design": [
+  "973743144eed3e7d9190f1c6aad0fb0cc31ef380"
+ ],
+ "survey-generator": [
+  "b0e25cdacf4acf8f71c98501a74f075dd72585c1"
+ ],
+ "tailored-resume-generator": [
+  "9b4c8b930d69073c23c10a93c7a74623b139e43d"
+ ],
+ "theory-building": [
+  "685fa0032b6b08c1f6183fa8676ec9813ac6a36d"
+ ],
+ "ui-ux-pro-max": [
+  "d04a71037b4f8e56f0729dd20068de8364903582"
+ ]
+}
