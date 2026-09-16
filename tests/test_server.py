@@ -1019,6 +1019,29 @@ def test_ws_set_mode_auto_skips_approval(tmp_path):
     assert (proj / "a.py").read_text() == "x"
 
 
+def test_ws_set_mode_is_remembered_without_waiting_for_a_turn(tmp_path):
+    client = _client(tmp_path, [_text("ok"), _text("Title")])
+    mgr = client.app.state.manager
+
+    def set_and_sync(ws, mode):
+        ws.send_json({"type": "set_mode", "mode": mode})
+        ws.send_json({"type": "ping"})
+        while ws.receive_json()["type"] != "session_status":
+            pass
+
+    with client.websocket_connect("/ws/session/remember-mode") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "user_message", "text": "hi"})
+        _drain(ws)
+        set_and_sync(ws, "auto")
+    assert mgr.session_store.load("remember-mode").mode == "auto"
+    # Choosing a mode on a chat never used leaves no empty conversation behind.
+    with client.websocket_connect("/ws/session/never-used") as ws:
+        ws.receive_json()
+        set_and_sync(ws, "auto")
+    assert mgr.session_store.load("never-used") is None
+
+
 def test_ws_session_resume_via_store(tmp_path):
     # First connection runs a turn and persists the session.
     client = _client(tmp_path, [_text("first answer")])

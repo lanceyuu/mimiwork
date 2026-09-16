@@ -15,7 +15,7 @@ test("a starter becomes an app that runs in a sandboxed frame, and appears in th
   await page.getByTestId("app-starter-translator").getByText("Add").click();
   const frame = page.getByTestId("app-frame");
   await expect(frame).toBeVisible();
-  await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-modals allow-downloads");
   await expect(page.getByTestId("app-title")).toHaveText("Translator");
   // The opening line and a chip to try.
   await expect(page.getByTestId("app-intro")).toContainText("Paste the text");

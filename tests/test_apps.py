@@ -36,9 +36,9 @@ def test_an_app_round_trips_through_its_folder(tmp_path):
     assert again.delete(app.id) and again.list() == []
 
 
-def test_nothing_from_the_web_is_accepted():
-    assert validate_html('<script src="https://cdn.x/y.js"></script>') is not None
-    assert validate_html('<link href="//fonts.googleapis.com/css">') is not None
+def test_apps_may_use_the_web_but_not_be_empty():
+    assert validate_html('<script src="https://cdn.x/y.js"></script>') is None
+    assert validate_html('<audio src="http://stream.example/radio.mp3"></audio>') is None
     assert validate_html("") is not None
     assert validate_html(HTML) is None
     assert validate_html('<a href="#top">ok</a><img src="data:image/png;base64,AA">') is None
@@ -73,7 +73,7 @@ def test_the_tools_write_only_under_apps_and_remember_who_built_it(tmp_path):
     assert update(id=res["id"], html=HTML.replace("Hi", "Hello"), title="Cards 2")["ok"]
     assert "Hello" in store.html(res["id"]) and store.get(res["id"]).title == "Cards 2"
     assert "error" in update(id="app-00000000", html=HTML)
-    assert "error" in create(title="Bad", html='<script src="https://x/y.js"></script>')
+    assert "error" in create(title="Bad", html="")
     assert listing()["apps"][0]["title"] == "Cards 2"
     assert {p.name for p in (tmp_path / "apps").iterdir()} == {res["id"]}
 
@@ -100,7 +100,7 @@ def test_import_export_is_one_share_file(tmp_path, monkeypatch):
     manifest, html = unpack(text)
     assert manifest["title"] == "Shared" and manifest["mimiwork_app"] == 1 and html == HTML
     assert unpack(HTML) == ({}, HTML)
-    assert not m.import_app({"title": "x", "html": '<script src="https://a/b.js"></script>'})["ok"]
+    assert not m.import_app({"title": "x", "html": ""})["ok"]
 
 
 def test_the_starters_are_valid_apps():

@@ -915,7 +915,7 @@ export function Composer(props: Props) {
         />
 
         {/* Three-control row (§22): + attach · Mode ⌄ …(right)… model (fresh only) · send */}
-        <div className="px-2.5 pb-2.5 pt-1 flex items-center gap-1.5">
+        <div className="composer-controls px-2.5 pb-2.5 pt-1 flex items-center gap-1.5 min-w-0">
           {/* + attach menu */}
           <div className="relative">
             <button
@@ -1151,7 +1151,7 @@ function UsageChip({
     </div>
   );
   return (
-    <div className="relative" ref={wrapRef}>
+    <div className="usage-chip relative" ref={wrapRef}>
       <button
         className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11.5px] text-muted hover:text-ink hover:bg-paper shrink-0"
         onClick={() => {
@@ -1288,7 +1288,7 @@ function ModeMenu({
           comparison): "Ask for approval ⌄" not a generic "Mode ⌄" pill. aria-label stays
           "Mode" so the accessible name is stable across mode changes. */}
       <button
-        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] text-muted hover:text-ink hover:bg-paper shrink-0"
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] text-muted hover:text-ink hover:bg-paper shrink-0 whitespace-nowrap"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}

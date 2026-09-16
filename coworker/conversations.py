@@ -966,6 +966,16 @@ class ConversationStore:
             self._conn.commit()
         return cur.rowcount > 0
 
+    def set_mode(self, session_id: str, mode: str) -> bool:
+        """Remember a permission level chosen between turns. Updates an existing row only —
+        choosing a mode on a chat never used must not create an empty conversation."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE sessions SET mode = ? WHERE session_id = ?", (mode, session_id)
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
+
     def rename(self, session_id: str, title: str) -> bool:
         clean = " ".join((title or "").split())[:120]
         if not clean:

@@ -18,8 +18,8 @@ _CREATE = {
     "function": {
         "name": "create_app",
         "description": (
-            "Save a new app: ONE self-contained HTML file the user runs inside MimiWork. "
-            "No external scripts, styles, fonts or images — the app has no network. Use "
+            "Save a new app: ONE HTML file the user runs inside MimiWork. It may fetch https "
+            "APIs, play http(s) audio/video and load CDN libraries. Use "
             "window.Mimi.ask(prompt) for anything that needs a model and "
             "Mimi.state.get()/set(obj) to remember things, and Mimi.saveFile(name, text) to give "
             "the user a file (.ics, .csv, .txt …) — browser downloads do not work in the app. "

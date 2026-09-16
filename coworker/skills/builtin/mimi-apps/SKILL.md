@@ -13,11 +13,14 @@ An app is ONE self-contained `index.html` that MimiWork runs in a sandboxed fram
 You save it with the `create_app` tool, and replace it with `update_app` when the user
 wants a change. Never write the file anywhere else.
 
-## Rules the sandbox enforces
+## What the frame allows
 
-- No network. No `<script src>`, `<link href>`, web fonts, CDN libraries, images by URL.
-  Inline every style and script; use system fonts; draw icons as inline SVG or emoji.
-- Only the bridge reaches outside the frame:
+- The web: `fetch` to https APIs (the server must allow CORS), `<audio>`/`<video>`/`<img>`
+  by http(s) URL (radio streams, podcasts), and libraries from a CDN such as
+  cdn.jsdelivr.net or cdnjs.cloudflare.com. Prefer https URLs.
+- Not this computer: no plain-http `fetch`, no access to the user's files or MimiWork
+  itself, and no browser downloads. Links cannot navigate the app away.
+- The bridge is the way to the user's side:
   - `await Mimi.ask(prompt, { system?, json? })` → the model's reply as text
     (`json: true` parses it). This spends the user's credits like a chat turn, so ask
     once per user action, not on every keystroke.
@@ -30,7 +33,7 @@ wants a change. Never write the file anywhere else.
     `.txt`, `.json`, `.md`, `.xml`, `.vcf`, up to 2 MB) into the user's Downloads folder
     and returns its path. Browser downloads (`<a download>`, blob URLs) do nothing in
     the frame — always use this. Call it from a button, then show "Saved to <path>".
-- Keep the file under 100 KB. If a feature needs a library, it needs a different design.
+- Keep the file under 100 KB; load big libraries from a CDN instead of pasting them in.
 
 ## How to build one
 

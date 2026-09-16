@@ -304,3 +304,22 @@ def test_settings_round_trip_over_http(mgr, tmp_path):
 
     assert client.post("/v1/settings/default-folder", json={"path": ""}).json()["ok"]
     assert client.get("/v1/settings").json()["default_folder"] is None
+
+
+def test_a_mode_set_over_the_socket_survives_the_engine_being_rebuilt(orphan, tmp_path):
+    """An app build picks Full access before its first message; granting a folder (or
+    moving the conversation) evicted the engine, and it came back asking for approval
+    (owner-hit 2026-09-15)."""
+    from coworker.permissions import Mode
+
+    mgr = orphan
+    folder, other = tmp_path / "Radio", tmp_path / "Elsewhere"
+    folder.mkdir()
+    other.mkdir()
+    mgr.get_engine("build").permissions.mode = Mode.AUTO
+    assert mgr.add_root("build", str(folder), writable=True)["ok"]
+    assert mgr.get_engine("build").permissions.mode is Mode.AUTO
+
+    mgr.get_engine("build").permissions.mode = Mode.PLAN
+    assert mgr.move_session("build", str(other))["ok"]
+    assert mgr.get_engine("build").permissions.mode is Mode.PLAN

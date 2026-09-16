@@ -25,13 +25,14 @@ function post(win: Window, data: unknown, source: Window | null = win) {
 }
 
 describe("AppFrame", () => {
-  it("sandboxes the app with scripts only — never same-origin, never network", () => {
+  it("sandboxes the app — never same-origin, and no plain-http fetch to reach the sidecar", () => {
     render(<AppFrame app={APP} html="<html><head></head><body>hi</body></html>" />);
     const frame = screen.getByTestId("app-frame") as HTMLIFrameElement;
-    expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
     const doc = frameDocument(APP, "<html><head></head><body>hi</body></html>");
     expect(doc).toContain("Content-Security-Policy");
-    expect(doc).toContain("connect-src 'none'");
+    expect(doc).toContain("connect-src https: wss:;");
+    expect(doc).toContain("media-src data: blob: https: http:;");
     expect(doc).toContain('"id":"app-0000aaaa"');
     // The bridge lands inside <head> when there is one, at the top otherwise.
     expect(doc.indexOf("<head>")).toBeLessThan(doc.indexOf("window.Mimi"));

@@ -490,6 +490,9 @@ export function App() {
   const pendingPromptRef = useRef<
     string | { text: string; skill?: string; model?: string; mode?: string } | null
   >(null);
+  // The mode a build request just sent in onOpen. The socket's `ready` was written before
+  // the server read that set_mode, so its stale mode must not overwrite the composer.
+  const requestedModeRef = useRef<string | null>(null);
   // Bumped to rebuild the session socket without a session change (folder adoption).
   const [socketKey, setSocketKey] = useState(0);
   // The in-flight manual run to finalize after its first turn ({taskId, runId, sessionId}).
@@ -729,7 +732,8 @@ export function App() {
         case "session_status": {
           if (ev.type === "ready") {
             if (d.model) setModel(d.model);
-            if (d.mode) setMode(d.mode);
+            if (d.mode && !requestedModeRef.current) setMode(d.mode);
+            requestedModeRef.current = null;
             if (d.command_trust?.required) setWorkspaceTrustRequest(d.command_trust);
             if (d.workspace) setWorkspace((cur) => cur || d.workspace);
           }
@@ -993,6 +997,7 @@ export function App() {
             sessionRef.current?.setModel(req.model);
           }
           if (req.mode) {
+            requestedModeRef.current = req.mode;
             setMode(req.mode);
             sessionRef.current?.setMode(req.mode);
           }

@@ -5726,6 +5726,14 @@ class SessionManager:
         self.session_store.touch_workspace(str(resolved))
         return {"ok": True, "roots": self.get_roots(session_id)}
 
+    def _save_live_engine(self, session_id: str) -> None:
+        """Before an engine is evicted, write down what only it knows: a mode or model set
+        over the socket since the last save (Full access chosen for an app build was
+        rebuilt as "ask for approval" — owner-hit 2026-09-15)."""
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            self.save(session_id, engine)
+
     def _adopt_folder(self, session_id: str, folder: Path, scratch: str) -> dict[str, Any]:
         """Make `folder` a not-yet-started conversation's own workspace, dropping the empty
         scratch dir it was provisioned with. The live engine (if any) is evicted; the GUI
@@ -5735,6 +5743,7 @@ class SessionManager:
             for r in self.get_roots(session_id)
             if not r["primary"] and not _same_dir(r["path"], str(folder))
         ]
+        self._save_live_engine(session_id)
         record = self.session_store.load(session_id)
         if record is None:
             self.session_store.save(
@@ -5848,6 +5857,7 @@ class SessionManager:
             str(r.get("path", "")) != previous for r in extra
         ):
             extra.append({"path": previous, "writable": True, "label": "previous folder"})
+        self._save_live_engine(session_id)
         self.session_store.set_workspace(session_id, target)
         self.session_store.set_extra_roots(session_id, extra)
         self.session_store.touch_workspace(target)

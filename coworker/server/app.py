@@ -2043,6 +2043,10 @@ def create_app(manager: SessionManager) -> FastAPI:
                         engine.permissions.mode = Mode(message.get("mode"))
                     except (TypeError, ValueError):
                         pass
+                    else:
+                        # Saved now, not at the next turn's end: Full access picked and
+                        # then an app relaunch came back asking (owner-hit 2026-09-15).
+                        manager.session_store.set_mode(session_id, engine.permissions.mode.value)
                 elif kind == "set_model":
                     model = message.get("model")
                     if model is not None and not isinstance(model, str):

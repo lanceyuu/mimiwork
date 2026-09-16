@@ -15,9 +15,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-# An app may not fetch anything: the GUI's sandbox blocks it anyway, but refusing at the
-# door tells the model (and an importer) WHY the page came up blank.
-_EXTERNAL = re.compile(r"""(?:src|href)\s*=\s*["']?\s*(?:https?:)?//""", re.I)
 MAX_HTML = 512 * 1024
 MAX_STATE = 256 * 1024
 MAX_PROMPT = 32 * 1024
@@ -29,11 +26,6 @@ def validate_html(html: str) -> Optional[str]:
         return "the app is empty"
     if len(html.encode("utf-8")) > MAX_HTML:
         return "the app is larger than 512 KB — keep it to one small file"
-    if _EXTERNAL.search(html):
-        return (
-            "the app loads something from the web (a script, stylesheet, font or image "
-            "with an http(s) URL). Apps run without network — inline everything."
-        )
     return None
 
 

@@ -2143,3 +2143,16 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
   border: 0; border-radius: 9px; padding: 8px 10px; cursor: pointer;
 }
 .rail-primary-btn:hover { filter: brightness(1.06); }
+
+/* The composer in a narrow column (an app build's chat beside its preview, owner
+   screenshot 2026-09-15): the Mode label wrapped onto two lines and the model name ran
+   off the edge. Nothing wraps now — the model name ellipsizes, and the time-saved and
+   token chips step aside before the controls you act on. */
+.composer { container-type: inline-size; }
+.composer-controls .dd { min-width: 0; }
+.composer-controls .pill { min-width: 0; max-width: min(240px, 100%); }
+.composer-controls .pill-label { min-width: 0; }
+@container (max-width: 560px) {
+  .composer-controls [data-testid="time-saved-chip"],
+  .composer-controls .usage-chip { display: none; }
+}

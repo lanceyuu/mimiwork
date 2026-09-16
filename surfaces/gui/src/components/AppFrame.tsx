@@ -1,9 +1,9 @@
 /** The frame a Mimi-written app runs in, and the bridge it talks through.
  *
- * The app is code that runs on the user's behalf, so it gets LESS than a document the
- * user wrote: `sandbox="allow-scripts"` and nothing else (no same-origin — it cannot
- * read the launch token or call the sidecar), plus a content security policy that
- * leaves it no network at all. The only way out is `window.Mimi`, injected here, whose
+ * The app is code that runs on the user's behalf. It may use the web (https fetches,
+ * audio/image URLs, CDN libraries) but never this machine: the frame is not same-origin,
+ * so it cannot read the launch token, and its CSP allows no plain-http fetch, so it
+ * cannot reach the sidecar. The only way to the user's side is `window.Mimi`, injected here, whose
  * calls arrive as postMessage and are answered one by one after validation. The same
  * file runs unchanged wherever a host page supplies this bridge — which is what keeps
  * hosting on QualiTaTi possible later without touching the apps themselves.
@@ -22,9 +22,14 @@ export interface AskEntry {
   ms: number;
 }
 
+// The web is open (streams, public APIs, CDN libraries — owner ask 2026-09-15: a radio
+// app could not play). What stays shut is this machine: no same-origin, and no plain
+// http: fetch, so the local sidecar (http://127.0.0.1) is out of reach.
 const CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " +
-  "img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https:; " +
+  "style-src 'unsafe-inline' https:; img-src data: blob: https: http:; " +
+  "media-src data: blob: https: http:; font-src data: https:; " +
+  "connect-src https: wss:; form-action 'none'";
 
 const KINDS = new Set(["ask", "state.get", "state.set", "file.save"]);
 const MAX_PROMPT = 32 * 1024;
@@ -126,7 +131,7 @@ export function AppFrame({
       ref={ref}
       className="app-frame"
       title={app.title}
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-forms allow-modals allow-downloads"
       srcDoc={doc}
       data-testid="app-frame"
     />
