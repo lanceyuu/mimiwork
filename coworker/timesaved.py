@@ -30,6 +30,7 @@ exactly which line they disagree with.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -57,6 +58,31 @@ MIN_PER_FILE_OP = 0.4  # move/copy/rename by hand
 # What you learned. Looking a method up in the curated knowledge base replaces
 # finding, opening and reading the source — costed like the reading it saves.
 MIN_PER_KB_LOOKUP = 4.0
+MIN_PER_EXPLANATION = 4.0  # a question answered: what you would have looked up or asked someone
+
+# A turn that ASKS — "why", "explain", "what is", a question mark — and gets an answer is
+# the plainest form of Empowerment there is (owner ask 2026-09-17: the pillar sat at
+# zero because only knowledge-base lookups and saved skills counted). Four languages the
+# app ships in.
+_QUESTION_WORDS = re.compile(
+    r"^\W*(?:explain|why|how (?:do|does|can|to|is|are|would|should)|what (?:is|are|does|do|was|were)|"
+    r"which|when|where|who|teach me|tell me about|help me understand|what'?s the difference|"
+    r"difference between|meaning of|define|"
+    r"pourquoi|explique|qu'est-ce|comment|c'est quoi|"
+    r"hvorfor|forklar|hva er|hvordan)\b"
+    # Chinese has no word boundaries to anchor on, so these match bare.
+    r"|^\W*(?:为什么|什么是|解释|怎么|如何|是什么)",
+    re.IGNORECASE,
+)
+
+
+def looks_like_question(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    if t.endswith(("?", "？")):
+        return True
+    return bool(_QUESTION_WORDS.search(t[:80]))
 MIN_PER_SKILL = 12.0  # writing the instructions, examples and rules down properly
 MIN_PER_AUTOMATION = 5.0  # deciding the schedule, wording the standing task
 MIN_PER_INSTRUCTIONS = 5.0  # setting out house rules for a folder
@@ -241,6 +267,11 @@ class TimeSaved:
             self.by_tool[tool] = self.by_tool.get(tool, 0.0) + minutes
             self.tool_categories[tool] = category
         return minutes
+
+    def add_learning(self, minutes: float = MIN_PER_EXPLANATION) -> None:
+        """A question answered — Empowerment minutes, filed under Learning."""
+        self.human_minutes += minutes
+        self.by_category["Learning"] = self.by_category.get("Learning", 0.0) + minutes
 
     def tool_category(self, tool: str) -> str:
         """The category this tool's minutes were filed under, or "" if unknown."""

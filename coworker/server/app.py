@@ -890,6 +890,15 @@ def create_app(manager: SessionManager) -> FastAPI:
         """Nodes + edges for the Memory graph view (declared before /{item_id})."""
         return manager.memory_graph()
 
+    @app.get("/v1/memory/vault")
+    def memory_vault() -> dict[str, Any]:
+        """The markdown mirror's folder and its MEMORY.md (declared before /{item_id})."""
+        return manager.memory_vault()
+
+    @app.post("/v1/memory/vault/reveal")
+    def memory_vault_reveal() -> dict[str, Any]:
+        return manager.reveal_memory_vault()
+
     @app.get("/v1/memory")
     def memory(workspace: str | None = None, project_id: str | None = None) -> dict[str, Any]:
         return {"memory": manager.list_memory(workspace or None, project_id or None)}

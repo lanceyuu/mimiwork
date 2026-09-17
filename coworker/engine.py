@@ -41,7 +41,8 @@ from .providers.errors import (
     retry_after_seconds,
 )
 from .repetition import RepetitionGuard as _RepetitionGuard
-from .timesaved import TimeSaved
+from .risk import classify, is_consequential
+from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
 from .tools.context import tool_model
@@ -1690,6 +1691,20 @@ class TurnEngine:
             return False
         return True
 
+    def _last_user_text(self) -> str:
+        for m in reversed(self.messages):
+            if m.get("role") != "user":
+                continue
+            c = m.get("content")
+            if isinstance(c, str):
+                return c
+            if isinstance(c, list):
+                return " ".join(
+                    str(p.get("text") or "") for p in c if isinstance(p, dict) and p.get("type") == "text"
+                )
+            return ""
+        return ""
+
     def _begin_turn(self) -> None:
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
@@ -1705,6 +1720,12 @@ class TurnEngine:
         whole estimate that is measured rather than modelled."""
         elapsed = time.monotonic() - self._turn_started if self._turn_started else 0.0
         self.time_saved.add_turn(elapsed, approvals=self._turn_approvals)
+        # A question answered, without anything being made or run, is learning
+        # (Empowerment) — the pillar was empty for anyone who mostly asks (2026-09-17).
+        if looks_like_question(self._last_user_text()) and not any(
+            is_consequential(classify(t)) for t in self._turn_tools
+        ):
+            self.time_saved.add_learning()
         rung = classify_turn(
             tools=self._turn_tools,
             scheduled=self.turn_scheduled,

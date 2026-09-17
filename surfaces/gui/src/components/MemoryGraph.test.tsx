@@ -82,9 +82,10 @@ describe("MemoryGraph — right-click a dot to forget it (owner ask 2026-08-31)"
   /** Drive the handler the way a browser does: a contextmenu event on the canvas at the
    *  node's position. The initial layout is a deterministic ring — node i sits at
    *  (W/2 + cos(θ)·r, H/2 + sin(θ)·r) with r = 90 + (i%5)·26 — and jsdom reports the
-   *  parent as zero-width, so the first memory node lands at (90, 210). */
+   *  parent as zero-width, so with the 520px canvas the first memory node lands at
+   *  (90, 260). Without a 2D context the layout is never fitted to the view. */
   const rightClickFirstNode = (canvas: HTMLElement) => {
-    fireEvent.contextMenu(canvas, { clientX: 90, clientY: 210 });
+    fireEvent.contextMenu(canvas, { clientX: 90, clientY: 260 });
   };
 
   it("offers Forget, asks with the memory's own words, and deletes on confirm", async () => {

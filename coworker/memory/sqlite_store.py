@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from .base import MemoryItem, MemoryStore, Scope
 
@@ -18,6 +18,9 @@ class SQLiteMemoryStore(MemoryStore):
         # check_same_thread=False: the server runs the WS handler on a different thread
         # than the store was created on; a lock serializes access.
         self._lock = threading.RLock()
+        # Called after every change (add/update/delete/rescope) — the markdown vault
+        # regenerates from here. A listener that raises never breaks the write.
+        self.listeners: list[Callable[[], None]] = []
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("""
@@ -66,9 +69,23 @@ class SQLiteMemoryStore(MemoryStore):
             self._conn.commit()
             item = self.get(cursor.lastrowid)
         assert item is not None
+        self._changed()
         return item
 
+    def _changed(self) -> None:
+        for fn in list(self.listeners):
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 — a mirror must never break the store
+                continue
+
     def rescope_to_project(self, item_id: int, project_id: str) -> bool:
+        try:
+            return self._rescope_to_project(item_id, project_id)
+        finally:
+            self._changed()
+
+    def _rescope_to_project(self, item_id: int, project_id: str) -> bool:
         """Move one workspace-scoped memory onto a project group.
 
         Used once, at startup, to follow project memory across the change that made a
@@ -133,12 +150,14 @@ class SQLiteMemoryStore(MemoryStore):
                     "UPDATE memories SET content = ? WHERE id = ?", (content, item_id)
                 )
             self._conn.commit()
+        self._changed()
         return self.get(item_id)
 
     def delete(self, item_id: int) -> bool:
         with self._lock:
             cursor = self._conn.execute("DELETE FROM memories WHERE id = ?", (item_id,))
             self._conn.commit()
+        self._changed()
         return cursor.rowcount > 0
 
     def delete_all(self, *, scope: Optional[Scope] = None) -> int:
@@ -151,6 +170,7 @@ class SQLiteMemoryStore(MemoryStore):
             else:
                 cursor = self._conn.execute("DELETE FROM memories")
             self._conn.commit()
+        self._changed()
         return cursor.rowcount
 
     def close(self) -> None:

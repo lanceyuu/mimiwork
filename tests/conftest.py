@@ -28,6 +28,7 @@ def _isolated_state_dir(tmp_path, monkeypatch):
     # (test_activity_and_builtin_skills.py).
     monkeypatch.setenv("COWORKER_SEED_BUILTIN_SKILLS", "0")
     monkeypatch.setenv("COWORKER_SEED_BUILTIN_APPS", "0")
+    monkeypatch.setenv("COWORKER_MEMORY_VAULT", str(tmp_path / "memory-vault"))
 
 
 @pytest_asyncio.fixture

@@ -2704,6 +2704,17 @@ export async function getMemoryGraph(): Promise<MemoryGraphData> {
   return res.json();
 }
 
+/** The markdown mirror of memory (~/MimiWork/Memory): its folder and MEMORY.md. */
+export async function getMemoryVault(): Promise<{ path: string; index: string }> {
+  const res = await fetch(`${httpBase()}/v1/memory/vault`);
+  return res.json();
+}
+
+export async function revealMemoryVault(): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/memory/vault/reveal`, { method: "POST" });
+  return res.json();
+}
+
 // -- transfer pack: the vocabulary shared with Claude Code / Cowork / Codex -----------
 
 export interface SavedCommand {

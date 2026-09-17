@@ -189,6 +189,11 @@ class SessionManager:
         base.mkdir(parents=True, exist_ok=True)
 
         self.memory_store: MemoryStore = SQLiteMemoryStore(base / "coworker.db")
+        # The markdown mirror (~/MimiWork/Memory): regenerated after every change.
+        listeners = getattr(self.memory_store, "listeners", None)
+        if listeners is not None:
+            listeners.append(self.export_memory_vault)
+        self.export_memory_vault()
         # MEMORY-SPEC §4.3/§6: the on/off switch + the user's standing rules. Settings-
         # level, outside the memory table; read at engine build time.
         self.memory_settings = MemorySettingsStore(base / "memory-settings.json")
@@ -6611,6 +6616,47 @@ class SessionManager:
                 pass
 
         return notify
+
+    def export_memory_vault(self) -> None:
+        """Rewrite ~/MimiWork/Memory from the store. Never raises: the vault is a mirror."""
+        from ..memory import vault
+
+        try:
+            vault.export(
+                self.memory_store.list(),
+                labels=self._workspace_labels(),
+                project_names={
+                    str(p.get("id")): str(p.get("name") or "")
+                    for p in self.session_store.list_projects()
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("memory vault export failed", exc_info=True)
+
+    def memory_vault(self) -> dict[str, Any]:
+        from ..memory import vault
+
+        return vault.read_index()
+
+    def reveal_memory_vault(self) -> dict[str, Any]:
+        """Open the vault folder in the Finder / Explorer / file manager."""
+        import subprocess
+        import sys
+
+        from ..memory import vault
+
+        folder = vault.vault_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        cmd = (
+            ["open", str(folder)]
+            if sys.platform == "darwin"
+            else ["explorer", str(folder)] if sys.platform == "win32" else ["xdg-open", str(folder)]
+        )
+        try:
+            subprocess.Popen(cmd)
+        except OSError as e:
+            return {"ok": False, "error": str(e), "path": str(folder)}
+        return {"ok": True, "path": str(folder)}
 
     def memory_graph(self) -> dict[str, Any]:
         """Obsidian-style graph over all memories: [[links]], #tags, workspace hubs."""
