@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
 import { MimiCompanion } from "./components/MimiCompanion";
+import { MimiGallery } from "./components/MimiScenes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initTheme } from "./theme";
 import { platformOS } from "./tauri";
@@ -25,10 +26,12 @@ window.addEventListener("drop", (e) => e.preventDefault());
 // (#companion lets the browser dev build preview the pet without the shell.)
 const companionMode =
   Boolean((globalThis as any).__MIMI_COMPANION__) || window.location.hash === "#companion";
+// #companion-gallery: every pet animation looping side by side (browser dev build only).
+const galleryMode = window.location.hash === "#companion-gallery";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ErrorBoundary>{companionMode ? <MimiCompanion /> : <App />}</ErrorBoundary>
+    <ErrorBoundary>{galleryMode ? <MimiGallery /> : companionMode ? <MimiCompanion /> : <App />}</ErrorBoundary>
   </React.StrictMode>,
 );
 
