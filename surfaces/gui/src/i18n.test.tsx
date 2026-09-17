@@ -27,6 +27,21 @@ describe("i18n", () => {
     expect(tr("Files")).toBe("Fichiers");
   });
 
+  it("an English word that is also another key's translation stays itself", () => {
+    // "Personas" is the Spanish for "People" — in English it must remain "Personas".
+    const root = document.createElement("div");
+    root.innerHTML = "<button>Personas</button>";
+    document.body.appendChild(root);
+    const stop = installDomTranslations(root);
+    expect(root.textContent).toBe("Personas");
+    act(() => setLang("es"));
+    expect(root.textContent).toBe("Personas");
+    act(() => setLang("en"));
+    expect(root.textContent).toBe("Personas");
+    stop();
+    root.remove();
+  });
+
   it("falls back to English for strings not yet translated", () => {
     setLang("zh");
     expect(tr("Some deep error message nobody translated")).toBe(

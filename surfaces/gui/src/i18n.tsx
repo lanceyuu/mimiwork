@@ -558,7 +558,12 @@ const IDX: Record<Lang, number> = { en: -1, zh: 0, no: 1, fr: 2, es: 3, ja: 4, a
 const SOURCE_BY_TRANSLATION = new Map<string, string>();
 for (const [source, translations] of Object.entries(D)) {
   SOURCE_BY_TRANSLATION.set(source, source);
-  translations.forEach((translation) => SOURCE_BY_TRANSLATION.set(translation, source));
+  // An English source always maps to itself: "Personas" is also the Spanish for
+  // "People", and letting that win turned the Personas tab into "People" in English
+  // (caught by the browser tests, 2026-09-17).
+  translations.forEach((translation) => {
+    if (!(translation in D)) SOURCE_BY_TRANSLATION.set(translation, source);
+  });
 }
 
 let current: Lang = "en";
