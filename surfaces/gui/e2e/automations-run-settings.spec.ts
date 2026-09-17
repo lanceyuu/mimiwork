@@ -57,5 +57,5 @@ test("an existing automation's model and level can be changed later", async ({ p
   ]);
   expect(request.postDataJSON()).toMatchObject({ model: "gpt-4o-mini", mode: "plan" });
   await expect(page.getByTestId("task-run-settings")).toContainText("gpt-4o-mini");
-  await expect(page.getByTestId("task-run-settings")).toContainText("Plan only");
+  await expect(page.getByTestId("task-run-settings")).toContainText("Plan");
 });

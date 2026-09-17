@@ -39,7 +39,7 @@ test("approval: tool request suspends the turn; Allow once resumes it", async ({
 
   // The approval card surfaces the tool + reason and blocks until a decision.
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
-  await page.getByRole("button", { name: "Yes" }).last().click();
+  await page.getByRole("button", { name: "Yes", exact: true }).last().click();
 
   // Decision goes back over the socket; the agent finishes the tool and the turn.
   await expect(page.getByText("The command ran; 1 file found.")).toBeVisible();
@@ -53,8 +53,8 @@ test("approval: Deny skips the tool and the agent says so", async ({ page }) => 
   await box.fill("please run a tool");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByRole("button", { name: "No" }).last()).toBeVisible();
-  await page.getByRole("button", { name: "No" }).last().click();
+  await expect(page.getByRole("button", { name: "No", exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "No", exact: true }).last().click();
   await expect(page.getByText("Understood — skipped the command.")).toBeVisible();
 });
 

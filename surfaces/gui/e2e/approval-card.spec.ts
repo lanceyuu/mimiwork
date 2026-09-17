@@ -30,7 +30,7 @@ test("routine write → compact row: humanized title, inline preview, Allow reso
 
   await page.screenshot({ path: "test-results/ux018-compact-row.png", fullPage: false });
 
-  await row.getByRole("button", { name: "Allow", exact: true }).click();
+  await row.getByRole("button", { name: "Yes", exact: true }).click();
   await expect(page.getByText(/Done via write_file/)).toBeVisible();
 });
 
@@ -52,7 +52,7 @@ test("run_shell → full card: description title, command preview, stays-on-this
 
   await page.screenshot({ path: "test-results/ux018-shell-card.png", fullPage: false });
 
-  await page.getByRole("button", { name: "Yes" }).last().click();
+  await page.getByRole("button", { name: "Yes", exact: true }).last().click();
   await expect(page.getByText("The command ran; 1 file found.")).toBeVisible();
 });
 

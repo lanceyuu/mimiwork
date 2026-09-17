@@ -100,7 +100,7 @@ test("answering the live approval never re-flashes its parked Inbox mirror", asy
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
 
   mirrorResolved = true; // server side resolves with the decision; the stale client copy is the bug
-  await page.getByRole("button", { name: "Yes" }).last().click();
+  await page.getByRole("button", { name: "Yes", exact: true }).last().click();
   // "Never appears" semantics: pre-fix the stale mirror rendered within a frame of the click and
   // self-cleared a poll later — so a plain toHaveCount(0) would blink green. Watch the window.
   const flashed = await page

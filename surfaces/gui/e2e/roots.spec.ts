@@ -14,7 +14,9 @@ test("working directories: add folders with the read-only / read-write gate", as
   const section = page.getByTestId("folders-section");
   await expect(section.getByTestId("folders-summary")).toHaveText("No folder yet");
   const dirs = page.getByTestId("drawer-directories");
-  await expect(dirs.getByText("Mimi works in a temporary space", { exact: false })).toBeVisible();
+  // No explanatory paragraph any more (2026-09-17): the section is the primary root + the
+  // Add-a-folder button, and nothing else.
+  await expect(dirs.getByTestId("folders-add")).toBeVisible();
 
   // The primary is the writable scratch workspace (Cowork shows it as "Temporary space").
   await expect(dirs.getByText("Temporary space", { exact: true })).toBeVisible();
