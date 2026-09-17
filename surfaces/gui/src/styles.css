@@ -931,8 +931,20 @@ button.root-text:focus-visible { outline: 2px solid var(--accent); outline-offse
   background: transparent; color: var(--muted); cursor: pointer;
   font: inherit; font-size: 12.5px;
 }
-/* A narrow bar (the chat beside an app preview): the chip gives the title room. */
-@container (max-width: 560px) { .topbar-workspace-chip { max-width: 110px; } }
+/* A narrow bar (the chat beside an app preview): the title stops being centred on the
+   bar and simply flows between the two clusters, truncating — centring it there put
+   it under the folder chip (owner screenshot 2026-09-17). The chip gives room too. */
+@container (max-width: 560px) {
+  .topbar-workspace-chip { max-width: 110px; }
+  .main-topbar { gap: 8px; }
+  .main-topbar-side { flex: 0 0 auto; }
+  .main-topbar-side:empty { display: none; }
+  .main-title {
+    position: static; transform: none; flex: 1 1 0; min-width: 0; max-width: none;
+    align-items: flex-start;
+  }
+  .main-title-text, .title-sub { max-width: 100%; }
+}
 .topbar-workspace-chip:hover { color: var(--ink); border-color: var(--accent); background: var(--panel); }
 .topbar-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

@@ -9,6 +9,8 @@ import { QualitatiAccountCard } from "./QualitatiAccountCard";
 import { useT } from "../i18n";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { chooseFolder } from "../tauri";
+import { LANGS, getLang, setLang } from "../i18n";
+import { setLanguage as apiSetLanguage } from "../api";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 
 // First-run onboarding (UX-DECISIONS §24 → §29 → §39): model → your tools → go.
@@ -109,14 +111,17 @@ export function Onboarding({
   __startStep?: number;
 }) {
   const t = useT();
+  // Step 0 is the language (owner ask 2026-09-17): the one choice that changes every
+  // word that follows, so it comes before the account. Then account, tools, first task.
   const [step, setStep] = useState(__startStep);
+  const [lang, setLangState] = useState(getLang());
   // Step 0 (owner ask 2026-08-29): the account comes FIRST — register or sign in with
   // QualiTaTi right here, models included, nothing to configure. Bring-your-own-key is
   // the fallback path behind one link, not the opening question.
   const [byok, setByok] = useState(false);
   const [qtSignedIn, setQtSignedIn] = useState(false);
   useEffect(() => {
-    if (step !== 0 || qtSignedIn) return;
+    if (step !== 1 || qtSignedIn) return;
     let stop = false;
     const poll = () =>
       Promise.all([qualitatiStatus(), qualitatiStatus("cn")])
@@ -146,7 +151,7 @@ export function Onboarding({
       ps.cancelBackTimer();
       if (!(await ps.runTestAndSave())) return;
     }
-    setStep(1);
+    setStep(2);
   };
 
   // -- step 2: connect your everyday tools (§39 two-state page) -------------------
@@ -156,7 +161,7 @@ export function Onboarding({
   // the user's own credentials from the Connectors page (the managed one-click
   // path went with the hosted relay).
   useEffect(() => {
-    if (step !== 1) return;
+    if (step !== 2) return;
     getConnectors().then(setConnectors).catch(() => {});
   }, [step]);
 
@@ -176,7 +181,7 @@ export function Onboarding({
   // -- shared bits ----------------------------------------------------------------
   const dots = (
     <div className="flex justify-center gap-2 mb-6">
-      {[0, 1, 2].map((i) => (
+      {[0, 1, 2, 3].map((i) => (
         <span key={i} className={"w-1.5 h-1.5 rounded-full " + (i <= step ? "bg-accent" : "bg-line")} />
       ))}
     </div>
@@ -190,6 +195,40 @@ export function Onboarding({
         {dots}
 
         {step === 0 && (
+          <section data-testid="ob-step-language" className="flex-1 min-h-0 flex flex-col">
+            <h1 className="text-[19px] font-semibold">{t("Welcome to MimiWork")}<span className="beta-tag">BETA</span></h1>
+            <p className="text-[13px] text-muted mt-0.5 mb-5">{t("Choose your language")}</p>
+            <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Language">
+              {LANGS.map((l) => (
+                <button
+                  key={l.value}
+                  role="radio"
+                  aria-checked={lang === l.value}
+                  data-testid={`ob-lang-${l.value}`}
+                  className={
+                    "rounded-xl border px-3 py-3 text-[14px] text-left " +
+                    (lang === l.value ? "border-accent text-accent bg-accentSoft/40" : "border-line hover:border-line-strong bg-panel")
+                  }
+                  onClick={() => {
+                    setLang(l.value);
+                    setLangState(l.value);
+                    void apiSetLanguage(l.value).catch(() => undefined);
+                  }}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] text-faint mt-3">{t("You can change this later in Settings.")}</p>
+            <div className="mt-auto flex justify-end">
+              <button className="btn primary" data-testid="ob-continue-language" onClick={() => setStep(1)}>
+                {t("Continue")}
+              </button>
+            </div>
+          </section>
+        )}
+
+        {step === 1 && (
           <section data-testid="ob-step-model" className="flex-1 min-h-0 flex flex-col">
             {/* Persistent header — stays put while the region below swaps (§39). */}
             <h1 className="text-[19px] font-semibold">{t("Welcome to MimiWork")}<span className="beta-tag">BETA</span></h1>
@@ -259,7 +298,7 @@ export function Onboarding({
           </section>
         )}
 
-        {step === 1 && (
+        {step === 2 && (
           /* §41 (owner design, 2026-07-19, supersedes §39's card gallery): BENEFIT ROWS are
              the connect surface — one row set, two states, ZERO layout shift. Pre-sign-in the
              rows make the case and a pinned band asks for sign-in; after sign-in the band's
@@ -328,7 +367,7 @@ export function Onboarding({
             <div className="flex items-center mt-3.5">
               <button
                 className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
-                onClick={() => setStep(2)}
+                onClick={() => setStep(3)}
                 data-testid="ob-continue-tools"
               >
                 Next
@@ -341,7 +380,7 @@ export function Onboarding({
           </section>
         )}
 
-        {step === 2 && (
+        {step === 3 && (
           /* §42 (design spec 2026-08-20 §4): the last step hands over a FIRST TASK, not a
              menu. Pick a folder → three starter cards light up; one click opens a session
              with the folder granted and the prompt prefilled (never auto-sent). The old

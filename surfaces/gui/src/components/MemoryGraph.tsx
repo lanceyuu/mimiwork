@@ -88,6 +88,10 @@ export function MemoryGraph({
   selectedRef.current = selected;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  // The parent passes an inline callback; reading it through a ref keeps the simulation
+  // effect keyed on the data alone, so a click never rebuilds the layout.
+  const openRef = useRef(onOpenMemory);
+  openRef.current = onOpenMemory;
 
   const reload = useCallback(
     () =>
@@ -254,9 +258,31 @@ export function MemoryGraph({
     // raw coordinates, which is what the pointer tests address.
     if (ctx) fit();
 
+    // The float: a slow, tiny sway drawn on top of the settled layout — Obsidian's
+    // graph is never quite still (owner ask 2026-09-17: "move a bit, like before") —
+    // never fed back into the physics, so nothing wanders off. And an intro: the dots
+    // fly out from the centre over the first 700 ms.
+    const phase = new Map(nodes.map((n, i) => [n, (i * 2.399) % (Math.PI * 2)]));
+    const sway = (n: SimNode, now: number) => {
+      const p = phase.get(n) || 0;
+      const k = now / 1000;
+      return { x: Math.sin(k * 0.9 + p) * 1.6 + Math.sin(k * 0.37 + p * 2) * 0.8, y: Math.cos(k * 0.7 + p) * 1.6 };
+    };
+    const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
+    const shown = new Map<SimNode, { x: number; y: number }>();
+
     const draw = () => {
       if (!ctx) return;
       const now = performance.now();
+      const intro = ease((now - t0) / 700);
+      for (const n of nodes) {
+        const s = sway(n, now);
+        shown.set(n, {
+          x: W / 2 + (n.x + s.x - W / 2) * intro,
+          y: H / 2 + (n.y + s.y - H / 2) * intro,
+        });
+      }
+      const at = (n: SimNode) => shown.get(n) || n;
       const selectedNode = nodes.find((n) => n.kind === "memory" && n.memory_id === selectedRef.current) || null;
       const focus = hover || selectedNode;
       const lit = focus ? new Set([focus, ...(neighbours.get(focus) || [])]) : null;
@@ -292,12 +318,13 @@ export function MemoryGraph({
               ? `rgba(200,206,214,${dim ? 0.06 : 0.22})`
               : `rgba(120,126,138,${dim ? 0.07 : 0.28})`;
         ctx.beginPath();
-        ctx.moveTo(l.a.x, l.a.y);
-        ctx.lineTo(l.b.x, l.b.y);
+        ctx.moveTo(at(l.a).x, at(l.a).y);
+        ctx.lineTo(at(l.b).x, at(l.b).y);
         ctx.stroke();
       }
 
       for (const n of nodes) {
+        const { x, y } = at(n);
         const r = nodeRadius(n) * (1 + 0.35 * n.glow);
         const color = nodeColor(n);
         const dim = lit && !lit.has(n);
@@ -308,7 +335,7 @@ export function MemoryGraph({
           ctx.shadowBlur = (8 + 14 * n.glow) / zoom;
         }
         ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
         ctx.shadowBlur = 0;
@@ -316,7 +343,7 @@ export function MemoryGraph({
         if (n === selectedNode) {
           const pulse = 6 + 2.5 * Math.sin((now - t0) / 380);
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + pulse / zoom, 0, Math.PI * 2);
+          ctx.arc(x, y, r + pulse / zoom, 0, Math.PI * 2);
           ctx.strokeStyle = "rgba(13,148,136,0.55)";
           ctx.lineWidth = 1.2 / zoom;
           ctx.stroke();
@@ -328,7 +355,7 @@ export function MemoryGraph({
           ctx.font = `${n.kind === "memory" ? 11 : 11.5}px -apple-system, "Segoe UI", sans-serif`;
           ctx.fillStyle = dark ? "rgba(230,232,235,0.92)" : "rgba(60,66,76,0.95)";
           ctx.globalAlpha = dim ? 0.25 : n.kind === "memory" ? Math.min(1, n.glow + (zoom > 1.5 ? 1 : 0)) : 1;
-          ctx.fillText(n.label, n.x + r + 4 / zoom, n.y + 3.5 / zoom);
+          ctx.fillText(n.label, x + r + 4 / zoom, y + 3.5 / zoom);
           ctx.globalAlpha = 1;
         }
       }
@@ -377,7 +404,7 @@ export function MemoryGraph({
         if (n.kind === "memory" && n.memory_id != null) {
           setSelected(n.memory_id);
           setEditing(false);
-          onOpenMemory?.(n.memory_id);
+          openRef.current?.(n.memory_id);
         }
       } else if (panning && !moved) {
         setSelected(null); // a click on empty space closes the note
@@ -418,7 +445,7 @@ export function MemoryGraph({
       canvas.removeEventListener("pointerleave", onLeave);
       canvas.removeEventListener("wheel", onWheel);
     };
-  }, [data, onOpenMemory]);
+  }, [data]);
 
   if (empty)
     return (

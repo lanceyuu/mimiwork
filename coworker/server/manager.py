@@ -3702,8 +3702,8 @@ class SessionManager:
         """The app's display language (en/zh/no/fr) — a UI pref, stored so every
         window and the next launch agree."""
         value = str(value or "en").lower()
-        if value not in ("en", "zh", "no", "fr"):
-            return {"ok": False, "error": "language must be one of en, zh, no, fr"}
+        if value not in ("en", "zh", "no", "fr", "es", "ja", "ar", "de", "pt"):
+            return {"ok": False, "error": "language must be one of en, zh, no, fr, es, ja, ar, de, pt"}
         self._prefs["language"] = value
         self._save_prefs()
         return {"ok": True, "language": value}

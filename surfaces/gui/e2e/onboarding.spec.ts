@@ -12,6 +12,10 @@ async function openOnboarding(page) {
   await page.getByTestId("account-row").click();
   await page.getByTestId("account-menu").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Run setup again" }).click();
+  // The language comes first (owner ask 2026-09-17) — nine choices, English preselected.
+  await expect(page.getByTestId("ob-step-language")).toBeVisible();
+  await expect(page.getByTestId("ob-lang-ja")).toBeVisible();
+  await page.getByTestId("ob-continue-language").click();
   await expect(page.getByTestId("ob-step-model")).toBeVisible();
   // Step 0 leads with the QualiTaTi account (owner ask 2026-08-29); the provider
   // gallery these specs exercise lives behind the own-key link.

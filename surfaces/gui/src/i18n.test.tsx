@@ -41,8 +41,19 @@ describe("i18n", () => {
     expect(screen.getByText("Réglages")).toBeTruthy();
   });
 
-  it("offers exactly the four owner-requested languages", () => {
-    expect(LANGS.map((l) => l.value).sort()).toEqual(["en", "fr", "no", "zh"]);
+  it("offers exactly the nine owner-requested languages, and Arabic reads right to left", () => {
+    expect(LANGS.map((l) => l.value).sort()).toEqual(["ar", "de", "en", "es", "fr", "ja", "no", "pt", "zh"]);
+    setLang("ar");
+    expect(document.documentElement.dir).toBe("rtl");
+    setLang("en");
+    expect(document.documentElement.dir).toBe("ltr");
+  });
+
+  it("a language step exists before the account: its strings are translated everywhere", () => {
+    for (const lang of ["zh", "no", "fr", "es", "ja", "ar", "de", "pt"] as const) {
+      setLang(lang);
+      expect(tr("Choose your language")).not.toBe("Choose your language");
+    }
   });
 
   it("localizes legacy interface text and accessibility labels", async () => {

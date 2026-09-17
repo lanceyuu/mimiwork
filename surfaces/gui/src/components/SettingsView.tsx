@@ -565,7 +565,7 @@ function AppearanceSection() {
 
       <div className={CARD + " p-4 mt-4"} data-testid="language-card">
         <div className={FIELD_LABEL + " mb-2"}>{tr("Language")}</div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {LANGS.map((l) => (
             <button
               key={l.value}
