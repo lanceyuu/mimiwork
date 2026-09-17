@@ -61,6 +61,10 @@ datas += collect_data_files(
 )
 # blueprints/*.mimiflow.json — bundled starter automations (Automations ▸ starter blueprints).
 datas += collect_data_files("coworker", includes=["blueprints/*.json"])
+# apps/starters/*.mimiapp.html — the Apps template gallery and the pre-installed Radio app.
+# Never listed before, so every shipped build had an empty gallery (caught 2026-09-17 when
+# the Radio app did not appear in v0.6.17).
+datas += collect_data_files("coworker", includes=["apps/starters/*.mimiapp.html"])
 
 if not INCLUDE_EXPERIMENTAL:
     hiddenimports = [
