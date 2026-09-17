@@ -66,6 +66,7 @@ describe("MimiCompanion", () => {
       expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep"),
     );
     expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe("thinking");
+    expect(screen.getByTestId("companion-working")).toBeTruthy(); // the typing dots
     expect(screen.queryByTestId("companion-zzz")).toBeNull();
     expect(screen.getByTestId("companion-bubble").textContent).toContain("Working on");
   });

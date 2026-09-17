@@ -78,7 +78,13 @@ function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; on
         height: SIZE,
         overflow: "hidden",
         filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.25))",
-        animation: phase === "alert" ? "companion-hop 1.6s ease-in-out infinite" : undefined,
+        animation:
+          phase === "alert"
+            ? "companion-hop 1.6s ease-in-out infinite"
+            : phase === "sleep"
+              ? "companion-think 3.2s ease-in-out infinite"
+              : undefined,
+        transformOrigin: "50% 92%",
       }}
     >
       <div
@@ -437,6 +443,38 @@ export function MimiCompanion() {
           />
         </div>
       )}
+      {/* Busy: the thinking sheet is a subtle face loop that reads as "sitting" at this
+          size (owner, 2026-09-17), so the work shows as a typing-dots thought above her
+          head, and the sprite below gets a slow, thoughtful head tilt. */}
+      {phase === "sleep" && petStyle === "classic" && (
+        <div
+          data-testid="companion-working"
+          aria-label="Working"
+          style={{
+            display: "inline-flex",
+            gap: 4,
+            alignItems: "center",
+            padding: "6px 9px",
+            borderRadius: 12,
+            background: "rgba(255,255,255,0.96)",
+            boxShadow: "0 3px 10px rgba(0,0,0,0.14)",
+            marginBottom: 6,
+          }}
+        >
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 3,
+                background: "#0d9488",
+                animation: `companion-dots 1.2s ease-in-out ${i * 0.18}s infinite`,
+              }}
+            />
+          ))}
+        </div>
+      )}
       {phase === "nap" && petStyle === "classic" && (
         <div
           data-testid="companion-zzz"
@@ -513,7 +551,9 @@ export function MimiCompanion() {
           ×
         </button>
       </div>
-      <style>{`@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"] { animation: none !important; } }`}</style>
+      <style>{`@keyframes companion-dots { 0%,80%,100% { transform: translateY(0); opacity: .45; } 40% { transform: translateY(-4px); opacity: 1; } }
+@keyframes companion-think { 0%,100% { transform: rotate(0deg); } 30% { transform: rotate(-3.5deg); } 70% { transform: rotate(2.5deg); } }
+@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"] { animation: none !important; } }`}</style>
     </div>
   );
 }
