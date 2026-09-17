@@ -205,7 +205,9 @@ function Buttons({
           Yes, always
         </button>
       )}
-      {item.name === "run_shell" && (
+      {/* A destructive command (rm -r, git reset --hard…) asks every time by design, so
+          the standing grant is not offered; the card's reason line says why. */}
+      {item.name === "run_shell" && !/always asks/.test(item.reason || "") && (
         <button className="btn" title="Always allow this exact command for this session (a)" onClick={() => onApprove("always_command")}>
           Yes, always for this command
         </button>

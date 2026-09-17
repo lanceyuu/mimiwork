@@ -8,6 +8,7 @@ prefixes) and a session allowlist. The engine only *decides*; the turn engine ro
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass, field
 from enum import Enum
@@ -23,6 +24,32 @@ _SHELL_OPERATORS = (";", "&", "|", ">", "<", "`", "$(", "(", "\n", "\r")
 
 def _has_shell_operators(command: str) -> bool:
     return any(op in command for op in _SHELL_OPERATORS)
+
+
+# Commands that destroy files or work for good. These ask EVERY time, in every mode —
+# Bypass permissions included, and no allowlist or "always" grant covers them. Mimi's own
+# file tools snapshot before they write; the shell has no such net, and MimiWork's users
+# rarely have git (owner ask 2026-09-17).
+_DESTRUCTIVE: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"(^|\s)rm\s+(-[A-Za-z]*[rRf][A-Za-z]*\b|--recursive|--force)"), "deletes files permanently (rm)"),
+    (re.compile(r"(^|\s)rmdir\s"), "removes a folder"),
+    (re.compile(r"(^|\s)find\s.*\s(-delete\b|-exec\s+rm\b)"), "deletes files permanently (find -delete)"),
+    (re.compile(r"(^|\s)git\s+(reset\s+--hard|clean\b|checkout\s+--\s|restore\b)"), "discards changes in git for good"),
+    (re.compile(r"(^|\s)sed\s+(-[A-Za-z]*i|--in-place)"), "rewrites a file in place (sed -i)"),
+    (re.compile(r"(^|\s)(truncate|shred)\s"), "destroys a file's contents"),
+    (re.compile(r"(^|\s)dd\s.*\bof="), "overwrites a file or a disk (dd)"),
+    (re.compile(r"(^|[^>\d])>(?!>)\s*(?!/dev/null)[^\s|&;>]"), "overwrites a file (> redirection)"),
+    # Windows shells.
+    (re.compile(r"(^|\s)(del|erase)\s+.*(/s|/q)\b|(^|\s)(rd|rmdir)\s+/s|Remove-Item\b.*-(Recurse|Force)", re.I), "deletes files permanently"),
+]
+
+
+def destructive_reason(command: str) -> Optional[str]:
+    """Why this shell command must always be confirmed, or None when it is ordinary."""
+    for pattern, why in _DESTRUCTIVE:
+        if pattern.search(command or ""):
+            return f"this command {why} — it always asks, in every mode"
+    return None
 
 from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS);
     #                       redundant aliases mark them as intentional re-exports)
@@ -157,6 +184,12 @@ class PermissionEngine:
         # Non-consequential tools always run.
         if not consequential:
             return Decision(True, "low risk")
+
+        # A destructive shell command is confirmed every time, whatever the mode or grants.
+        if is_shell:
+            why = destructive_reason(str(arguments.get("command", "")))
+            if why:
+                return Decision(False, why, needs_user=True)
 
         # Full access.
         if self.mode is Mode.AUTO:

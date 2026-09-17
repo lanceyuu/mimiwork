@@ -30,6 +30,7 @@ SHELL_TOOL = "run_shell"
 # classification and the permission engine's write scoping on the same declaration.
 WRITE_PATH_ARGUMENTS = {
     **{name: "path" for name in WRITE_TOOLS},
+    "delete_file": "path",
     "write_document": "path",
     "edit_document": "path",
     "revise_document": "path",

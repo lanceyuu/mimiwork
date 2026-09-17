@@ -25,6 +25,7 @@ _MAX_TRANSACTIONS = 20
 _DIRECT_TARGETS: dict[str, tuple[str, ...]] = {
     "write_file": ("path",),
     "replace_in_file": ("path",),
+    "delete_file": ("path",),
     "write_document": ("path",),
     "edit_document": ("path",),
     "revise_document": ("path",),

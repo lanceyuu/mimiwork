@@ -328,3 +328,17 @@ describe("ApprovalCard — revise_document preview", () => {
     expect(box.textContent).toContain("tracked changes");
   });
 });
+
+describe("ApprovalCard — a destructive shell command", () => {
+  it("offers no standing grant and shows the engine's reason", () => {
+    render(
+      <ApprovalCard
+        item={{ kind: "approval", name: "run_shell", args: { command: "rm -rf build" }, reason: "this command deletes files permanently (rm) — it always asks, in every mode" }}
+        onApprove={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Yes, always for this command")).toBeNull();
+    expect(screen.getByText(/deletes files permanently/)).toBeTruthy();
+    expect(screen.getByText("Yes")).toBeTruthy();
+  });
+});

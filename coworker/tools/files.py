@@ -14,6 +14,86 @@ from typing import Any
 import aisuite as ai
 
 _DEFAULT_MAX_LINES = 2000
+
+_DELETE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "delete_file",
+        "description": (
+            "Delete a file or folder by moving it to the Trash (Recycle Bin on Windows), "
+            "where the user can put it back. Use this instead of `rm`."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File or folder to delete."},
+            },
+            "required": ["path"],
+        },
+    },
+}
+
+
+def _unique(dest: Path) -> Path:
+    n = 2
+    out = dest
+    while out.exists():
+        out = dest.with_name(f"{dest.stem} {n}{dest.suffix}")
+        n += 1
+    return out
+
+
+def send_to_trash(target: Path) -> str:
+    """Move a file or folder to the OS trash; returns where it went. Never deletes for good."""
+    import subprocess
+    import sys
+    from urllib.parse import quote
+
+    if sys.platform == "darwin":
+        # Finder's own delete keeps "Put Back"; a plain move into ~/.Trash is the fallback.
+        try:
+            done = subprocess.run(
+                ["osascript", "-e", "on run argv", "-e",
+                 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)',
+                 "-e", "end run", str(target)],
+                capture_output=True, timeout=20,
+            )
+            if done.returncode == 0 and not target.exists():
+                return "the Trash"
+        except (OSError, subprocess.SubprocessError):
+            pass
+        import shutil
+
+        trash = Path.home() / ".Trash"
+        trash.mkdir(exist_ok=True)
+        shutil.move(str(target), str(_unique(trash / target.name)))
+        return "the Trash"
+    if sys.platform == "win32":
+        method = "DeleteDirectory" if target.is_dir() else "DeleteFile"
+        done = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "Add-Type -AssemblyName Microsoft.VisualBasic; "
+             f"[Microsoft.VisualBasic.FileIO.FileSystem]::{method}($args[0], 'OnlyErrorDialogs', 'SendToRecycleBin')",
+             str(target)],
+            capture_output=True, timeout=30,
+        )
+        if done.returncode != 0 or target.exists():
+            raise RuntimeError(done.stderr.decode(errors="replace").strip() or "PowerShell refused")
+        return "the Recycle Bin"
+    # Linux: the freedesktop trash layout, so the desktop's Trash shows it.
+    import shutil
+    import time
+
+    base = Path.home() / ".local" / "share" / "Trash"
+    (base / "files").mkdir(parents=True, exist_ok=True)
+    (base / "info").mkdir(parents=True, exist_ok=True)
+    dest = _unique(base / "files" / target.name)
+    (base / "info" / f"{dest.name}.trashinfo").write_text(
+        f"[Trash Info]\nPath={quote(str(target))}\nDeletionDate={time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
+        encoding="utf-8",
+    )
+    shutil.move(str(target), str(dest))
+    return "the Trash"
 _MAX_LINE_CHARS = 500
 
 _SCHEMA = {
@@ -118,4 +198,34 @@ def file_tools(workspace: str, roots: Any = None) -> list:
         requires_approval=False,
     )
     read_file.__coworker_schema__ = _SCHEMA
-    return [read_file]
+
+    def delete_file(path: str) -> dict[str, Any]:
+        from .office.paths import display_path, resolve_write
+
+        try:
+            target = resolve_write(path, roots or root)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        if not target.exists():
+            return {"error": f"not found: {path}"}
+        try:
+            where = send_to_trash(target)
+        except (OSError, RuntimeError) as exc:
+            return {"error": f"could not move to the Trash: {exc}"}
+        return {
+            "path": display_path(target, roots or root),
+            "moved_to": where,
+            "note": f"Moved to {where}; the user can put it back from there.",
+        }
+
+    delete_file.__name__ = "delete_file"
+    delete_file.__doc__ = _DELETE_SCHEMA["function"]["description"]
+    delete_file.__aisuite_tool_metadata__ = ai.ToolMetadata(
+        name="delete_file",
+        category="filesystem",
+        risk_level="medium",
+        capabilities=["write"],
+        requires_approval=True,
+    )
+    delete_file.__coworker_schema__ = _DELETE_SCHEMA
+    return [read_file, delete_file]

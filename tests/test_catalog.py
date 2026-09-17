@@ -25,6 +25,7 @@ CODE_TOOLS = {
     "apply_patch",
     "replace_in_file",
     "read_file",  # numbered/windowed (single-root)
+    "delete_file",  # to the Trash, never rm
     "git_status",
     "git_diff",
     "git_log",
@@ -41,6 +42,7 @@ COWORK_TOOLS = {
     "list_files",
     "list_directory",
     "read_file",  # aisuite (multi-root)
+    "delete_file",
     "read_file_lines",
     "write_file",
     "apply_unified_diff",

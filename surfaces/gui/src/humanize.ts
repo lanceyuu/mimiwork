@@ -47,6 +47,8 @@ export function humanizeTool(name: string, args: any): HumanLine {
       return { pre: "Read ", obj: baseName(String(a.path ?? "a file")) };
     case "write_file":
       return { pre: "Wrote ", obj: baseName(String(a.path ?? "a file")) };
+    case "delete_file":
+      return { pre: "Moved to the Trash: ", obj: baseName(String(a.path ?? "a file")) };
     case "replace_in_file":
     case "apply_patch":
     case "apply_unified_diff":
@@ -112,6 +114,8 @@ export function humanizeApprovalTitle(name: string, args: any): HumanLine {
   switch (name) {
     case "write_file":
       return { pre: "Write ", obj: baseName(String(a.path ?? "a file")) };
+    case "delete_file":
+      return { pre: "Move to the Trash: ", obj: baseName(String(a.path ?? "a file")) };
     case "replace_in_file":
     case "apply_patch":
     case "apply_unified_diff":
@@ -153,6 +157,8 @@ export function humanizeAsk(name: string, args: any): HumanLine {
       return { pre: "Wanted to run ", obj: trunc(String(a.command ?? ""), 60) };
     case "write_file":
       return { pre: "Wanted to write ", obj: baseName(String(a.path ?? "a file")) };
+    case "delete_file":
+      return { pre: "Wanted to move to the Trash ", obj: baseName(String(a.path ?? "a file")) };
     case "replace_in_file":
     case "apply_patch":
     case "apply_unified_diff":

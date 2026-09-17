@@ -1251,6 +1251,7 @@ export function App() {
     if (answer === "yes") return approve("once");
     if (answer === "no") return approve("deny");
     if (ap.category === "connector" || ap.name === "save_skill") return;
+    if (ap.name === "run_shell" && /always asks/.test(ap.reason || "")) return; // destructive: no standing grant
     approve(ap.name === "run_shell" ? "always_command" : "always_tool");
   };
   const respondPlan = (approved: boolean, mode?: string, feedback?: string) => {
