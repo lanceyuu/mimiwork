@@ -16,7 +16,7 @@ vi.mock("../api", () => ({
   },
 }));
 
-import { MimiCompanion } from "./MimiCompanion";
+import { COMPANION_TIMING, IDLE_ACTIONS, MimiCompanion } from "./MimiCompanion";
 import { COMPANION_STYLE_KEY, setCompanionStyle } from "../companionStyle";
 
 describe("MimiCompanion", () => {
@@ -59,14 +59,34 @@ describe("MimiCompanion", () => {
     expect(screen.getByTestId("companion-sprite").dataset.style).toBe("classic");
   });
 
-  it("sleeps while the coworker is busy, with the zzz bubble", async () => {
+  it("thinks while the coworker is busy — no zzz, that is for a real nap", async () => {
     getActivity.mockResolvedValue({ busy: true, running_sessions: 1, running_automations: 0 });
     render(<MimiCompanion />);
     await waitFor(() =>
       expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("sleep"),
     );
-    expect(screen.getByTestId("companion-zzz")).toBeTruthy();
+    expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe("thinking");
+    expect(screen.queryByTestId("companion-zzz")).toBeNull();
     expect(screen.getByTestId("companion-bubble").textContent).toContain("Working on");
+  });
+
+  it("plays QualiTaTi's idle vignettes in sequence, and naps after a long quiet spell", async () => {
+    getActivity.mockResolvedValue({ busy: false, running_sessions: 0, running_automations: 0 });
+    const saved = { ...COMPANION_TIMING };
+    Object.assign(COMPANION_TIMING, { idleActionMin: 20, idleActionMax: 20, napMin: 250, napMax: 250 });
+    try {
+      render(<MimiCompanion />);
+      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle"));
+      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe(IDLE_ACTIONS[0]));
+      expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle"); // a vignette is not a state
+      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("nap"), { timeout: 4000 });
+      expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe("sleep");
+      expect(screen.getByTestId("companion-zzz")).toBeTruthy();
+      fireEvent.pointerEnter(screen.getByTestId("companion-pet-zone"));
+      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle"));
+    } finally {
+      Object.assign(COMPANION_TIMING, saved);
+    }
   });
 
   it("wakes up when the work finishes", async () => {

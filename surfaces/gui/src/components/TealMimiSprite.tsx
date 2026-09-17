@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import atlas from "../assets/mimi-teal/spritesheet.webp";
 
-type Phase = "idle" | "sleep" | "wake" | "alert";
+type Phase = "idle" | "sleep" | "wake" | "alert" | "nap";
 const ANIMATIONS: Record<Phase, { row: number; durations: number[]; loop: boolean }> = {
   idle: { row: 0, durations: [280, 110, 110, 140, 140, 320], loop: true },
   // The existing companion state machine calls busy "sleep". This puppy works instead.
   sleep: { row: 7, durations: [120, 120, 120, 120, 120, 220], loop: true },
+  nap: { row: 7, durations: [120, 120, 120, 120, 120, 220], loop: true },
   wake: { row: 4, durations: [140, 140, 140, 140, 280], loop: false },
   alert: { row: 6, durations: [150, 150, 150, 150, 150, 260], loop: true },
 };

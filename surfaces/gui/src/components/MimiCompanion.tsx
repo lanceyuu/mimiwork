@@ -19,18 +19,62 @@ import sleepSheet from "../assets/mimi-pet/mimi-sleep.png";
 import wakeSheet from "../assets/mimi-pet/mimi-wake-16.png";
 import idleSheet from "../assets/mimi-pet/mimi-idle-stable-48.png";
 import happySheet from "../assets/mimi-pet/mimi-happy-subtle-24.png";
+import thinkingSheet from "../assets/mimi-pet/mimi-thinking-stable-48.png";
+import winkSheet from "../assets/mimi-pet/mimi-wink-subtle-24.png";
+import tiredSheet from "../assets/mimi-pet/mimi-tired-subtle-24.png";
+import loveSheet from "../assets/mimi-pet/mimi-love-subtle-24.png";
+import tongueSheet from "../assets/mimi-pet/mimi-tongue-subtle-24.png";
+import groomSheet from "../assets/mimi-pet/mimi-groom-face-48.png";
+import yawnSheet from "../assets/mimi-pet/mimi-yawn-face-48.png";
+import sniffSheet from "../assets/mimi-pet/mimi-sniff-face-36.png";
+import happyHopSheet from "../assets/mimi-pet/mimi-happy-hop-48.png";
+import scratchSheet from "../assets/mimi-pet/mimi-scratch-16.png";
 
-type Phase = "sleep" | "wake" | "idle" | "alert";
+// The state machine's phases. "sleep" is the historical name for BUSY (the coworker is
+// working); "nap" is the real thing — nothing has happened for a few minutes.
+type Phase = "sleep" | "wake" | "idle" | "alert" | "nap";
 
-const SHEETS: Record<Phase, { src: string; frames: number; fps: number; loop: boolean }> = {
+// Every sheet QualiTaTi's pet has (mimiPetAssets.js, ported 2026-09-17 — owner ask to
+// bring its new animations over). Frames are square cells in a horizontal strip.
+export type Sheet =
+  | "idle" | "thinking" | "sleep" | "wake" | "happy" | "wink" | "tired" | "love"
+  | "tongue" | "groom" | "yawn" | "sniff" | "happyHop" | "scratch";
+const SHEETS: Record<Sheet, { src: string; frames: number; fps: number; loop: boolean }> = {
+  idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
+  thinking: { src: thinkingSheet, frames: 48, fps: 12, loop: true },
   sleep: { src: sleepSheet, frames: 8, fps: 8, loop: true },
   wake: { src: wakeSheet, frames: 16, fps: 10, loop: false },
-  idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
-  // Needs-the-user: the happy face + a gentle hop (CSS, on the container)
-  // reads as an excited "I have something for you!" — friendlier than the
-  // scratch loop it replaced (owner call 2026-08-20).
-  alert: { src: happySheet, frames: 24, fps: 12, loop: true },
+  happy: { src: happySheet, frames: 24, fps: 12, loop: false },
+  wink: { src: winkSheet, frames: 24, fps: 12, loop: false },
+  tired: { src: tiredSheet, frames: 24, fps: 12, loop: false },
+  love: { src: loveSheet, frames: 24, fps: 12, loop: false },
+  tongue: { src: tongueSheet, frames: 24, fps: 12, loop: false },
+  groom: { src: groomSheet, frames: 48, fps: 12, loop: false },
+  yawn: { src: yawnSheet, frames: 48, fps: 12, loop: false },
+  sniff: { src: sniffSheet, frames: 36, fps: 12, loop: false },
+  happyHop: { src: happyHopSheet, frames: 48, fps: 12, loop: false },
+  scratch: { src: scratchSheet, frames: 16, fps: 10, loop: false },
 };
+// What each phase shows when no vignette is playing. Busy is "thinking" now, as in
+// QualiTaTi (the nap it replaced was a joke that read as "not working" — 2026-09-17);
+// needs-the-user is the happy face + a gentle hop (CSS, on the container), friendlier
+// than the scratch loop it replaced (owner call 2026-08-20).
+const PHASE_SHEET: Record<Phase, Sheet> = {
+  sleep: "thinking",
+  wake: "wake",
+  idle: "idle",
+  alert: "happy",
+  nap: "sleep",
+};
+// QualiTaTi's idle rotation (hooks/mimiPetState.js), minus its three scene prototypes.
+// Advanced in order, never drawn at random: a random pick repeats.
+export const IDLE_ACTIONS: Sheet[] = [
+  "tired", "yawn", "happyHop", "wink", "sniff", "tongue", "groom", "love", "sniff", "happy",
+  "wink", "tired", "groom", "tongue", "sniff", "love", "wink", "yawn", "groom", "happy",
+  "sniff", "tired", "wink", "scratch",
+];
+// The cadence, QualiTaTi's numbers. A test shortens them.
+export const COMPANION_TIMING = { idleActionMin: 12_000, idleActionMax: 25_000, napMin: 180_000, napMax: 300_000 };
 
 const SIZE = 110; // displayed sprite size in px (frames are square)
 
@@ -40,8 +84,19 @@ const SIZE = 110; // displayed sprite size in px (frames are square)
 // 165 — in the sheet's 192px logical space. Without this the pet visibly
 // wobbles left/right between frames (owner report 2026-08-20).
 type Geo = [anchorX: number, top: number, bottom: number];
-const GEO: Record<Phase, Geo[]> = {
-  idle: Array.from({ length: 48 }, () => [100.5, 12, 181] as Geo),
+const STABLE = (n: number): Geo[] => Array.from({ length: n }, () => [100.5, 12, 181] as Geo);
+const GEO: Record<Sheet, Geo[]> = {
+  idle: STABLE(48),
+  thinking: STABLE(48),
+  happy: STABLE(24),
+  wink: STABLE(24),
+  tired: STABLE(24),
+  love: STABLE(24),
+  tongue: STABLE(24),
+  groom: STABLE(48),
+  yawn: STABLE(48),
+  sniff: STABLE(36),
+  happyHop: STABLE(48),
   sleep: [
     [104.5, 12, 184], [102.5, 12, 184], [102, 12, 184], [100.5, 12, 184],
     [104.5, 13, 184], [102.5, 13, 184], [102, 13, 184], [100.5, 13, 184],
@@ -52,14 +107,18 @@ const GEO: Record<Phase, Geo[]> = {
     [106.5, 9, 189], [97, 9, 189], [91, 10, 189], [87.5, 10, 189],
     [106, 8, 184], [95.5, 8, 184], [89.5, 8, 184], [84.5, 8, 184],
   ],
-  // happy-subtle-24 is a stable pose (same geometry every frame).
-  alert: Array.from({ length: 24 }, () => [100.5, 12, 181] as Geo),
+  scratch: [
+    [101.5, 26, 166], [95, 26, 166], [88.5, 27, 168], [86.5, 28, 168],
+    [101, 22, 164], [93, 21, 164], [90, 21, 163], [87, 22, 163],
+    [98.5, 17, 160], [94.5, 18, 160], [89.5, 19, 161], [86, 18, 161],
+    [99.5, 14, 156], [93, 13, 156], [89.5, 14, 156], [86, 14, 156],
+  ],
 };
 const TARGET = { anchorX: 96, bottom: 180, height: 165 };
 const LOGICAL = 192; // the geometry's coordinate space (per source cell)
 
-function frameTransform(phase: Phase, frame: number): string {
-  const records = GEO[phase];
+function frameTransform(sheet: Sheet, frame: number): string {
+  const records = GEO[sheet];
   const [anchorX, top, bottom] = records[Math.min(frame, records.length - 1)];
   const s = TARGET.height / (bottom - top);
   const f = SIZE / LOGICAL;
@@ -68,9 +127,9 @@ function frameTransform(phase: Phase, frame: number): string {
   return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${s.toFixed(4)})`;
 }
 
-function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
+function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; onDone?: () => void }) {
   const [frame, setFrame] = useState(0);
-  const sheet = SHEETS[phase];
+  const sheet = SHEETS[name];
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
@@ -89,12 +148,13 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
       });
     }, 1000 / sheet.fps);
     return () => window.clearInterval(id);
-  }, [phase, sheet.frames, sheet.fps, sheet.loop]);
+  }, [name, sheet.frames, sheet.fps, sheet.loop]);
 
   return (
     <div
       data-testid="companion-sprite"
       data-phase={phase}
+      data-sheet={name}
       data-style="classic"
       style={{
         width: SIZE,
@@ -112,7 +172,7 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
           backgroundRepeat: "no-repeat",
           backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
           backgroundPosition: `-${frame * SIZE}px 0`,
-          transform: frameTransform(phase, frame),
+          transform: frameTransform(name, frame),
           transformOrigin: "0 0",
         }}
       />
@@ -123,8 +183,8 @@ function Sprite({ phase, onDone }: { phase: Phase; onDone?: () => void }) {
 // What Mimi says while she works — rotated so the bubble feels alive, not static.
 const BUSY_LINES = [
   (what: string) => `Working on ${what}…`,
-  (what: string) => `Still on ${what} — I'll nap till it's done 💤`,
-  (what: string) => `${what} in progress… wake me when? I'll wake YOU.`,
+  (what: string) => `Still on ${what} — thinking it through 🤔`,
+  (what: string) => `${what} in progress — I'll tell you the moment it's done.`,
 ];
 const DONE_LINE = "All done! Click me to take a look 🎉";
 const ALERT_LINE = "I need your OK to continue — click me ✋";
@@ -138,6 +198,10 @@ export function MimiCompanion() {
   const [petStyle] = useCompanionStyle();
   const [busy, setBusy] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  // A vignette (wink, yawn, groom…) playing over the idle loop, or null.
+  const [vignette, setVignette] = useState<Sheet | null>(null);
+  const actionIdx = useRef(0);
+  const [reduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
   const [snap, setSnap] = useState<Activity | null>(null);
   const [lineIdx, setLineIdx] = useState(0);
   const [showDone, setShowDone] = useState(false);
@@ -181,7 +245,8 @@ export function MimiCompanion() {
       if (pending > 0) setPhase("alert");
       else if (nowBusy) setPhase("sleep");
       else if (was) setPhase("wake"); // busy → done: the wake-up moment
-      else setPhase((p) => (p === "wake" ? p : "idle"));
+      // A quiet poll changes nothing: a napping dog stays asleep until something happens.
+      else setPhase((p) => (p === "wake" || p === "nap" ? p : "idle"));
     };
 
     getActivity()
@@ -210,6 +275,42 @@ export function MimiCompanion() {
       window.clearInterval(poll);
     };
   }, []);
+
+  // Every sheet is fetched once up front: a vignette's first frame otherwise waited on
+  // its image and the dog vanished for a beat (the white flash QualiTaTi fixed the same way).
+  useEffect(() => {
+    if (petStyle !== "classic") return;
+    for (const { src } of Object.values(SHEETS)) {
+      const img = new Image();
+      img.src = src;
+    }
+  }, [petStyle]);
+  // Idle vignettes on QualiTaTi's cadence, one after another in sequence — never while
+  // anything else is going on, never under reduced motion, never for the teal puppy
+  // (its atlas has no such poses).
+  useEffect(() => {
+    if (phase !== "idle" || vignette || reduced || petStyle !== "classic") {
+      if (phase !== "idle") setVignette(null);
+      return;
+    }
+    const { idleActionMin, idleActionMax } = COMPANION_TIMING;
+    const delay = idleActionMin + Math.random() * Math.max(0, idleActionMax - idleActionMin);
+    const id = window.setTimeout(() => {
+      setVignette(IDLE_ACTIONS[actionIdx.current++ % IDLE_ACTIONS.length]);
+    }, delay);
+    return () => window.clearTimeout(id);
+  }, [phase, vignette, reduced, petStyle]);
+  // A real nap: after minutes of nothing, she curls up (zzz) until you hover or
+  // something happens. Hovering wakes her, and the poll above leaves her be.
+  useEffect(() => {
+    if (phase !== "idle" || hovered) return;
+    const { napMin, napMax } = COMPANION_TIMING;
+    const id = window.setTimeout(() => setPhase("nap"), napMin + Math.random() * Math.max(0, napMax - napMin));
+    return () => window.clearTimeout(id);
+  }, [phase, hovered, vignette]);
+  useEffect(() => {
+    if (hovered) setPhase((p) => (p === "nap" ? "idle" : p));
+  }, [hovered]);
 
   const restore = () => {
     (globalThis as any).__TAURI__?.core?.invoke?.("companion_restore");
@@ -419,7 +520,7 @@ export function MimiCompanion() {
           />
         </div>
       )}
-      {busy && phase !== "alert" && petStyle === "classic" && (
+      {phase === "nap" && petStyle === "classic" && (
         <div
           data-testid="companion-zzz"
           style={{
@@ -451,7 +552,11 @@ export function MimiCompanion() {
           {petStyle === "teal" ? (
             <TealMimiSprite key={phase} phase={phase} onDone={() => setPhase("idle")} />
           ) : (
-            <Sprite phase={phase} onDone={() => setPhase("idle")} />
+            <Sprite
+              phase={phase}
+              sheet={vignette ?? PHASE_SHEET[phase]}
+              onDone={() => (vignette ? setVignette(null) : setPhase("idle"))}
+            />
           )}
         </div>
         <button
