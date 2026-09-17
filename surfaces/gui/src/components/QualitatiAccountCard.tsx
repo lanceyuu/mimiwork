@@ -48,8 +48,8 @@ export function passwordPolicyProblem(pw: string): string | null {
 
 // The gateway's three tiers, in the order a user meets them: free first, then by price.
 const MIMI_TIER_DEFS = [
-  { id: "mimi-puppy", label: "Mimi Puppy", blurb: "free every day" },
-  { id: "mimi-hound", label: "Mimi Hound", blurb: "fast · free every day" },
+  { id: "mimi-puppy", label: "Mimi Puppy", blurb: "fastest · free every day" },
+  { id: "mimi-hound", label: "Mimi Hound", blurb: "robust · free every day" },
   { id: "mimi-wolf", label: "Mimi Wolf", blurb: "powerful · spends credits" },
   { id: "mimi-werewolf", label: "Mimi Werewolf", blurb: "frontier · the strongest tier" },
 ] as const;
@@ -190,10 +190,10 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
           <div className="text-[12px] text-muted truncate">
             {cn
               ? state.signed_in
-                ? "“Mimi Puppy”和“Mimi Hound”每日免费；“Mimi Wolf”和“Mimi Werewolf”消耗账户积分。"
+                ? "“Mimi Puppy”(最快)和“Mimi Hound”(稳健)每日免费；“Mimi Wolf”(强大)和“Mimi Werewolf”(旗舰)消耗账户积分。"
                 : "登录质见中国账户：Mimi Puppy 和 Mimi Hound 每日免费，Wolf 和 Werewolf 使用账户积分。无需 API key。"
               : state.signed_in
-                ? "“Mimi Puppy” and “Mimi Hound” (fast) are free every day; “Mimi Wolf” (powerful) and “Mimi Werewolf” spend your credits."
+                ? "“Mimi Puppy” (fastest) and “Mimi Hound” (robust) are free every day; “Mimi Wolf” (powerful) and “Mimi Werewolf” (frontier) spend your credits."
                 : "Sign in for free Mimi Puppy and Mimi Hound every day — plus your QualiTaTi credits for Wolf and Werewolf. No API key needed."}
           </div>
         </div>

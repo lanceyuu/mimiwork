@@ -109,7 +109,7 @@ MATRIX: dict[str, ModelEntry] = {
     # blended tokens. (vision yes, pdf no — the gateway is OpenAI-compat, no
     # inline file part.)
     "qualitati:mimi-hound": ModelEntry(
-        label="Mimi Hound · free, fast",
+        label="Mimi Hound · free, robust",
         caps=ModelCapabilities(
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
@@ -134,15 +134,15 @@ MATRIX: dict[str, ModelEntry] = {
     # "Mimi Puppy": free daily allowance for signed-in QualiTaTi accounts. Zero
     # credits; the gateway enforces the per-day cap and 429s past it.
     "qualitati:mimi-puppy": ModelEntry(
-        label="Mimi Puppy · free for use",
+        label="Mimi Puppy · free, fastest",
         caps=_AGENTIC,
     ),
     # 质见中国 — the same four tiers on the China site (qualitati.cn), DeepSeek/Qwen
     # served domestically. A separate provider so the picker says where a call goes and
     # whose credits it spends; both sites can be signed in at once.
-    "qualitati_cn:mimi-puppy": ModelEntry(label="Mimi Puppy · 质见中国 · 每日免费", caps=_AGENTIC),
+    "qualitati_cn:mimi-puppy": ModelEntry(label="Mimi Puppy · 质见中国 · 免费·最快", caps=_AGENTIC),
     "qualitati_cn:mimi-hound": ModelEntry(
-        label="Mimi Hound · 质见中国 · 免费·快速",
+        label="Mimi Hound · 质见中国 · 免费·稳健",
         caps=ModelCapabilities(tools=True, vision=True, parallel_tool_calls=True, streaming=True),
     ),
     "qualitati_cn:mimi-wolf": ModelEntry(
