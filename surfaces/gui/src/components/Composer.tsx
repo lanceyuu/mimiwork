@@ -1093,7 +1093,7 @@ export function Composer(props: Props) {
           branch on the left, context and time saved on the right (owner ask 2026-09-17). */}
       {(props.folderLabel || props.branch || props.freeTier || worthShowing(props.timeSaved) || (props.usage && totalTokens(props.usage) > 0)) && (
         <div
-          className="composer-status max-w-3xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 pt-1.5 text-[11.5px] text-faint"
+          className="composer-status max-w-3xl mx-auto flex items-center gap-x-3 px-2 pt-1.5 text-[11.5px] text-faint min-w-0"
           data-testid="composer-status"
         >
           {props.folderLabel && (
@@ -1493,7 +1493,7 @@ function FreeTierChip({
       data-testid="free-tier-banner"
       role="status"
       title={detail}
-      className={"tabular-nums shrink-0" + (isLow ? " text-warnInk" : "")}
+      className={"tabular-nums truncate min-w-0" + (isLow ? " text-warnInk" : "")}
     >
       {which === "hound" ? t("Mimi Hound") : t("Mimi Puppy")}: {remaining} {t("free requests left today")}
     </span>

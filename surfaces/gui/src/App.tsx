@@ -361,8 +361,55 @@ export function App() {
   const toggleNav = useCallback(() => {
     setNavPeek(false);
     navBeforePreview.current = null; // a manual toggle takes control from the artifact auto-collapse
+    autoNav.current = false; // …and from the narrow-window fold below
     setNavCollapsedPersist(!navCollapsed);
   }, [navCollapsed, setNavCollapsedPersist]);
+  // A narrow window folds the panels in steps, the way Claude Code does (owner ask
+  // 2026-09-17: at 820px both panels stayed open and the chat was a third of the window):
+  // under 1100px the sidebar collapses, under 860px the right rail hides. Only what the
+  // window folded unfolds again when it widens — a panel the user closed stays closed,
+  // one the user opened while narrow stays open. Transient: never written to the pref.
+  const autoNav = useRef(false);
+  const autoRail = useRef(false);
+  const navCollapsedRef = useRef(navCollapsed);
+  navCollapsedRef.current = navCollapsed;
+  const railHiddenRef = useRef(railHidden);
+  railHiddenRef.current = railHidden;
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const narrow = window.matchMedia("(max-width: 1099px)");
+    const tight = window.matchMedia("(max-width: 859px)");
+    const apply = () => {
+      if (narrow.matches) {
+        if (!navCollapsedRef.current) {
+          setNavPeek(false);
+          setNavCollapsed(true);
+          autoNav.current = true;
+        }
+      } else if (autoNav.current && navBeforePreview.current === null) {
+        // Never unfold under an open preview: that collapse is the preview's own (#3)
+        // and the chat column has no room beside it.
+        setNavCollapsed(false);
+        autoNav.current = false;
+      }
+      if (tight.matches) {
+        if (!railHiddenRef.current) {
+          setRailHidden(true);
+          autoRail.current = true;
+        }
+      } else if (autoRail.current) {
+        setRailHidden(false);
+        autoRail.current = false;
+      }
+    };
+    apply();
+    narrow.addEventListener?.("change", apply);
+    tight.addEventListener?.("change", apply);
+    return () => {
+      narrow.removeEventListener?.("change", apply);
+      tight.removeEventListener?.("change", apply);
+    };
+  }, []);
   // #3: collapse the nav while a full artifact preview is open, restore it on close (unless the
   // user manually toggled meanwhile). The collapse is transient — it never overwrites the pref.
   const onArtifactPreview = useCallback((open: boolean) => {
@@ -1993,7 +2040,10 @@ export function App() {
               <button
                 className="topbar-icon-btn"
                 onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => setRailHidden((h) => !h)}
+                onClick={() => {
+                  autoRail.current = false; // a manual toggle takes control from the narrow-window fold
+                  setRailHidden((h) => !h);
+                }}
                 aria-label={railHidden ? "Show side panel" : "Hide side panel"}
                 title={railHidden ? "Show side panel" : "Hide side panel"}
               >

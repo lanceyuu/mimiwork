@@ -232,6 +232,7 @@ body {
 }
 .main-topbar {
   position: absolute;
+  container-type: inline-size;
   top: 0;
   left: 0;
   right: 0;
@@ -255,7 +256,10 @@ body {
    332px ≈ 2 × (collapsed cluster + settings icon + gaps). */
 .main-title {
   position: absolute; left: 50%; top: 0; height: 100%; transform: translateX(-50%);
-  max-width: max(96px, calc(100% - var(--rail-w)));
+  /* Clearance = twice the wider side cluster (folder chip + panel toggle ≈ 170px), so the
+     title ellipsizes before it can paint over either side at any window width (it
+     collided with the folder chip below 1000px — owner report 2026-09-17). */
+  max-width: max(96px, calc(100% - 360px));
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 600; color: var(--ink);
 }
@@ -927,6 +931,8 @@ button.root-text:focus-visible { outline: 2px solid var(--accent); outline-offse
   background: transparent; color: var(--muted); cursor: pointer;
   font: inherit; font-size: 12.5px;
 }
+/* A narrow bar (the chat beside an app preview): the chip gives the title room. */
+@container (max-width: 560px) { .topbar-workspace-chip { max-width: 110px; } }
 .topbar-workspace-chip:hover { color: var(--ink); border-color: var(--accent); background: var(--panel); }
 .topbar-workspace-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
