@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { Transcript } from "./Transcript";
 import { humanizeTool } from "../humanize";
 import type { Item } from "../types";
@@ -163,6 +163,22 @@ describe("live turns (§33 flicker fix)", () => {
     const { container } = render(<Transcript items={items} onApprove={vi.fn()} running />);
     expect(container.querySelectorAll("details.stepgroup")).toHaveLength(1);
     expect(container.querySelector(".bubble-assistant")).toBeNull();
+  });
+
+  it("a PENDING approval's card sits inside the turn, where it happened (Claude Code style)", () => {
+    const onApprove = vi.fn();
+    const items: Item[] = [
+      ...LIVE,
+      { kind: "approval", name: "write_file", args: { path: "app.html", content: "x" }, reason: "" },
+    ];
+    render(<Transcript items={items} onApprove={onApprove} running />);
+    const card = screen.getByTestId("inline-approval");
+    fireEvent.click(within(card).getByText("Yes"));
+    expect(onApprove).toHaveBeenCalledWith("once");
+    // Unattended sessions park it in the Inbox instead: no card in the transcript.
+    cleanup();
+    render(<Transcript items={items} onApprove={onApprove} running unattended />);
+    expect(screen.queryByTestId("inline-approval")).toBeNull();
   });
 
   it("a live run with NO tool activity is a plain streaming reply — bubbles as ever", () => {

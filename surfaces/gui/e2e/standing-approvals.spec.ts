@@ -31,7 +31,7 @@ test("creation consent card renders writes as grants and reads as disclosure", a
   // Creation is minting surface #1 — there is no "Allow every time" here.
   await expect(page.getByRole("button", { name: "Allow every time" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Allow once" }).last().click();
+  await page.getByRole("button", { name: "Yes" }).last().click();
   await expect(page.getByText("Done via create_scheduled_task [decision=once]")).toBeVisible();
 });
 
@@ -53,7 +53,7 @@ test("a run session's approval card offers Allow every time and sends always_tas
   const allowEvery = page.getByRole("button", { name: "Allow every time" });
   await expect(allowEvery).toBeVisible();
   // The task-persistent grant replaces the session-scoped Always-allow in run context.
-  await expect(page.getByRole("button", { name: "Always allow", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Yes, always", exact: true })).toHaveCount(0);
 
   await allowEvery.click();
   // The decision that rode the socket is the task-persistent one.
@@ -72,9 +72,9 @@ test("a plain session never offers Allow every time, even for an eligible call",
 
   // Same tool, same target — but without a run context the standing grant isn't offered;
   // the session-scoped Always-allow remains.
-  await expect(page.getByRole("button", { name: "Allow once" }).last()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yes" }).last()).toBeVisible();
   await expect(page.getByRole("button", { name: "Allow every time" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Always allow", exact: true }).last()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yes, always", exact: true }).last()).toBeVisible();
 });
 
 test("task detail lists standing rules under 'Allowed without asking'; Revoke removes one", async ({

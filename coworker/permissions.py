@@ -53,8 +53,9 @@ class Mode(str, Enum):
     PLAN = (
         "plan"  # read-only + the planning contract (explore → propose_plan → execute)
     )
-    INTERACTIVE = "interactive"  # ask for approval (default)
-    AUTO = "auto"  # full access
+    INTERACTIVE = "interactive"  # ask for approval (Claude Code's "Default")
+    ACCEPT_EDITS = "accept_edits"  # file edits inside the folder run; commands and sends ask
+    AUTO = "auto"  # full access ("Bypass permissions")
     CUSTOM = "custom"  # interactive + auto-allow the config's `auto_allow` tools
 
 
@@ -160,6 +161,10 @@ class PermissionEngine:
         # Full access.
         if self.mode is Mode.AUTO:
             return Decision(True, "full access")
+        # Accept edits: a write already path-scoped above is what the user signed up for;
+        # a command or anything leaving the machine still asks.
+        if self.mode is Mode.ACCEPT_EDITS and is_write:
+            return Decision(True, "edits accepted")
 
         # interactive / custom: allowlists.
         if is_shell:

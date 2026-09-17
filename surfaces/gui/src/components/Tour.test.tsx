@@ -21,7 +21,7 @@ function mountTargets() {
   // The live elements the spotlights anchor to, minus the ones this test omits on purpose.
   document.body.innerHTML = `
     <textarea></textarea>
-    <button>Ask for approval</button>
+    <button>Default</button>
     <div data-testid="topbar-workspace">demo</div>
     <button data-testid="account-row">account</button>`;
 }

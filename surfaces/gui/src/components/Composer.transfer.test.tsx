@@ -177,18 +177,40 @@ describe("permission modes", () => {
     const p = props({ mode: "interactive" });
     render(<Composer {...p} />);
     fireEvent.keyDown(box(), { key: "Tab", shiftKey: true });
-    expect(p.onModeChange).toHaveBeenCalledWith("auto"); // …→ Ask → Full access → wraps
+    expect(p.onModeChange).toHaveBeenCalledWith("accept_edits"); // Default → Accept edits → Plan → wraps
+    const q = props({ mode: "plan" });
+    cleanup();
+    stubFetch();
+    render(<Composer {...q} />);
+    fireEvent.keyDown(screen.getByPlaceholderText(/Ask Mimi/), { key: "Tab", shiftKey: true });
+    expect(q.onModeChange).toHaveBeenCalledWith("interactive"); // Bypass is never a keystroke away
   });
 
-  it("offers exactly three modes: Plan, Ask for approval, Full access", () => {
+  it("offers Claude Code's four modes, in its order", () => {
     stubFetch();
     render(<Composer {...props()} />);
     fireEvent.click(screen.getByLabelText("Mode"));
     const menu = screen.getByTestId("mode-menu");
-    expect(menu.textContent).toContain("Plan");
-    expect(menu.textContent).toContain("Ask for approval");
-    expect(menu.textContent).toContain("Full access");
+    const text = menu.textContent!;
+    for (const label of ["Default", "Accept edits", "Plan", "Bypass permissions"]) expect(text).toContain(label);
+    expect(text.indexOf("Default")).toBeLessThan(text.indexOf("Accept edits"));
+    expect(text.indexOf("Accept edits")).toBeLessThan(text.indexOf("Plan"));
+    expect(menu.textContent!.indexOf("Plan")).toBeLessThan(menu.textContent!.indexOf("Bypass permissions"));
     expect(menu.textContent).not.toContain("Discuss"); // kept simple (owner ask)
+  });
+
+  it("y / a / n answer a pending approval while the box is empty, and never while typing", () => {
+    stubFetch();
+    const onQuickApprove = vi.fn();
+    const p = props({ onQuickApprove });
+    render(<Composer {...p} />);
+    fireEvent.keyDown(box(), { key: "y" });
+    fireEvent.keyDown(box(), { key: "a" });
+    fireEvent.keyDown(box(), { key: "n" });
+    expect(onQuickApprove.mock.calls.map((c) => c[0])).toEqual(["yes", "always", "no"]);
+    fireEvent.change(box(), { target: { value: "not yet" } });
+    fireEvent.keyDown(box(), { key: "y" });
+    expect(onQuickApprove).toHaveBeenCalledTimes(3);
   });
 
   // ── dropping a file: a reference, not an upload ───────────────────────────────────

@@ -58,18 +58,19 @@ function CountBadge({ n, title }: { n: number; title: string }) {
   );
 }
 
-// Liveness = working (in-flight turn) / sleeping (a self-wake is pending). A count-less dot that
-// never bubbles — it says "this is alive", not "this needs you".
-function LiveDot({ state }: { state?: "working" | "sleeping" | "idle" }) {
-  if (state !== "working" && state !== "sleeping") return null;
-  return state === "working" ? (
-    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" title="Working now" />
-  ) : (
-    <span
-      className="w-1.5 h-1.5 rounded-full bg-faint/60 shrink-0"
-      title="Sleeping (will wake itself)"
-    />
-  );
+// One dot per session, like Claude Code (owner ask 2026-09-17): amber = waiting for you,
+// pulsing = working, grey = sleeping (a self-wake is pending), solid = finished while you
+// were away. Count-less; the amber count badge beside it says how many.
+function LiveDot({ state, unseen }: { state?: "working" | "sleeping" | "waiting" | "idle"; unseen?: boolean }) {
+  if (state === "waiting")
+    return <span className="w-1.5 h-1.5 rounded-full bg-warnInk shrink-0" title="Waiting for you" data-testid="dot-waiting" />;
+  if (state === "working")
+    return <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" title="Working now" />;
+  if (state === "sleeping")
+    return <span className="w-1.5 h-1.5 rounded-full bg-faint/60 shrink-0" title="Sleeping (will wake itself)" />;
+  if (unseen)
+    return <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" title="Finished while you were away" data-testid="dot-unseen" />;
+  return null;
 }
 
 // §31: a session spawned by a platform mention wears its platform's logo, right-aligned beside
@@ -584,7 +585,7 @@ export function Sidebar(props: Props) {
                 <span className="text-[11px] text-faint tabular-nums">{compactAge(s.updated_at)}</span>
               )}
               <OriginIcon s={s} />
-              <LiveDot state={s.liveness} />
+              <LiveDot state={s.liveness} unseen={s.unseen} />
               <CountBadge n={s.attention || 0} title={`${s.attention} awaiting your attention`} />
             </span>
             {rowActions(s, title)}
@@ -652,7 +653,7 @@ export function Sidebar(props: Props) {
             >
               <OriginIcon s={s} />
               <ConnectorDot subs={s.subscriptions} />
-              <LiveDot state={s.liveness} />
+              <LiveDot state={s.liveness} unseen={s.unseen} />
               <CountBadge n={s.attention || 0} title={`${s.attention} awaiting your attention`} />
             </span>
             {rowActions(s, title)}

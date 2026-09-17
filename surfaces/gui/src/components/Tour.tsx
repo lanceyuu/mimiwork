@@ -32,13 +32,14 @@ const STEPS: Step[] = [
     key: "modes",
     title: "Three gears, one key",
     body:
-      "Shift+Tab cycles Plan (propose first, touch nothing), Ask for approval (the default), " +
-      "and Full access. For anything with stakes, start in Plan — one minute reading a plan " +
+      "Shift+Tab cycles Default (asks before edits and commands), Accept edits (edits the " +
+      "folder, asks before commands) and Plan (propose first, touch nothing). Bypass " +
+      "permissions is in the menu. For anything with stakes, start in Plan — one minute reading a plan " +
       "beats twenty redoing the work.",
     find: () => {
       const buttons = Array.from(document.querySelectorAll<HTMLElement>("button"));
       return (
-        buttons.find((b) => /Ask for approval|Plan|Full access/.test(b.textContent || "")) || null
+        buttons.find((b) => /Default|Accept edits|Plan|Bypass permissions/.test(b.textContent || "")) || null
       );
     },
   },

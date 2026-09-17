@@ -70,6 +70,7 @@ import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
 import { Onboarding } from "./components/Onboarding";
+import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Tour } from "./components/Tour";
 import { setLang, type Lang } from "./i18n";
 import { emptyTimeSaved, type TimeSaved } from "./timesaved";
@@ -84,7 +85,6 @@ import { ProjectView } from "./components/ProjectView";
 import { AuditView } from "./components/AuditView";
 import { WorkspaceView } from "./components/WorkspaceView";
 import { InboxView } from "./components/InboxView";
-import { ApprovalCard } from "./components/ApprovalCard";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
@@ -386,6 +386,25 @@ export function App() {
         e.preventDefault();
         setSurface("settings");
       }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+      // Outside a text box: "?" opens the shortcuts sheet, y / a / n answer an approval.
+      const t = e.target as HTMLElement | null;
+      const editing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+      if (editing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "?") {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+        return;
+      }
+      const k = e.key.toLowerCase();
+      const answer = k === "y" ? "yes" : k === "a" ? "always" : k === "n" ? "no" : null;
+      if (answer && quickApproveRef.current) {
+        e.preventDefault();
+        quickApproveRef.current(answer);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -410,6 +429,7 @@ export function App() {
   // The command-palette search, openable from the collapsed-sidebar topbar cluster (§22). The
   // expanded sidebar owns its own instance; this one exists so search never disappears with it.
   const [searchOpen, setSearchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // A pending composer prefill (text + attachments) pushed from the session start panel.
   const [composerPrefill, setComposerPrefill] = useState<{ text: string; attachments?: Attachment[]; nonce: number }>();
 
@@ -1175,6 +1195,17 @@ export function App() {
     dropSessionInbox("approval");
     sessionRef.current?.approve(decision);
   };
+  // y / a / n on the pending card (Claude Code's keys). "Always" means what the card's own
+  // button means for that tool: the command for run_shell, the tool otherwise — and nothing
+  // for a connector or a skill proposal, which get no standing grant.
+  const quickApprove = (answer: "yes" | "always" | "no") => {
+    const ap = pendingApproval?.kind === "approval" ? pendingApproval : null;
+    if (!ap || unattended) return;
+    if (answer === "yes") return approve("once");
+    if (answer === "no") return approve("deny");
+    if (ap.category === "connector" || ap.name === "save_skill") return;
+    approve(ap.name === "run_shell" ? "always_command" : "always_tool");
+  };
   const respondPlan = (approved: boolean, mode?: string, feedback?: string) => {
     setItems((p) => resolveLastPlan(p, approved ? "approved" : "rejected"));
     dropSessionInbox("plan");
@@ -1254,13 +1285,28 @@ export function App() {
   // manual Run-now — the user is already watching). Rides the app-wide /ws/events
   // stream; View run opens the run's live session.
   const [runToast, setRunToast] = useState<{
-    title: string; sessionId: string; workspace: string; agent: string; time: string;
+    kind: "started" | "finished"; title: string; sessionId: string; workspace: string; agent: string; time: string;
   } | null>(null);
   useEffect(() => {
     const stop = connectEvents((msg) => {
-      if (msg.type !== "automation_run_started") return;
       const d = (msg.data ?? {}) as Record<string, string>;
+      if (msg.type === "session_finished") {
+        // The bell (owner ask 2026-09-17): a conversation finished while another was on
+        // screen. The sidebar dot stays until it is opened; the toast is the nudge.
+        refreshSessions();
+        setRunToast({
+          kind: "finished",
+          title: d.title || "New session",
+          sessionId: d.session_id || "",
+          workspace: d.workspace || "",
+          agent: d.agent || "cowork",
+          time: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        });
+        return;
+      }
+      if (msg.type !== "automation_run_started") return;
       setRunToast({
+        kind: "started",
         title: d.task_title || "Automation",
         sessionId: d.session_id || "",
         workspace: d.workspace || "",
@@ -1500,6 +1546,9 @@ export function App() {
 
   const idle = items.length === 0 && !streaming;
   const pendingApproval = [...items].reverse().find((i) => i.kind === "approval" && !i.resolved);
+  // The global key handler is bound once; it reads the current answerer through this ref.
+  const quickApproveRef = useRef<((answer: "yes" | "always" | "no") => void) | null>(null);
+  quickApproveRef.current = pendingApproval && !unattended ? quickApprove : null;
   const pendingDirReq = [...items].reverse().find((i) => i.kind === "dirreq" && !i.resolved);
   const pendingPlan = [...items].reverse().find((i) => i.kind === "planreq" && !i.resolved);
   const pendingQuestion = [...items].reverse().find((i) => i.kind === "question" && !i.resolved);
@@ -1590,11 +1639,11 @@ export function App() {
           data-testid="automation-toast"
         >
           <div className="flex items-center gap-2 text-[12.5px] font-semibold">
-            <span className="w-[7px] h-[7px] rounded-full bg-faint toast-pulse" />
-            Automation started
+            <span className={"w-[7px] h-[7px] rounded-full " + (runToast.kind === "finished" ? "bg-accent" : "bg-faint toast-pulse")} />
+            {runToast.kind === "finished" ? "Finished while you were away" : "Automation started"}
           </div>
           <div className="text-[12.5px] text-muted mt-0.5 ml-[15px] truncate">
-            {runToast.title} · {runToast.time} run
+            {runToast.title} · {runToast.time}{runToast.kind === "started" ? " run" : ""}
           </div>
           <div className="flex items-center justify-between ml-[15px] mt-1.5">
             <button
@@ -1605,7 +1654,7 @@ export function App() {
                 setRunToast(null);
               }}
             >
-              View run ›
+              {runToast.kind === "finished" ? "Open ›" : "View run ›"}
             </button>
             <button
               className="text-[12px] text-faint px-0.5"
@@ -2018,6 +2067,8 @@ export function App() {
                   <Transcript
                     items={items}
                     onApprove={approve}
+                    runTask={runContext}
+                    unattended={unattended}
                     running={running}
                     since={runningSince}
                     onRetry={retry}
@@ -2092,6 +2143,9 @@ export function App() {
               accountCredits={accountCredits}
               sessionId={sessionId}
               workspace={needsWorkspace(agent) ? workspace || "" : undefined}
+              folderLabel={isProjectScoped(personaOf(agent)) && workspace ? baseName(workspace) : undefined}
+              branch={branch}
+              onQuickApprove={pendingApproval && !unattended ? quickApprove : undefined}
               unattended={unattended}
               onUnattendedChange={agent !== "chat" ? toggleUnattended : undefined}
               prefill={composerPrefill}
@@ -2115,8 +2169,6 @@ export function App() {
                   <PlanCard item={pendingPlan} onRespond={respondPlan} />
                 ) : !unattended && pendingDirReq?.kind === "dirreq" ? (
                   <DirectoryRequestCard item={pendingDirReq} onRespond={respondDirectory} />
-                ) : !unattended && pendingApproval?.kind === "approval" ? (
-                  <ApprovalCard item={pendingApproval} onApprove={approve} runTask={runContext} compact />
                 ) : !unattended && pendingQuestion?.kind === "question" ? (
                   // Live ask_user in an attended session — answer inline (reuses the Inbox card UI).
                   <InboxItemCard
@@ -2181,6 +2233,7 @@ Keep the original and save a revised copy. Check the requested changes and give 
 
       {/* Search from the collapsed-sidebar topbar cluster (the sidebar's own instance is
           unreachable while it's collapsed). */}
+      {shortcutsOpen && <ShortcutsSheet onClose={() => setShortcutsOpen(false)} />}
       {searchOpen && (
         <SearchModal
           sessions={sessions}

@@ -38,14 +38,14 @@ test("a new automation can pin a model and a permission level", async ({ page })
 
   // The detail the create lands on says what it will run as.
   await expect(page.getByTestId("task-run-settings")).toContainText("gpt-5.5");
-  await expect(page.getByTestId("task-run-settings")).toContainText("Full access");
+  await expect(page.getByTestId("task-run-settings")).toContainText("Bypass permissions");
 });
 
 test("an existing automation's model and level can be changed later", async ({ page }) => {
   await openAutomations(page);
   await page.locator(".sched-card", { hasText: "Daily AI News" }).click();
   await expect(page.getByTestId("task-run-settings")).toContainText("default model");
-  await expect(page.getByTestId("task-run-settings")).toContainText("Ask for approval");
+  await expect(page.getByTestId("task-run-settings")).toContainText("Default");
 
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   await page.getByTestId("auto-model").selectOption("gpt-4o-mini");

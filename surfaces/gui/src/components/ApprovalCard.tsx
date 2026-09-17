@@ -37,7 +37,7 @@ type ApprovalItem = Extract<Item, { kind: "approval" }>;
 export function approvalActionLabels(name?: string): { allow: string; deny: string } {
   return name === "save_skill"
     ? { allow: "Add to my skills", deny: "Not now" }
-    : { allow: "Allow once", deny: "Deny" };
+    : { allow: "Yes", deny: "No" };
 }
 
 // save_skill's review surface (SKILLS-SPEC §5.2): description, the full instructions
@@ -165,7 +165,7 @@ function Buttons({
   onApprove,
   runTask,
   primaryLabel,
-  denyLabel = "Deny",
+  denyLabel = "No",
 }: {
   item: ApprovalItem;
   onApprove: (decision: ApprovalDecision) => void;
@@ -177,7 +177,7 @@ function Buttons({
   const offerStanding = !!(runTask && item.standingTarget);
   return (
     <div className="approval-btns">
-      <button className="btn approval-primary" onClick={() => onApprove("once")}>
+      <button className="btn approval-primary" title="Allow this once (y)" onClick={() => onApprove("once")}>
         {primaryLabel}
       </button>
       {offerStanding && (
@@ -199,19 +199,19 @@ function Buttons({
       {!connector && !offerStanding && item.name !== "run_shell" && item.name !== "save_skill" && (
         <button
           className="btn"
-          title={`Always allow ${TOOL_VERBS[item.name]?.toLowerCase() || item.name} for this session`}
+          title={`Always allow ${TOOL_VERBS[item.name]?.toLowerCase() || item.name} for this session (a)`}
           onClick={() => onApprove("always_tool")}
         >
-          Always allow
+          Yes, always
         </button>
       )}
       {item.name === "run_shell" && (
-        <button className="btn" onClick={() => onApprove("always_command")}>
-          Always allow this command
+        <button className="btn" title="Always allow this exact command for this session (a)" onClick={() => onApprove("always_command")}>
+          Yes, always for this command
         </button>
       )}
       <span className="spacer" />
-      <button className="btn quiet-deny" onClick={() => onApprove("deny")}>
+      <button className="btn quiet-deny" title="Deny (n)" onClick={() => onApprove("deny")}>
         {denyLabel}
       </button>
     </div>
@@ -254,7 +254,7 @@ export function ApprovalCard({
             </button>
           )}
           <span className="spacer" />
-          <Buttons item={item} onApprove={onApprove} runTask={runTask} primaryLabel="Allow" />
+          <Buttons item={item} onApprove={onApprove} runTask={runTask} primaryLabel="Yes" />
         </div>
         {peek && content && <PreviewBlock text={content} />}
         {reason && <div className="approval-reason">{reason}</div>}

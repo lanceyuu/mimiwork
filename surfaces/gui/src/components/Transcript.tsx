@@ -1,7 +1,7 @@
 import { useT } from "../i18n";
 import { useEffect, useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
-import { shortArgs } from "./ApprovalCard";
+import { ApprovalCard, shortArgs } from "./ApprovalCard";
 import { formatElapsed, humanizeAsk, humanizeTool, summarizeSteps, type HumanLine } from "../humanize";
 import { Markdown } from "./Markdown";
 import { ConnectorMessageCard } from "./ConnectorMessageCard";
@@ -290,12 +290,18 @@ function useElapsed(since: number | null | undefined, ticking: boolean): string 
 
 function TurnGroup({
   items,
+  onApprove,
+  runTask,
+  unattended,
   live,
   since,
   duration,
   streamingText,
 }: {
   items: TurnItem[];
+  onApprove?: (decision: ApprovalDecision) => void;
+  runTask?: { id: string; title: string } | null;
+  unattended?: boolean;
   live?: boolean;
   // ms epoch when the live turn began — drives the "Working for 1m 24s" clock.
   since?: number | null;
@@ -388,6 +394,15 @@ function TurnGroup({
               <ActivityGroup steps={b.steps} live={running && i === blocks.length - 1} key={i} />
             ),
           )}
+          {!unattended &&
+            onApprove &&
+            items
+              .filter((it): it is ApprovalItem => it.kind === "approval" && !it.resolved)
+              .map((ap, i) => (
+                <div className="px-2 py-1" key={"ask-" + i} data-testid="inline-approval">
+                  <ApprovalCard item={ap} onApprove={onApprove} runTask={runTask} compact />
+                </div>
+              ))}
           {streamingText && (
             <div
               className="turn-narr px-2 py-1 text-[13px] text-muted max-w-[72ch]"
@@ -406,6 +421,10 @@ function TurnGroup({
 interface Props {
   items: Item[];
   onApprove: (decision: ApprovalDecision) => void;
+  // For the inline approval card: the automation this session runs for (standing grants).
+  runTask?: { id: string; title: string } | null;
+  // Unattended sessions park approvals in the Inbox; the card is not shown inline.
+  unattended?: boolean;
   // The session's live flag. While true, the FINAL run's trailing assistant text is still
   // narration (status), not the answer — promoting it early made each line flash as a full
   // ASSISTANT bubble and then vanish into the group when the next tool call arrived
@@ -452,7 +471,7 @@ export function retryAnchor(items: Item[]): number {
   return -1;
 }
 
-export function Transcript({ items, running, since, streamingText, onRetry, onUndoMemory, onShowMe }: Props) {
+export function Transcript({ items, onApprove, runTask, unattended, running, since, streamingText, onRetry, onUndoMemory, onShowMe }: Props) {
   const t = useT();
   // §33 grouping: a turn = the maximal run of assistant/tool/resolved-approval items between
   // breakers (user, connector, notices, plan/dir requests…). Trailing assistant texts are the
@@ -476,13 +495,15 @@ export function Transcript({ items, running, since, streamingText, onRetry, onUn
     answers.forEach((a) => blocks.push({ item: a, i: -1 }));
   };
   items.forEach((item, i) => {
-    if (item.kind === "tool" || item.kind === "assistant" || (item.kind === "approval" && item.resolved))
+    // A pending approval stays in the run too: its card renders at the point it happened,
+    // like Claude Code (owner ask 2026-09-17), and the run's narration keeps its place.
+    if (item.kind === "tool" || item.kind === "assistant" || item.kind === "approval")
       run.push(item);
     else if (
-      // PENDING interactive items render elsewhere (approval/question → composer head) and
-      // nothing here — if they broke the run, the trailing narration would flash into an
-      // answer bubble exactly while the user is being asked to decide.
-      (item.kind === "approval" || item.kind === "dirreq" || item.kind === "planreq" || item.kind === "question") &&
+      // Other PENDING interactive items render in the composer head and nothing here — if
+      // they broke the run, the trailing narration would flash into an answer bubble
+      // exactly while the user is being asked to decide.
+      (item.kind === "dirreq" || item.kind === "planreq" || item.kind === "question") &&
       !item.resolved
     ) {
       return;
@@ -523,6 +544,9 @@ export function Transcript({ items, running, since, streamingText, onRetry, onUn
           return (
             <TurnGroup
               items={block.turn}
+              onApprove={onApprove}
+              runTask={runTask}
+              unattended={unattended}
               live={block.live}
               since={block.live ? since : undefined}
               duration={block.live ? undefined : durationOf(bi)}

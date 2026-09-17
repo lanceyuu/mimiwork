@@ -22,7 +22,7 @@ describe("i18n", () => {
     setLang("zh");
     expect(tr("Inbox")).toBe("收件箱");
     setLang("no");
-    expect(tr("Ask for approval")).toBe("Spør om godkjenning");
+    expect(tr("Bypass permissions")).toBe("Hopp over godkjenning");
     setLang("fr");
     expect(tr("Files")).toBe("Fichiers");
   });

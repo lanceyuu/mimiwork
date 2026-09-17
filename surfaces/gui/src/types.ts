@@ -78,7 +78,9 @@ export interface SessionInfo {
   // Inbox items awaiting this session (the amber attention count that bubbles up the sidebar).
   attention?: number;
   // working = in-flight turn; sleeping = a self-wake is pending; idle = neither. A count-less dot.
-  liveness?: "working" | "sleeping" | "idle";
+  liveness?: "working" | "sleeping" | "waiting" | "idle";
+  // Its turn ended while no window was showing it — the sidebar's "finished" dot.
+  unseen?: boolean;
   // Channels this session listens to (inbound subscriptions).
   subscriptions?: string[];
   // §31: set when the session was spawned by a platform mention rather than the user —

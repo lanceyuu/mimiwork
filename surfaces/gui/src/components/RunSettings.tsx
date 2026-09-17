@@ -26,13 +26,14 @@ export function toCron(time: string, freq: string): string {
 // a session is what an automation means. The difference: nobody is watching at
 // 7am, so "ask" parks its question in the Inbox and the run waits there.
 export const MODES: { value: string; label: string; hint: string }[] = [
-  { value: "interactive", label: "Ask for approval", hint: "Parks the question in your Inbox and waits." },
-  { value: "auto", label: "Full access", hint: "Runs everything without asking." },
-  { value: "plan", label: "Plan only", hint: "Proposes what it would do; never acts." },
+  { value: "interactive", label: "Default", hint: "Parks each question in your Inbox and waits." },
+  { value: "accept_edits", label: "Accept edits", hint: "Edits files in the folder; parks commands and sends in your Inbox." },
+  { value: "plan", label: "Plan", hint: "Proposes what it would do; never acts." },
+  { value: "auto", label: "Bypass permissions", hint: "Runs everything without asking." },
 ];
 
 export function modeLabel(mode?: string): string {
-  return MODES.find((m) => m.value === (mode || "interactive"))?.label ?? "Ask for approval";
+  return MODES.find((m) => m.value === (mode || "interactive"))?.label ?? "Default";
 }
 
 export function RunSettings({

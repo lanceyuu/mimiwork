@@ -25,19 +25,20 @@ test("composer: send-gating, + attach menu, Mode menu", async ({ page }) => {
   await page.locator(".fixed.inset-0.z-30").click();
   await expect(page.getByRole("button", { name: "Photo or image" })).toHaveCount(0);
 
-  // Mode menu: the three shipped permission options with the current one marked, plus the
-  // Unattended/send-to-Inbox toggle (§22). Plan replaced Discuss in the picker (owner ask
-  // 2026-08-23 — three rows, no more); Discuss + Custom still work but aren't offered.
+  // Mode menu: Claude Code's four permission options (Default, Accept edits, Plan, Bypass
+  // permissions — owner ask 2026-09-17) with the current one marked, plus the
+  // Unattended/send-to-Inbox toggle (§22). Discuss + Custom still work but aren't offered.
   await page.getByRole("button", { name: "Mode", exact: true }).click();
   const menu = page.getByTestId("mode-menu");
   await expect(menu.getByText("Plan", { exact: true })).toBeVisible();
   await expect(menu.getByText("Discuss", { exact: true })).toHaveCount(0);
   await expect(menu.getByText("Custom", { exact: true })).toHaveCount(0);
   // The current mode is marked with a ✓.
-  await expect(menu.locator("button").filter({ hasText: "Ask for approval" })).toContainText("✓");
+  await expect(menu.locator("button").filter({ hasText: "Default" })).toContainText("✓");
+  await expect(menu.getByText("Accept edits")).toBeVisible();
   await expect(menu.getByRole("switch", { name: "Send approvals to the Inbox" })).toBeVisible();
   // Picking an option closes the menu (and would flip the live engine's mode).
-  await menu.getByText("Full access").click();
+  await menu.getByText("Bypass permissions").click();
   await expect(page.getByTestId("mode-menu")).toHaveCount(0);
 });
 

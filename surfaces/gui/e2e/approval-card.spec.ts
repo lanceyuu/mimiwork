@@ -17,7 +17,7 @@ test("routine write → compact row: humanized title, inline preview, Allow reso
   const row = page.getByTestId("approval-row");
   await expect(row).toContainText("Write fetch_data.py");
   await expect(row).not.toContainText(/permission required/i);
-  await expect(row.getByRole("button", { name: "Always allow", exact: true })).toHaveAttribute(
+  await expect(row.getByRole("button", { name: "Yes, always", exact: true })).toHaveAttribute(
     "title",
     /for this session/,
   );
@@ -47,12 +47,12 @@ test("run_shell → full card: description title, command preview, stays-on-this
   await expect(page.getByText("Run a command").last()).toBeVisible();
   await expect(page.getByText("stays on this computer").last()).toBeVisible();
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: "Always allow this command" }).last()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Yes, always for this command" }).last()).toBeVisible();
   await expect(page.getByText(/local action/)).toHaveCount(0);
 
   await page.screenshot({ path: "test-results/ux018-shell-card.png", fullPage: false });
 
-  await page.getByRole("button", { name: "Allow once" }).last().click();
+  await page.getByRole("button", { name: "Yes" }).last().click();
   await expect(page.getByText("The command ran; 1 file found.")).toBeVisible();
 });
 

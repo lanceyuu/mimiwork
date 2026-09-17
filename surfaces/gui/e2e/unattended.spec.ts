@@ -59,7 +59,7 @@ test("unattended: a tool request parks (no inline approval card)", async ({ page
 
 test("answering the live approval never re-flashes its parked Inbox mirror", async ({ page }) => {
   // Every live approval is ALSO parked as a per-session Inbox item (reconnect/remote resolution).
-  // Tester catch 2026-07-12: after "Allow once", the polled sessionInbox copy was still pending
+  // Tester catch 2026-07-12: after "Yes", the polled sessionInbox copy was still pending
   // for up to a poll cycle, so the docked answer-in-context card flashed the SAME request again.
   // Simulate the mirror: any per-session inbox fetch for the live session returns one pending
   // approval until the decision lands (the fixtures' fixed items belong to other sessions).
@@ -100,7 +100,7 @@ test("answering the live approval never re-flashes its parked Inbox mirror", asy
   await expect(page.getByText("The coworker wants to run a command.").first()).toBeVisible();
 
   mirrorResolved = true; // server side resolves with the decision; the stale client copy is the bug
-  await page.getByRole("button", { name: "Allow once" }).last().click();
+  await page.getByRole("button", { name: "Yes" }).last().click();
   // "Never appears" semantics: pre-fix the stale mirror rendered within a frame of the click and
   // self-cleared a poll later — so a plain toHaveCount(0) would blink green. Watch the window.
   const flashed = await page

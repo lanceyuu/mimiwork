@@ -193,8 +193,8 @@ const D: Record<string, [string, string, string]> = {
   "Sign out of QualiTaTi": ["退出 QualiTaTi", "Logg ut av QualiTaTi", "Se déconnecter de QualiTaTi"],
   // ── permission modes ──
   "Plan": ["规划", "Plan", "Plan"],
-  "Ask for approval": ["先问再做", "Spør om godkjenning", "Demander l'approbation"],
-  "Full access": ["完全放行", "Full tilgang", "Accès complet"],
+  "Accept edits": ["自动接受编辑", "Godta redigeringer", "Accepter les modifications"],
+  "Bypass permissions": ["跳过审批", "Hopp over godkjenning", "Ignorer les autorisations"],
   "Explore and propose a plan — nothing runs until you approve": [
     "先探索并提出方案——你批准之前什么都不执行",
     "Utforsk og foreslå en plan — ingenting kjører før du godkjenner",

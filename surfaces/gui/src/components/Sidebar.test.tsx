@@ -470,3 +470,21 @@ describe("Sidebar — a project groups conversations (2026-08-31)", () => {
     expect(band.textContent).not.toContain("folder");
   });
 });
+
+describe("session dots (Claude Code style, 2026-09-17)", () => {
+  it("shows waiting, working, and finished-while-away as one dot per row", async () => {
+    stubFetch([{ match: "/v1/settings", method: "GET", json: { nav_layout: "flat" } }]);
+    const sessions: SessionInfo[] = [
+      { ...SESSIONS[1], session_id: "a", title: "asked you", liveness: "waiting" },
+      { ...SESSIONS[1], session_id: "b", title: "busy", liveness: "working" },
+      { ...SESSIONS[1], session_id: "c", title: "done", liveness: "idle", unseen: true },
+      { ...SESSIONS[1], session_id: "d", title: "quiet", liveness: "idle" },
+    ];
+    render(<Sidebar {...baseProps} sessions={sessions} />);
+    await screen.findByText("asked you");
+    expect(screen.getByTestId("dot-waiting").getAttribute("title")).toBe("Waiting for you");
+    expect(screen.getByTitle("Working now")).toBeTruthy();
+    expect(screen.getByTestId("dot-unseen").getAttribute("title")).toBe("Finished while you were away");
+    expect(screen.getAllByTestId(/^dot-/)).toHaveLength(2);
+  });
+});

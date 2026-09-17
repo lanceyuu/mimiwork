@@ -36,17 +36,25 @@ import {
 // Cowork and Claude Code lives on the Transfer guide, not in this menu.
 const PERMISSION_OPTIONS: Option[] = [
   {
+    value: "interactive",
+    label: "Default",
+    description: "Ask before edits and commands",
+  },
+  {
+    value: "accept_edits",
+    label: "Accept edits",
+    description: "Edit files in the folder without asking; still ask before commands",
+  },
+  {
     value: "plan",
     label: "Plan",
     description: "Explore and propose a plan — nothing runs until you approve",
   },
-  {
-    value: "interactive",
-    label: "Ask for approval",
-    description: "Ask before edits and commands",
-  },
-  { value: "auto", label: "Full access", description: "Run everything without asking" },
+  { value: "auto", label: "Bypass permissions", description: "Run everything without asking" },
 ];
+// Claude Code's names and order (owner ask 2026-09-17). ⇧⇥ cycles the first three the
+// way Claude Code does; Bypass is a deliberate pick from the menu, never a keystroke away.
+const CYCLE = ["interactive", "accept_edits", "plan"];
 
 /** The built-in "/" commands. Names match Claude Code and Cowork so the muscle memory
  *  transfers; each one does something real here, none are decoration. */
@@ -125,6 +133,12 @@ interface Props {
   // When set (Code/Cowork), the Mode menu is shown. The folder/roots + branch controls left the
   // composer for the Session settings drawer (§22) — folder access is standing session config.
   workspace?: string;
+  // The status line under the box: the project folder's name (only a real project — a
+  // conversation's temporary space has nothing worth naming) and its git branch.
+  folderLabel?: string;
+  branch?: string | null;
+  // Set while an approval is pending in the transcript: y / a / n answer it.
+  onQuickApprove?: (answer: "yes" | "always" | "no") => void;
   // Unattended / send-approvals-to-Inbox — folded into the Mode menu (§22): "who approves, and
   // when" is one mental model. Absent handler = no toggle (e.g. Chat).
   unattended?: boolean;
@@ -635,10 +649,19 @@ export function Composer(props: Props) {
     // ⇧⇥ cycles permission modes — the Claude Code gesture, same order as the menu.
     if (e.key === "Tab" && e.shiftKey && props.workspace !== undefined) {
       e.preventDefault();
-      const i = PERMISSION_OPTIONS.findIndex((o) => o.value === props.mode);
-      const next = PERMISSION_OPTIONS[(i + 1) % PERMISSION_OPTIONS.length];
-      props.onModeChange(String(next.value));
+      const i = CYCLE.indexOf(props.mode);
+      props.onModeChange(CYCLE[(i + 1) % CYCLE.length]);
       return;
+    }
+    // y / a / n answer the pending approval while the box is empty — Claude Code's keys.
+    if (props.onQuickApprove && text === "" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const answer = k === "y" ? "yes" : k === "a" ? "always" : k === "n" ? "no" : null;
+      if (answer) {
+        e.preventDefault();
+        props.onQuickApprove(answer);
+        return;
+      }
     }
     if (mentionQuery !== null && (mentionHits?.length ?? 0) > 0) {
       if (e.key === "ArrowDown") {
@@ -982,35 +1005,6 @@ export function Composer(props: Props) {
           {/* Hours saved (owner ask 2026-08-30): the counterweight to the token count —
               what the work cost vs what it would have cost by hand. Estimated from the
               artifacts produced, hidden below half an hour, breakdown in the tooltip. */}
-          {!dictation?.recording && worthShowing(props.timeSaved) && (
-            <span
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] text-muted tabular-nums shrink-0"
-              data-testid="time-saved-chip"
-              title={
-                `Estimated time saved this session: ${formatSaved(props.timeSaved!.saved_minutes)}\n` +
-                `By hand ≈${Math.round(props.timeSaved!.human_minutes)} min · with Mimi ≈${Math.round(props.timeSaved!.collab_minutes)} min\n` +
-                Object.entries(props.timeSaved!.by_category)
-                  .sort((a, b) => b[1] - a[1])
-                  .map(([k, v]) => `${k}: ≈${Math.round(v)} min`)
-                  .join("\n") +
-                "\n\nAn estimate from what was produced, not a measurement."
-              }
-            >
-              <Icon name="clock" size={12} className="text-faint" />
-              {formatSaved(props.timeSaved!.saved_minutes)} saved
-            </span>
-          )}
-
-          {!dictation?.recording && props.usage && totalTokens(props.usage) > 0 && (
-            <UsageChip
-              usage={props.usage}
-              contextWindow={props.contextWindow}
-              contextBar={props.contextBar}
-              model={props.model}
-              modelLabels={props.modelLabels}
-            />
-          )}
-
           {/* model — a quiet chip, now for the session's whole life (§17 rev 2026-07-22:
               mid-session switching shipped, so the picker stays actionable; the topbar
               subtitle still states the current model). */}
@@ -1095,6 +1089,51 @@ export function Composer(props: Props) {
           )}
         </div>
       </div>
+      {/* One quiet status line under the box, the way Claude Code keeps it: folder and
+          branch on the left, context and time saved on the right (owner ask 2026-09-17). */}
+      {(props.folderLabel || props.branch || worthShowing(props.timeSaved) || (props.usage && totalTokens(props.usage) > 0)) && (
+        <div
+          className="composer-status max-w-3xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 pt-1.5 text-[11.5px] text-faint"
+          data-testid="composer-status"
+        >
+          {props.folderLabel && (
+            <span className="truncate max-w-[40%]" title={props.workspace}>
+              {props.folderLabel}
+            </span>
+          )}
+          {props.branch && <span className="truncate">⎇ {props.branch}</span>}
+          <span className="ml-auto" />
+            {!dictation?.recording && worthShowing(props.timeSaved) && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[12px] text-muted tabular-nums shrink-0"
+                data-testid="time-saved-chip"
+                title={
+                  `Estimated time saved this session: ${formatSaved(props.timeSaved!.saved_minutes)}\n` +
+                  `By hand ≈${Math.round(props.timeSaved!.human_minutes)} min · with Mimi ≈${Math.round(props.timeSaved!.collab_minutes)} min\n` +
+                  Object.entries(props.timeSaved!.by_category)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => `${k}: ≈${Math.round(v)} min`)
+                    .join("\n") +
+                  "\n\nAn estimate from what was produced, not a measurement."
+                }
+              >
+                <Icon name="clock" size={12} className="text-faint" />
+                {formatSaved(props.timeSaved!.saved_minutes)} saved
+              </span>
+            )}
+
+            {!dictation?.recording && props.usage && totalTokens(props.usage) > 0 && (
+              <UsageChip
+                usage={props.usage}
+                contextWindow={props.contextWindow}
+                contextBar={props.contextBar}
+                model={props.model}
+                modelLabels={props.modelLabels}
+              />
+            )}
+
+        </div>
+      )}
       <span className="sr-only" role="status" aria-live="polite">
         {dictation?.recording ? `Listening, ${recordingTime}` : dictationBusy || ""}
       </span>

@@ -2152,7 +2152,3 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
 .composer-controls .dd { min-width: 0; }
 .composer-controls .pill { min-width: 0; max-width: min(240px, 100%); }
 .composer-controls .pill-label { min-width: 0; }
-@container (max-width: 560px) {
-  .composer-controls [data-testid="time-saved-chip"],
-  .composer-controls .usage-chip { display: none; }
-}

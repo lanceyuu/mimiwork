@@ -272,6 +272,9 @@ class SessionManager:
         # App-wide event sockets (/ws/events): session-independent pushes — today the
         # automation-run-started toast (UX-026); badges could ride it later.
         self._event_clients: set[Any] = set()
+        # Sessions whose turn ended while no window was showing them — the sidebar's
+        # "finished while you were away" dot; cleared when a window attaches.
+        self._unseen_done: set[str] = set()
         # App-wide activity (the floating Mimi companion): busy = any session turn OR
         # automation run in flight. Broadcast on /ws/events as {"type":"activity"} only
         # when the boolean FLIPS — the companion sleeps while busy and wakes on done.
@@ -4134,6 +4137,7 @@ class SessionManager:
 
     def register_session_client(self, session_id: str, send_cb: Any) -> None:
         self._session_clients.setdefault(session_id, set()).add(send_cb)
+        self._unseen_done.discard(session_id)
 
     def unregister_session_client(self, session_id: str, send_cb: Any) -> None:
         clients = self._session_clients.get(session_id)
@@ -4489,6 +4493,28 @@ class SessionManager:
         if engine is not None and engine._cancel.is_set():
             self._close_task_prompts(session_id, "task stopped")
         self._announce_activity()
+        if not self._session_clients.get(session_id) and not session_id.startswith("__"):
+            # Nobody was watching: remember it for the sidebar dot and ring the bell.
+            self._unseen_done.add(session_id)
+            summary = self.session_store.summary(session_id) or {}
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                loop.create_task(
+                    self.broadcast_event(
+                        {
+                            "type": "session_finished",
+                            "data": {
+                                "session_id": session_id,
+                                "title": summary.get("title") or "New session",
+                                "workspace": summary.get("workspace", ""),
+                                "agent": summary.get("agent", "cowork"),
+                            },
+                        }
+                    )
+                )
         # Every turn path (WS, background delivery, durable resume) marks idle when it
         # finishes — the one shared post-turn moment, so auto-titling hooks in here and
         # can never add latency to the response itself.
@@ -6316,6 +6342,7 @@ class SessionManager:
                 # sleeping (a self-wake is pending) / idle — a count-less dot that never bubbles.
                 "attention": len(self.inbox.pending(session_id=r.session_id)),
                 "liveness": self._session_liveness(r.session_id),
+                "unseen": r.session_id in self._unseen_done,
                 # Channels this session listens to (inbound subscriptions) — drives the per-session
                 # "connections" indicator.
                 "subscriptions": [
@@ -6327,6 +6354,10 @@ class SessionManager:
         ]
 
     def _session_liveness(self, session_id: str) -> str:
+        from ..inbox import KIND_NOTIFICATION
+
+        if any(i.kind != KIND_NOTIFICATION for i in self.inbox.pending(session_id=session_id)):
+            return "waiting"  # it asked something and stopped for you
         if self.is_running(session_id):
             return "working"
         if self.wakes.pending(session_id):

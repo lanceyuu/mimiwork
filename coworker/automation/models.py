@@ -63,7 +63,7 @@ def grant_entries(permissions: Any) -> list[str]:
 # carries into an automation. They mean the same thing here, with one difference
 # worth stating: nobody is watching at 7am, so "ask" parks the question in the
 # Inbox and the run waits there instead of failing.
-TASK_MODES = ("plan", "interactive", "auto")
+TASK_MODES = ("plan", "interactive", "accept_edits", "auto")
 DEFAULT_TASK_MODE = "interactive"
 
 
@@ -78,7 +78,14 @@ def normalize_mode(value: Any, fallback: str = DEFAULT_TASK_MODE) -> str:
     if mode in TASK_MODES:
         return mode
     # The composer's own vocabulary, accepted as aliases.
-    return {"ask": "interactive", "approval": "interactive", "full": "auto"}.get(
+    return {
+        "ask": "interactive",
+        "approval": "interactive",
+        "default": "interactive",
+        "edits": "accept_edits",
+        "full": "auto",
+        "bypass": "auto",
+    }.get(
         mode, fallback if fallback in TASK_MODES else DEFAULT_TASK_MODE
     )
 

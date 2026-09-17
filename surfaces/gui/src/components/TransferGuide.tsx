@@ -6,6 +6,7 @@
  * if MimiWork doesn't do it, it isn't in the table.
  */
 import { Icon } from "./Icon";
+import { SHORTCUTS } from "./ShortcutsSheet";
 
 type Row = {
   here: string;
@@ -38,14 +39,21 @@ const ROWS: Row[] = [
     codex: "Plan mode",
   },
   {
-    here: "Ask for approval",
+    here: "Default",
     what: "Every consequential action stops for a yes or no.",
     cowork: "Manual",
     code: "Default mode",
     codex: "Approval on request",
   },
   {
-    here: "Full access",
+    here: "Accept edits",
+    what: "Files in the folder are edited without asking; commands and sends still stop.",
+    cowork: "Auto-accept edits",
+    code: "Accept edits",
+    codex: "Auto",
+  },
+  {
+    here: "Bypass permissions",
     what: "Nothing pauses. Use it on a folder you'd be happy to hand over entirely.",
     cowork: "Skip",
     code: "Bypass permissions",
@@ -102,13 +110,7 @@ const ROWS: Row[] = [
   },
 ];
 
-const GESTURES: { keys: string; what: string }[] = [
-  { keys: "/", what: "Commands and skills" },
-  { keys: "@", what: "Point at a file" },
-  { keys: "⇧⇥", what: "Cycle Plan → Ask for approval → Full access" },
-  { keys: "⏎", what: "Send · ⇧⏎ new line" },
-  { keys: "Esc", what: "Close a popup" },
-];
+const GESTURES = SHORTCUTS;
 
 export function TransferGuide() {
   return (

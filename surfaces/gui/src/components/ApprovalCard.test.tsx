@@ -33,7 +33,7 @@ describe("ApprovalCard — standing scoped approvals (§25)", () => {
     );
     fireEvent.click(screen.getByText("Allow every time"));
     expect(onApprove).toHaveBeenCalledWith("always_task");
-    expect(screen.queryByText("Always allow")).toBeNull();
+    expect(screen.queryByText("Yes, always")).toBeNull();
     cleanup();
 
     // No run context (a plain session) → never offered.
@@ -106,7 +106,7 @@ describe("ApprovalCard — §35 shapes", () => {
     expect(screen.getByText(/import json/)).toBeTruthy();
     expect(screen.getByText("show all 6 lines")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Allow"));
+    fireEvent.click(screen.getByText("Yes"));
     expect(onApprove).toHaveBeenCalledWith("once");
   });
 
@@ -124,7 +124,7 @@ describe("ApprovalCard — §35 shapes", () => {
     expect(screen.getByText(/leaves this computer → Slack/)).toBeTruthy();
     expect(screen.getByText(/report\.pdf/)).toBeTruthy();
     expect(screen.getByText(/here you go/)).toBeTruthy();
-    expect(screen.getByText("Allow once")).toBeTruthy();
+    expect(screen.getByText("Yes")).toBeTruthy();
   });
 
   it("long single-paragraph send_message text is clamped, expandable, and never a wall", () => {
@@ -160,7 +160,7 @@ describe("ApprovalCard — §35 shapes", () => {
     expect(screen.getByText(/Run a command — fetch semiconductor stock data/)).toBeTruthy();
     expect(screen.getByText(/python3 fetch\.py/)).toBeTruthy();
     expect(screen.getByText(/stays on this computer/)).toBeTruthy();
-    expect(screen.getByText("Always allow this command")).toBeTruthy();
+    expect(screen.getByText("Yes, always for this command")).toBeTruthy();
   });
 });
 
@@ -195,7 +195,7 @@ describe("InboxItemCard — Allow every time on parked run approvals", () => {
     render(<InboxItemCard item={baseItem()} onResolve={vi.fn()} />);
     expect(screen.queryByText("Allow every time")).toBeNull();
     expect(screen.getByText("Approve")).toBeTruthy();
-    expect(screen.getByText("Deny")).toBeTruthy();
+    expect(screen.getByText("Deny")).toBeTruthy(); // the parked card keeps its own wording
   });
 
   it("parked approvals with tool data wear the §35 dress — same dialect as the live card", () => {
@@ -215,7 +215,7 @@ describe("InboxItemCard — Allow every time on parked run approvals", () => {
     expect(screen.getByText(/import json/)).toBeTruthy();
     expect(screen.getByText(/stays on this computer/)).toBeTruthy();
     // §35 labels; resolution vocabulary unchanged (works on every approver path).
-    fireEvent.click(screen.getByText("Allow once"));
+    fireEvent.click(screen.getByText("Yes"));
     expect(onResolve).toHaveBeenCalledWith("i1", "allow");
     // Old rows without tool data keep the legacy treatment (covered above).
   });
@@ -255,7 +255,7 @@ describe("ApprovalCard — save_skill (SKILLS-SPEC §5.2)", () => {
   it("uses the §7 button copy and never offers a session-wide always", () => {
     const onApprove = vi.fn();
     render(<ApprovalCard item={skillApproval()} onApprove={onApprove} />);
-    expect(screen.queryByText("Always allow")).toBeNull(); // every proposal gets its own review
+    expect(screen.queryByText("Yes, always")).toBeNull(); // every proposal gets its own review
     expect(screen.queryByText("Deny")).toBeNull();
     fireEvent.click(screen.getByText("Add to my skills"));
     expect(onApprove).toHaveBeenCalledWith("once");
@@ -297,7 +297,7 @@ describe("InboxItemCard — parked save_skill proposals (SKILLS-SPEC §5.2)", ()
     expect(screen.getByText(/Fetch PRs/)).toBeTruthy();
     expect(screen.getByTestId("skill-bundle-files").textContent).toContain("fetch_prs.py");
     expect(screen.getByText(/usable in every conversation/)).toBeTruthy();
-    expect(screen.queryByText("Allow once")).toBeNull();
+    expect(screen.queryByText("Yes")).toBeNull();
     fireEvent.click(screen.getByText("Add to my skills"));
     expect(onResolve).toHaveBeenCalledWith("i9", "allow");
     fireEvent.click(screen.getByText("Not now"));
