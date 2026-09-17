@@ -402,11 +402,7 @@ export function RightRail({
               </>
             }
           >
-            {artifacts.length === 0 ? (
-              // The list is what THIS conversation wrote, so "yet" is the honest word:
-              // an empty panel means nothing has been produced, not nothing exists.
-              <div className="rail-muted">Nothing produced yet — files Mimi writes appear here.</div>
-            ) : (
+            {artifacts.length === 0 ? null : (
               <div className="artifact-list">
                 {!running && <p className="rail-muted">{t("Your files are saved. Open one to review it, or ask for changes.")}</p>}
                 {artifacts.slice(0, 16).map((a, i, list) => (
@@ -517,11 +513,7 @@ function ProgressSummary({ running, toolNames, todo }: { running: boolean; toolN
       </div>
     );
   }
-  return (
-    <div className="rail-muted">
-      For longer multi-step tasks, progress will appear here while MimiWork plans, uses tools, waits for approval, and produces artifacts.
-    </div>
-  );
+  return null;
 }
 
 function RailSection({

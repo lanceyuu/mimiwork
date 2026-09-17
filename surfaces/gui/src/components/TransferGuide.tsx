@@ -142,7 +142,7 @@ export function TransferGuide() {
       <div className="rounded-xl2 border border-line bg-panel overflow-x-auto">
         <table className="w-full text-left border-collapse min-w-[680px]">
           <thead>
-            <tr className="text-[11.5px] uppercase tracking-wide text-faint">
+            <tr className="text-[11.5px] text-faint">
               <th className="px-4 py-2.5 font-medium">In MimiWork</th>
               <th className="px-4 py-2.5 font-medium">Claude Cowork</th>
               <th className="px-4 py-2.5 font-medium">Claude Code</th>

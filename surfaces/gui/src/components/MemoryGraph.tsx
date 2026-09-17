@@ -141,8 +141,8 @@ export function MemoryGraph({
       return best;
     };
 
-    const step = () => {
-      if (alpha > 0.003) {
+    const relax = () => {
+      {
         // Repulsion (O(n²) — fine for the few hundred memories a user has).
         for (let i = 0; i < nodes.length; i++) {
           for (let j = i + 1; j < nodes.length; j++) {
@@ -185,8 +185,16 @@ export function MemoryGraph({
           n.vx *= 0.85;
           n.vy *= 0.85;
         }
-        alpha *= 0.985;
+        alpha *= 0.96;
       }
+    };
+    // Settle BEFORE the first paint: the user sees a finished map, not six seconds of
+    // drift ("the brain always moves" — owner report 2026-09-17). A drag reheats to 0.3,
+    // which now cools in about two seconds instead of ten.
+    for (let i = 0; i < 400 && alpha > 0.003; i++) relax();
+
+    const step = () => {
+      if (alpha > 0.003) relax();
 
       if (!ctx) {
         raf = requestAnimationFrame(step);

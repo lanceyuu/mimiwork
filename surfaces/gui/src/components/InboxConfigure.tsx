@@ -27,7 +27,7 @@ import { Icon } from "./Icon";
 // via an inline configurator on the Inbox list.
 const CARD = "rounded-xl2 border border-line bg-panel";
 const SELECT = "px-2.5 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink";
-const BTN_ACCENT_SM = "text-[12px] px-2.5 py-1 rounded-md bg-accent text-white disabled:opacity-50";
+const BTN_ACCENT_SM = "text-[12px] px-2.5 py-1 rounded-md bg-ink text-paper disabled:opacity-50";
 
 export function InboxConfigure() {
   return (
@@ -248,7 +248,7 @@ function SubscriptionsCard() {
 
       {subs && subs.length > 0 ? (
         <table className="w-full text-[13px]">
-          <thead className="text-[11px] uppercase tracking-[0.04em] text-faint">
+          <thead className="text-[11px] text-faint">
             <tr className="text-left">
               <th className="font-medium px-4 py-2">Session</th>
               <th className="font-medium px-4 py-2">Listens to</th>
@@ -345,7 +345,7 @@ function UnroutedTable() {
   return (
     <div className={CARD + " overflow-hidden"}>
       <table className="w-full text-[13px]">
-        <thead className="text-[11px] uppercase tracking-[0.04em] text-faint">
+        <thead className="text-[11px] text-faint">
           <tr className="text-left">
             <th className="font-medium px-4 py-2">When</th>
             <th className="font-medium px-4 py-2">Source</th>

@@ -668,7 +668,7 @@ export function Sidebar(props: Props) {
   const pinnedBand = () =>
     pinnedSessions.length > 0 ? (
       <div>
-        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+        <div className="px-1.5 text-[10.5px] text-faint font-semibold mb-1">
           Pinned
         </div>
         <div className="space-y-0.5">
@@ -683,7 +683,7 @@ export function Sidebar(props: Props) {
   const appsBand = () =>
     apps.length > 0 ? (
       <div data-testid="apps-band">
-        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1 flex items-center">
+        <div className="px-1.5 text-[10.5px] text-faint font-semibold mb-1 flex items-center">
           <span className="flex-1">Apps</span>
           <button
             className="text-faint hover:text-ink normal-case tracking-normal"
@@ -717,7 +717,7 @@ export function Sidebar(props: Props) {
   const scheduledBand = () =>
     automations.length > 0 ? (
       <div data-testid="scheduled-band">
-        <div className="px-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold mb-1">
+        <div className="px-1.5 text-[10.5px] text-faint font-semibold mb-1">
           Scheduled
         </div>
         <div className="space-y-0.5">
@@ -804,7 +804,7 @@ export function Sidebar(props: Props) {
     return (
       <div data-testid="projects-band">
         <div className="flex items-center justify-between px-1.5 mb-1">
-          <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+          <span className="text-[10.5px] text-faint font-semibold">
             {t("Projects")}
           </span>
           <button
@@ -955,7 +955,7 @@ export function Sidebar(props: Props) {
     );
     return (
     <div className="relative flex items-center justify-between px-1.5 mb-1" data-testid="recent-header">
-      <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+      <span className="text-[10.5px] text-faint font-semibold">
         Recent
       </span>
       <button
@@ -974,7 +974,7 @@ export function Sidebar(props: Props) {
             role="menu"
             data-testid="group-filter-menu"
           >
-            <div className="px-2 pt-1 pb-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+            <div className="px-2 pt-1 pb-1 text-[10.5px] text-faint font-semibold">
               Group by
             </div>
             {([["grouped", "Persona"], ["flat", "Chronological"]] as ["flat" | "grouped", string][]).map(
@@ -993,7 +993,7 @@ export function Sidebar(props: Props) {
               <>
                 <div className="my-1 border-t border-line" />
                 <div className="px-2 pt-1 pb-1 flex items-center justify-between">
-                  <span className="text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+                  <span className="text-[10.5px] text-faint font-semibold">
                     Filter by coworker
                   </span>
                   {filterPersonas.size > 0 && (
@@ -1108,7 +1108,7 @@ export function Sidebar(props: Props) {
             {/* Codex-style Projects: a "+" header affordance, then collapsible folders whose
                 rows carry a right-aligned compact age and truncate to PROJECT_PEEK + "Show more". */}
             <div className="flex items-center justify-between px-1.5 pt-1">
-              <span className="text-[10.5px] uppercase tracking-[0.07em] text-faint font-semibold">
+              <span className="text-[10.5px] text-faint font-semibold">
                 {t("Projects")}
               </span>
               <button
@@ -1648,7 +1648,7 @@ function NewSessionSplit({
       <div className="flex">
         <button
           className={
-            "newsplit-primary flex-1 text-left px-3 py-2 bg-accent text-white text-[13px] font-medium hover:opacity-95 flex items-center gap-2 " +
+            "newsplit-primary flex-1 text-left px-3 py-2 bg-panel border border-line text-ink text-[13px] font-medium hover:bg-paper flex items-center gap-2 " +
             (solo ? "rounded-lg" : "rounded-l-lg")
           }
           onClick={() => onNew(solo && enabled.length === 1 ? enabled[0].id : current)}
@@ -1657,7 +1657,7 @@ function NewSessionSplit({
         </button>
         {!solo && (
           <button
-            className="px-2.5 rounded-r-lg bg-accent text-white border-l border-white/25 hover:opacity-95 flex items-center"
+            className="px-2.5 rounded-r-lg bg-panel border border-line border-l-0 text-muted hover:bg-paper flex items-center"
             title="Start with a specific persona"
             aria-label="Choose a persona"
             onClick={() => setOpen((v) => !v)}
@@ -1670,7 +1670,7 @@ function NewSessionSplit({
         <>
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
           <div className="newsplit-menu absolute left-3 right-3 mt-1 z-30 bg-panel border border-line rounded-xl2 shadow-xl p-1">
-            <div className="px-2 py-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold">
+            <div className="px-2 py-1 text-[10.5px] text-faint font-semibold">
               Start a session as
             </div>
             {enabled.map((p) => (

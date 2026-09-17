@@ -61,7 +61,7 @@ export function SelectMenu({
                 o.group && o.group !== options[i - 1]?.group ? (
                   <div
                     className={
-                      "px-2.5 pb-1 text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold " +
+                      "px-2.5 pb-1 text-[10.5px] text-faint font-semibold " +
                       (i === 0 ? "pt-1" : "pt-2.5 mt-1.5 border-t border-line")
                     }
                   >

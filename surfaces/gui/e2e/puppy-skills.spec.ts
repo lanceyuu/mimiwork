@@ -35,7 +35,7 @@ test('Puppy shows the daily allowance before it is low', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', {name:'claude-opus-4-8',exact:true}).click();
   await page.locator('.dd-item').filter({hasText:'Mimi Puppy'}).click();
-  await expect(page.getByTestId('free-tier-banner')).toContainText('300 free requests left today (daily limit: 500)');
+  await expect(page.getByTestId('free-tier-banner')).toContainText('300 free requests left today');
   await page.setViewportSize({width:1280,height:900});
   await page.screenshot({path:'/tmp/mimi-audit-puppy-after.png'});
 });

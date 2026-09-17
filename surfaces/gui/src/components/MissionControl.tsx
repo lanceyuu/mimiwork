@@ -54,7 +54,7 @@ export function MissionControl(props: {
 
   return (
     <div data-testid="mission-control">
-      <div className="px-2.5 pb-1 text-[11px] font-semibold uppercase tracking-wide text-faint flex items-center gap-1.5">
+      <div className="px-2.5 pb-1 text-[11px] font-semibold text-faint flex items-center gap-1.5">
         <span className="mc-live-dot" aria-hidden />
         Now
       </div>

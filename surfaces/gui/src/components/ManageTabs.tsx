@@ -45,11 +45,11 @@ const relTime = (epoch?: number | null): string | null => {
 // Shared tab bodies for the Settings and Integrations pages (the old top-tab ManageModal was retired
 // when Settings/Activity became full-page surfaces): ModelsTab → Settings ▸ Models; ConnectorsTab +
 // McpTab → Integrations ▸ Connectors / MCP servers.
-const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const SEC_H = "text-[11px] text-faint font-semibold";
 const CARD = "rounded-xl2 border border-line bg-panel";
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
-const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-accent text-white shrink-0 disabled:opacity-50";
+const BTN_ACCENT = "text-[12.5px] px-3 py-1.5 rounded-lg bg-ink text-paper shrink-0 disabled:opacity-50";
 const BTN_DANGER = "text-[12.5px] text-danger/80 hover:text-danger shrink-0";
 
 /** Two-letter initials for a chip/avatar (first+last word, else first two chars). */
@@ -577,7 +577,7 @@ export function UnauthorizedBlock({
             <div className="text-[12.5px] mt-1 break-words">{m.text}</div>
             <div className="flex items-center gap-1.5 mt-2">
               <button
-                className="text-[11.5px] px-2 py-1 rounded-md bg-accent text-white"
+                className="text-[11.5px] px-2 py-1 rounded-md bg-ink text-paper"
                 data-testid={`parked-allow-deliver-${m.id}`}
                 title="Add the sender to the allow-list and deliver this message now"
                 onClick={() => act(m.id, "allow_deliver")}
@@ -727,7 +727,7 @@ export function AllowlistBlock({
                   {r.user_name || "unknown"} <span className="text-faint">· {r.chat_type}</span>
                 </span>
                 <button
-                  className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-accent text-white shrink-0"
+                  className="ml-auto text-[11.5px] px-2 py-0.5 rounded-md bg-ink text-paper shrink-0"
                   onClick={async () => {
                     await allowUser(c.name, r.user_id, teamId);
                     onChanged();

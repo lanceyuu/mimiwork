@@ -24,11 +24,11 @@ import { Toggle } from "./Toggle";
 import { indexConnectors, labelFor, visualFor, type ConnectorMap } from "../connectors/visuals";
 
 // Shared section-heading + tag + button utility strings (mock parity).
-const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const SEC_H = "text-[11px] text-faint font-semibold";
 const TAG_CORE =
   "text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15";
 const TAG_MCP = "text-[10px] px-1.5 py-0.5 rounded border border-line text-faint";
-const BTN_ACCENT = "text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0";
+const BTN_ACCENT = "text-[12px] px-2.5 py-1.5 rounded-lg bg-ink text-paper shrink-0";
 const BTN_BORDERED =
   "text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 

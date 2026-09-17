@@ -139,7 +139,7 @@ export function SearchModal({
             <>
               {pinned.length > 0 && (
                 <div className="px-2">
-                  <div className="px-2 py-1 text-[11px] uppercase tracking-[0.05em] text-faint font-semibold">
+                  <div className="px-2 py-1 text-[11px] text-faint font-semibold">
                     Pinned chats
                   </div>
                   {pinned.map((s, i) => row(s, i))}
@@ -147,7 +147,7 @@ export function SearchModal({
               )}
               {recent.length > 0 && (
                 <div className="px-2 mt-1">
-                  <div className="px-2 py-1 text-[11px] uppercase tracking-[0.05em] text-faint font-semibold">
+                  <div className="px-2 py-1 text-[11px] text-faint font-semibold">
                     Recent chats
                   </div>
                   {recent.map((s, i) => row(s, pinned.length + i))}

@@ -591,7 +591,6 @@ export function Transcript({ items, onApprove, runTask, unattended, running, sin
               );
             return (
               <div className="group bubble-assistant" key={bi}>
-                <div className="who">assistant</div>
                 {item.reasoning && <ThinkingBlock text={item.reasoning} />}
                 <Markdown text={item.text} />
                 <BubbleMeta text={item.text} ts={item.ts} align="left" />

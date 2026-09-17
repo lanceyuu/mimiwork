@@ -52,9 +52,6 @@ export function FoldersSection({
       </div>
       {open && (
         <div className="rail-section-body" data-testid="drawer-directories">
-          {own.length === 0 && !projectScoped && (
-            <p className="rail-muted">{t("Mimi works in a temporary space. Add a folder to work on your own files.")}</p>
-          )}
           <div className="-mx-1.5">
             {roots.map((r) => (
               <RootRow

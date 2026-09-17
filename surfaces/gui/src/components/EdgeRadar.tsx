@@ -90,7 +90,7 @@ export function EdgeRadar({ edge }: { edge: EdgeProfile }) {
       </svg>
 
       <div className="min-w-[210px] flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-faint mb-1">
+        <div className="text-[10px] text-faint mb-1">
           {t("Where the value lands")}
         </div>
         {pillars.map((p) => (

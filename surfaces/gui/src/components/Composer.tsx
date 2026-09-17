@@ -1091,7 +1091,7 @@ export function Composer(props: Props) {
       </div>
       {/* One quiet status line under the box, the way Claude Code keeps it: folder and
           branch on the left, context and time saved on the right (owner ask 2026-09-17). */}
-      {(props.folderLabel || props.branch || worthShowing(props.timeSaved) || (props.usage && totalTokens(props.usage) > 0)) && (
+      {(props.folderLabel || props.branch || props.freeTier || worthShowing(props.timeSaved) || (props.usage && totalTokens(props.usage) > 0)) && (
         <div
           className="composer-status max-w-3xl mx-auto flex flex-wrap items-center gap-x-3 gap-y-0.5 px-2 pt-1.5 text-[11.5px] text-faint"
           data-testid="composer-status"
@@ -1102,6 +1102,7 @@ export function Composer(props: Props) {
             </span>
           )}
           {props.branch && <span className="truncate">⎇ {props.branch}</span>}
+          <FreeTierChip model={props.model} freeTier={props.freeTier} accountCredits={props.accountCredits} />
           <span className="ml-auto" />
             {!dictation?.recording && worthShowing(props.timeSaved) && (
               <span
@@ -1227,7 +1228,7 @@ function UsageChip({
           >
             {contextWindow ? (
               <div className="mb-2.5">
-                <div className="text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold mb-1">
+                <div className="text-[10.5px] text-faint font-semibold mb-1">
                   Context window
                 </div>
                 <div className="h-1.5 rounded-full bg-line overflow-hidden">
@@ -1245,7 +1246,7 @@ function UsageChip({
                 In context now: {formatTokens(usage.context)} tokens
               </div>
             ) : null}
-            <div className="text-[10.5px] uppercase tracking-[0.06em] text-faint font-semibold mb-1">
+            <div className="text-[10.5px] text-faint font-semibold mb-1">
               Session totals
             </div>
             <div className="flex flex-col gap-1.5">
@@ -1434,15 +1435,14 @@ function FreeTierBanner({
   const t = useT();
   const which = /mimi-hound$/.test(model || "") ? "hound" : /mimi-puppy$/.test(model || "") ? "puppy" : null;
   if (!freeTier || !which) return null;
-  const { cap, remaining, resets_at } = freeTier;
-  const low = Math.max(10, Math.round(cap * 0.1));
-  const isLow = remaining <= low;
+  const { remaining, resets_at } = freeTier;
   const at = (() => {
     const d = new Date(resets_at);
     return isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   })();
   const wolf = model.replace(/mimi-(puppy|hound)$/, "mimi-wolf");
-  if (remaining <= 0) {
+  if (remaining > 0) return null;
+  {
     return (
       <div
         data-testid="free-tier-banner"
@@ -1463,21 +1463,39 @@ function FreeTierBanner({
       </div>
     );
   }
+}
+
+/** The everyday free-tier line lives on the status line under the box (the two-line box
+ *  above the composer was permanent noise — owner ask 2026-09-17); the detail is its tooltip. */
+function FreeTierChip({
+  model,
+  freeTier,
+  accountCredits,
+}: {
+  model: string;
+  accountCredits?: number | null;
+  freeTier?: { cap: number; remaining: number; resets_at: string } | null;
+}) {
+  const t = useT();
+  const which = /mimi-hound$/.test(model || "") ? "hound" : /mimi-puppy$/.test(model || "") ? "puppy" : null;
+  if (!freeTier || !which || freeTier.remaining <= 0) return null;
+  const { cap, remaining, resets_at } = freeTier;
+  const isLow = remaining <= Math.max(10, Math.round(cap * 0.1));
+  const d = new Date(resets_at);
+  const at = isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const detail =
+    `${t("daily limit")}: ${cap} · ${which === "hound" ? t("shared with Mimi Puppy") : t("shared with Mimi Hound")}` +
+    (at ? ` · ${t("resets at")} ${at}` : "") +
+    `\n${t("One task can use several requests.")}` +
+    (typeof accountCredits === "number" ? ` ${t("Account credits")}: ${accountCredits}.` : "");
   return (
-    <div
+    <span
       data-testid="free-tier-banner"
       role="status"
-      className={`max-w-3xl mx-auto mb-1.5 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-1.5 text-[12.5px] ${isLow ? "border-warnInk/30 bg-warnSoft text-warnInk" : "border-line bg-paper text-muted"}`}
+      title={detail}
+      className={"tabular-nums shrink-0" + (isLow ? " text-warnInk" : "")}
     >
-      <span className="flex-1">
-        {which === "hound" ? t("Mimi Hound") : t("Mimi Puppy")}: {remaining} {t("free requests left today")} ({t("daily limit")}: {cap})
-        {` · ${which === "hound" ? t("shared with Mimi Puppy") : t("shared with Mimi Hound")}`}
-        {at ? ` · ${t("resets at")} ${at}` : ""}
-        <span className="block text-[11.5px] mt-0.5">
-          {t("One task can use several requests.")}
-          {typeof accountCredits === "number" ? ` ${t("Account credits")}: ${accountCredits}.` : ""}
-        </span>
-      </span>
-    </div>
+      {which === "hound" ? t("Mimi Hound") : t("Mimi Puppy")}: {remaining} {t("free requests left today")}
+    </span>
   );
 }

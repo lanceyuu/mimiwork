@@ -375,7 +375,7 @@ function NewAutomationForm({
 
   return (
     <div className={CARD + " tmpl-form p-4 mb-4"} data-testid="new-automation-form">
-      <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
+      <div className="text-[11px] text-faint mb-2.5">
         {initial ? "Import blueprint — review, then create" : "New automation"}
       </div>
       {grants.length > 0 && (

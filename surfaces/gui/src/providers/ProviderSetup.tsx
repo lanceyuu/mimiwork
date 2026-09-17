@@ -446,7 +446,7 @@ export function ProviderForm({
                 >
                   {c.label}
                   {c.tag && (
-                    <span className="text-[9.5px] font-semibold uppercase tracking-wide text-accent bg-accentSoft rounded-full px-1.5 py-px">
+                    <span className="text-[9.5px] font-semibold text-accent bg-accentSoft rounded-full px-1.5 py-px">
                       {c.tag}
                     </span>
                   )}
@@ -478,7 +478,7 @@ export function ProviderForm({
                 <span className="text-[11.5px] text-faint">Runs one read-only check, then saves.</span>
               )}
               <button
-                className="shrink-0 rounded-lg border border-accent bg-accent px-4 py-1.5 text-[13px] font-medium text-white hover:brightness-105 disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-ink bg-ink px-4 py-1.5 text-[13px] font-medium text-white hover:brightness-105 disabled:opacity-40"
                 onClick={() => ps.runTestAndSave()}
                 disabled={ps.verify.state === "testing"}
                 data-testid={`${tp}-test`}

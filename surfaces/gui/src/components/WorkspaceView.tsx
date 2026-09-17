@@ -460,7 +460,7 @@ export function WorkspaceView(props: {
                   <ul className="space-y-1.5">
                     {proof.notes.map((n, i) => (
                       <li key={i} className="text-[12.5px] text-muted flex gap-2">
-                        <span className="px-1.5 py-0.5 rounded bg-paper text-[10.5px] uppercase tracking-wide text-faint shrink-0">
+                        <span className="px-1.5 py-0.5 rounded bg-paper text-[10.5px] text-faint shrink-0">
                           {n.kind || "note"}
                         </span>
                         <span className="min-w-0">

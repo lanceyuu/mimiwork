@@ -255,7 +255,7 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
           </span>
           <div className="mt-1.5 flex items-center gap-3">
             <button
-              className="text-[12px] px-2.5 py-1 rounded-lg bg-accent text-white disabled:opacity-40"
+              className="text-[12px] px-2.5 py-1 rounded-lg bg-ink text-paper disabled:opacity-40"
               data-testid={tid("qualitati-reconnect")}
               disabled={reconnecting}
               onClick={async () => {
@@ -297,7 +297,7 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
       {/* The three tiers, with a Test that really asks the model to answer. */}
       {state.signed_in ? (
         <div className="mt-2.5" data-testid={tid("qualitati-models")}>
-          <div className="text-[11px] uppercase tracking-[0.05em] text-faint font-semibold mb-1.5">
+          <div className="text-[11px] text-faint font-semibold mb-1.5">
             Your Mimi models
           </div>
           <div className="rounded-lg border border-line overflow-hidden">

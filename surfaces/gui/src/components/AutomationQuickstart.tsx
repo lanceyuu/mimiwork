@@ -279,7 +279,7 @@ export function AutomationQuickstart({
 
   return (
     <div className="mb-4">
-      <div className="text-[11px] uppercase tracking-[0.05em] text-faint mb-2.5">
+      <div className="text-[11px] text-faint mb-2.5">
         Start from a template
       </div>
       {/* Equal-height cards (owner ask 2026-07-12): 1fr rows + h-full — <button> grid items
@@ -333,7 +333,7 @@ export function AutomationQuickstart({
         >
           {/* §30: the card names its template — without this it starts abruptly after the grid. */}
           <div className="flex items-baseline gap-2 pb-2.5 mb-1 border-b border-line">
-            <span className="text-[11px] uppercase tracking-[0.05em] text-accent font-semibold">
+            <span className="text-[11px] text-accent font-semibold">
               Set up
             </span>
             <span className="text-[14px] font-semibold">{picked.title}</span>

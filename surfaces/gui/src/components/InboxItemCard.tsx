@@ -18,9 +18,9 @@ import {
 // options and single questions render exactly as before.
 
 // Shared styles (mock parity — same language as SourcesDrawer/PersonaView).
-const SEC = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const SEC = "text-[11px] text-faint font-semibold";
 const BTN_PRIMARY =
-  "px-3 py-1.5 rounded-lg bg-accent text-white text-[12.5px] font-medium hover:brightness-105 disabled:opacity-40 disabled:hover:brightness-100";
+  "px-3 py-1.5 rounded-lg bg-ink text-paper text-[12.5px] font-medium hover:brightness-105 disabled:opacity-40 disabled:hover:brightness-100";
 const BTN_BORDERED =
   "px-3 py-1.5 rounded-lg border border-line bg-paper text-[12.5px] hover:border-lineStrong";
 // §35 approval buttons: blue border for the primary, quiet Deny (matches ApprovalCard).
@@ -111,7 +111,7 @@ function QuestionBlock({ spec, onAnswer }: { spec: QSpec; onAnswer: (a: string) 
   const preview = previewIdx >= 0 ? options[previewIdx].preview : "";
 
   const recommendedTag = (
-    <span className="text-[10px] uppercase tracking-[0.04em] font-semibold text-ok bg-okSoft border border-okLine rounded-full px-1.5 py-px shrink-0">
+    <span className="text-[10px] font-semibold text-ok bg-okSoft border border-okLine rounded-full px-1.5 py-px shrink-0">
       Recommended
     </span>
   );

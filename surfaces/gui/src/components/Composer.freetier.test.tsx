@@ -22,11 +22,12 @@ afterEach(cleanup);
 describe("Composer / Mimi Puppy allowance banner", () => {
   it("shows the daily balance even when plenty remains and hides it for other models", () => {
     const { rerender } = render(<Composer {...props({ freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
-    expect(screen.getByTestId("free-tier-banner").textContent).toContain("300 free requests left today (daily limit: 500)");
+    expect(screen.getByTestId("free-tier-banner").textContent).toContain("300 free requests left today");
+    expect(screen.getByTestId("free-tier-banner").getAttribute("title")).toContain("daily limit: 500");
     // Hound shares the allowance (free since 2026-09-08) and shows it too; Wolf is paid and never does.
     rerender(<Composer {...props({ model: "qualitati:mimi-hound", freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.getByTestId("free-tier-banner").textContent).toContain("Mimi Hound: 300 free requests left today");
-    expect(screen.getByTestId("free-tier-banner").textContent).toContain("shared with Mimi Puppy");
+    expect(screen.getByTestId("free-tier-banner").getAttribute("title")).toContain("shared with Mimi Puppy");
     rerender(<Composer {...props({ model: "qualitati:mimi-wolf", freeTier: { cap: 500, remaining: 0, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     expect(screen.queryByTestId("free-tier-banner")).toBeNull();
   });
@@ -35,7 +36,7 @@ describe("Composer / Mimi Puppy allowance banner", () => {
     render(<Composer {...props({ freeTier: { cap: 500, remaining: 37, resets_at: "2026-09-05T00:00:00+00:00" } })} />);
     const banner = screen.getByTestId("free-tier-banner");
     expect(banner.textContent).toContain("Mimi Puppy: 37 free requests left today");
-    expect(banner.textContent).toContain("resets at");
+    expect(banner.getAttribute("title")).toContain("resets at");
     expect(screen.queryByTestId("free-tier-switch")).toBeNull();
   });
 
@@ -52,8 +53,8 @@ describe("Composer / Mimi Puppy allowance banner", () => {
     render(<Composer {...props({ accountCredits: 420, freeTier: { cap: 500, remaining: 300, resets_at: "2026-09-06T00:00:00Z" } })} />);
     const banner = screen.getByTestId("free-tier-banner");
     expect(banner.textContent).toContain("300 free requests left today");
-    expect(banner.textContent).toContain("Account credits: 420");
-    expect(banner.textContent).toContain("One task can use several requests.");
+    expect(banner.getAttribute("title")).toContain("Account credits: 420");
+    expect(banner.getAttribute("title")).toContain("One task can use several requests.");
   });
 
 });

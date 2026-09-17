@@ -99,7 +99,7 @@ export function UpdateBanner() {
       )}
       <div className="flex items-center gap-2 mt-2.5">
         <button
-          className="px-3 py-1.5 rounded-full bg-accent text-white text-[12.5px] disabled:opacity-50"
+          className="px-3 py-1.5 rounded-full bg-ink text-paper text-[12.5px] disabled:opacity-50"
           onClick={install}
           disabled={busy}
           data-testid="update-install"

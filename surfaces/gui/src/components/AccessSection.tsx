@@ -34,10 +34,10 @@ import { Toggle } from "./Toggle";
 // slack (the backend's own default when no platform prefix is given).
 const platformOf = (channel: string) => (channel.includes(":") ? channel.split(":")[0] : "slack");
 
-const SEC_H = "text-[11px] uppercase tracking-[0.05em] text-faint font-semibold";
+const SEC_H = "text-[11px] text-faint font-semibold";
 const TAG_CORE =
   "text-[10px] px-1.5 py-0.5 rounded-full bg-warnSoft/70 text-warnInk border border-warnInk/15";
-const BTN_ACCENT = "text-[12px] px-2.5 py-1.5 rounded-lg bg-accent text-white shrink-0";
+const BTN_ACCENT = "text-[12px] px-2.5 py-1.5 rounded-lg bg-ink text-paper shrink-0";
 const BTN_BORDERED =
   "text-[12px] px-2.5 py-1.5 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 

@@ -37,7 +37,7 @@ const FIELD_LABEL = "text-[12.5px] font-medium text-ink";
 const INPUT =
   "w-full min-w-0 px-3 py-2 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
 const BTN_ACCENT =
-  "text-[12.5px] px-3 py-2 rounded-lg bg-accent text-white shrink-0 disabled:opacity-40";
+  "text-[12.5px] px-3 py-2 rounded-lg bg-ink text-paper shrink-0 disabled:opacity-40";
 const BTN_BORDERED =
   "text-[12.5px] px-3 py-2 rounded-lg border border-line bg-paper hover:border-lineStrong shrink-0";
 const BADGE =
@@ -924,7 +924,7 @@ export function SkillsTab({
       ) : null}
 
       <div className="flex items-center justify-between gap-3 mb-2 px-0.5">
-        <h3 className="text-[12px] font-semibold text-muted uppercase tracking-[0.08em]">
+        <h3 className="text-[12px] font-semibold text-muted ">
           Your skills
         </h3>
         <span className="text-[11.5px] text-faint">
