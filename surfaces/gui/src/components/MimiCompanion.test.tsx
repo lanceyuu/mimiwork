@@ -78,7 +78,7 @@ describe("MimiCompanion", () => {
     try {
       render(<MimiCompanion />);
       await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle"));
-      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe(IDLE_ACTIONS[0]));
+      await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.scene).toBe(IDLE_ACTIONS[0]));
       expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("idle"); // a vignette is not a state
       await waitFor(() => expect(screen.getByTestId("companion-sprite").dataset.phase).toBe("nap"), { timeout: 4000 });
       expect(screen.getByTestId("companion-sprite").dataset.sheet).toBe("sleep");

@@ -17,6 +17,7 @@ import { useCompanionStyle } from "../companionStyle";
 import { TealMimiSprite } from "./TealMimiSprite";
 import { SHEETS, SIZE, frameTransform, type Sheet } from "../mimiSheets";
 import { MimiScene, SCENES, type SceneName } from "./MimiScenes";
+import { useReducedMotion } from "../useReducedMotion";
 
 // The state machine's phases. "sleep" is the historical name for BUSY (the coworker is
 // working); "nap" is the real thing — nothing has happened for a few minutes.
@@ -33,11 +34,11 @@ const PHASE_SHEET: Record<Phase, Sheet> = {
   alert: "happy",
   nap: "sleep",
 };
-// QualiTaTi's idle rotation (hooks/mimiPetState.js), minus its three scene prototypes.
+// Short play scenes alternate with QualiTaTi's quieter facial expressions.
 // Advanced in order, never drawn at random: a random pick repeats.
 export type IdleAction = Sheet | SceneName;
 export const IDLE_ACTIONS: IdleAction[] = [
-  "tired", "butterfly", "bubble", "yawn", "happyHop", "wink", "sniff", "tongue", "groom", "love", "sniff", "happy",
+  "ball", "butterfly", "paperPlane", "bubble", "yawn", "happyHop", "wink", "sniff", "tongue", "groom", "love", "sniff", "happy",
   "wink", "tired", "groom", "tongue", "sniff", "love", "wink", "yawn", "groom", "happy",
   "sniff", "tired", "wink", "scratch",
 ];
@@ -46,12 +47,18 @@ export const COMPANION_TIMING = { idleActionMin: 12_000, idleActionMax: 25_000, 
 
 function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; onDone?: () => void }) {
   const [frame, setFrame] = useState(0);
+  const reduced = useReducedMotion();
   const sheet = SHEETS[name];
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
   useEffect(() => {
     setFrame(0);
+    if (reduced) {
+      if (sheet.loop) return;
+      const id = window.setTimeout(() => doneRef.current?.(), sheet.frames * 1000 / sheet.fps);
+      return () => window.clearTimeout(id);
+    }
     const id = window.setInterval(() => {
       setFrame((f) => {
         const next = f + 1;
@@ -65,7 +72,7 @@ function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; on
       });
     }, 1000 / sheet.fps);
     return () => window.clearInterval(id);
-  }, [name, sheet.frames, sheet.fps, sheet.loop]);
+  }, [name, sheet.frames, sheet.fps, sheet.loop, reduced]);
 
   return (
     <div
@@ -124,7 +131,7 @@ export function MimiCompanion() {
   // A vignette (wink, yawn, groom…) playing over the idle loop, or null.
   const [vignette, setVignette] = useState<IdleAction | null>(null);
   const actionIdx = useRef(0);
-  const [reduced] = useState(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+  const reduced = useReducedMotion();
   const [snap, setSnap] = useState<Activity | null>(null);
   const [lineIdx, setLineIdx] = useState(0);
   const [showDone, setShowDone] = useState(false);
@@ -213,7 +220,7 @@ export function MimiCompanion() {
   // (its atlas has no such poses).
   useEffect(() => {
     if (phase !== "idle" || vignette || reduced || petStyle !== "classic") {
-      if (phase !== "idle") setVignette(null);
+      if (phase !== "idle" || reduced) setVignette(null);
       return;
     }
     const { idleActionMin, idleActionMax } = COMPANION_TIMING;
@@ -553,7 +560,7 @@ export function MimiCompanion() {
       </div>
       <style>{`@keyframes companion-dots { 0%,80%,100% { transform: translateY(0); opacity: .45; } 40% { transform: translateY(-4px); opacity: 1; } }
 @keyframes companion-think { 0%,100% { transform: rotate(0deg); } 30% { transform: rotate(-3.5deg); } 70% { transform: rotate(2.5deg); } }
-@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"] { animation: none !important; } }`}</style>
+@keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"], [data-testid="companion-working"] span, [data-testid="companion-zzz"] { animation: none !important; } }`}</style>
     </div>
   );
 }
