@@ -1,26 +1,17 @@
 import { StrictMode } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SHEETS, frameTransform } from "../mimiSheets";
+import { SHEETS } from "../mimiSheets";
 import { headMotion, MimiSheet, sheetPlayback } from "./MimiSheet";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("Mimi's expressions", () => {
-  it("scratches at one size and settles into the resting pose at both ends", () => {
-    const steps = sheetPlayback("scratch");
-    expect(steps[0].rest).toBe(1);
-    expect(steps[steps.length - 1].rest).toBe(1);
-    const scales = steps.map(({ frame }) => frameTransform("scratch", frame).split("scale")[1]);
-    expect(new Set(scales).size).toBe(1);
-    expect(steps.every(({ frame }) => frame >= 0 && frame < SHEETS.scratch.frames)).toBe(true);
-  });
-
-  it("finishes a scratch once after settling, even in Strict Mode", () => {
+  it("finishes waking once, even in Strict Mode", () => {
     vi.useFakeTimers();
     const done = vi.fn();
-    render(<StrictMode><MimiSheet name="scratch" onDone={done} /></StrictMode>);
-    const duration = sheetPlayback("scratch").reduce((sum, step) => sum + step.duration, 0);
+    render(<StrictMode><MimiSheet name="wake" onDone={done} /></StrictMode>);
+    const duration = sheetPlayback("wake").reduce((sum, step) => sum + step.duration, 0);
     act(() => vi.advanceTimersByTime(duration - 1));
     expect(done).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
@@ -29,11 +20,11 @@ describe("Mimi's expressions", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels a scratch when work interrupts it", () => {
+  it("cancels waking when new work interrupts it", () => {
     vi.useFakeTimers();
     const done = vi.fn();
-    const view = render(<MimiSheet name="scratch" onDone={done} />);
-    act(() => vi.advanceTimersByTime(1500));
+    const view = render(<MimiSheet name="wake" onDone={done} />);
+    act(() => vi.advanceTimersByTime(500));
     view.rerender(<MimiSheet name="thinking" onDone={done} />);
     act(() => vi.advanceTimersByTime(10000));
     expect(done).not.toHaveBeenCalled();

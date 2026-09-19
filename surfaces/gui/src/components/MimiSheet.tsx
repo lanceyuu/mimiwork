@@ -2,22 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { SHEETS, SIZE, frameTransform, type Sheet } from "../mimiSheets";
 import { useReducedMotion } from "../useReducedMotion";
 
-type Step = { frame: number; duration: number; rest?: number };
-const SCRATCH: Step[] = [
-  { frame: 0, duration: 220, rest: 1 },
-  { frame: 0, duration: 160, rest: 0.5 },
-  ...[0, 1, 2, 3, 4, 5, 6].map((frame) => ({ frame, duration: 110 })),
-  // Short strokes around the ear, with a breath between the two bouts.
-  ...[7, 8, 9, 8, 7, 8, 9, 8, 7].map((frame) => ({ frame, duration: 75 })),
-  { frame: 7, duration: 260 },
-  ...[8, 9, 8, 7, 8, 9, 8, 7].map((frame) => ({ frame, duration: 85 })),
-  ...[6, 5, 4, 3, 2, 1, 0].map((frame) => ({ frame, duration: 110 })),
-  { frame: 0, duration: 160, rest: 0.5 },
-  { frame: 0, duration: 300, rest: 1 },
-];
+type Step = { frame: number; duration: number };
 const PLAYBACK = Object.fromEntries(Object.entries(SHEETS).map(([name, sheet]) => [
   name,
-  name === "scratch" ? SCRATCH : Array.from({ length: sheet.frames }, (_, frame) => ({ frame, duration: 1000 / sheet.fps })),
+  Array.from({ length: sheet.frames }, (_, frame) => ({ frame, duration: 1000 / sheet.fps })),
 ])) as Record<Sheet, Step[]>;
 
 export function sheetPlayback(name: Sheet): readonly Step[] { return PLAYBACK[name]; }
@@ -45,7 +33,7 @@ export function headMotion(name: Sheet, frame: number) {
 
 /** Keep the paws planted while the head investigates. Both masks meet in the
  *  white neck fur, so the movement doesn't drag the entire dog around. */
-export function MimiSheetFrame({ name, frame, rest = 0, still = false }: { name: Sheet; frame: number; rest?: number; still?: boolean }) {
+export function MimiSheetFrame({ name, frame, still = false }: { name: Sheet; frame: number; still?: boolean }) {
   const sheet = SHEETS[name];
   const motion = headMotion(name, still ? 0 : frame);
   const imageStyle: CSSProperties = {
@@ -59,29 +47,22 @@ export function MimiSheetFrame({ name, frame, rest = 0, still = false }: { name:
   const articulated = name === "thinking" || name === "sniff";
   return (
     <div style={{ position: "relative", width: SIZE, height: SIZE }}>
-      {name === "scratch" && (
-        <div style={{ position: "absolute", inset: 0, opacity: rest, transition: still ? undefined : "opacity 160ms linear" }}>
-          <MimiSheetFrame name="idle" frame={0} still />
+      <div style={articulated ? { maskImage: "linear-gradient(transparent 46%, black 52%)" } : undefined}>
+        <div style={imageStyle} />
+      </div>
+      {articulated && (
+        <div data-testid="mimi-head" style={{ position: "absolute", inset: 0, transformOrigin: "50% 55%", transform: `translate(${motion.x}px, ${motion.y}px) rotate(${motion.angle}deg) scale(${motion.scale})`, transition: still ? undefined : "transform 85ms linear" }}>
+          <div style={{ maskImage: "linear-gradient(black 54%, transparent 60%)" }}>
+            <div style={imageStyle} />
+          </div>
         </div>
       )}
-      <div style={{ opacity: 1 - rest, transition: still ? undefined : "opacity 160ms linear" }}>
-        <div style={articulated ? { maskImage: "linear-gradient(transparent 46%, black 52%)" } : undefined}>
-          <div style={imageStyle} />
-        </div>
-        {articulated && (
-          <div data-testid="mimi-head" style={{ position: "absolute", inset: 0, transformOrigin: "50% 55%", transform: `translate(${motion.x}px, ${motion.y}px) rotate(${motion.angle}deg) scale(${motion.scale})`, transition: still ? undefined : "transform 85ms linear" }}>
-            <div style={{ maskImage: "linear-gradient(black 54%, transparent 60%)" }}>
-              <div style={imageStyle} />
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
 
-/** The gallery and floating pet share the same timing, including settling back
- *  to rest. Completing outside a React state updater avoids duplicate callbacks. */
+/** The gallery and floating pet share the same timing. Completing outside a
+ *  React state updater avoids duplicate callbacks. */
 export function MimiSheet({ name, onDone }: { name: Sheet; onDone?: () => void }) {
   const [step, setStep] = useState(0);
   const reduced = useReducedMotion();
@@ -109,5 +90,5 @@ export function MimiSheet({ name, onDone }: { name: Sheet; onDone?: () => void }
     return () => window.clearTimeout(timer);
   }, [name, steps, reduced]);
   const current = steps[reduced ? 0 : Math.min(step, steps.length - 1)];
-  return <MimiSheetFrame name={name} frame={current.frame} rest={current.rest} still={reduced} />;
+  return <MimiSheetFrame name={name} frame={current.frame} still={reduced} />;
 }

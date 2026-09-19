@@ -26,8 +26,7 @@ type Phase = "sleep" | "wake" | "idle" | "alert" | "nap";
 
 // What each phase shows when no vignette is playing. Busy is "thinking" now, as in
 // QualiTaTi (the nap it replaced was a joke that read as "not working" — 2026-09-17);
-// needs-the-user is the happy face + a gentle hop (CSS, on the container), friendlier
-// than the scratch loop it replaced (owner call 2026-08-20).
+// Needing the user is a happy face with a gentle hop on the container.
 const PHASE_SHEET: Record<Phase, Sheet> = {
   sleep: "thinking",
   wake: "wake",
@@ -41,7 +40,7 @@ export type IdleAction = Sheet | SceneName;
 export const IDLE_ACTIONS: IdleAction[] = [
   "ball", "butterfly", "paperPlane", "bubble", "yawn", "happyHop", "wink", "sniff", "groom", "love", "sniff", "happy",
   "wink", "tired", "groom", "sniff", "love", "wink", "yawn", "groom", "happy",
-  "sniff", "tired", "wink", "scratch",
+  "sniff", "tired", "wink",
 ];
 // The cadence, QualiTaTi's numbers. A test shortens them.
 export const COMPANION_TIMING = { idleActionMin: 12_000, idleActionMax: 25_000, napMin: 180_000, napMax: 300_000 };

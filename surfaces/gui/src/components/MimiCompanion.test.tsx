@@ -104,7 +104,7 @@ describe("MimiCompanion", () => {
     expect(screen.queryByTestId("companion-zzz")).toBeNull();
   });
 
-  it("scratches for attention when MimiWork needs the user", async () => {
+  it("asks for attention when MimiWork needs the user", async () => {
     getActivity.mockResolvedValue({
       busy: true, running_sessions: 1, running_automations: 0, pending_input: 1,
     });

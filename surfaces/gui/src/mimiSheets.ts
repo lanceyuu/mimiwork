@@ -12,13 +12,12 @@ import groomSheet from "./assets/mimi-pet/mimi-groom-face-48.png";
 import yawnSheet from "./assets/mimi-pet/mimi-yawn-face-48.png";
 import sniffSheet from "./assets/mimi-pet/mimi-sniff-face-36.png";
 import happyHopSheet from "./assets/mimi-pet/mimi-happy-hop-48.png";
-import scratchSheet from "./assets/mimi-pet/mimi-scratch-16.png";
 
 // Every sheet QualiTaTi's pet has (mimiPetAssets.js, ported 2026-09-17 — owner ask to
 // bring its new animations over). Frames are square cells in a horizontal strip.
 export type Sheet =
   | "idle" | "thinking" | "sleep" | "wake" | "happy" | "wink" | "tired" | "love"
-  | "groom" | "yawn" | "sniff" | "happyHop" | "scratch";
+  | "groom" | "yawn" | "sniff" | "happyHop";
 export const SHEETS: Record<Sheet, { src: string; frames: number; fps: number; loop: boolean }> = {
   idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
   thinking: { src: thinkingSheet, frames: 48, fps: 12, loop: true },
@@ -32,7 +31,6 @@ export const SHEETS: Record<Sheet, { src: string; frames: number; fps: number; l
   yawn: { src: yawnSheet, frames: 48, fps: 12, loop: false },
   sniff: { src: sniffSheet, frames: 36, fps: 12, loop: false },
   happyHop: { src: happyHopSheet, frames: 48, fps: 12, loop: false },
-  scratch: { src: scratchSheet, frames: 16, fps: 10, loop: false },
 };
 export const SIZE = 110; // displayed sprite size in px (frames are square)
 
@@ -64,12 +62,6 @@ const GEO: Record<Sheet, Geo[]> = {
     [106.5, 9, 189], [97, 9, 189], [91, 10, 189], [87.5, 10, 189],
     [106, 8, 184], [95.5, 8, 184], [89.5, 8, 184], [84.5, 8, 184],
   ],
-  scratch: [
-    [101.5, 26, 166], [95, 26, 166], [88.5, 27, 168], [86.5, 28, 168],
-    [101, 22, 164], [93, 21, 164], [90, 21, 163], [87, 22, 163],
-    [98.5, 17, 160], [94.5, 18, 160], [89.5, 19, 161], [86, 18, 161],
-    [99.5, 14, 156], [93, 13, 156], [89.5, 14, 156], [86, 14, 156],
-  ],
 };
 const TARGET = { anchorX: 96, bottom: 180, height: 165 };
 const LOGICAL = 192; // the geometry's coordinate space (per source cell)
@@ -77,8 +69,7 @@ const LOGICAL = 192; // the geometry's coordinate space (per source cell)
 export function frameTransform(sheet: Sheet, frame: number): string {
   const records = GEO[sheet];
   const [anchorX, top, bottom] = records[Math.min(frame, records.length - 1)];
-  // Scratching changes her posture, not her size. Rescaling each pose made her pulse.
-  const s = TARGET.height / (sheet === "scratch" ? 144 : bottom - top);
+  const s = TARGET.height / (bottom - top);
   const f = SIZE / LOGICAL;
   const tx = (TARGET.anchorX - anchorX * s) * f;
   const ty = (TARGET.bottom - bottom * s) * f;
