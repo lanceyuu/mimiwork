@@ -150,6 +150,45 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
         </div>
       </div>
 
+      <div className="sa-sub">Your apps</div>
+      {apps.length === 0 ? (
+        <div className={CARD + " p-4 text-[12.5px] text-muted"} data-testid="apps-empty">
+          Nothing yet — describe one above, add a starter, or ask Mimi in any conversation.
+        </div>
+      ) : (
+        <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+          {apps.map((a) => (
+            <button
+              key={a.id}
+              className={CARD + " p-3.5 text-left hover:border-accent flex flex-col gap-1.5"}
+              data-testid={`app-card-${a.id}`}
+              onClick={() => setOpenId(a.id)}
+            >
+              <div className="flex items-center gap-2 text-[13.5px] font-medium">
+                <span aria-hidden>{a.icon}</span>
+                <span className="truncate flex-1">{a.title}</span>
+                <span
+                  className="text-faint hover:text-danger"
+                  role="button"
+                  aria-label={`Delete ${a.title}`}
+                  data-testid="app-card-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDel(a);
+                  }}
+                >
+                  <Icon name="trash" size={14} />
+                </span>
+              </div>
+              {a.description && <div className="text-[12.5px] text-muted">{a.description}</div>}
+              <div className="text-[11.5px] text-faint">
+                {a.asks > 0 ? `asked Mimi ${a.asks} time${a.asks === 1 ? "" : "s"}` : "not used yet"}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       {starters.length > 0 && (
         <div className="apps-gallery" data-testid="apps-gallery">
           <div className="sa-sub">Templates</div>
@@ -193,45 +232,6 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
                   ))}
               </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      <div className="sa-sub">Your apps</div>
-      {apps.length === 0 ? (
-        <div className={CARD + " p-4 text-[12.5px] text-muted"} data-testid="apps-empty">
-          Nothing yet — describe one above, add a starter, or ask Mimi in any conversation.
-        </div>
-      ) : (
-        <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
-          {apps.map((a) => (
-            <button
-              key={a.id}
-              className={CARD + " p-3.5 text-left hover:border-accent flex flex-col gap-1.5"}
-              data-testid={`app-card-${a.id}`}
-              onClick={() => setOpenId(a.id)}
-            >
-              <div className="flex items-center gap-2 text-[13.5px] font-medium">
-                <span aria-hidden>{a.icon}</span>
-                <span className="truncate flex-1">{a.title}</span>
-                <span
-                  className="text-faint hover:text-danger"
-                  role="button"
-                  aria-label={`Delete ${a.title}`}
-                  data-testid="app-card-delete"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDel(a);
-                  }}
-                >
-                  <Icon name="trash" size={14} />
-                </span>
-              </div>
-              {a.description && <div className="text-[12.5px] text-muted">{a.description}</div>}
-              <div className="text-[11.5px] text-faint">
-                {a.asks > 0 ? `asked Mimi ${a.asks} time${a.asks === 1 ? "" : "s"}` : "not used yet"}
-              </div>
-            </button>
           ))}
         </div>
       )}
