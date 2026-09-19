@@ -15,9 +15,10 @@ import { useEffect, useRef, useState } from "react";
 import { connectEvents, getActivity, type Activity } from "../api";
 import { useCompanionStyle } from "../companionStyle";
 import { TealMimiSprite } from "./TealMimiSprite";
-import { SHEETS, SIZE, frameTransform, type Sheet } from "../mimiSheets";
+import { SHEETS, SIZE, type Sheet } from "../mimiSheets";
 import { MimiScene, SCENES, type SceneName } from "./MimiScenes";
 import { useReducedMotion } from "../useReducedMotion";
+import { MimiSheet } from "./MimiSheet";
 
 // The state machine's phases. "sleep" is the historical name for BUSY (the coworker is
 // working); "nap" is the real thing — nothing has happened for a few minutes.
@@ -38,42 +39,14 @@ const PHASE_SHEET: Record<Phase, Sheet> = {
 // Advanced in order, never drawn at random: a random pick repeats.
 export type IdleAction = Sheet | SceneName;
 export const IDLE_ACTIONS: IdleAction[] = [
-  "ball", "butterfly", "paperPlane", "bubble", "yawn", "happyHop", "wink", "sniff", "tongue", "groom", "love", "sniff", "happy",
-  "wink", "tired", "groom", "tongue", "sniff", "love", "wink", "yawn", "groom", "happy",
+  "ball", "butterfly", "paperPlane", "bubble", "yawn", "happyHop", "wink", "sniff", "groom", "love", "sniff", "happy",
+  "wink", "tired", "groom", "sniff", "love", "wink", "yawn", "groom", "happy",
   "sniff", "tired", "wink", "scratch",
 ];
 // The cadence, QualiTaTi's numbers. A test shortens them.
 export const COMPANION_TIMING = { idleActionMin: 12_000, idleActionMax: 25_000, napMin: 180_000, napMax: 300_000 };
 
 function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; onDone?: () => void }) {
-  const [frame, setFrame] = useState(0);
-  const reduced = useReducedMotion();
-  const sheet = SHEETS[name];
-  const doneRef = useRef(onDone);
-  doneRef.current = onDone;
-
-  useEffect(() => {
-    setFrame(0);
-    if (reduced) {
-      if (sheet.loop) return;
-      const id = window.setTimeout(() => doneRef.current?.(), sheet.frames * 1000 / sheet.fps);
-      return () => window.clearTimeout(id);
-    }
-    const id = window.setInterval(() => {
-      setFrame((f) => {
-        const next = f + 1;
-        if (next >= sheet.frames) {
-          if (sheet.loop) return 0;
-          window.clearInterval(id);
-          doneRef.current?.();
-          return f;
-        }
-        return next;
-      });
-    }, 1000 / sheet.fps);
-    return () => window.clearInterval(id);
-  }, [name, sheet.frames, sheet.fps, sheet.loop, reduced]);
-
   return (
     <div
       data-testid="companion-sprite"
@@ -88,24 +61,11 @@ function Sprite({ phase, sheet: name, onDone }: { phase: Phase; sheet: Sheet; on
         animation:
           phase === "alert"
             ? "companion-hop 1.6s ease-in-out infinite"
-            : phase === "sleep"
-              ? "companion-think 3.2s ease-in-out infinite"
-              : undefined,
+            : undefined,
         transformOrigin: "50% 92%",
       }}
     >
-      <div
-        style={{
-          width: SIZE,
-          height: SIZE,
-          backgroundImage: `url(${sheet.src})`,
-          backgroundRepeat: "no-repeat",
-          backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
-          backgroundPosition: `-${frame * SIZE}px 0`,
-          transform: frameTransform(name, frame),
-          transformOrigin: "0 0",
-        }}
-      />
+      <MimiSheet key={name} name={name} onDone={onDone} />
     </div>
   );
 }
@@ -452,7 +412,7 @@ export function MimiCompanion() {
       )}
       {/* Busy: the thinking sheet is a subtle face loop that reads as "sitting" at this
           size (owner, 2026-09-17), so the work shows as a typing-dots thought above her
-          head, and the sprite below gets a slow, thoughtful head tilt. */}
+          head, and her head tilts while her paws stay planted. */}
       {phase === "sleep" && petStyle === "classic" && (
         <div
           data-testid="companion-working"
@@ -559,7 +519,6 @@ export function MimiCompanion() {
         </button>
       </div>
       <style>{`@keyframes companion-dots { 0%,80%,100% { transform: translateY(0); opacity: .45; } 40% { transform: translateY(-4px); opacity: 1; } }
-@keyframes companion-think { 0%,100% { transform: rotate(0deg); } 30% { transform: rotate(-3.5deg); } 70% { transform: rotate(2.5deg); } }
 @keyframes companion-zzz { 0%,100% { opacity: .35; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-4px); } } @keyframes companion-bubble-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } } @keyframes companion-hop { 0%, 60%, 100% { transform: translateY(0); } 70% { transform: translateY(-7px); } 80% { transform: translateY(0); } 88% { transform: translateY(-4px); } 94% { transform: translateY(0); } } @media (prefers-reduced-motion: reduce) { [data-testid="companion-bubble"], [data-testid="companion-sprite"], [data-testid="companion-working"] span, [data-testid="companion-zzz"] { animation: none !important; } }`}</style>
     </div>
   );

@@ -5,14 +5,15 @@
  * neutral cell 0 before and after) and the vector visitor drawn over it. The visitor's
  * coordinates are percent of the sprite box. */
 import { useEffect, useRef, useState } from "react";
-import { SHEETS, SIZE, frameTransform, type Sheet } from "../mimiSheets";
+import { SHEETS, SIZE, type Sheet } from "../mimiSheets";
 import { useReducedMotion } from "../useReducedMotion";
+import { MimiSheet, MimiSheetFrame } from "./MimiSheet";
 
 export type SceneName = "butterfly" | "bubble" | "ball" | "paperPlane";
 export const SCENES: Record<SceneName, { duration: number; sheets: Sheet[] }> = {
   butterfly: { duration: 6.4, sheets: ["thinking", "sniff", "happy"] },
   bubble: { duration: 4.8, sheets: ["wink"] },
-  ball: { duration: 6.6, sheets: ["thinking", "happy", "tongue"] },
+  ball: { duration: 6.6, sheets: ["thinking", "happy"] },
   paperPlane: { duration: 7.2, sheets: ["thinking", "wink", "happy"] },
 };
 
@@ -68,7 +69,7 @@ export function sampleScene(name: SceneName, elapsed: number): SceneSample {
       expressionStart = 2.9;
       expressionEnd = 4.75;
     } else {
-      sheet = "tongue";
+      sheet = "happy";
       expressionStart = 4.8;
       expressionEnd = 6.5;
     }
@@ -271,7 +272,6 @@ export function MimiScene({ name, onDone }: { name: SceneName; onDone: () => voi
   }, [name, scene.duration, reduced]);
 
   const sample = sampleScene(name, reduced ? 0 : time);
-  const sheet = SHEETS[sample.sheet];
   return (
     <div
       data-testid="companion-sprite"
@@ -282,18 +282,7 @@ export function MimiScene({ name, onDone }: { name: SceneName; onDone: () => voi
       style={{ position: "relative", width: SIZE, height: SIZE, overflow: "hidden", filter: "drop-shadow(0 4px 10px rgba(0,0,0,0.25))" }}
     >
       <div style={{ position: "absolute", inset: 0, transformOrigin: "50% 94%", transform: `translateY(${-sample.lift}px) rotate(${sample.lean}deg)` }}>
-        <div
-          style={{
-            width: SIZE,
-            height: SIZE,
-            backgroundImage: `url(${sheet.src})`,
-            backgroundRepeat: "no-repeat",
-            backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
-            backgroundPosition: `-${sample.frame * SIZE}px 0`,
-            transform: frameTransform(sample.sheet, sample.frame),
-            transformOrigin: "0 0",
-          }}
-        />
+        <MimiSheetFrame name={sample.sheet} frame={sample.frame} still={reduced} />
       </div>
       <SceneDetails name={name} sample={sample} />
     </div>
@@ -315,7 +304,7 @@ export function MimiGallery() {
         ))}
         {names.map((name) => (
           <GalleryTile key={name} label={`${name} · ${SHEETS[name].frames}f`}>
-            {(replay) => <LoopingSheet name={name} onDone={replay} />}
+            {(replay) => <MimiSheet name={name} onDone={replay} />}
           </GalleryTile>
         ))}
       </div>
@@ -331,44 +320,6 @@ function GalleryTile({ label, children }: { label: string; children: (replay: ()
         {children(() => setTimeout(() => setRound((r) => r + 1), 400))}
       </div>
       <div style={{ fontSize: 11.5, color: "#555", marginTop: 6 }}>{label}</div>
-    </div>
-  );
-}
-
-function LoopingSheet({ name, onDone }: { name: Sheet; onDone: () => void }) {
-  const sheet = SHEETS[name];
-  const [frame, setFrame] = useState(0);
-  const done = useRef(onDone);
-  done.current = onDone;
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setFrame((f) => {
-        const next = f + 1;
-        if (next >= sheet.frames) {
-          if (sheet.loop) return 0;
-          window.clearInterval(id);
-          done.current();
-          return f;
-        }
-        return next;
-      });
-    }, 1000 / sheet.fps);
-    return () => window.clearInterval(id);
-  }, [name, sheet.frames, sheet.fps, sheet.loop]);
-  return (
-    <div style={{ width: SIZE, height: SIZE, overflow: "hidden" }}>
-      <div
-        style={{
-          width: SIZE,
-          height: SIZE,
-          backgroundImage: `url(${sheet.src})`,
-          backgroundRepeat: "no-repeat",
-          backgroundSize: `${sheet.frames * SIZE}px ${SIZE}px`,
-          backgroundPosition: `-${frame * SIZE}px 0`,
-          transform: frameTransform(name, frame),
-          transformOrigin: "0 0",
-        }}
-      />
     </div>
   );
 }

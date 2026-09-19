@@ -8,7 +8,6 @@ import thinkingSheet from "./assets/mimi-pet/mimi-thinking-stable-48.png";
 import winkSheet from "./assets/mimi-pet/mimi-wink-subtle-24.png";
 import tiredSheet from "./assets/mimi-pet/mimi-tired-subtle-24.png";
 import loveSheet from "./assets/mimi-pet/mimi-love-subtle-24.png";
-import tongueSheet from "./assets/mimi-pet/mimi-tongue-subtle-24.png";
 import groomSheet from "./assets/mimi-pet/mimi-groom-face-48.png";
 import yawnSheet from "./assets/mimi-pet/mimi-yawn-face-48.png";
 import sniffSheet from "./assets/mimi-pet/mimi-sniff-face-36.png";
@@ -19,7 +18,7 @@ import scratchSheet from "./assets/mimi-pet/mimi-scratch-16.png";
 // bring its new animations over). Frames are square cells in a horizontal strip.
 export type Sheet =
   | "idle" | "thinking" | "sleep" | "wake" | "happy" | "wink" | "tired" | "love"
-  | "tongue" | "groom" | "yawn" | "sniff" | "happyHop" | "scratch";
+  | "groom" | "yawn" | "sniff" | "happyHop" | "scratch";
 export const SHEETS: Record<Sheet, { src: string; frames: number; fps: number; loop: boolean }> = {
   idle: { src: idleSheet, frames: 48, fps: 12, loop: true },
   thinking: { src: thinkingSheet, frames: 48, fps: 12, loop: true },
@@ -29,7 +28,6 @@ export const SHEETS: Record<Sheet, { src: string; frames: number; fps: number; l
   wink: { src: winkSheet, frames: 24, fps: 12, loop: false },
   tired: { src: tiredSheet, frames: 24, fps: 12, loop: false },
   love: { src: loveSheet, frames: 24, fps: 12, loop: false },
-  tongue: { src: tongueSheet, frames: 24, fps: 12, loop: false },
   groom: { src: groomSheet, frames: 48, fps: 12, loop: false },
   yawn: { src: yawnSheet, frames: 48, fps: 12, loop: false },
   sniff: { src: sniffSheet, frames: 36, fps: 12, loop: false },
@@ -52,7 +50,6 @@ const GEO: Record<Sheet, Geo[]> = {
   wink: STABLE(24),
   tired: STABLE(24),
   love: STABLE(24),
-  tongue: STABLE(24),
   groom: STABLE(48),
   yawn: STABLE(48),
   sniff: STABLE(36),
@@ -80,11 +77,11 @@ const LOGICAL = 192; // the geometry's coordinate space (per source cell)
 export function frameTransform(sheet: Sheet, frame: number): string {
   const records = GEO[sheet];
   const [anchorX, top, bottom] = records[Math.min(frame, records.length - 1)];
-  const s = TARGET.height / (bottom - top);
+  // Scratching changes her posture, not her size. Rescaling each pose made her pulse.
+  const s = TARGET.height / (sheet === "scratch" ? 144 : bottom - top);
   const f = SIZE / LOGICAL;
   const tx = (TARGET.anchorX - anchorX * s) * f;
   const ty = (TARGET.bottom - bottom * s) * f;
   return `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${s.toFixed(4)})`;
 }
-
 
