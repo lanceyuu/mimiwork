@@ -343,3 +343,19 @@ describe("steering a running turn", () => {
     expect(p.onSend).not.toHaveBeenCalled();
   });
 });
+
+describe("IME composition", () => {
+  // Chinese/Japanese/Korean keyboards: Enter confirms the candidate word, it must not send.
+  it("ignores Enter while an IME is composing", () => {
+    stubFetch();
+    const p = props();
+    render(<Composer {...p} />);
+    fireEvent.change(box(), { target: { value: "hello" } });
+    fireEvent.keyDown(box(), { key: "Enter", isComposing: true });
+    expect(p.onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(box(), { key: "Enter", keyCode: 229 }); // Safari reports 229, not isComposing
+    expect(p.onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(p.onSend).toHaveBeenCalledTimes(1);
+  });
+});

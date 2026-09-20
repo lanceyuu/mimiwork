@@ -640,6 +640,9 @@ export function Composer(props: Props) {
   };
 
   const onKey = (e: React.KeyboardEvent) => {
+    // IME composition (Chinese/Japanese/Korean): Enter confirms the candidate, not the message.
+    // Safari still reports keyCode 229 without isComposing on the confirming keydown.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === "Escape" && props.running && slashQuery === null && mentionQuery === null && !dictation?.recording) {
       e.preventDefault();
       if (props.stopping) onForceStop?.();
