@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { formatElapsed } from "../humanize";
 import { useT } from "../i18n";
 import type { WsEvent } from "../types";
+import { ReportProblem } from "./ReportProblem";
 
 export type TaskProgress = { phase: string; lastActivity: number };
 
@@ -56,6 +57,9 @@ export function TaskStatus({ running, connected, since, progress, lastReceived, 
       )}
       {running && !responsive && <p className="mt-1">{t("The task may still be running. You can still try Stop task.")}</p>}
       {error && <p className="mt-1 text-danger" role="alert">{error}</p>}
+      {(error || (!responsive && now - lastReceived > 30_000)) && (
+        <p className="mt-1"><ReportProblem error={error || label} context="connection" /></p>
+      )}
     </div>
   );
 }

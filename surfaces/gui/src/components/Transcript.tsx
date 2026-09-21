@@ -6,6 +6,7 @@ import { formatElapsed, humanizeAsk, humanizeTool, summarizeSteps, type HumanLin
 import { Markdown } from "./Markdown";
 import { ConnectorMessageCard } from "./ConnectorMessageCard";
 import { Icon } from "./Icon";
+import { ReportProblem } from "./ReportProblem";
 
 // Long user pastes swallow the transcript (owner ask 2026-07-30): clamp past a generous
 // threshold with a more…/less… toggle. Normal typed messages never see the control; the
@@ -629,6 +630,9 @@ export function Transcript({ items, onApprove, runTask, unattended, running, sin
                   <button className="btn ml-2" data-testid="notice-retry" onClick={onRetry}>
                     Retry
                   </button>
+                )}
+                {item.tone === "warn" && block.i === retryAnchor(items) && (
+                  <ReportProblem error={item.text} context="conversation" />
                 )}
               </div>
             );

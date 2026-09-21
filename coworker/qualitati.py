@@ -415,3 +415,64 @@ def _detail(r: httpx.Response) -> Optional[str]:
     if isinstance(detail, dict):
         return str(detail.get("message") or detail)
     return str(detail) if detail else None
+
+
+_LOG_TAIL_BYTES = 24_000
+
+
+def _log_tail() -> str:
+    """The end of the sidecar log (the desktop shell writes stdout/stderr there)."""
+    from .secrets import state_dir
+
+    path = state_dir() / "logs" / "openworker-server.log"
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ""
+    return data[-_LOG_TAIL_BYTES:].decode("utf-8", "replace")
+
+
+def report_problem(secrets: Any, error: str, context: str = "", site: str = "global") -> dict[str, Any]:
+    """Send an error the user hit to the QualiTaTi team through the site's public contact
+    form (it lands in contact@qualitati.com). What goes: the error, where it happened, the
+    app version and platform, the signed-in username if any, and the sidecar log tail.
+    Nothing is sent without the user pressing the button that calls this."""
+    import platform
+
+    from . import __version__
+
+    creds = site_credentials(secrets, site)
+    auth = secrets.get((SITES.get(site) or SITES["global"])["auth"]) or {}
+    username = str(auth.get("username") or "") if isinstance(auth, dict) else ""
+    headers: dict[str, str] = {}
+    if creds["jwt"]:
+        headers["Authorization"] = f"Bearer {creds['jwt']}"
+    profile = QualitatiClient(secrets, site)._profile(headers) if headers else None
+    email = str((profile or {}).get("email") or "") or "mimiwork-report@qualitati.com"
+    message = "\n".join(
+        [
+            f"Error: {error}",
+            f"Where: {context or '-'}",
+            f"MimiWork {__version__} on {platform.platform()}",
+            f"User: {username or '(not signed in)'}",
+            "",
+            "--- sidecar log tail ---",
+            _log_tail() or "(no log)",
+        ]
+    )
+    try:
+        r = httpx.post(
+            f"{creds['base']}/api/contact",
+            json={
+                "name": username or "MimiWork user",
+                "email": email,
+                "subject": f"[MimiWork bug] {error[:80]}",
+                "message": message,
+            },
+            timeout=_TIMEOUT,
+        )
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": f"could not reach {creds['base']}: {exc}"}
+    if r.status_code != 200:
+        return {"ok": False, "error": _detail(r) or f"HTTP {r.status_code}"}
+    return {"ok": True}

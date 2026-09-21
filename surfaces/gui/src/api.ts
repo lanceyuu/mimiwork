@@ -1433,6 +1433,15 @@ export interface AboutInfo {
   repo_url: string;
   tutorial_url: string;
 }
+export async function reportProblem(error: string, context: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ error, context }),
+  });
+  return res.json();
+}
+
 export async function getAbout(): Promise<AboutInfo> {
   const res = await fetch(`${httpBase()}/v1/about`);
   return res.json();

@@ -1414,6 +1414,20 @@ def create_app(manager: SessionManager) -> FastAPI:
     def settings_models_remove(body: dict) -> dict[str, Any]:
         return manager.remove_model((body or {}).get("model", ""))
 
+    @app.post("/v1/report")
+    def report_problem(body: dict) -> dict[str, Any]:
+        """"Report this problem": mail the error + log tail to the QualiTaTi team."""
+        from ..qualitati import report_problem as _report
+        from ..qualitati import tool_site
+
+        body = body or {}
+        error = str(body.get("error", "")).strip()
+        if not error:
+            return {"ok": False, "error": "nothing to report"}
+        return _report(
+            manager.secrets, error, str(body.get("context", "")), tool_site(manager.secrets)
+        )
+
     @app.get("/v1/about")
     async def about() -> dict[str, Any]:
         """Version, model catalogue size, recent releases, maintainer — the
