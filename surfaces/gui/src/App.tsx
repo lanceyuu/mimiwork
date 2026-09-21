@@ -1004,13 +1004,17 @@ export function App() {
         case "interrupt_requested":
           setStopping(true);
           break;
-        case "error":
+        case "error": {
           flushPartialStream();
-          setItems((p) => [
-            ...p,
-            { kind: "notice", tone: "warn", text: "Error: " + (d.error || "unknown"), retriable: true },
-          ]);
+          const text = "Error: " + (d.error || "unknown");
+          // A failed handshake re-sends the same error on every reconnect: show it once.
+          setItems((p) => {
+            const last = p[p.length - 1];
+            if (last?.kind === "notice" && last.text === text) return p;
+            return [...p, { kind: "notice", tone: "warn", text, retriable: true }];
+          });
           break;
+        }
         case "steer_queued":
           // The message bubble is already on screen (optimistic add in send()); this
           // tells the user it reaches Mimi mid-run rather than starting a new turn.

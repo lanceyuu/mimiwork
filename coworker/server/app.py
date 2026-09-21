@@ -11,6 +11,7 @@ import asyncio
 import base64
 import binascii
 import json
+import logging
 import os
 import re
 import secrets
@@ -1839,19 +1840,30 @@ def create_app(manager: SessionManager) -> FastAPI:
                 manager.inbox.resolve(pend[0].id, resolution)
 
         workspace = ws.query_params.get("workspace")
-        mcp_tools = await manager.prepare_mcp_tools(
-            session_id, workspace=workspace, agent=agent
-        )
-        engine = manager.get_engine(
-            session_id,
-            workspace=workspace,
-            agent=agent,
-            approver=approver,
-            extra_tools=mcp_tools,
-            directory_requester=directory_requester,
-            plan_approver=plan_approver,
-            question_asker=question_asker,
-        )
+        try:
+            mcp_tools = await manager.prepare_mcp_tools(
+                session_id, workspace=workspace, agent=agent
+            )
+            engine = manager.get_engine(
+                session_id,
+                workspace=workspace,
+                agent=agent,
+                approver=approver,
+                extra_tools=mcp_tools,
+                directory_requester=directory_requester,
+                plan_approver=plan_approver,
+                question_asker=question_asker,
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure here must reach the user
+            # A handshake that raised used to drop the socket with nothing said, and the GUI
+            # showed "Connection lost. Reconnecting…" forever (Windows report 2026-09-20, right
+            # after a folder was adopted). Say why, then close.
+            logging.getLogger(__name__).exception("session %s: could not open", session_id)
+            await ws.send_json(
+                {"type": "error", "data": {"error": f"could not open the conversation: {exc}"}}
+            )
+            await ws.close(code=1011)
+            return
         if engine is None:
             await ws.send_json(
                 {

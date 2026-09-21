@@ -359,3 +359,18 @@ def test_reveal_unknown_skill_is_a_friendly_error(tmp_path):
     client, _m, _p = _client(tmp_path)
     res = client.post("/v1/skills/nope/reveal", json={}).json()
     assert res["ok"] is False and "nope" in res["error"]
+
+
+def test_ws_handshake_failure_is_reported_not_silent(tmp_path, monkeypatch):
+    """An exception while building the engine must reach the GUI as an error event (and a
+    logged traceback), not just a dropped socket that reads as "Connection lost" forever."""
+    client, manager, _p = _client(tmp_path)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(manager, "get_engine", boom)
+    with client.websocket_connect("/ws/session/s1?agent=chat") as ws:
+        evt = ws.receive_json()
+    assert evt["type"] == "error"
+    assert "engine exploded" in evt["data"]["error"]
