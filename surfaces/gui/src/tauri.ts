@@ -65,6 +65,10 @@ export async function chooseFolder(): Promise<string | null> {
   return pickFolderViaServer();
 }
 
+/** The sidecar log tail (for bug reports) and the folder it lives in. Desktop only. */
+export const readServerLog = () => invoke<string>("read_server_log");
+export const revealServerLog = () => invoke<void>("reveal_server_log");
+
 /** Open-at-login (macOS LaunchAgent). */
 export const getAutostart = () => invoke<boolean>("get_autostart");
 export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });

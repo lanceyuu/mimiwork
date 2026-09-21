@@ -21,26 +21,29 @@ import {
 } from "../api";
 import {
   cancelDictationModelDownload,
+  checkForUpdate,
   deleteDictationModel,
   downloadDictationModel,
   getAutostart,
+  getCompanionEnabled,
   getDictationStatus,
   getKeepAwake,
-  checkForUpdate,
   installUpdate,
   isTauri,
   listenDictationDownloadProgress,
-  getCompanionEnabled,
   markDictationTestPassed,
   pickFolder,
+  platformOS,
+  readServerLog,
+  revealServerLog,
   setAutostart,
   setCompanionEnabled,
   setKeepAwake,
   startDictation,
   stopDictation,
-  verifyDictationModel,
   type DictationDownloadProgress,
   type DictationStatus,
+  verifyDictationModel,
 } from "../tauri";
 import { useThemePref } from "../theme";
 import { useCompanionStyle } from "../companionStyle";
@@ -604,6 +607,7 @@ function AppearanceSection() {
             {tr("Show the tour")}
           </button>
           {desktop && <UpdateInline />}
+          {desktop && <DiagnosticLog />}
         </div>
         <div className={FIELD_HELP}>{tr("Replay the first-run setup, or the five-step tour of the interface.")}</div>
       </div>
@@ -717,6 +721,38 @@ function UpdateInline() {
             : state === "error"
               ? "Couldn't check right now — try again later."
               : "Downloading — MimiWork restarts by itself when it's ready."}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// "Copy diagnostic log": the sidecar log tail goes to the clipboard so a user can paste it
+// into WeChat/email when reporting a problem — no upload, nothing leaves the machine unasked.
+export function DiagnosticLog() {
+  const tr = useT();
+  const [state, setState] = useState<"idle" | "copied" | "error">("idle");
+  const copy = async () => {
+    try {
+      const text = await readServerLog();
+      const head = `MimiWork ${platformOS()} ${navigator.userAgent}\n`;
+      await navigator.clipboard.writeText(head + (text || "(log is empty)"));
+      setState("copied");
+    } catch {
+      setState("error");
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <button className={BTN_BORDERED} onClick={copy} data-testid="settings-copy-log">
+        {tr("Copy diagnostic log")}
+      </button>
+      <button className={BTN_BORDERED} onClick={() => void revealServerLog()} data-testid="settings-show-log">
+        {tr("Show log file")}
+      </button>
+      {state !== "idle" && (
+        <span className="text-[12px] text-muted">
+          {state === "copied" ? tr("Copied — paste it into your message to us.") : tr("Couldn't read the log.")}
         </span>
       )}
     </span>

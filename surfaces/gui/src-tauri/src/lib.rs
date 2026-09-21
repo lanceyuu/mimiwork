@@ -256,6 +256,33 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
     rx.recv().ok().flatten().map(|fp| fp.to_string())
 }
 
+/// The tail of the sidecar log (current run, then the previous one if the current is short) so
+/// a user can paste it into a bug report — works even when the sidecar itself is dead, which is
+/// exactly when it's needed (Windows "Connection lost" report, 2026-09-20).
+#[tauri::command]
+fn read_server_log() -> String {
+    const MAX: usize = 48 * 1024;
+    let dir = state_dir().join("logs");
+    let mut out = String::new();
+    for name in ["openworker-server.log.old", "openworker-server.log"] {
+        if let Ok(text) = std::fs::read_to_string(dir.join(name)) {
+            out.push_str(&format!("===== {name} =====\n{text}\n"));
+        }
+    }
+    if out.len() > MAX {
+        let cut = out.len() - MAX;
+        let cut = out[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(cut);
+        out = format!("… (earlier lines trimmed)\n{}", &out[cut..]);
+    }
+    out
+}
+
+#[tauri::command]
+fn reveal_server_log() {
+    let path = state_dir().join("logs").join("openworker-server.log");
+    let _ = tauri_plugin_opener::reveal_item_in_dir(&path);
+}
+
 #[tauri::command]
 fn get_autostart(app: tauri::AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
@@ -1111,6 +1138,8 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             pick_folder,
+            read_server_log,
+            reveal_server_log,
             get_autostart,
             set_autostart,
             get_keep_awake,
