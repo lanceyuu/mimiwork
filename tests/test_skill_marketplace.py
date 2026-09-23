@@ -63,6 +63,22 @@ def test_install_flattens_frontmatter_and_attributes(tmp_path, monkeypatch):
     assert (tmp_path / "demo" / "extra" / "notes.md").read_text() == "resource"
 
 
+def test_a_skill_at_the_repo_root_keeps_its_subfolders(tmp_path, monkeypatch):
+    listed = {"": [
+        {"type": "file", "path": "SKILL.md", "size": 30, "download_url": "dl://SKILL.md"},
+        {"type": "dir", "path": "references"},
+    ], "references": [
+        {"type": "file", "path": "references/notes.md", "size": 8, "download_url": "dl://notes"},
+    ]}
+    blobs = {"SKILL.md": b"---\nname: x\ndescription: d\n---\nBody", "notes": b"resource"}
+    monkeypatch.setattr(mp, "_http_json", lambda url: listed[url.split("/contents/")[1].split("?")[0]])
+    monkeypatch.setattr(mp, "_http_bytes", lambda url: blobs[url.removeprefix("dl://")])
+    monkeypatch.setattr(mp, "find", lambda name, repo=None: {
+        "name": name, "description": "d", "repo": "acme/root-skill", "path": ".", "ref": "a" * 40})
+    assert mp.install("demo", tmp_path)["ok"] is True
+    assert (tmp_path / "demo" / "references" / "notes.md").read_text() == "resource"
+
+
 def test_install_refuses_existing(tmp_path, monkeypatch):
     _fake_github(monkeypatch, {"SKILL.md": b"---\nname: demo\ndescription: d\n---\nx"})
     (tmp_path / "demo").mkdir()
@@ -186,6 +202,7 @@ def test_recommended_skills_are_pinned_and_include_the_complete_sepia_skill():
     assert {e["name"] for e in shelf["results"]} == {
         "sepia", "internal-comms", "theme-factory", "content-research-writer",
         "meeting-insights-analyzer", "changelog-generator", "tailored-resume-generator", "copy-editing",
+        "diagram-design", "field-onboarding", "statistical-power",
     }
     assert all(len(e["ref"]) == 40 for e in shelf["results"])
     sepia = mp.find("sepia", "Nanako0129/sepia")
@@ -198,5 +215,5 @@ def test_curated_updates_replace_old_revisions_and_carry_useful_examples():
         copies = [e for e in mp._load_index() if (e["repo"], e["path"]) == (entry["repo"], entry["path"])]
         assert len(copies) == 1
         assert entry["example_prompt"] and entry["expected_output"] and entry["requirements"]
-        assert entry["install_checked_at"] == "2026-09-05"
+        assert entry["install_checked_at"] in {"2026-09-05", "2026-09-23"}
         assert mp.find(entry["name"], entry["repo"])["ref"] == entry["ref"]

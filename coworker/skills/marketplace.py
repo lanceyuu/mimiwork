@@ -307,6 +307,14 @@ def _flatten_frontmatter(text: str, name: str) -> str:
     return f"---\nname: {name}\ndescription: {desc}\n---\n\n{body}"
 
 
+def _skill_dir(entry: dict[str, Any]) -> str:
+    """The skill's folder inside its repo, "" for a skill at the repo root. Root skills are
+    listed as "." and "./x" never prefixes the API's paths, so every subfolder used to be
+    flattened into the skill's top level."""
+    path = entry["path"].strip("/")
+    return "" if path == "." else path
+
+
 def preview(name: str, repo: Optional[str] = None) -> dict[str, Any]:
     """Read a listed skill's SKILL.md without installing it.
 
@@ -320,7 +328,7 @@ def preview(name: str, repo: Optional[str] = None) -> dict[str, Any]:
         return {"ok": False, "error": f"'{name}' is not in the skill store."}
     url = (
         f"https://raw.githubusercontent.com/{entry['repo']}/{entry['ref']}/"
-        f"{entry['path'].rstrip('/')}/SKILL.md"
+        f"{_skill_dir(entry) + '/' if _skill_dir(entry) else ''}SKILL.md"
     )
     try:
         raw = _http_bytes(url).decode("utf-8", errors="replace")
@@ -386,7 +394,7 @@ def install(
         return {"ok": False, "error": f"A skill named '{name}' is already installed."}
 
     try:
-        files = _list_files(entry["repo"], entry["path"], entry["ref"])
+        files = _list_files(entry["repo"], _skill_dir(entry), entry["ref"])
     except error.HTTPError as e:
         if e.code == 403:
             return {
@@ -403,7 +411,7 @@ def install(
     if total > _MAX_TOTAL_BYTES:
         return {"ok": False, "error": f"'{name}' is too large ({total // 1024} KB)."}
 
-    prefix = entry["path"].rstrip("/") + "/"
+    prefix = _skill_dir(entry) + "/" if _skill_dir(entry) else ""
     staged: list[tuple[Path, bytes]] = []
     skill_md: Optional[str] = None
     try:
