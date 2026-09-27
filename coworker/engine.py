@@ -41,7 +41,7 @@ from .providers.errors import (
     retry_after_seconds,
 )
 from .repetition import RepetitionGuard as _RepetitionGuard
-from .risk import classify, is_consequential
+from .risk import SHELL_TOOL, classify, is_consequential
 from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
@@ -1244,6 +1244,7 @@ class TurnEngine:
         approval prompts are interactive), then execute. Low-risk calls (reads, searches)
         run concurrently; everything else runs one at a time in call order."""
         cleared: list[ToolCall] = []
+        shell_pending = False
         for tool_call in tool_calls:
             if self._cancel.is_set() or self._steer_signal.is_set():
                 # Stopped: every remaining call still gets an answer (no orphans).
@@ -1305,13 +1306,14 @@ class TurnEngine:
                 )
                 continue
             allowed = False
-            async for item in self._authorize(tool_call):
+            async for item in self._authorize(tool_call, shell_pending=shell_pending):
                 if isinstance(item, Event):
                     yield item
                 else:
                     allowed = item
             if allowed:
                 cleared.append(tool_call)
+                shell_pending = shell_pending or tool_call.name == SHELL_TOOL
 
         concurrent = (
             [tc for tc in cleared if self._parallel_safe(tc)]
@@ -1383,7 +1385,9 @@ class TurnEngine:
             metadata, "requires_approval", False
         )
 
-    async def _authorize(self, tool_call: ToolCall) -> "AsyncIterator[Event | bool]":
+    async def _authorize(
+        self, tool_call: ToolCall, shell_pending: bool = False
+    ) -> "AsyncIterator[Event | bool]":
         """Permission flow for one call (TOOL_PROPOSED is emitted by the caller). Yields
         its events, then True/False (allowed) last. Denied/unknown calls get their
         tool-error message appended here."""
@@ -1392,8 +1396,14 @@ class TurnEngine:
         spec = self.registry.get(tool_call.name)
         metadata = spec.metadata if spec else None
 
+        # A turn's calls are all cleared before the first one runs, so once a command is
+        # waiting the shell may stand somewhere else by the time this one starts.
+        executor = getattr(self, "executor", None)
         decision = self.permissions.evaluate(
-            tool_call.name, tool_call.arguments, metadata
+            tool_call.name,
+            tool_call.arguments,
+            metadata,
+            shell_cwd=None if shell_pending else getattr(executor, "cwd", None),
         )
         allowed = decision.allowed
         reason = decision.reason

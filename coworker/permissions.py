@@ -8,6 +8,7 @@ prefixes) and a session allowlist. The engine only *decides*; the turn engine ro
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 from dataclasses import dataclass, field
@@ -42,46 +43,73 @@ _DESTRUCTIVE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(^|\s)(del|erase)\s+.*(/s|/q)\b|(^|\s)(rd|rmdir)\s+/s|Remove-Item\b.*-(Recurse|Force)", re.I), "deletes files permanently"),
 ]
 
-# A `>` only redirects where the shell reads it as syntax. Matched against the whole
-# command it also fired on `grep "<title>"`, a quoted URL with `created:>2026-09-19` and
-# `->` in a note being written, which stopped Bypass-permissions automations on nearly
-# every command (2026-09-27).
-_REDIRECTION = re.compile(r"(^|[^>\d])>(?!>)\s*(?!/dev/null)[^\s|&;>]")
+# Redirections. A `>` only redirects where the shell reads it as syntax — matched against
+# the whole command it fired on `grep "<title>"` and `->` in a note, and stopped Bypass
+# automations on nearly every command — and it only destroys anything when the file it
+# names is already there (owner ask 2026-09-27: new files run, overwrites ask). Whatever
+# cannot be placed with confidence asks.
+_REDIRECTION = re.compile(r"(?<![<>])>(?![>(])\|?[ \t]*(&?)([^\s|&;<>()]*)")
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1")
 # These hand quoted text or a here-document to a shell, where a `>` redirects again.
 _RUNS_QUOTED_TEXT = re.compile(r"(^|[\s;&|(/])((ba|z|da|k|s)?sh|eval|powershell|pwsh|cmd)\b", re.I)
+# Any mention that is not a plain `cd <folder>` — a subshell, a condition, a redefinition.
+_MOVES_THE_SHELL = re.compile(r"\b(cd|pushd|popd|source)\b")
+_CD = re.compile(r"\s*cd[ \t]+(\S+)\s*")
+_NOT_A_FILE = ("/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty")
+# In a name, these mean the shell will rewrite it or the guard did not read it as a name.
+_UNKNOWABLE = set("$`*?[]{}\\'\"|&;<>()\n")
+# Each quoted string stands in the syntax as one private-use character, so a quoted file
+# name is still a word the redirection can point at.
+_QUOTED_FROM, _QUOTED_TO = 0xE000, 0xF8FF
+_UNPLACED = "writes to a file that may already exist"
 
 
 def _substitutes(text: str) -> bool:
     return "$(" in text or "`" in text
 
 
-def _shell_syntax(command: str) -> str:
-    """The command with quoted strings and here-document bodies removed.
-
-    Anything it cannot read with confidence — a quote or here-document that never
-    closes — comes back whole, so doubt lands on the side of asking."""
+def _shell_syntax(command: str) -> Optional[tuple[str, list[str]]]:
+    """The command as the shell reads it: here-document bodies dropped and every quoted
+    string replaced by a stand-in for the text returned beside it. None when it cannot be
+    read with confidence — a quote or here-document that never closes."""
+    if any(_QUOTED_FROM <= ord(c) <= _QUOTED_TO for c in command):
+        return None
     out: list[str] = []
+    quoted: list[str] = []
     waiting: list[tuple[str, bool]] = []  # here-documents opened on this line
+
+    def stand_in(text: str) -> None:
+        out.append(chr(_QUOTED_FROM + len(quoted)))
+        quoted.append(text)
+
     i, n = 0, len(command)
     while i < n:
+        if len(quoted) > _QUOTED_TO - _QUOTED_FROM:
+            return None
         c = command[i]
         if c == "\\":
+            if command[i + 1 : i + 2] == "\n":
+                out.append(" ")  # a line carried over
+            else:
+                stand_in(command[i : i + 2])
             i += 2
         elif c == "'":
             end = command.find("'", i + 1)
             if end < 0:
-                return command
+                return None
+            stand_in(command[i + 1 : end])
             i = end + 1
         elif c == '"':
             end = i + 1
             while end < n and command[end] != '"':
                 end += 2 if command[end] == "\\" else 1
             if end >= n:
-                return command
+                return None
             inner = command[i + 1 : end]
             if _substitutes(inner):  # $(…) still runs inside double quotes
                 out.append(inner)
+            else:
+                stand_in(inner)
             i = end + 1
         elif command.startswith("<<<", i):
             out.append("<<<")
@@ -95,7 +123,7 @@ def _shell_syntax(command: str) -> str:
             for delimiter, expands in waiting:
                 closing = next((k for k in range(at, len(lines)) if lines[k].strip() == delimiter), None)
                 if closing is None:
-                    return command
+                    return None
                 body = "\n".join(lines[at:closing])
                 if expands and _substitutes(body):
                     out.append("\n" + body)
@@ -106,17 +134,62 @@ def _shell_syntax(command: str) -> str:
         else:
             out.append(c)
             i += 1
-    return command if waiting else "".join(out)
+    return None if waiting else ("".join(out), quoted)
 
 
-def destructive_reason(command: str) -> Optional[str]:
-    """Why this shell command must always be confirmed, or None when it is ordinary."""
+def _name(word: str, quoted: list[str]) -> Optional[str]:
+    """The file or folder name a word stands for, or None when only the shell can know."""
+    name = "".join(quoted[ord(c) - _QUOTED_FROM] if _QUOTED_FROM <= ord(c) <= _QUOTED_TO else c for c in word)
+    if not name or _UNKNOWABLE & set(name):
+        return None
+    if "~" in name:
+        # Only a bare leading ~/ is the home folder; quoted or mid-word it is a plain character.
+        if not word.startswith("~/") or name.count("~") > 1:
+            return None
+        name = os.path.expanduser(name)
+    return name
+
+
+def _is_file_target(dup: str, word: str) -> bool:
+    if dup and re.fullmatch(r"\d+|-", word):
+        return False  # 2>&1, >&-
+    return word not in _NOT_A_FILE and not word.startswith("/dev/fd/")
+
+
+def _overwrite_reason(command: str, cwd: Optional[str]) -> Optional[str]:
+    read = _shell_syntax(command)
+    if read is None or _RUNS_QUOTED_TEXT.search(read[0]):
+        found = (_is_file_target(*m.groups()) for m in _REDIRECTION.finditer(command))
+        return _UNPLACED if any(found) else None
+    syntax, quoted = read
+    where = cwd or None
+    for part in re.split(r"&&|;|\n", syntax):
+        moved = _CD.fullmatch(part)
+        if moved:
+            to = _name(moved.group(1), quoted)
+            # Joined the way the shell follows `..`: by the path's text, not through links.
+            to = os.path.normpath(os.path.join(where or "", to)) if to else ""
+            where = to if os.path.isabs(to) and os.path.isdir(to) else None
+            continue
+        if _MOVES_THE_SHELL.search(part):
+            where = None
+        for m in _REDIRECTION.finditer(part):
+            if not _is_file_target(*m.groups()):
+                continue
+            name = _name(m.group(2), quoted)
+            if name is None or not (where or os.path.isabs(name)):
+                return _UNPLACED
+            if os.path.lexists(os.path.join(where or "", name)):
+                return f"writes over {os.path.basename(name)}, which already exists"
+    return None
+
+
+def destructive_reason(command: str, cwd: Optional[str] = None) -> Optional[str]:
+    """Why this shell command must always be confirmed, or None when it is ordinary.
+    `cwd` is the folder the shell stands in; without it only full paths can be placed."""
     command = command or ""
     why = next((why for pattern, why in _DESTRUCTIVE if pattern.search(command)), None)
-    if why is None:
-        syntax = _shell_syntax(command)
-        if _REDIRECTION.search(command if _RUNS_QUOTED_TEXT.search(syntax) else syntax):
-            why = "overwrites a file (> redirection)"
+    why = why or _overwrite_reason(command, cwd)
     return f"this command {why} — it always asks, in every mode" if why else None
 
 from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS);
@@ -228,7 +301,11 @@ class PermissionEngine:
         return out
 
     def evaluate(
-        self, tool_name: str, arguments: dict[str, Any], metadata: Any = None
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        metadata: Any = None,
+        shell_cwd: Optional[str] = None,
     ) -> Decision:
         arguments = arguments or {}
         is_connector = getattr(metadata, "category", "") == "connector"
@@ -255,7 +332,7 @@ class PermissionEngine:
 
         # A destructive shell command is confirmed every time, whatever the mode or grants.
         if is_shell:
-            why = destructive_reason(str(arguments.get("command", "")))
+            why = destructive_reason(str(arguments.get("command", "")), shell_cwd)
             if why:
                 return Decision(False, why, needs_user=True)
 

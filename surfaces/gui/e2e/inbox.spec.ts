@@ -79,7 +79,7 @@ test("routing: Configure tab binds the mirror channel; Pending's status line fol
 test("a command held in a Bypass permissions run says why it was held", async ({ page }) => {
   // Owner report 2026-09-27: the card showed the command and Yes/No but no reason, so an
   // always-ask command read as the automation ignoring its permission level.
-  const why = "this command overwrites a file (> redirection) — it always asks, in every mode";
+  const why = "this command writes over notes.md, which already exists — it always asks, in every mode";
   // The harness has no backend to fetch from, so the held item is served whole; requests
   // scoped to one session fall through to the fixtures.
   await page.route(/\/v1\/inbox(\?|$)/, async (route) => {
