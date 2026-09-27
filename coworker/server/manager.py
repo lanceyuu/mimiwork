@@ -4203,6 +4203,11 @@ class SessionManager:
             "tool": request.tool_name,
             "arguments": getattr(request, "arguments", None) or {},
         }
+        # The parked card draws itself from this payload, not from the item's body, so a
+        # reason left out here is a reason the user never sees.
+        reason = (getattr(request, "reason", "") or "").strip()
+        if reason and reason != "requires approval":
+            data["reason"] = reason
         task = self.task_store.task_for_run_session(session_id)
         if task is None:
             return data

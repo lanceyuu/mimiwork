@@ -339,6 +339,9 @@ export function InboxItemCard({
       ) : !isQuestion && item.body ? (
         <div className="text-[13px] text-muted mt-1 whitespace-pre-wrap">{item.body}</div>
       ) : null}
+      {item.kind === "approval" && item.data?.tool && item.data?.reason ? (
+        <div className="approval-reason">{item.data.reason}</div>
+      ) : null}
       {!isQuestion && chip}
       {item.kind === "approval" ? (
         <div className="flex items-center gap-2 mt-2.5 flex-wrap">

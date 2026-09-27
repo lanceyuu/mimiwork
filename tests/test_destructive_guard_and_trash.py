@@ -44,6 +44,44 @@ def test_ordinary_commands_are_not_flagged(tmp_path, command):
     assert PermissionEngine(workspace_root=tmp_path, mode=Mode.AUTO).evaluate("run_shell", {"command": command}).allowed
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        # Each of these stopped a Bypass-permissions automation on 2026-09-27.
+        'curl -s "https://github.com/a/b/commits/main.atom" | grep -E "<title>|<updated>" | head -60',
+        'echo "=== GitHub search created:>2026-09-19 sorted by stars ==="',
+        "python3 - <<'EOF'\nimport re\nfound = re.findall(r'<entry>.*?</entry>', data, re.S)\nEOF",
+        "cat >> ledger.md <<'EOF'\n| created:>09-19 search | copy-edit -> stats |\nEOF",
+        "python3 -c \"print('a -> b')\"",
+        "echo it\\'s fine",
+    ],
+)
+def test_a_greater_than_sign_inside_quoted_text_is_not_a_redirection(tmp_path, command):
+    assert destructive_reason(command) is None
+    assert PermissionEngine(workspace_root=tmp_path, mode=Mode.AUTO).evaluate("run_shell", {"command": command}).allowed
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat > notes.md <<'EOF'\nhello\nEOF",
+        'grep -E "<title>" feed.xml > titles.txt',
+        "echo 'done' > a.txt",
+        # Quoted text that a shell will run is still a command.
+        'bash -c "echo x > results.csv"',
+        "sh <<'EOF'\necho x > results.csv\nEOF",
+        'echo "$(date > stamp.txt)"',
+        "cat <<EOF\n$(date > stamp.txt)\nEOF",
+        # Text the guard cannot read with confidence is treated as written.
+        'echo "never closed > results.csv',
+        "cat <<'EOF'\nno end > results.csv",
+    ],
+)
+def test_a_real_redirection_still_asks_whatever_is_quoted_around_it(tmp_path, command):
+    assert "redirection" in (destructive_reason(command) or "")
+    assert PermissionEngine(workspace_root=tmp_path, mode=Mode.AUTO).evaluate("run_shell", {"command": command}).needs_user
+
+
 def test_delete_file_moves_into_the_trash_and_stays_inside_the_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()

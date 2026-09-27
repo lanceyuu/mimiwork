@@ -219,6 +219,20 @@ describe("InboxItemCard — Allow every time on parked run approvals", () => {
     expect(onResolve).toHaveBeenCalledWith("i1", "allow");
     // Old rows without tool data keep the legacy treatment (covered above).
   });
+
+  it("says why a command was held, so a Bypass permissions run does not look ignored", () => {
+    render(
+      <InboxItemCard
+        item={baseItem({
+          tool: "run_shell",
+          arguments: { command: "rm -rf build" },
+          reason: "this command deletes files permanently (rm) — it always asks, in every mode",
+        })}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/deletes files permanently/)).toBeTruthy();
+  });
 });
 
 describe("ApprovalCard — save_skill (SKILLS-SPEC §5.2)", () => {

@@ -556,3 +556,18 @@ async def test_suspended_run_is_not_double_claimed_across_ticks(tmp_path):
                                            # re-runs a task that is no longer due
     assert store.get(task.id).run_count == 1
     await sched.stop()
+
+
+def test_a_parked_approval_says_why_it_is_asking(tmp_path, monkeypatch):
+    """A Bypass-permissions run that stops on an always-ask command looked like the mode
+    was being ignored: the card carried the command but not the engine's reason."""
+    from coworker.server.manager import SessionManager
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    manager = SessionManager(data_dir=tmp_path / "data", provider=_provider())
+    why = "this command deletes files permanently (rm) — it always asks, in every mode"
+    held = PermissionRequest(tool_name="run_shell", arguments={"command": "rm -rf build"}, metadata=None, reason=why)
+    assert manager.approval_prompt_data("s1", held)["reason"] == why
+    # The engine's default wording is not a reason worth a line on the card.
+    routine = PermissionRequest(tool_name="run_shell", arguments={"command": "ls"}, metadata=None, reason="requires approval")
+    assert "reason" not in manager.approval_prompt_data("s1", routine)

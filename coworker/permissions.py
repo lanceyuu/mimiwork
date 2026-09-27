@@ -38,18 +38,86 @@ _DESTRUCTIVE: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(^|\s)sed\s+(-[A-Za-z]*i|--in-place)"), "rewrites a file in place (sed -i)"),
     (re.compile(r"(^|\s)(truncate|shred)\s"), "destroys a file's contents"),
     (re.compile(r"(^|\s)dd\s.*\bof="), "overwrites a file or a disk (dd)"),
-    (re.compile(r"(^|[^>\d])>(?!>)\s*(?!/dev/null)[^\s|&;>]"), "overwrites a file (> redirection)"),
     # Windows shells.
     (re.compile(r"(^|\s)(del|erase)\s+.*(/s|/q)\b|(^|\s)(rd|rmdir)\s+/s|Remove-Item\b.*-(Recurse|Force)", re.I), "deletes files permanently"),
 ]
 
+# A `>` only redirects where the shell reads it as syntax. Matched against the whole
+# command it also fired on `grep "<title>"`, a quoted URL with `created:>2026-09-19` and
+# `->` in a note being written, which stopped Bypass-permissions automations on nearly
+# every command (2026-09-27).
+_REDIRECTION = re.compile(r"(^|[^>\d])>(?!>)\s*(?!/dev/null)[^\s|&;>]")
+_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1")
+# These hand quoted text or a here-document to a shell, where a `>` redirects again.
+_RUNS_QUOTED_TEXT = re.compile(r"(^|[\s;&|(/])((ba|z|da|k|s)?sh|eval|powershell|pwsh|cmd)\b", re.I)
+
+
+def _substitutes(text: str) -> bool:
+    return "$(" in text or "`" in text
+
+
+def _shell_syntax(command: str) -> str:
+    """The command with quoted strings and here-document bodies removed.
+
+    Anything it cannot read with confidence — a quote or here-document that never
+    closes — comes back whole, so doubt lands on the side of asking."""
+    out: list[str] = []
+    waiting: list[tuple[str, bool]] = []  # here-documents opened on this line
+    i, n = 0, len(command)
+    while i < n:
+        c = command[i]
+        if c == "\\":
+            i += 2
+        elif c == "'":
+            end = command.find("'", i + 1)
+            if end < 0:
+                return command
+            i = end + 1
+        elif c == '"':
+            end = i + 1
+            while end < n and command[end] != '"':
+                end += 2 if command[end] == "\\" else 1
+            if end >= n:
+                return command
+            inner = command[i + 1 : end]
+            if _substitutes(inner):  # $(…) still runs inside double quotes
+                out.append(inner)
+            i = end + 1
+        elif command.startswith("<<<", i):
+            out.append("<<<")
+            i += 3
+        elif c == "<" and (opened := _HEREDOC.match(command, i)):
+            waiting.append((opened.group(2), not opened.group(1)))
+            i = opened.end()
+        elif c == "\n" and waiting:
+            lines = command[i + 1 :].split("\n")
+            at = 0
+            for delimiter, expands in waiting:
+                closing = next((k for k in range(at, len(lines)) if lines[k].strip() == delimiter), None)
+                if closing is None:
+                    return command
+                body = "\n".join(lines[at:closing])
+                if expands and _substitutes(body):
+                    out.append("\n" + body)
+                at = closing + 1
+            waiting = []
+            out.append("\n")
+            i += 1 + sum(len(line) + 1 for line in lines[:at])
+        else:
+            out.append(c)
+            i += 1
+    return command if waiting else "".join(out)
+
 
 def destructive_reason(command: str) -> Optional[str]:
     """Why this shell command must always be confirmed, or None when it is ordinary."""
-    for pattern, why in _DESTRUCTIVE:
-        if pattern.search(command or ""):
-            return f"this command {why} — it always asks, in every mode"
-    return None
+    command = command or ""
+    why = next((why for pattern, why in _DESTRUCTIVE if pattern.search(command)), None)
+    if why is None:
+        syntax = _shell_syntax(command)
+        if _REDIRECTION.search(command if _RUNS_QUOTED_TEXT.search(syntax) else syntax):
+            why = "overwrites a file (> redirection)"
+    return f"this command {why} — it always asks, in every mode" if why else None
 
 from .risk import (  # re-exported for back-compat (manager.py imports WRITE_TOOLS);
     #                       redundant aliases mark them as intentional re-exports)

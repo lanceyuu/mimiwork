@@ -75,3 +75,40 @@ test("routing: Configure tab binds the mirror channel; Pending's status line fol
   await page.getByTestId("inbox-tab-pending").click();
   await expect(line).toContainText("Delivered here only");
 });
+
+test("a command held in a Bypass permissions run says why it was held", async ({ page }) => {
+  // Owner report 2026-09-27: the card showed the command and Yes/No but no reason, so an
+  // always-ask command read as the automation ignoring its permission level.
+  const why = "this command overwrites a file (> redirection) — it always asks, in every mode";
+  // The harness has no backend to fetch from, so the held item is served whole; requests
+  // scoped to one session fall through to the fixtures.
+  await page.route(/\/v1\/inbox(\?|$)/, async (route) => {
+    if (new URL(route.request().url()).searchParams.get("session_id")) return route.fallback();
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: "inb-held-1",
+            session_id: "__run__run-1",
+            kind: "approval",
+            title: "Run `run_shell`?",
+            body: why + "\ncommand: cat > notes.md",
+            state: "pending",
+            resolution: null,
+            inbox: "default",
+            created_at: "2026-09-27 02:52:28",
+            resolved_at: null,
+            session_title: "Weekly skill scout",
+            session_agent: "cowork",
+            data: { tool: "run_shell", arguments: { command: "cat > notes.md <<'EOF'\nhello\nEOF" }, reason: why },
+          },
+        ],
+      }),
+    });
+  });
+  await page.goto("/");
+  await page.getByTestId("inbox-chip").click();
+  await expect(page.getByText(why)).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath("held-command.png") });
+});
