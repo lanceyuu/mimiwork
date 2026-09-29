@@ -356,3 +356,50 @@ describe("ApprovalCard — a destructive shell command", () => {
     expect(screen.getByText("Yes")).toBeTruthy();
   });
 });
+
+describe("ApprovalCard — drawing a picture", () => {
+  it("shows the description that will be sent and says where it goes", () => {
+    render(
+      <ApprovalCard
+        item={{
+          kind: "approval",
+          name: "generate_image",
+          args: { prompt: "A fluffy white dog beside an unlabeled can of cola", output: "figures/dog-ad.png" },
+          reason: "requires approval",
+        }}
+        onApprove={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("dog-ad.png")).toBeTruthy();
+    expect(screen.getByText(/fluffy white dog/)).toBeTruthy();
+    expect(screen.getByText(/description goes to QualiTaTi/)).toBeTruthy();
+    // The description is shown once, as the proposal — not again as a line of raw arguments.
+    expect(screen.queryByText(/output/)).toBeNull();
+  });
+});
+
+describe("InboxItemCard — a picture waiting for a yes", () => {
+  it("shows the same description the live card shows", () => {
+    render(
+      <InboxItemCard
+        item={{
+          id: "i9",
+          session_id: "__run__r1",
+          kind: "approval",
+          title: "Run `generate_image`?",
+          body: "",
+          state: "pending",
+          resolution: null,
+          inbox: "default",
+          created_at: "",
+          resolved_at: null,
+          data: { tool: "generate_image", arguments: { prompt: "A lighthouse at dusk", output: "light.png" } },
+        }}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("light.png")).toBeTruthy();
+    expect(screen.getByText(/lighthouse at dusk/)).toBeTruthy();
+    expect(screen.getByText(/description goes to QualiTaTi/)).toBeTruthy();
+  });
+});

@@ -78,3 +78,22 @@ test("a one-paragraph digest send is clamped to a card, expandable in place", as
   expect((await prev.boundingBox())!.height).toBeGreaterThan(clampedHeight);
   await expect(prev.getByText("show less")).toBeVisible();
 });
+
+// Owner ask 2026-09-29: Mimi can draw. The card shows the words the picture is drawn from
+// and says that they leave the computer; the transcript then names the file, not the tool.
+test("drawing a picture → the card shows the description and where it goes", async ({ page }) => {
+  await page.goto("/");
+  const box = page.getByPlaceholder(/Ask Mimi/);
+  await box.fill("please draw a picture");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByText("Draw a picture — ").last()).toBeVisible();
+  await expect(page.getByText("dog-ad.png").last()).toBeVisible();
+  await expect(page.getByText(/fluffy white Coton de Tuléar/).last()).toBeVisible();
+  await expect(page.getByText("the description goes to QualiTaTi").last()).toBeVisible();
+  await expect(page.getByText(/generate_image/)).toHaveCount(0);
+  await page.screenshot({ path: "test-results/draw-a-picture-card.png", fullPage: false });
+
+  await page.getByRole("button", { name: "Yes", exact: true }).last().click();
+  await expect(page.getByText(/Done via generate_image/)).toBeVisible();
+});

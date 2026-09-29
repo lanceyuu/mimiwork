@@ -2050,6 +2050,7 @@ class SessionManager:
             "annotate_image",
             "combine_images",
             "edit_image",
+            "generate_image",
             "run_python",  # charts land in figures/
             "run_r",
             "qualitati_export_survey",

@@ -336,6 +336,8 @@ export function InboxItemCard({
         <PreviewBlock text={item.data.arguments.content} />
       ) : item.kind === "approval" && item.data?.tool && typeof item.data.arguments?.command === "string" ? (
         <PreviewBlock text={item.data.arguments.command} />
+      ) : item.kind === "approval" && item.data?.tool === "generate_image" && typeof item.data.arguments?.prompt === "string" ? (
+        <PreviewBlock text={item.data.arguments.prompt} mono={false} />
       ) : !isQuestion && item.body ? (
         <div className="text-[13px] text-muted mt-1 whitespace-pre-wrap">{item.body}</div>
       ) : null}

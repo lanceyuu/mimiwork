@@ -21,6 +21,7 @@ const TOOL_VERBS: Record<string, string> = {
   apply_patch: "Apply a patch",
   apply_unified_diff: "Apply a patch",
   run_shell: "Run a command",
+  generate_image: "Draw a picture",
   send_message: "Send a message",
   send_file: "Send a file",
 };
@@ -111,6 +112,8 @@ export function scopeNote(
     const names: Record<string, string> = { slack: "Slack", telegram: "Telegram" };
     return { text: `leaves this computer → ${names[platform] || platform || "a connected chat"}`, external: true };
   }
+  // The picture is saved here, but the words describing it are what QualiTaTi draws from.
+  if (name === "generate_image") return { text: "the description goes to QualiTaTi", external: true };
   const overwrite = name === "write_file" && args?.overwrite;
   return { text: "stays on this computer" + (overwrite ? " · overwrites the existing file" : ""), external: false };
 }
@@ -314,6 +317,9 @@ export function ApprovalCard({
       {item.name === "send_message" && item.args?.text && (
         <MessagePreview text={String(item.args.text)} />
       )}
+      {item.name === "generate_image" && item.args?.prompt && (
+        <MessagePreview text={String(item.args.prompt)} label="From this description" />
+      )}
       {/* save_skill (SKILLS-SPEC §5.2): the arguments ARE the review surface. */}
       {item.name === "save_skill" && <SaveSkillPreview args={item.args} />}
 
@@ -336,7 +342,7 @@ export function ApprovalCard({
       )}
       {/* Long-tail tools: no bespoke preview — fall back to the compact args line. */}
       {!FILE_WRITES.has(item.name) &&
-        !["run_shell", "send_message", "send_file", "save_skill"].includes(item.name) &&
+        !["run_shell", "send_message", "send_file", "save_skill", "generate_image"].includes(item.name) &&
         !grants.length &&
         shortArgs(item.args) && <div className="approval-rest">{shortArgs(item.args)}</div>}
       {reason && <div className="approval-reason">{reason}</div>}

@@ -383,6 +383,13 @@ def build_engine(
         from .tools.qualitati_data import qualitati_data_tools
 
         registry.register_all(qualitati_data_tools(secrets, workspace=ws))
+    # Drawing a picture goes through the QualiTaTi gateway and saves into a folder, so it
+    # needs both: the account's gateway key (the tool list is empty without one) and a
+    # workspace to put the file in.
+    if ws is not None and agent.family == "knowledge":
+        from .tools.image_generation import image_generation_tools
+
+        registry.register_all(image_generation_tools(secrets, context))
 
     # Custom commands (opencode-style markdown /commands with $ARGUMENTS): project commands
     # under .coworker/commands, user commands under the state dir. Available to any workspace

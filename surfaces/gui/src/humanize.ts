@@ -53,6 +53,8 @@ export function humanizeTool(name: string, args: any): HumanLine {
     case "apply_patch":
     case "apply_unified_diff":
       return { pre: "Edited ", obj: a.path ? baseName(String(a.path)) : "files" };
+    case "generate_image":
+      return { pre: "Drew ", obj: a.output ? baseName(String(a.output)) : "a picture" };
     case "grep":
       return { pre: "Searched the code for ", obj: `“${trunc(String(a.pattern ?? ""), 40)}”` };
     case "git_log":
@@ -135,6 +137,8 @@ export function humanizeApprovalTitle(name: string, args: any): HumanLine {
       const { tail } = messageTarget(String(a.target ?? ""));
       return tail ? { pre: "Send a file to ", obj: tail } : { pre: "Send a file" };
     }
+    case "generate_image":
+      return a.output ? { pre: "Draw a picture — ", obj: baseName(String(a.output)) } : { pre: "Draw a picture" };
     case "create_scheduled_task":
       return a.title
         ? { pre: "Create the automation ", obj: `“${trunc(String(a.title), 60)}”` }

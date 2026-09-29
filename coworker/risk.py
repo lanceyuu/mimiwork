@@ -40,6 +40,7 @@ WRITE_PATH_ARGUMENTS = {
     "edit_image": "output",
     "annotate_image": "output",
     "combine_images": "output",
+    "generate_image": "output",
 }
 
 _BASE: dict[str, RiskClass] = {

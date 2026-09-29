@@ -666,6 +666,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return; // suspended on the approval
         }
+        // Drawing a picture: the description is the proposal, and it is what leaves the computer.
+        if (/draw a picture/i.test(msg.text)) {
+          pendingTool = "generate_image";
+          const args = {
+            prompt:
+              "Photorealistic product shot: a fluffy white Coton de Tuléar sitting beside a plain unlabeled silver can of cola on a wooden table, soft studio light, no text, no logos.",
+            output: "figures/dog-ad.png",
+            shape: "square",
+          };
+          send("tool_proposed", { name: "generate_image", arguments: args });
+          send("permission_required", { name: "generate_image", arguments: args, reason: "requires approval" });
+          return; // suspended on the approval
+        }
         // §35 compact row: a routine workspace write (content rides in the args).
         if (/write a file/i.test(msg.text)) {
           pendingTool = "write_file";
