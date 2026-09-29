@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
 
 afterEach(cleanup);
@@ -187,6 +187,62 @@ describe("Markdown mermaid fences", () => {
     vi.useRealTimers();
     expect(container.querySelector('[data-testid="mermaid"] svg')).toBeTruthy();
     expect(container.querySelectorAll("pre").length).toBe(1); // the text fence stays a code block
+  });
+});
+
+// Owner ask 2026-09-29: a long flowchart is shrunk to the column's width and its labels
+// become too small to read, so the drawn diagram can be enlarged in place.
+describe("Markdown mermaid diagrams can be zoomed", () => {
+  const drawDiagram = async () => {
+    vi.useFakeTimers();
+    const view = render(<Markdown text={"```mermaid\nflowchart LR\n  Zoom-->Me\n```"} />);
+    await vi.advanceTimersByTimeAsync(300);
+    vi.useRealTimers();
+    const zoom = () => (view.container.querySelector('[data-testid="mermaid"]') as HTMLElement).style.getPropertyValue("--zoom");
+    return { ...view, zoom };
+  };
+
+  it("starts at its normal size with nothing to reset", async () => {
+    const { zoom } = await drawDiagram();
+    expect(zoom()).toBe("1");
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Zoom out" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reset view" })).toBeNull();
+  });
+
+  it("grows with Zoom in, shrinks with Zoom out, and Reset view puts it back", async () => {
+    const { zoom } = await drawDiagram();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(Number(zoom())).toBeCloseTo(1.5625);
+    fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(Number(zoom())).toBeCloseTo(1.25);
+    fireEvent.click(screen.getByRole("button", { name: "Reset view" }));
+    expect(zoom()).toBe("1");
+    expect(screen.queryByRole("button", { name: "Reset view" })).toBeNull();
+  });
+
+  it("stops at four times its size and at half its size", async () => {
+    const { zoom } = await drawDiagram();
+    for (let i = 0; i < 12; i++) fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(zoom()).toBe("4");
+    for (let i = 0; i < 20; i++) fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+    expect(zoom()).toBe("0.5");
+  });
+
+  it("zooms on a pinch or Ctrl+scroll, and leaves a plain scroll to the page", async () => {
+    const { container, zoom } = await drawDiagram();
+    const frame = container.querySelector(".md-mermaid-frame") as HTMLElement;
+    const plain = new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true });
+    frame.dispatchEvent(plain);
+    expect(zoom()).toBe("1");
+    expect(plain.defaultPrevented).toBe(false);
+    const pinch = new WheelEvent("wheel", { deltaY: -200, ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      frame.dispatchEvent(pinch);
+    });
+    expect(Number(zoom())).toBeGreaterThan(1);
+    expect(pinch.defaultPrevented).toBe(true);
   });
 });
 
