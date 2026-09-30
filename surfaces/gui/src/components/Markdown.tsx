@@ -183,37 +183,41 @@ function filePath(href: string | undefined): string | null {
   return raw;
 }
 
+// Built once, not per render: React tells components apart by identity, so renderers made
+// inside Markdown() were new components on every render, and each re-render of the
+// transcript (every clock tick, every poll) tore down and rebuilt every diagram and chip
+// beneath them. The diagram's SVG cache hid it; its zoom did not survive (owner report
+// 2026-09-30), and an open chip menu would not have either.
+const COMPONENTS = {
+  // A ```mermaid fence becomes a drawn diagram instead of a code block.
+  pre: ({ node, children, ...props }: any) => {
+    const code: any = (node as any)?.children?.[0];
+    const cls: string[] = code?.properties?.className || [];
+    const text = code?.children?.[0]?.value;
+    if (cls.includes("language-mermaid") && typeof text === "string") return <Mermaid chart={text} />;
+    return <pre {...props}>{children}</pre>;
+  },
+  a: ({ node: _n, href, children, ...props }: any) => {
+    const path = filePath(href);
+    if (path) {
+      const title = Array.isArray(children) ? children.join("") : String(children ?? "");
+      return <ArtifactChip path={path} title={title} />;
+    }
+    return (
+      <a href={href} {...props} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+};
+// artifact: and bare relative paths are ours — keep them through the sanitizer, which
+// would otherwise drop what it does not recognise as a web URL.
+const urlTransform = (url: string) => (filePath(url) ? url : defaultUrlTransform(url));
+
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="md" data-no-translate>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        // artifact: and bare relative paths are ours — keep them through the sanitizer,
-        // which would otherwise drop what it does not recognise as a web URL.
-        urlTransform={(url) => (filePath(url) ? url : defaultUrlTransform(url))}
-        components={{
-          // A ```mermaid fence becomes a drawn diagram instead of a code block.
-          pre: ({ node, children, ...props }) => {
-            const code: any = (node as any)?.children?.[0];
-            const cls: string[] = code?.properties?.className || [];
-            const text = code?.children?.[0]?.value;
-            if (cls.includes("language-mermaid") && typeof text === "string") return <Mermaid chart={text} />;
-            return <pre {...props}>{children}</pre>;
-          },
-          a: ({ node: _n, href, children, ...props }) => {
-            const path = filePath(href);
-            if (path) {
-              const title = Array.isArray(children) ? children.join("") : String(children ?? "");
-              return <ArtifactChip path={path} title={title} />;
-            }
-            return (
-              <a href={href} {...props} target="_blank" rel="noreferrer">
-                {children}
-              </a>
-            );
-          },
-        }}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform} components={COMPONENTS}>
         {text}
       </ReactMarkdown>
     </div>

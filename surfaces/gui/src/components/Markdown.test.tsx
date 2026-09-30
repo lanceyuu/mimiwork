@@ -230,6 +230,18 @@ describe("Markdown mermaid diagrams can be zoomed", () => {
     expect(zoom()).toBe("0.5");
   });
 
+  it("keeps its zoom when the conversation redraws around it", async () => {
+    // Owner report 2026-09-30: zoom in, and a moment later the diagram is back at its
+    // normal size. The transcript re-renders on every tick of the clock and every poll;
+    // the diagram must be the same element before and after, not a fresh one.
+    const { container, rerender, zoom } = await drawDiagram();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    const drawn = container.querySelector('[data-testid="mermaid"]');
+    rerender(<Markdown text={"```mermaid\nflowchart LR\n  Zoom-->Me\n```"} />);
+    expect(container.querySelector('[data-testid="mermaid"]')).toBe(drawn);
+    expect(zoom()).toBe("1.25");
+  });
+
   it("zooms on a pinch or Ctrl+scroll, and leaves a plain scroll to the page", async () => {
     const { container, zoom } = await drawDiagram();
     const frame = container.querySelector(".md-mermaid-frame") as HTMLElement;
