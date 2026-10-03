@@ -34,6 +34,8 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
         items.push({ kind: "notice", tone: "info", text: "Almost out of steps — asked Mimi to wrap up." });
         continue;
       }
+      // Charts handed back to Mimi to check; the user already has them in the artifacts panel.
+      if (m.steering === "figures") continue;
       if (m.source?.connector) {
         items.push({ kind: "connector", source: m.source });
         continue;

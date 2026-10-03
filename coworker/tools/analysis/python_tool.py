@@ -106,6 +106,9 @@ def _shape_result(raw: dict[str, Any], roots: Any) -> dict[str, Any]:
     figures = raw.get("figures") or []
     if figures:
         result["figures"] = [display_path(Path(p), roots) for p in figures]
+        # Absolute paths for the engine to show a vision model: without seeing the chart it
+        # cannot catch an empty plot or unreadable labels before calling it done.
+        result["_images"] = [str(p) for p in figures]
 
     if error:
         result["error"] = error.get("message") or "execution failed"

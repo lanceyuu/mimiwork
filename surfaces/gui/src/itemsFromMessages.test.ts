@@ -108,3 +108,23 @@ describe("itemsFromMessages reasoning", () => {
     expect(items[2]).toEqual({ kind: "assistant", text: "", reasoning: "stopped mid-thought" });
   });
 });
+
+describe("itemsFromMessages chart review", () => {
+  it("never shows the engine's chart hand-off as a message the user sent", () => {
+    const items = itemsFromMessages([
+      { role: "user", content: "plot revenue" },
+      {
+        role: "user",
+        steering: "figures",
+        content: [
+          { type: "text", text: "The images from that step are attached." },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+        ],
+      },
+    ] as any);
+
+    const users = items.filter((i: any) => i.kind === "user") as any[];
+    expect(users).toHaveLength(1);
+    expect(users[0].text).toBe("plot revenue");
+  });
+});

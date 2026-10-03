@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -94,6 +95,19 @@ _FAILURE_HINT = (
     "Your last {n} tool calls failed. Use only these tools, with their exact parameter "
     "names: {tools}. If the work is already done, stop and report where it is."
 )
+# Images a tool produced (charts from run_python) are shown to a vision model right after
+# the batch, so it can check them before describing them. They ride only that one request:
+# the QualiTaTi gateway routes any image-bearing request to its multimodal model, so images
+# kept in history would move the rest of the session onto it (and re-send every chart).
+# ponytail: first 4 per batch, each under the ~5 MB providers accept; the rest stay on disk.
+_MAX_SHOWN_IMAGES = 4
+_MAX_SHOWN_IMAGE_BYTES = 3_500_000
+_FIGURES_TEXT = (
+    "The images from that step are attached. Look at them before you describe them: is "
+    "each one readable (labels, legend, scale) and does it show what you intended? Fix and "
+    "redraw any that are not."
+)
+_FIGURES_SEEN_TEXT = "(You were shown these images after that step: {names}.)"
 
 
 @dataclass
@@ -221,6 +235,8 @@ class TurnEngine:
         self._control_loop: Optional[asyncio.AbstractEventLoop] = None
         # Each pending steering message: (text, optional MessageSource sidecar dict).
         self._steering: list[tuple[str, Optional[dict[str, Any]]]] = []
+        # Absolute paths of images this tool batch produced (a tool's private `_images` key).
+        self._pending_images: list[str] = []
         # tool_call.id → the standing rule that auto-allowed it ("tool → target"), so the
         # TOOL_FINISHED event can carry the note to the tool card (§25).
         self._standing_notes: dict[str, str] = {}
@@ -834,6 +850,7 @@ class TurnEngine:
 
             async for event in self._handle_tool_calls(turn.tool_calls):
                 yield event
+            self._show_pending_images()
 
             if self._fail_streak >= FAIL_STOP_AT:
                 self._append_notice(
@@ -1636,6 +1653,24 @@ class TurnEngine:
         }
         return shaped
 
+    def _show_pending_images(self) -> None:
+        """Hand the batch's images to the model as one follow-up message, tagged as steering so
+        the GUI and compaction never mistake it for the user's words. Nothing for a model without
+        vision: it would only receive placeholders."""
+        paths, self._pending_images = self._pending_images, []
+        if not paths or not getattr(self.provider.capabilities(self.model), "vision", False):
+            return
+        # Paths, not pixels: `_outbound_messages` attaches them to the next request only.
+        self.messages.append(
+            {
+                "role": "user",
+                "content": _FIGURES_TEXT,
+                "ts": time.time(),
+                "steering": "figures",
+                "_images": paths[:_MAX_SHOWN_IMAGES],
+            }
+        )
+
     def _record_result(self, tool_call: ToolCall, result: Any, status: str) -> Event:
         # A `_display` key on a tool result is user-facing metadata the AGENT must
         # never see (e.g. how many gmail hits the privacy filters hid — a count
@@ -1646,6 +1681,9 @@ class TurnEngine:
         if isinstance(result, dict) and "_display" in result:
             display = result.get("_display") or None
             result = {k: v for k, v in result.items() if k != "_display"}
+        if isinstance(result, dict) and "_images" in result:
+            self._pending_images.extend(str(p) for p in result.get("_images") or [])
+            result = {k: v for k, v in result.items() if k != "_images"}
         message = _tool_result_message(tool_call, result, self.spill)
         if display:
             message["_display"] = display
@@ -1981,12 +2019,12 @@ class TurnEngine:
         # (thinking text), and `usage` (token counts) — copying only messages that carry
         # one. Whole `notice` messages (error/interrupted/model-switch markers) are
         # display-only too: dropped entirely.
-        _SIDECARS = ("source", "_display", "ts", "reasoning", "usage", "steering")
+        _SIDECARS = ("source", "_display", "ts", "reasoning", "usage", "steering", "_images")
         # Auto-compaction (OPE-27): everything before the boundary is represented by the
         # compacted block. Outbound-only — the canonical history stays intact — and the
         # block+tail are byte-stable between turns, so prompt caching keeps working.
-        source_messages = _compaction.apply_to_outbound(
-            self.messages, self.compaction_state
+        source_messages = _with_pending_images(
+            _compaction.apply_to_outbound(self.messages, self.compaction_state)
         )
         out = [
             (
@@ -2155,6 +2193,45 @@ def _assistant_message(turn: AssistantTurn, model: Optional[str] = None) -> dict
             for tc in turn.tool_calls
         ]
     return message
+
+
+def _with_pending_images(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach a figures message's images only while the model has not yet answered it;
+    afterwards it shrinks to a one-line note naming what was shown."""
+    last_reply = max(
+        (i for i, m in enumerate(messages) if m.get("role") == "assistant"), default=-1
+    )
+    out = list(messages)
+    for i, message in enumerate(messages):
+        paths = message.get("_images")
+        if message.get("steering") != "figures" or not paths:
+            continue
+        if i > last_reply:
+            parts = [part for part in map(_image_part, paths) if part]
+            if parts:
+                out[i] = {**message, "content": [{"type": "text", "text": message["content"]}, *parts]}
+        else:
+            names = ", ".join(os.path.basename(p) for p in paths)
+            out[i] = {**message, "content": _FIGURES_SEEN_TEXT.format(names=names)}
+    return out
+
+
+def _image_part(path: str) -> Optional[dict[str, Any]]:
+    import base64
+    import mimetypes
+
+    mime = mimetypes.guess_type(path)[0] or ""
+    if not mime.startswith("image/"):
+        return None
+    try:
+        with open(path, "rb") as fh:
+            data = fh.read(_MAX_SHOWN_IMAGE_BYTES + 1)
+    except OSError:
+        return None
+    if not data or len(data) > _MAX_SHOWN_IMAGE_BYTES:
+        return None
+    url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    return {"type": "image_url", "image_url": {"url": url}}
 
 
 def _tool_result_message(

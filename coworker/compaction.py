@@ -289,7 +289,8 @@ def extract_user_messages(
     ground truth of intent and must not depend on an LLM remembering to include them."""
     out: list[str] = []
     for msg in span:
-        if msg.get("role") != "user":
+        # Engine nudges (checkpoints, chart reviews) ride as role "user" but are not intent.
+        if msg.get("role") != "user" or msg.get("steering"):
             continue
         text = " ".join(_text_of(msg.get("content")).split())
         if not text:

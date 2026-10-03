@@ -1,6 +1,7 @@
 """The persistent Python kernel: state survives, failures don't kill it, timeouts recover."""
 
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -192,3 +193,25 @@ def test_stale_pump_sentinel_cannot_poison_a_restarted_kernel(tmp_path):
         assert result["stdout"].strip() == "fresh"
     finally:
         k.close()
+
+
+@pytest.mark.skipif(
+    __import__("importlib.util", fromlist=["util"]).find_spec("matplotlib") is None,
+    reason="matplotlib is an optional [analysis] extra",
+)
+def test_run_python_hands_its_charts_to_the_model_as_images(tmp_path):
+    """The model checks a chart only if it can see it; a path alone proves nothing."""
+    from types import SimpleNamespace
+
+    from coworker.tools.analysis.python_tool import python_tools
+
+    context = SimpleNamespace(workspace=tmp_path, roots=None)
+    run_python = python_tools(context)[0]
+    try:
+        result = run_python("import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])")
+    finally:
+        context.python_kernel.close()
+
+    assert result["figures"] == ["figures/figure-01.png"]
+    assert len(result["_images"]) == 1
+    assert Path(result["_images"][0]).read_bytes().startswith(b"\x89PNG")
