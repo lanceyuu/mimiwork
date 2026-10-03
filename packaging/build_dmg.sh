@@ -72,6 +72,8 @@ fi
 echo "==> [1/5] PyInstaller: bundling openworker-server ($TRIPLE)"
 "$PLATFORM/.venv/bin/pyinstaller" --noconfirm --clean \
   --distpath "$HERE/dist" --workpath "$HERE/build" "$HERE/openworker-server.spec"
+# Releases 0.1.7-0.6.24 shipped a kernel that could not start; only the frozen binary shows it.
+"$PLATFORM/.venv/bin/python" "$HERE/probe_sidecar.py" "$HERE/dist/openworker-server/openworker-server"
 
 echo "==> [2/5] staging sidecar resources"
 # Onedir bundle (exe + _internal/) ships via Tauri `resources` as Contents/Resources/sidecar/

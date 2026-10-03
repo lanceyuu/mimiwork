@@ -73,6 +73,7 @@ analysis = [
     "pyreadstat>=1.2",  # SPSS .sav / Stata .dta INCLUDING variable + value labels
     "matplotlib>=3.7",
     "scipy>=1.10",      # statistical tests in the analysis kernel
+    "statsmodels>=0.14",  # regression, ANOVA, mixed models: what scipy alone cannot fit
 ]
 # Everything a knowledge-work install needs in one extra: office deliverables + the
 # analysis kernel (self-referential extras, so the lists stay in sync).

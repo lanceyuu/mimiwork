@@ -91,6 +91,10 @@ Write-Host "==> [1/3] PyInstaller: bundling openworker-server ($Triple)" -Foregr
     --distpath (Join-Path $Here "dist") --workpath (Join-Path $Here "build") `
     (Join-Path $Here "openworker-server.spec")
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed (exit $LASTEXITCODE)" }
+# Releases 0.1.7-0.6.24 shipped a kernel that could not start; only the frozen binary shows it.
+& (Join-Path $Venv "Scripts\python.exe") (Join-Path $Here "probe_sidecar.py") `
+    (Join-Path $Here "dist\openworker-server\openworker-server.exe")
+if ($LASTEXITCODE -ne 0) { throw "The frozen sidecar failed the analysis kernel probe" }
 
 Write-Host "==> [2/3] staging sidecar resources" -ForegroundColor Cyan
 # Onedir bundle (exe + _internal\) ships via Tauri `resources`, landing at <install>\sidecar\

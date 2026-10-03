@@ -34,6 +34,10 @@ from contextlib import redirect_stderr, redirect_stdout
 MAX_STREAM_CHARS = 200_000
 MAX_VALUE_CHARS = 20_000
 
+# How the frozen sidecar is asked to become this kernel: a PyInstaller binary is not an
+# interpreter, so `-m` means nothing to it (packaging/server_entry.py dispatches on this).
+ENTRY_FLAG = "--analysis-kernel"
+
 
 def _bootstrap(workdir: str) -> dict:
     """The persistent namespace. Display options are set so a dataframe repr stays readable

@@ -116,6 +116,7 @@ for pkg in ("slack_bolt", "telegram"):  # [messaging] extra — optional
 #   matplotlib ships its font cache and mpl-data (styles, and the DejaVu fonts)
 #   pyreadstat carries the compiled ReadStat library that parses .sav/.dta
 #   scipy      loads its extension modules dynamically
+#   statsmodels lazy-loads its formula API (patsy) and compiled smoothers
 # `six` is required by python-pptx at runtime and is easy to miss.
 for pkg in (
     "docx",
@@ -127,6 +128,7 @@ for pkg in (
     "matplotlib",
     "pyreadstat",
     "scipy",
+    "statsmodels",
     "pdfplumber",
     "six",
 ):

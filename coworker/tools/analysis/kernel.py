@@ -24,6 +24,8 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from ._kernel_child import ENTRY_FLAG
+
 DEFAULT_TIMEOUT = 120.0
 MAX_TIMEOUT = 600.0
 _STARTUP_TIMEOUT = 60.0
@@ -81,15 +83,12 @@ class PythonKernel:
         else:
             preexec = os.setsid
 
+        if getattr(sys, "frozen", False):
+            launch = [self.python, ENTRY_FLAG]
+        else:
+            launch = [self.python, "-u", "-m", "coworker.tools.analysis._kernel_child"]
         self._process = subprocess.Popen(
-            [
-                self.python,
-                "-u",
-                "-m",
-                "coworker.tools.analysis._kernel_child",
-                str(self.workdir),
-                str(self.figures_dir),
-            ],
+            [*launch, str(self.workdir), str(self.figures_dir)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
