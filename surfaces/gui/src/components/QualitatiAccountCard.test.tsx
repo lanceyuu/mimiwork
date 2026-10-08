@@ -69,6 +69,50 @@ describe("QualitatiAccountCard", () => {
     expect(screen.getByTestId("qualitati-profile").textContent).toContain("scholar");
   });
 
+  it("Google sign-in opens the browser and the card signs in when it lands", async () => {
+    const calls = stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_OUT },
+      { match: "/v1/qualitati/social?", json: { providers: ["google", "microsoft"] } },
+      { match: "/v1/qualitati/social/start", method: "POST", json: { ok: true, url: "https://api.example/start" } },
+      { match: "/v1/qualitati/social/poll", json: { pending: true } },
+    ]);
+    render(<QualitatiAccountCard />);
+    fireEvent.click(await screen.findByTestId("qualitati-social-google"));
+    await waitFor(() => expect(openExternal).toHaveBeenCalledWith("https://api.example/start"));
+    expect(calls.find((c) => c.url.includes("/social/start"))?.body).toEqual({ provider: "google", site: "global" });
+    expect(screen.getByTestId("qualitati-social-waiting").textContent).toContain("Google");
+
+    stubFetch([
+      { match: "/v1/qualitati/social/poll", json: { pending: false, ...SIGNED_IN } },
+      { match: "/v1/qualitati/status", json: SIGNED_IN },
+    ]);
+    await waitFor(() => expect(screen.getByTestId("qualitati-profile")).toBeTruthy(), { timeout: 4000 });
+  });
+
+  it("a sign-in that stops short in the browser says why", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_OUT },
+      { match: "/v1/qualitati/social?", json: { providers: ["microsoft"] } },
+      { match: "/v1/qualitati/social/start", method: "POST", json: { ok: true, url: "https://api.example/start" } },
+      { match: "/v1/qualitati/social/poll", json: { pending: false, ok: false, error: "Sign-in was cancelled in the browser." } },
+    ]);
+    render(<QualitatiAccountCard />);
+    expect(screen.queryByTestId("qualitati-social-google")).toBeNull();
+    fireEvent.click(await screen.findByTestId("qualitati-social-microsoft"));
+    await waitFor(() => expect(screen.getByTestId("qualitati-error").textContent).toContain("cancelled"), { timeout: 4000 });
+    expect(screen.getByTestId("qualitati-social-microsoft")).toBeTruthy();
+  });
+
+  it("no Google or Microsoft buttons when the site does not offer them", async () => {
+    stubFetch([
+      { match: "/v1/qualitati/status", json: SIGNED_OUT },
+      { match: "/v1/qualitati/social?", json: { providers: [] } },
+    ]);
+    render(<QualitatiAccountCard />);
+    await screen.findByTestId("qualitati-username");
+    expect(screen.queryByTestId("qualitati-social")).toBeNull();
+  });
+
   it("an MFA-protected account gets the code step", async () => {
     stubFetch([
       { match: "/v1/qualitati/status", json: SIGNED_OUT },

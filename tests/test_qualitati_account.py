@@ -637,3 +637,82 @@ def test_the_china_provider_and_its_tiers_exist():
     assert [f.default for f in d.fields if f.key == "base_url"] == ["https://qualitati.cn/api/llm/v1"]
     for tier in ("puppy", "hound", "wolf", "werewolf"):
         assert "质见中国" in MATRIX[f"qualitati_cn:mimi-{tier}"].label
+
+
+# ── Google / Microsoft: browser + loopback callback, PKCE-bound ─────────────
+
+def _social_app(tmp_path, monkeypatch, config, exchange=(200, {"access_token": "jwt-g", "username": "gina"})):
+    import base64
+    import hashlib
+
+    seen = {}
+
+    def exchange_reply(kw):
+        seen["verifier"] = kw["json"]["verifier"]
+        return exchange
+
+    fake = wire(monkeypatch, {
+        ("GET", "/api/config"): (200, config),
+        ("POST", "/api/auth/desktop/exchange"): exchange_reply,
+        ("POST", "/api/keys"): (200, {"id": 9, "key": "qt_gkey"}),
+        ("GET", "/api/user/profile"): (200, {**PROFILE_BODY, "username": "gina"}),
+    })
+    monkeypatch.setenv("COWORKER_API_TOKEN", "launch-token")
+    monkeypatch.setenv("COWORKER_PORT", "51234")
+    manager = SessionManager(workspace=tmp_path)
+    client = TestClient(create_app(manager), headers={"x-openworker-token": "launch-token"})
+
+    def challenge_matches(url):
+        from urllib.parse import parse_qs, urlparse
+
+        q = parse_qs(urlparse(url).query)
+        digest = hashlib.sha256(seen["verifier"].encode()).digest()
+        return q["challenge"][0] == base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+
+    return manager, client, fake, challenge_matches
+
+
+LIVE_CONFIG = {"social_signin": ["google", "microsoft"], "social_signin_desktop": True}
+
+
+def test_google_sign_in_finishes_through_the_loopback_callback(tmp_path, monkeypatch):
+    manager, client, _fake, challenge_matches = _social_app(tmp_path, monkeypatch, LIVE_CONFIG)
+    assert client.get("/v1/qualitati/social").json() == {"providers": ["google", "microsoft"]}
+
+    start = client.post("/v1/qualitati/social/start", json={"provider": "google"}).json()
+    assert start["ok"] and "/api/auth/google/start?desktop=51234&challenge=" in start["url"]
+    assert client.get("/v1/qualitati/social/poll").json() == {"pending": True}
+
+    # The browser carries no launch token; the callback must still be reachable.
+    page = TestClient(client.app).get("/qualitati/social/callback", params={"code": "handoff"})
+    assert page.status_code == 200 and "Signed in" in page.text
+    assert challenge_matches(start["url"])  # the verifier sent matches the challenge given out
+
+    done = client.get("/v1/qualitati/social/poll").json()
+    assert done["pending"] is False and done["ok"] and done["provider_configured"]
+    assert manager.secrets.get(AUTH_PROFILE)["username"] == "gina"
+    assert manager.secrets.get(PROVIDER_PROFILE)["api_key"] == "qt_gkey"
+
+
+def test_a_cancelled_or_replayed_callback_signs_nobody_in(tmp_path, monkeypatch):
+    manager, client, fake, _ = _social_app(tmp_path, monkeypatch, LIVE_CONFIG)
+    browser = TestClient(client.app)
+    assert browser.get("/qualitati/social/callback", params={"code": "x"}).status_code == 400  # nothing started
+
+    client.post("/v1/qualitati/social/start", json={"provider": "microsoft"})
+    page = browser.get("/qualitati/social/callback", params={"error": "mfa"})
+    assert page.status_code == 400 and "two-step verification" in page.text
+    poll = client.get("/v1/qualitati/social/poll").json()
+    assert poll["pending"] is False and not poll["ok"] and "two-step" in poll["error"]
+    # A second landing for the same flow is refused, not exchanged.
+    assert browser.get("/qualitati/social/callback", params={"code": "late"}).status_code == 400
+    assert not any(url.endswith("/exchange") for _, url, _ in fake.calls)
+    assert manager.secrets.get(AUTH_PROFILE) is None
+
+
+def test_no_buttons_until_the_site_can_finish_the_sign_in_in_the_app(tmp_path, monkeypatch):
+    # An older QualiTaTi lists providers for its website but would leave the app signed out.
+    _, client, _, _ = _social_app(tmp_path, monkeypatch, {"social_signin": ["google"]})
+    assert client.get("/v1/qualitati/social").json() == {"providers": []}
+    out = client.post("/v1/qualitati/social/start", json={"provider": "google"}).json()
+    assert out["ok"] is False

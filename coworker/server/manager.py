@@ -2607,6 +2607,53 @@ class SessionManager:
         self._adopt_qualitati_models(out, site)
         return out
 
+    # One Google/Microsoft sign-in in flight at a time: {site, verifier, result}. A new
+    # start replaces it, so a tab abandoned in the browser never blocks the next try.
+    _qt_social: Optional[dict[str, Any]] = None
+
+    def qualitati_social_providers(self, site: str = "global") -> dict[str, Any]:
+        return {"providers": self._qualitati(site).social_providers()}
+
+    def qualitati_social_start(self, provider: str, site: str = "global") -> dict[str, Any]:
+        import base64
+        import hashlib
+        import secrets as _secrets
+
+        client = self._qualitati(site)
+        if provider not in client.social_providers():
+            return {"ok": False, "error": f"{provider.title()} sign-in is not available for this site"}
+        verifier = _secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        self._qt_social = {"site": site, "verifier": verifier, "result": None}
+        port = int(os.environ.get("COWORKER_PORT") or "8765")
+        return {"ok": True, "url": client.social_start_url(provider, port, challenge)}
+
+    def qualitati_social_callback(self, code: str, error: str) -> dict[str, Any]:
+        """The browser landed on the loopback callback. Returns what the page should say;
+        the GUI picks the same result up from qualitati_social_poll."""
+        from ..qualitati import SOCIAL_ERRORS
+
+        flow = self._qt_social
+        if not flow or flow["result"] is not None:
+            return {"ok": False, "error": "Nothing is waiting for this sign-in. Start it again from MimiWork."}
+        site = flow["site"]
+        if error or not code:
+            out: dict[str, Any] = {"ok": False, "error": SOCIAL_ERRORS.get(error, "Sign-in did not finish. Try again.")}
+        else:
+            out = self._qualitati(site).social_finish(code, flow["verifier"])
+            self._qualitati_key_changed(site)
+            self._adopt_qualitati_models(out, site)
+        flow["result"] = out
+        return out
+
+    def qualitati_social_poll(self) -> dict[str, Any]:
+        flow = self._qt_social
+        if not flow:
+            return {"pending": False, "ok": False, "error": "no sign-in in progress"}
+        if flow["result"] is None:
+            return {"pending": True}
+        return {"pending": False, **flow["result"]}
+
     def qualitati_status(self, site: str = "global") -> dict[str, Any]:
         """Signed-in state for the account card. A session that is signed in but has no
         gateway key gets one here, silently: the user did everything right, and the only

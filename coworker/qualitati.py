@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Optional
+from urllib.parse import urlencode
 
 import httpx
 
@@ -54,6 +55,14 @@ SITES: dict[str, dict[str, str]] = {
         "keys": "provider:qualitati_cn",
         "title": "质见中国",
     },
+}
+SOCIAL_PROVIDERS = ("google", "microsoft")
+# What QualiTaTi's callback reports when a Google/Microsoft sign-in stops short.
+SOCIAL_ERRORS = {
+    "cancelled": "Sign-in was cancelled in the browser.",
+    "expired": "The sign-in took too long. Start it again from MimiWork.",
+    "email_unverified": "That account has no confirmed email address, so QualiTaTi cannot use it.",
+    "mfa": "This account uses two-step verification. Sign in with your username and password instead.",
 }
 MIMI_TIERS = ("mimi-puppy", "mimi-hound", "mimi-wolf", "mimi-werewolf")
 
@@ -155,6 +164,42 @@ class QualitatiClient:
         if r.status_code != 200 or not body or not body.get("access_token"):
             return {"ok": False, "error": _detail(r) or "invalid MFA code"}
         return self._finish_login(pending, body["access_token"])
+
+    # ── Google / Microsoft (browser + loopback, PKCE) ──────────────────────────
+    # The provider page opens in the user's browser; QualiTaTi then sends a 5-minute
+    # code to the sidecar's loopback callback, and only this process holds the
+    # verifier that turns it into a session.
+
+    def social_providers(self) -> list[str]:
+        """Providers this site can finish inside the app. An older backend reports
+        `social_signin` without `social_signin_desktop` and would end the sign-in on
+        the website, leaving the app signed out — so it gets no buttons."""
+        try:
+            r = httpx.get(f"{self.base}/api/config", timeout=_TIMEOUT)
+        except httpx.HTTPError:
+            return []
+        body = _json_object(r) if r.status_code == 200 else None
+        if not body or body.get("social_signin_desktop") is not True:
+            return []
+        return [p for p in body.get("social_signin") or [] if p in SOCIAL_PROVIDERS]
+
+    def social_start_url(self, provider: str, port: int, challenge: str) -> str:
+        query = urlencode({"desktop": port, "challenge": challenge})
+        return f"{self.base}/api/auth/{provider}/start?{query}"
+
+    def social_finish(self, code: str, verifier: str) -> dict[str, Any]:
+        try:
+            r = httpx.post(
+                f"{self.base}/api/auth/desktop/exchange",
+                json={"code": code, "verifier": verifier},
+                timeout=_TIMEOUT,
+            )
+        except httpx.HTTPError as e:
+            return {"ok": False, "error": f"could not reach QualiTaTi: {e}"}
+        body = _json_object(r)
+        if r.status_code != 200 or not body or not body.get("access_token") or not body.get("username"):
+            return {"ok": False, "error": _detail(r) or "sign-in did not finish — try again"}
+        return self._finish_login(body["username"], body["access_token"])
 
     def register(
         self,

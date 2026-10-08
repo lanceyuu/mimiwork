@@ -191,6 +191,9 @@ def create_app(manager: SessionManager) -> FastAPI:
         "/auth/callback",
         "/mcp/oauth/callback",
         "/oauth/callback",
+        # The browser lands here after Google/Microsoft; it carries no sidecar token.
+        # Harmless without one: the code is useless without this process's PKCE verifier.
+        "/qualitati/social/callback",
     }
 
     def _request_authenticated(request: Request) -> bool:
@@ -1351,6 +1354,34 @@ def create_app(manager: SessionManager) -> FastAPI:
     async def qualitati_verify_mfa(body: dict) -> dict[str, Any]:
         b = body or {}
         return await asyncio.to_thread(manager.qualitati_verify_mfa, b.get("code", ""), _qt_site(b.get("site")))
+
+    @app.get("/v1/qualitati/social")
+    async def qualitati_social_providers(site: str = "global") -> dict[str, Any]:
+        return await asyncio.to_thread(manager.qualitati_social_providers, _qt_site(site))
+
+    @app.post("/v1/qualitati/social/start")
+    async def qualitati_social_start(body: dict) -> dict[str, Any]:
+        b = body or {}
+        return await asyncio.to_thread(
+            manager.qualitati_social_start, str(b.get("provider") or ""), _qt_site(b.get("site"))
+        )
+
+    @app.get("/v1/qualitati/social/poll")
+    def qualitati_social_poll() -> dict[str, Any]:
+        return manager.qualitati_social_poll()
+
+    @app.get("/qualitati/social/callback")
+    async def qualitati_social_callback(code: str = "", error: str = "") -> Any:
+        from fastapi.responses import HTMLResponse
+
+        out = await asyncio.to_thread(manager.qualitati_social_callback, code, error)
+        if out.get("ok"):
+            return HTMLResponse(
+                _browser_page("Signed in", "You are signed in to QualiTaTi. You can close this tab and return to MimiWork.")
+            )
+        return HTMLResponse(
+            _browser_page("Sign-in did not finish", str(out.get("error") or ""), ok=False), status_code=400
+        )
 
     @app.post("/v1/qualitati/reconnect")
     def qualitati_reconnect(site: str = "global") -> dict[str, Any]:

@@ -21,6 +21,9 @@ import {
   qualitatiLogout,
   qualitatiReconnect,
   qualitatiRegister,
+  qualitatiSocialPoll,
+  qualitatiSocialProviders,
+  qualitatiSocialStart,
   qualitatiStatus,
   qualitatiVerifyMfa,
   testModel,
@@ -28,6 +31,7 @@ import {
   type QualitatiFootprint,
   type QualitatiRegion,
   type QualitatiSite,
+  type QualitatiSocialProvider,
   QUALITATI_SITE_PROVIDER,
   QUALITATI_SITE_URL,
   type QualitatiRegisterResult,
@@ -53,6 +57,26 @@ const MIMI_TIER_DEFS = [
   { id: "mimi-wolf", label: "Mimi Wolf", blurb: "powerful · spends credits" },
   { id: "mimi-werewolf", label: "Mimi Werewolf", blurb: "frontier · the strongest tier" },
 ] as const;
+
+const SOCIAL_LABEL: Record<QualitatiSocialProvider, string> = { google: "Google", microsoft: "Microsoft" };
+const SOCIAL_MARK: Record<QualitatiSocialProvider, JSX.Element> = {
+  google: (
+    <svg width="15" height="15" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C41.4 35.2 44 30 44 24c0-1.3-.1-2.3-.4-3.5z" />
+    </svg>
+  ),
+  microsoft: (
+    <svg width="13" height="13" viewBox="0 0 21 21" aria-hidden="true">
+      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+    </svg>
+  ),
+};
 
 const fmtCarbon = (g: number) => (g < 1 ? `${(g * 1000).toFixed(0)} mg` : g < 1000 ? `${g.toFixed(2)} g` : `${(g / 1000).toFixed(2)} kg`);
 const fmtWater = (l: number) => (l < 1 ? `${(l * 1000).toFixed(1)} mL` : `${l.toFixed(2)} L`);
@@ -91,10 +115,41 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
   const [tested, setTested] = useState<Record<string, { ok: boolean; text: string }>>({});
   const refreshSettings = () => getSettings().then(setSettings).catch(() => setSettings(null));
 
+  // Google/Microsoft: the provider page opens in the user's browser and lands back on the
+  // sidecar; the card polls until it does. Only offered when the site says the app can
+  // finish the sign-in itself (never on 质见中国).
+  const [socialProviders, setSocialProviders] = useState<QualitatiSocialProvider[]>([]);
+  const [socialWaiting, setSocialWaiting] = useState<QualitatiSocialProvider | null>(null);
+
   const refresh = () => qualitatiStatus(site).then(setState).catch(() => setState(null));
   useEffect(() => {
     refresh();
+    qualitatiSocialProviders(site).then(setSocialProviders).catch(() => setSocialProviders([]));
   }, []);
+  useEffect(() => {
+    if (!socialWaiting) return;
+    // The server's sign-in window is 15 minutes; stop asking well after any human would.
+    const giveUp = Date.now() + 10 * 60_000;
+    const timer = window.setInterval(async () => {
+      const r = await qualitatiSocialPoll().catch(() => null);
+      if (r?.pending && Date.now() < giveUp) return;
+      window.clearInterval(timer);
+      setSocialWaiting(null);
+      finish(r && !r.pending ? r : { ok: false, signed_in: false, error: "The sign-in took too long. Try again." });
+    }, 1500);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socialWaiting]);
+  const startSocial = async (provider: QualitatiSocialProvider) => {
+    setError(null);
+    const r = await qualitatiSocialStart(provider, site).catch(() => ({ ok: false, url: undefined, error: "server unreachable" }));
+    if (!r.ok || !r.url) {
+      setError(r.error || "sign-in could not start");
+      return;
+    }
+    openExternal(r.url);
+    setSocialWaiting(provider);
+  };
   // Which tiers are already in the picker — read once signed in, and again after a
   // sign-in/reconnect flips that.
   useEffect(() => {
@@ -500,6 +555,37 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
               {siteUrl.replace("https://", "")} ↗
             </button>
           </div>
+          {socialProviders.length > 0 && (
+            <div className="mt-2.5 max-w-[430px]" data-testid={tid("qualitati-social")}>
+              {socialWaiting ? (
+                <div className="flex items-center gap-2 text-[12.5px] text-muted" data-testid={tid("qualitati-social-waiting")}>
+                  <span>Finish signing in with {SOCIAL_LABEL[socialWaiting]} in your browser…</span>
+                  <button className="underline underline-offset-2 hover:text-ink" onClick={() => setSocialWaiting(null)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {socialProviders.map((p) => (
+                    <button
+                      key={p}
+                      className="btn text-[12.5px] inline-flex items-center gap-2"
+                      onClick={() => startSocial(p)}
+                      data-testid={tid(`qualitati-social-${p}`)}
+                    >
+                      {SOCIAL_MARK[p]}
+                      Continue with {SOCIAL_LABEL[p]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="mt-2.5 flex items-center gap-2 text-[11.5px] text-faint">
+                <span className="h-px flex-1 bg-line" />
+                or with a QualiTaTi username
+                <span className="h-px flex-1 bg-line" />
+              </div>
+            </div>
+          )}
           {registered && mode === "signin" && (
             <div
               className="mt-2 rounded-lg border border-ok-line bg-ok-soft px-2.5 py-1.5 text-[12px]"

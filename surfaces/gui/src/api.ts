@@ -2678,6 +2678,32 @@ export async function qualitatiVerifyMfa(code: string, site: QualitatiSite = "gl
   return res.json();
 }
 
+export type QualitatiSocialProvider = "google" | "microsoft";
+
+/** Google/Microsoft sign-in this site can finish inside the app (empty on 质见中国). */
+export async function qualitatiSocialProviders(site: QualitatiSite = "global"): Promise<QualitatiSocialProvider[]> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/social?site=${site}`);
+  return (await res.json()).providers ?? [];
+}
+
+/** Starts the browser sign-in; open the returned url, then poll until it lands. */
+export async function qualitatiSocialStart(
+  provider: QualitatiSocialProvider,
+  site: QualitatiSite = "global",
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/social/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, site }),
+  });
+  return res.json();
+}
+
+export async function qualitatiSocialPoll(): Promise<QualitatiStatus & { pending: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/qualitati/social/poll`);
+  return res.json();
+}
+
 /** Signed in but the Mimi models aren't offered — mint the gateway key again. */
 export async function qualitatiReconnect(site: QualitatiSite = "global"): Promise<{
   ok: boolean;
