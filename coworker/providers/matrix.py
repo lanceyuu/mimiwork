@@ -108,11 +108,16 @@ MATRIX: dict[str, ModelEntry] = {
     # can read them, at the cheapest leg's rate). Hound ≈ 26 credits per 1M
     # blended tokens. (vision yes, pdf no — the gateway is OpenAI-compat, no
     # inline file part.)
+    # Hound's text legs run Claude Haiku 5.5 (1M) since 2026-10. Its backup and image
+    # legs can be smaller; a long history landing there overflows, and the engine's
+    # overflow path compacts and retries — cheaper than holding every Hound session to
+    # the smallest leg's window (owner call 2026-10-10, accepting Haiku's >100k rate).
     "qualitati:mimi-hound": ModelEntry(
         label="Mimi Hound · free, robust",
         caps=ModelCapabilities(
             tools=True, vision=True, parallel_tool_calls=True, streaming=True
         ),
+        context_window=1_000_000,
     ),
     "qualitati:mimi-wolf": ModelEntry(
         label="Mimi Wolf · powerful",

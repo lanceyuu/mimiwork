@@ -355,3 +355,12 @@ def test_model_context_windows_covers_verified_entries_only():
     assert windows["anthropic:claude-fable-5"] == 1_000_000
     assert "together:thinkingmachines/Inkling" not in windows  # unverified stays absent
     assert all(isinstance(v, int) and v > 0 for v in windows.values())
+
+
+def test_mimi_hound_compacts_at_the_cap_now_that_it_runs_on_a_1m_model():
+    from coworker.compaction import DEFAULT_CAP_TOKENS, trigger_tokens
+
+    window = model_context_windows()["qualitati:mimi-hound"]
+    assert trigger_tokens(window) == DEFAULT_CAP_TOKENS
+    # The China site's Hound is still DeepSeek, so it keeps the conservative default.
+    assert "qualitati_cn:mimi-hound" not in model_context_windows()
