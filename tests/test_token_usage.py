@@ -357,10 +357,12 @@ def test_model_context_windows_covers_verified_entries_only():
     assert all(isinstance(v, int) and v > 0 for v in windows.values())
 
 
-def test_mimi_hound_compacts_at_the_cap_now_that_it_runs_on_a_1m_model():
+def test_mimi_hound_and_wolf_compact_at_the_cap_now_that_they_run_on_a_1m_model():
     from coworker.compaction import DEFAULT_CAP_TOKENS, trigger_tokens
 
-    window = model_context_windows()["qualitati:mimi-hound"]
-    assert trigger_tokens(window) == DEFAULT_CAP_TOKENS
-    # The China site's Hound is still DeepSeek, so it keeps the conservative default.
-    assert "qualitati_cn:mimi-hound" not in model_context_windows()
+    windows = model_context_windows()
+    for tier in ("qualitati:mimi-hound", "qualitati:mimi-wolf"):
+        assert trigger_tokens(windows[tier]) == DEFAULT_CAP_TOKENS
+    # The China site's tiers are still DeepSeek, so they keep the conservative default.
+    assert "qualitati_cn:mimi-hound" not in windows
+    assert "qualitati_cn:mimi-wolf" not in windows
