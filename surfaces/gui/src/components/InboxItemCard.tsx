@@ -5,6 +5,7 @@ import { humanizeApprovalTitle } from "../humanize";
 import {
   approvalActionLabels,
   PreviewBlock,
+  DelegatePreview,
   SaveSkillPreview,
   scopeNote,
   TitleText,
@@ -332,6 +333,8 @@ export function InboxItemCard({
       {item.kind === "approval" && item.data?.tool === "save_skill" ? (
         // Parked skill proposals wear the same review surface as the live card (§5.2).
         <SaveSkillPreview args={item.data.arguments} />
+      ) : item.kind === "approval" && item.data?.tool === "delegate_to_agent" ? (
+        <DelegatePreview args={item.data.arguments} />
       ) : item.kind === "approval" && item.data?.tool && typeof item.data.arguments?.content === "string" ? (
         <PreviewBlock text={item.data.arguments.content} />
       ) : item.kind === "approval" && item.data?.tool && typeof item.data.arguments?.command === "string" ? (

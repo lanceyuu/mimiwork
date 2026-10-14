@@ -46,7 +46,7 @@ from .risk import SHELL_TOOL, classify, is_consequential
 from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
-from .tools.context import tool_model
+from .tools.context import tool_model, tool_progress
 
 
 class ApprovalOutcome(str, Enum):
@@ -1358,7 +1358,31 @@ class TurnEngine:
                 continue
             yield Event(EventType.TOOL_STARTED, {"name": tool_call.name})
             self._audit(tool_call, stage="started")
-            result, status = await self._execute_interruptibly(tool_call)
+            # Serial calls only: a hand-off to a coding agent runs for minutes and is never
+            # parallel-safe, and progress interleaved from concurrent calls would be noise.
+            progress: asyncio.Queue[str] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+            token = tool_progress.set(lambda text, q=progress: loop.call_soon_threadsafe(q.put_nowait, text))
+            try:
+                task = asyncio.ensure_future(self._execute_interruptibly(tool_call))
+            finally:
+                tool_progress.reset(token)
+            try:
+                while not task.done():
+                    line = asyncio.ensure_future(progress.get())
+                    try:
+                        await asyncio.wait({task, line}, return_when=asyncio.FIRST_COMPLETED)
+                    finally:
+                        got = line.done()
+                        if not got:
+                            line.cancel()
+                    if got:
+                        yield Event(EventType.TOOL_PROGRESS, {"name": tool_call.name, "text": line.result()})
+            finally:
+                # A cancelled turn must cancel the call, as the plain await it replaced did.
+                if not task.done():
+                    task.cancel()
+            result, status = task.result()
             yield self._record_result(tool_call, result, status)
 
     async def _execute_interruptibly(self, tool_call: ToolCall) -> tuple[Any, str]:

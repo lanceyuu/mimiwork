@@ -19,7 +19,7 @@ export function progressFromEvent(current: TaskProgress, event: WsEvent): TaskPr
     compacted: "model", interrupt_requested: "stopping", steer_queued: "steering",
   };
   const phase = event.type === "notice" && event.data?.kind === "steering" ? "model" : phases[event.type];
-  return phase || event.type === "tool_finished" || event.type === "notice"
+  return phase || event.type === "tool_finished" || event.type === "tool_progress" || event.type === "notice"
     ? { phase: phase || current.phase, lastActivity: Date.now() } : current;
 }
 

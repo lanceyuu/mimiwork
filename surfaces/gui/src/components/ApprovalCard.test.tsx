@@ -403,3 +403,32 @@ describe("InboxItemCard — a picture waiting for a yes", () => {
     expect(screen.getByText(/description goes to QualiTaTi/)).toBeTruthy();
   });
 });
+
+describe("ApprovalCard — handing a task to a coding agent", () => {
+  it("says the agent works on its own, where, and on whose account", () => {
+    render(
+      <ApprovalCard
+        item={{
+          kind: "approval", name: "delegate_to_agent", reason: "requires approval",
+          args: { agent: "claude_code", task: "Add a CSV export to the report script.", folder: "tools" },
+        }}
+        onApprove={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Claude Code")).toBeTruthy(); // the title's object: "Hand this task to Claude Code"
+    expect(screen.getByText(/Add a CSV export/)).toBeTruthy();
+    const note = screen.getByTestId("delegate-note").textContent || "";
+    expect(note).toContain("works on its own in tools");
+    expect(note).toContain("your own Claude account, not QualiTaTi credits");
+    expect(screen.getByText(/runs on its own/)).toBeTruthy();
+  });
+
+  it("wears the same note when parked in the Inbox", () => {
+    const item = {
+      id: 1, session_id: "s", kind: "approval", title: "", body: "", status: "pending", created_at: 0,
+      data: { tool: "delegate_to_agent", arguments: { agent: "codex", task: "fix it" } },
+    } as unknown as InboxItem;
+    render(<InboxItemCard item={item} onResolve={vi.fn()} />);
+    expect(screen.getByTestId("delegate-note").textContent).toContain("your own OpenAI account");
+  });
+});

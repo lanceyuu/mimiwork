@@ -666,6 +666,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return; // suspended on the approval
         }
+        // A hand-off to an installed coding agent: approval first, then its live progress lines.
+        if (/hand this to codex/i.test(msg.text)) {
+          pendingTool = "delegate_to_agent";
+          const args = {
+            agent: "codex",
+            task: "The CSV export in report.py drops the last row. Find the off-by-one, fix it, and run pytest until it passes.",
+            folder: "analysis-scripts",
+          };
+          send("assistant_message", { text: "This is a code fix, so I'll ask Codex to do it and check its work." });
+          send("tool_proposed", { name: "delegate_to_agent", arguments: args });
+          send("permission_required", { name: "delegate_to_agent", arguments: args, reason: "requires approval" });
+          return; // suspended on the approval
+        }
         // Drawing a picture: the description is the proposal, and it is what leaves the computer.
         if (/draw a picture/i.test(msg.text)) {
           pendingTool = "generate_image";
@@ -864,6 +877,17 @@ export async function mockApi(page: import("@playwright/test").Page) {
         });
         send("turn_done");
       } else if (msg.type === "approval") {
+        if (pendingTool === "delegate_to_agent" && msg.decision !== "deny") {
+          send("tool_started", { name: "delegate_to_agent" });
+          const lines = ["Running: rg -n 'rows\\[:-1\\]' report.py", "Changed report.py", "Running: pytest -q"];
+          lines.forEach((text, i) => setTimeout(() => send("tool_progress", { name: "delegate_to_agent", text }), 300 * (i + 1)));
+          setTimeout(() => {
+            send("tool_finished", { name: "delegate_to_agent", status: "ok", result_preview: '{"status": "completed"}' });
+            send("assistant_message", { text: "Codex fixed the off-by-one in report.py and the tests pass." });
+            send("turn_done");
+          }, 2500);
+          return;
+        }
         if (pendingTool === "run_shell") {
           if (msg.decision === "deny") {
             send("tool_finished", { name: "run_shell", status: "denied" });

@@ -935,6 +935,9 @@ export function App() {
             },
           ]);
           break;
+        case "tool_progress":
+          setItems((p) => setToolProgress(p, d.name, String(d.text || "")));
+          break;
         case "tool_finished":
           setItems((p) =>
             updateLastTool(
@@ -2348,6 +2351,18 @@ function updateLastTool(
     }
   }
   return copy;
+}
+
+function setToolProgress(items: Item[], name: string, text: string): Item[] {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.kind === "tool" && it.name === name && it.status === "…") {
+      const copy = [...items];
+      copy[i] = { ...it, progress: text };
+      return copy;
+    }
+  }
+  return items;
 }
 
 function resolveLastApproval(items: Item[], decision: ApprovalDecision): Item[] {

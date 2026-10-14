@@ -27,6 +27,7 @@ class EventType(str, Enum):
     )
     TOOL_STARTED = "tool_started"
     TOOL_FINISHED = "tool_finished"
+    TOOL_PROGRESS = "tool_progress"  # a running tool's latest line (display-only, never stored)
     ITERATION_END = "iteration_end"
     TURN_END = "turn_end"
     ERROR = "error"

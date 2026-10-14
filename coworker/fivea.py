@@ -111,7 +111,7 @@ _AUTOMATION_TOOLS = frozenset(
 _RECIPE_TOOLS = frozenset({"load_skill", "expand_command", "list_commands", "create_app", "update_app"})
 # The opposite: tools that exist only because the model is deciding what to do
 # next — delegating, exploring, or proposing a plan to carry out.
-_SELF_DIRECTION_TOOLS = frozenset({"explore", "subagent", "run_agent", "propose_plan"})
+_SELF_DIRECTION_TOOLS = frozenset({"explore", "delegate_to_agent", "subagent", "run_agent", "propose_plan"})
 # Past this many DISTINCT tools with no recipe in sight, a turn is not answering
 # a question — it is working out its own route. Six is where a turn stops looking
 # like "read this, answer that" in the transcripts.

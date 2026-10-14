@@ -28,3 +28,10 @@ it("a summary heartbeat cannot erase the current compaction stage", () => {
   expect(progressFromEvent(current, { type: "session_status", data: { phase: "compacting", last_activity_at: 1 } })).toEqual(current);
   vi.restoreAllMocks();
 });
+
+it("a coding agent's progress line counts as progress, keeping the stage it was in", () => {
+  vi.spyOn(Date, "now").mockReturnValue(5000);
+  const next = progressFromEvent({ phase: "tool", lastActivity: 0 }, { type: "tool_progress", data: { text: "Running: pytest" } });
+  expect(next).toEqual({ phase: "tool", lastActivity: 5000 });
+  vi.restoreAllMocks();
+});

@@ -228,6 +228,11 @@ function StepRow({ tool, approval }: { tool: ToolItem; approval?: ApprovalItem }
           </button>
         )}
       </div>
+      {running && tool.progress && (
+        <div className="ml-8 mr-2 text-[12px] text-faint truncate" data-testid="step-progress" title={tool.progress}>
+          {tool.progress}
+        </div>
+      )}
       {raw && (
         <pre className="ml-8 mr-2 my-1 px-2.5 py-1.5 rounded-lg border border-line bg-paper font-mono text-[11.5px] leading-relaxed text-muted whitespace-pre-wrap break-words max-h-56 overflow-auto">
           {`${tool.name}  ${shortArgs(tool.args)}`}

@@ -14,6 +14,7 @@ export type EventType =
   | "plan_proposed"
   | "tool_started"
   | "tool_finished"
+  | "tool_progress"
   | "iteration_end"
   | "turn_end"
   | "error"
@@ -117,7 +118,8 @@ export type Item =
   // `hidden` = results the user's privacy filters removed before the agent saw them
   // (from the tool message's `_display` sidecar; the agent-visible content has no trace).
   // `standingRule` = the task-scoped rule that auto-allowed this call ("tool → target").
-  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string; hidden?: number; standingRule?: string }
+  // `progress`: the latest line a long-running step reported (a hand-off to Claude Code / Codex).
+  | { kind: "tool"; id: string; name: string; args: any; status: string; preview?: string; hidden?: number; standingRule?: string; progress?: string }
   | {
       kind: "approval";
       name: string;

@@ -4215,7 +4215,7 @@ class SessionManager:
             "compacting": "compacting", "interrupt_requested": "stopping",
             "steer_queued": "steering",
         }
-        if kind in phases or kind in {"tool_finished", "notice"}:
+        if kind in phases or kind in {"tool_finished", "tool_progress", "notice"}:
             progress = self._session_progress.setdefault(session_id, {})
             progress["last_activity_at"] = time.time()
             if kind in phases:
