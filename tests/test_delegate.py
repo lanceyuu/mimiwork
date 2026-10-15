@@ -140,6 +140,13 @@ def test_stopping_the_turn_stops_the_agent_and_warns_files_may_have_changed(tmp_
     assert result["error"] == "Stopped. Codex may have changed some files before it stopped."
 
 
+def test_an_agent_that_goes_silent_is_stopped_long_before_the_time_limit(tmp_path):
+    started = time.monotonic()
+    result, _ = _run(tmp_path, "codex", CODEX_OK[:2], sleep=30, silence=0.5)
+    assert time.monotonic() - started < 10
+    assert result["error"].startswith("Codex showed no activity for 1 minutes and was stopped")
+
+
 def test_a_run_past_its_time_limit_is_stopped_and_says_so(tmp_path):
     result, _ = _run(tmp_path, "codex", [], sleep=30, timeout=0.5)
     assert result["error"] == "Codex was still working at its 1-minute limit and was stopped."
@@ -248,6 +255,17 @@ def test_agent_tool_logs_stay_out_of_the_branch_but_tracked_agent_files_still_co
     assert delegate.commit_round(repo, "Codex: fix", {})
     files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=repo, capture_output=True, text=True)
     assert files.stdout.split() == [".claude/settings.json", "app.py"]
+
+
+def test_caches_and_installs_left_by_a_test_run_stay_out_of_the_branch(tmp_path):
+    repo = _repo(tmp_path)
+    for junk in ("__pycache__/app.pyc", "pkg/__pycache__/m.pyc", "node_modules/x/index.js", ".pytest_cache/v"):
+        (repo / junk).parent.mkdir(parents=True, exist_ok=True)
+        (repo / junk).write_text("x", encoding="utf-8")
+    (repo / "pkg" / "m.py").write_text("y = 1\n", encoding="utf-8")
+    assert delegate.commit_round(repo, "Codex: pkg", {})
+    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=repo, capture_output=True, text=True)
+    assert files.stdout.split() == ["pkg/m.py"]
 
 
 def test_an_agents_work_is_committed_even_without_a_git_identity(tmp_path, monkeypatch):

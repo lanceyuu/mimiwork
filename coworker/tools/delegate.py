@@ -56,6 +56,9 @@ _EXTRA_DIRS = [
 
 # A real coding task takes minutes; past this the run is stopped and reported as such.
 _TIMEOUT = 30 * 60
+# An agent whose own model call hangs prints nothing at all — a live Codex run sat silent
+# for 27 minutes (2026-10-15). Silence this long means stuck, not thinking.
+_SILENCE = 10 * 60
 _SUMMARY_CHARS = 8000
 _MAX_CHANGED = 200
 # Snapshotting a huge folder to find changed files would cost more than the run; skip it.
@@ -231,6 +234,7 @@ def run_agent(
     timeout: float = _TIMEOUT,
     argv: Optional[list[str]] = None,
     resume_id: str = "",
+    silence: float = _SILENCE,
 ) -> dict[str, Any]:
     """Run one headless hand-off to completion, streaming progress through `report`."""
     label = AGENTS[key][0]
@@ -275,6 +279,7 @@ def run_agent(
     parse = run.claude if key == "claude_code" else run.codex
     plain: list[str] = []  # non-JSON output (startup errors, stack traces)
     deadline = time.monotonic() + timeout
+    heard = time.monotonic()
     outcome = ""
     while True:
         if stop is not None and stop.is_set():
@@ -283,10 +288,14 @@ def run_agent(
         if time.monotonic() > deadline:
             outcome = "timed out"
             break
+        if time.monotonic() - heard > silence:
+            outcome = "silent"
+            break
         try:
             line = lines.get(timeout=0.25)
         except queue.Empty:
             continue
+        heard = time.monotonic()
         if line is None:
             break
         line = line.strip()
@@ -322,6 +331,11 @@ def run_agent(
         result["summary"] = run.summary[:_SUMMARY_CHARS]
     if outcome == "stopped":
         return {**result, "error": f"Stopped. {label} may have changed some files before it stopped."}
+    if outcome == "silent":
+        return {**result, "error": (
+            f"{label} showed no activity for {max(1, round(silence / 60))} minutes and was stopped; its model service "
+            "may be down. Its branch keeps what it did; try it again or give the task to the other agent."
+        )}
     if outcome == "timed out":
         return {**result, "error": f"{label} was still working at its {_minutes(timeout)} limit and was stopped."}
     if run.error or (code not in (0, None) and not run.summary) or not run.finished:
@@ -404,7 +418,10 @@ def commit_round(workdir: Path, title: str, result: dict[str, Any]) -> str:
     # from a user's hook plugin, second live run); committed on two branches they collide
     # at merge. New files there never belong to the project; tracked ones still commit.
     _git(workdir, "add", "-u")
-    _git(workdir, "add", "-A", "--", ".", *(f":(exclude){d}" for d in _AGENT_DIRS))
+    # Same for caches and installs a test run leaves behind in a project with no .gitignore
+    # (__pycache__ landed on a branch in the third live run; node_modules would be worse).
+    junk = [*_AGENT_DIRS, *(f"**/{d}" for d in _SKIP_DIRS - {".git", ".mimiwork", *_AGENT_DIRS})]
+    _git(workdir, "add", "-A", "--", ".", *(f":(exclude,glob){d}/**" for d in junk))
     if _git(workdir, "diff", "--cached", "--quiet")[0]:
         return ""  # only agent logs changed
     outcome = "" if "error" not in result else " (did not finish)"
