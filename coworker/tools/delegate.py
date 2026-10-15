@@ -60,7 +60,9 @@ _SUMMARY_CHARS = 8000
 _MAX_CHANGED = 200
 # Snapshotting a huge folder to find changed files would cost more than the run; skip it.
 _MAX_SNAPSHOT = 50_000
-_SKIP_DIRS = {".git", ".mimiwork", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"}
+# Where the agents' own tools keep logs and settings — never the project's work.
+_AGENT_DIRS = (".claude", ".codex")
+_SKIP_DIRS = {".git", ".mimiwork", *_AGENT_DIRS, "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"}
 
 
 def _search_path() -> str:
@@ -98,6 +100,17 @@ def agent_command(key: str, executable: str, resume_id: str = "") -> list[str]:
 def _short(text: str, n: int = 140) -> str:
     line = " ".join(str(text).split())
     return line if len(line) <= n else line[: n - 1] + "…"
+
+
+def _unwrap(command: str) -> str:
+    """`/bin/bash -lc "pytest -q"` → `pytest -q`: Codex wraps every command in a login shell."""
+    for prefix in ("/bin/bash -lc ", "/bin/zsh -lc ", "bash -lc ", "zsh -lc "):
+        if command.startswith(prefix):
+            inner = command[len(prefix):].strip()
+            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in "'\"":
+                inner = inner[1:-1]
+            return inner
+    return command
 
 
 def _error_text(raw: Any) -> str:
@@ -148,7 +161,7 @@ class _Run:
         item = event.get("item") or {}
         itype = item.get("type")
         if kind == "item.started" and itype == "command_execution":
-            return [_short(f"Running: {item.get('command', '')}")]
+            return [_short(f"Running: {_unwrap(str(item.get('command', '')))}")]
         if kind == "item.completed":
             if itype == "agent_message":
                 self.summary = str(item.get("text") or "")
@@ -156,8 +169,8 @@ class _Run:
             if itype == "file_change":
                 paths = [c.get("path", "") for c in item.get("changes") or []]
                 return [_short("Changed " + ", ".join(Path(p).name for p in paths if p))] if paths else []
-            if itype == "error":  # a warning; the run carries on
-                return [_short(item.get("message", ""))]
+            # itype "error" is a warning about the user's own Codex setup (hook timeouts, skill
+            # budgets); the run carries on and it says nothing about progress, so it stays off.
         if kind == "turn.completed":
             # A top-level "error" can be a reconnect notice that the turn survived.
             self.finished, self.error = True, ""
@@ -378,6 +391,38 @@ def isolate(folder: Path, slug: str) -> tuple[Path, str]:
     return folder, ""
 
 
+def commit_round(workdir: Path, title: str, result: dict[str, Any]) -> str:
+    """Commit whatever an agent changed onto its own branch; the short hash, or "" if nothing.
+
+    Agents rarely commit on their own, and an uncommitted worktree leaves the branch at its
+    starting point — a merge would then bring in nothing (seen in the first live run,
+    2026-10-15). Committing here is safe: the branch is the agent's alone, and the user's
+    branch only changes through a merge the user approves."""
+    if not _git(workdir, "status", "--porcelain")[1]:
+        return ""
+    # Agents' own tooling drops session logs into the folder it runs in (`.claude/logs/…`
+    # from a user's hook plugin, second live run); committed on two branches they collide
+    # at merge. New files there never belong to the project; tracked ones still commit.
+    _git(workdir, "add", "-u")
+    _git(workdir, "add", "-A", "--", ".", *(f":(exclude){d}" for d in _AGENT_DIRS))
+    if _git(workdir, "diff", "--cached", "--quiet")[0]:
+        return ""  # only agent logs changed
+    outcome = "" if "error" not in result else " (did not finish)"
+    body = _short(result.get("summary") or result.get("error") or "", 600)
+    message = [f"{title}{outcome}", "", body] if body else [f"{title}{outcome}"]
+    args = ["commit", "-q", "--no-verify", "-m", "\n".join(message)]
+    ok, _ = _git(workdir, *args)
+    if not ok:  # no git identity on this machine: commit as MimiWork rather than lose the work
+        ok, _ = _git(workdir, "-c", "user.name=MimiWork", "-c", "user.email=mimiwork@localhost", *args)
+    return _git(workdir, "rev-parse", "--short", "HEAD")[1] if ok else ""
+
+
+# A worktree keeps its git data in the main repo's .git, outside Codex's writable sandbox, so
+# an agent's own `git commit` fails and it reports a "blocked commit" that sends the
+# coordinator chasing a non-problem (live run, 2026-10-15). MimiWork commits for it instead.
+_COMMIT_NOTE = "\n\n(MimiWork commits your changes to your branch when you finish. Do not run git commit.)"
+
+
 def _slug(text: str) -> str:
     out = "".join(c if c.isalnum() else "-" for c in text.lower()).strip("-")
     return "-".join(p for p in out.split("-") if p)[:40] or "task"
@@ -412,6 +457,10 @@ class Job:
                 report=note, stop=self.stop, resume_id=self.resume_id,
             )
             self.resume_id = result.pop("session_id", "") or self.resume_id
+            if self.branch:
+                commit = commit_round(self.workdir, f"{self.label}: {self.name}", result)
+                if commit:
+                    result["commit"] = commit
             self.result = result
             self.status = "stopped" if self.stop.is_set() else ("failed" if "error" in result else "finished")
 
@@ -482,7 +531,7 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
         workdir, branch = isolate(where, _slug(f"{key.split('_')[0]}-{title}"))
         job = Job(session, key, installed[key], title, workdir, branch)
         _JOBS[job.id] = job
-        job.launch(task)
+        job.launch(task + (_COMMIT_NOTE if branch else ""))
         out = job.report()
         out["note"] = (
             f"Working on branch {branch}, started from the last commit: uncommitted changes in "
@@ -529,7 +578,7 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
             return {"error": f"{found.label} is still working on '{found.name}'. Wait for it to finish first."}
         if not found.resume_id:
             return {"error": f"{found.label} never started a session for '{found.name}', so there is nothing to continue. Start a new agent instead."}
-        found.launch(message)
+        found.launch(message + (_COMMIT_NOTE if found.branch else ""))
         return found.report()
 
     def stop_agent(job: str) -> dict:
@@ -559,7 +608,8 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
         5. Never end your turn while an agent is still working.
 
         In a git project each agent gets its own branch `mimi/<name>` in its own copy of the
-        project, starting from the last commit. Agents cannot see this conversation: put
+        project, starting from the last commit, and MimiWork commits its work there after
+        every round (`commit` in the result); never ask an agent to commit. Agents cannot see this conversation: put
         everything needed in `task` (goal, files, constraints, how to check the work).
 
         Args:

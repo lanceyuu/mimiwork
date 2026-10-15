@@ -28,7 +28,7 @@ from coworker.tools.context import tool_progress, tool_yield
 CODEX_OK = [
     {"type": "thread.started", "thread_id": "t1"},
     {"type": "turn.started"},
-    {"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "pytest -q"}},
+    {"type": "item.started", "item": {"id": "i1", "type": "command_execution", "command": "/bin/bash -lc 'pytest -q'"}},
     {"type": "item.completed", "item": {"id": "i2", "type": "file_change", "changes": [{"path": "app.py", "kind": "update"}]}},
     {"type": "item.completed", "item": {"id": "i3", "type": "agent_message", "text": "Fixed the off-by-one in app.py; tests pass."}},
     {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 5}},
@@ -119,7 +119,7 @@ def test_a_signed_out_claude_code_comes_back_as_an_error_that_says_why(tmp_path)
 def test_a_failed_codex_turn_reports_the_providers_sentence_not_nested_json(tmp_path):
     result, lines = _run(tmp_path, "codex", CODEX_TOO_OLD)
     assert result["error"].startswith("Codex did not finish: The 'gpt-6-astra' model requires a newer version")
-    assert lines == ["Model metadata for `gpt-6-astra` not found."]  # a warning, shown as progress
+    assert lines == []  # Codex's warnings about its own setup are not progress
 
 
 def test_an_agent_that_exits_without_finishing_is_a_failure_with_its_output(tmp_path):
@@ -214,6 +214,56 @@ def test_parallel_agents_each_work_on_their_own_branch_and_leave_the_main_folder
     assert not (repo / "api.py").exists() and not (repo / "docs.md").exists()
     status = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert status == ""  # the agents' copies never show up as untracked files
+
+
+def test_each_round_is_committed_on_the_agents_branch_so_a_merge_brings_the_work_in(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    t = _team(tmp_path, monkeypatch, repo)
+    a = t["start_agent"](agent="codex", task="write api.py=A", name="backend")
+    b = t["start_agent"](agent="codex", task="write docs.md=B", name="docs")
+    done = _wait_all(t, 2)
+    assert done["backend"]["commit"] and done["docs"]["commit"]
+    log = subprocess.run(["git", "log", "-1", "--format=%s", a["branch"]], cwd=repo, capture_output=True, text=True)
+    assert log.stdout.strip() == "Codex: backend"
+    for branch in (a["branch"], b["branch"]):
+        subprocess.run(["git", "merge", "-q", "--no-edit", branch], cwd=repo, check=True)
+    assert (repo / "api.py").read_text() == "A" and (repo / "docs.md").read_text() == "B"
+    # Agents are told not to commit: their own commit fails inside the sandbox.
+    assert done["backend"]["summary"].endswith("Do not run git commit.)")
+
+
+def test_agent_tool_logs_stay_out_of_the_branch_but_tracked_agent_files_still_commit(tmp_path):
+    repo = _repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "settings"], cwd=repo, check=True)
+    (repo / ".claude" / "logs").mkdir()
+    (repo / ".claude" / "logs" / "session-1.md").write_text("log", encoding="utf-8")
+    (repo / ".codex").mkdir()
+    (repo / ".codex" / "run.log").write_text("log", encoding="utf-8")
+    assert delegate.commit_round(repo, "Codex: logs only", {}) == ""  # nothing of the project's changed
+    (repo / ".claude" / "settings.json").write_text('{"x": 1}', encoding="utf-8")
+    (repo / "app.py").write_text("print(2)\n", encoding="utf-8")
+    assert delegate.commit_round(repo, "Codex: fix", {})
+    files = subprocess.run(["git", "show", "--name-only", "--format=", "HEAD"], cwd=repo, capture_output=True, text=True)
+    assert files.stdout.split() == [".claude/settings.json", "app.py"]
+
+
+def test_an_agents_work_is_committed_even_without_a_git_identity(tmp_path, monkeypatch):
+    repo = tmp_path / "bare-identity"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+    (repo / "a.txt").write_text("1", encoding="utf-8")
+    ident = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", *ident, "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", *ident, "commit", "-qm", "start"], cwd=repo, check=True)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "no-global"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (repo / "a.txt").write_text("2", encoding="utf-8")
+    assert delegate.commit_round(repo, "Codex: x", {"summary": "changed a"})
+    assert subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout == ""
 
 
 def test_feedback_continues_the_same_agent_session_on_the_same_branch(tmp_path, monkeypatch):
