@@ -112,7 +112,7 @@ export function scopeNote(
     const names: Record<string, string> = { slack: "Slack", telegram: "Telegram" };
     return { text: `leaves this computer → ${names[platform] || platform || "a connected chat"}`, external: true };
   }
-  if (name === "delegate_to_agent") return { text: "runs on its own · your own account", external: true };
+  if (name === "start_agent") return { text: "runs on its own · your own account", external: true };
   // The picture is saved here, but the words describing it are what QualiTaTi draws from.
   if (name === "generate_image") return { text: "the description goes to QualiTaTi", external: true };
   const overwrite = name === "write_file" && args?.overwrite;
@@ -173,8 +173,9 @@ export function DelegatePreview({ args }: { args: any }) {
       {args?.task && <PreviewBlock text={String(args.task)} mono={false} />}
       <div className="approval-with" data-testid="delegate-note">
         {agent} works on its own in {folder ? <b>{folder}</b> : "this conversation's main folder"}: it can
-        read and change files there and run commands. It uses your own {account} account, not QualiTaTi
-        credits.
+        read and change files there and run commands. In a git project it gets its own branch, and
+        nothing reaches yours until you approve a merge. Mimi reviews its work and sends it feedback.
+        It uses your own {account} account, not QualiTaTi credits.
       </div>
     </>
   );
@@ -338,7 +339,7 @@ export function ApprovalCard({
         <MessagePreview text={String(item.args.prompt)} label="From this description" />
       )}
       {/* MimiWork cannot fence in another program, so the card says what it may do and who pays. */}
-      {item.name === "delegate_to_agent" && <DelegatePreview args={item.args} />}
+      {item.name === "start_agent" && <DelegatePreview args={item.args} />}
       {/* save_skill (SKILLS-SPEC §5.2): the arguments ARE the review surface. */}
       {item.name === "save_skill" && <SaveSkillPreview args={item.args} />}
 
@@ -361,7 +362,7 @@ export function ApprovalCard({
       )}
       {/* Long-tail tools: no bespoke preview — fall back to the compact args line. */}
       {!FILE_WRITES.has(item.name) &&
-        !["run_shell", "send_message", "send_file", "save_skill", "generate_image", "delegate_to_agent"].includes(item.name) &&
+        !["run_shell", "send_message", "send_file", "save_skill", "generate_image", "start_agent"].includes(item.name) &&
         !grants.length &&
         shortArgs(item.args) && <div className="approval-rest">{shortArgs(item.args)}</div>}
       {reason && <div className="approval-reason">{reason}</div>}

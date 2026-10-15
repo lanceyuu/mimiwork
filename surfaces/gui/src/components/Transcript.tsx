@@ -229,8 +229,11 @@ function StepRow({ tool, approval }: { tool: ToolItem; approval?: ApprovalItem }
         )}
       </div>
       {running && tool.progress && (
-        <div className="ml-8 mr-2 text-[12px] text-faint truncate" data-testid="step-progress" title={tool.progress}>
-          {tool.progress}
+        // One line per agent while Mimi watches a team; one line for a single long step.
+        <div className="ml-8 mr-2 text-[12px] text-faint" data-testid="step-progress" title={tool.progress}>
+          {tool.progress.split("\n").map((line, i) => (
+            <div className="truncate" key={i}>{line}</div>
+          ))}
         </div>
       )}
       {raw && (

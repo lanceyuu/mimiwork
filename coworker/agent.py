@@ -40,7 +40,7 @@ from .skills import SkillLoader, save_skill_tool, skill_catalog_text, skill_tool
 from .subscriptions import subscription_tools
 from .tools import ToolRegistry
 from .tools.ask import ask_user_tool
-from .tools.delegate import delegate_tools
+from .tools.delegate import agent_team_tools
 from .tools.directories import request_directory_tool
 from .tools.plan import propose_plan_tool
 from .tools.shell import LocalExecutor
@@ -355,9 +355,11 @@ def build_engine(
                 roots=root_list or None,
             )
         )
-        # Claude Code / Codex, when installed: the same delegation, but to a coding agent that
-        # can change files and run commands — so it is approval-gated, unlike `explore`.
-        registry.register_all(delegate_tools(workspace=ws, roots=root_list or None))
+        # Claude Code / Codex, when installed: a team of coding agents Mimi starts, watches
+        # and gives feedback to. They change files and run commands, so starting one asks.
+        registry.register_all(
+            agent_team_tools(workspace=ws, roots=root_list or None, session_id=session_id or "")
+        )
     # Scheduling: knowledge surfaces with a workspace can set up scheduled tasks (origin = this
     # session). Code stays out (it fans out to explorers instead).
     if task_store is not None and ws is not None and agent.family == "knowledge":

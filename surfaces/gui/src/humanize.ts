@@ -93,8 +93,14 @@ export function humanizeTool(name: string, args: any): HumanLine {
       }
       return { pre: "Read a web page — ", obj: trunc(host, 50) };
     }
-    case "delegate_to_agent":
-      return { pre: `Handed a task to ${agentName(a)} — `, obj: `“${trunc(String(a.task ?? ""), 60)}”` };
+    case "start_agent":
+      return { pre: `Started ${agentName(a)} on `, obj: String(a.name || "") || `“${trunc(String(a.task ?? ""), 50)}”` };
+    case "wait_for_agents":
+      return { pre: "Watched the agents work" };
+    case "message_agent":
+      return { pre: "Sent feedback — ", obj: `“${trunc(String(a.message ?? ""), 70)}”` };
+    case "stop_agent":
+      return { pre: "Stopped an agent" };
     case "explore":
       return { pre: "Sent a sub-agent to explore — ", obj: `“${trunc(String(a.task ?? a.prompt ?? ""), 60)}”` };
     case "load_skill":
@@ -148,8 +154,8 @@ export function humanizeApprovalTitle(name: string, args: any): HumanLine {
       return a.title
         ? { pre: "Create the automation ", obj: `“${trunc(String(a.title), 60)}”` }
         : { pre: "Create an automation" };
-    case "delegate_to_agent":
-      return { pre: "Hand this task to ", obj: agentName(a) };
+    case "start_agent":
+      return { pre: "Start ", obj: agentName(a), post: a.name ? ` on “${trunc(String(a.name), 40)}”` : " on a task" };
     case "save_skill":
       // SKILLS-SPEC §5.2/§7: "Add", never "install"; destination is "your skills".
       return a.name
@@ -179,8 +185,8 @@ export function humanizeAsk(name: string, args: any): HumanLine {
       if (!tail) return { pre: "Wanted to send a message" };
       return { pre: `Wanted to message `, obj: tail, post: ` on ${platform}` };
     }
-    case "delegate_to_agent":
-      return { pre: "Wanted to hand a task to ", obj: agentName(a) };
+    case "start_agent":
+      return { pre: "Wanted to start ", obj: agentName(a) };
     default:
       return { pre: `Wanted to use ${name}` };
   }
@@ -214,7 +220,10 @@ const STEP_KINDS: Record<string, [string, string] | [string]> = {
   web_fetch: ["read a web page", "read {n} web pages"],
   load_skill: ["used a skill", "used {n} skills"],
   explore: ["sent a sub-agent", "sent {n} sub-agents"],
-  delegate_to_agent: ["handed off a task", "handed off {n} tasks"],
+  start_agent: ["started an agent", "started {n} agents"],
+  wait_for_agents: ["watched the agents"],
+  message_agent: ["sent feedback", "sent feedback {n} times"],
+  stop_agent: ["stopped an agent", "stopped {n} agents"],
   todo_write: ["updated the plan"],
   send_message: ["sent a message", "sent {n} messages"],
   // An approval that never became a call (declined, or still pending) — "ask:<tool>".

@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import aisuite as ai
+import pytest
 from helpers import ScriptedProvider
 
 from coworker.engine import TurnEngine
@@ -18,7 +21,8 @@ from coworker.providers import AssistantTurn, ToolCall
 from coworker.risk import RiskClass, classify
 from coworker.roots import RootDir
 from coworker.tools import ToolRegistry, delegate
-from coworker.tools.context import tool_progress
+from coworker.tools.cancellation import tool_stop
+from coworker.tools.context import tool_progress, tool_yield
 
 # Recorded from real runs on 2026-10-15 (Codex CLI 0.144.1, Claude Code 2.1.270), trimmed.
 CODEX_OK = [
@@ -77,7 +81,15 @@ def test_claude_code_runs_headless_in_its_auto_permission_mode_and_codex_in_its_
     claude = delegate.agent_command("claude_code", "claude")
     assert claude[claude.index("--permission-mode") + 1] == "auto"
     codex = delegate.agent_command("codex", "codex")
-    assert codex[codex.index("--sandbox") + 1] == "workspace-write"
+    assert 'sandbox_mode="workspace-write"' in codex
+
+
+def test_a_follow_up_resumes_the_same_agent_session_in_both_clis():
+    claude = delegate.agent_command("claude_code", "claude", "sess-9")
+    assert claude[claude.index("--resume") + 1] == "sess-9"
+    codex = delegate.agent_command("codex", "codex", "thr-9")
+    assert codex[:3] == ["codex", "exec", "resume"] and codex[-2:] == ["thr-9", "-"]
+    assert 'sandbox_mode="workspace-write"' in codex  # resume has no --sandbox flag
 
 
 def test_a_codex_handoff_returns_its_summary_progress_and_changed_files(tmp_path):
@@ -87,6 +99,7 @@ def test_a_codex_handoff_returns_its_summary_progress_and_changed_files(tmp_path
     assert result["changed_files"] == ["app.py"]
     assert (tmp_path / "work" / "app.py").read_text() == "fix the bug"  # the task arrived on stdin
     assert lines == ["Running: pytest -q", "Changed app.py", "Fixed the off-by-one in app.py; tests pass."]
+    assert result["session_id"] == "t1"  # what a follow-up resumes
 
 
 def test_a_claude_code_handoff_reports_its_tool_steps_and_result(tmp_path):
@@ -132,12 +145,164 @@ def test_a_run_past_its_time_limit_is_stopped_and_says_so(tmp_path):
     assert result["error"] == "Codex was still working at its 1-minute limit and was stopped."
 
 
-def _tool(tmp_path, monkeypatch, events, roots):
-    fake = _fake_agent(tmp_path, events)
-    monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex"})
-    monkeypatch.setattr(delegate, "agent_command", lambda key, exe: fake)
-    [tool] = delegate.delegate_tools(workspace=tmp_path, roots=roots)
-    return tool
+# -- the team: several agents, their own branches, feedback rounds ---------------------------
+
+TEAM_AGENT = """import json, os, sys, time
+task = sys.stdin.read()
+resume = sys.argv[1] if len(sys.argv) > 1 else ""
+print(json.dumps({"type": "thread.started", "thread_id": resume or "thr-" + str(os.getpid())}), flush=True)
+if task.startswith("sleep"):
+    print(json.dumps({"type": "item.started", "item": {"type": "command_execution", "command": "make"}}), flush=True)
+    time.sleep(30)
+for line in task.splitlines():
+    if line.startswith("write "):
+        name, text = line[6:].split("=", 1)
+        open(name, "w").write(text)
+reply = ("resumed " + resume + ": " if resume else "") + "done " + task.strip()
+print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": reply}}), flush=True)
+print(json.dumps({"type": "turn.completed"}), flush=True)
+"""
+
+
+@pytest.fixture(autouse=True)
+def _no_jobs_from_other_tests():
+    delegate._JOBS.clear()
+    yield
+    delegate._stop_all([j for j in delegate._JOBS.values() if j.status == "running"])
+    delegate._JOBS.clear()
+
+
+def _team(tmp_path, monkeypatch, folder, session="s1"):
+    script = tmp_path / "team_agent.py"
+    script.write_text(TEAM_AGENT, encoding="utf-8")
+    monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex", "claude_code": "claude"})
+    monkeypatch.setattr(
+        delegate, "agent_command",
+        lambda key, exe, resume_id="": [sys.executable, str(script), *([resume_id] if resume_id else [])],
+    )
+    tools = delegate.agent_team_tools(workspace=folder, roots=[RootDir(folder, writable=True)], session_id=session)
+    return {t.__name__: t for t in tools}
+
+
+def _repo(tmp_path):
+    repo = tmp_path / "project"
+    repo.mkdir()
+    for args in (["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=repo, check=True)
+    (repo / "app.py").write_text("print(1)\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "start"], cwd=repo, check=True)
+    return repo
+
+
+def _wait_all(t, n):
+    done = []
+    while len(done) < n:
+        done += t["wait_for_agents"](timeout_minutes=1)["finished"]
+    return {d["name"]: d for d in done}
+
+
+def test_parallel_agents_each_work_on_their_own_branch_and_leave_the_main_folder_alone(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    t = _team(tmp_path, monkeypatch, repo)
+    a = t["start_agent"](agent="codex", task="write api.py=A", name="backend")
+    b = t["start_agent"](agent="claude_code", task="write docs.md=B", name="docs")
+    assert a["branch"] == "mimi/codex-backend" and b["branch"] == "mimi/claude-docs"
+    done = _wait_all(t, 2)
+    assert done["backend"]["changed_files"] == ["api.py"] and done["docs"]["changed_files"] == ["docs.md"]
+    assert (Path(a["workdir"]) / "api.py").read_text() == "A"
+    assert not (repo / "api.py").exists() and not (repo / "docs.md").exists()
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
+    assert status == ""  # the agents' copies never show up as untracked files
+
+
+def test_feedback_continues_the_same_agent_session_on_the_same_branch(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    t = _team(tmp_path, monkeypatch, repo)
+    job = t["start_agent"](agent="codex", task="write api.py=v1", name="backend")["job"]
+    first = _wait_all(t, 1)["backend"]
+    again = t["message_agent"](job=job, message="write api.py=v2")
+    assert again["status"] == "running" and again["branch"] == first["branch"]
+    second = _wait_all(t, 1)["backend"]
+    assert second["summary"].startswith("resumed thr-")  # the agent's own session id came back
+    assert (Path(again["workdir"]) / "api.py").read_text() == "v2"
+
+
+def test_outside_git_the_agent_works_in_the_folder_itself(tmp_path, monkeypatch):
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    t = _team(tmp_path, monkeypatch, plain)
+    started = t["start_agent"](agent="codex", task="write a.txt=x", name="one")
+    assert "branch" not in started and "separate files" in started["note"]
+    _wait_all(t, 1)
+    assert (plain / "a.txt").read_text() == "x"
+
+
+def test_a_message_from_the_user_ends_the_wait_but_not_the_agents(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, _repo(tmp_path))
+    job = t["start_agent"](agent="codex", task="sleep", name="slow")["job"]
+    flag = threading.Event()
+    threading.Timer(0.5, flag.set).start()
+    token = tool_yield.set(flag)
+    try:
+        result = t["wait_for_agents"](timeout_minutes=1)
+    finally:
+        tool_yield.reset(token)
+    assert "user sent a message" in result["note"]
+    assert result["still_working"][0]["job"] == job
+    assert t["stop_agent"](job=job)["status"] == "stopped"
+
+
+def test_pressing_stop_during_the_wait_stops_every_agent(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, _repo(tmp_path))
+    t["start_agent"](agent="codex", task="sleep", name="slow")
+    stop = threading.Event()
+    threading.Timer(0.5, stop.set).start()
+    token = tool_stop.set(stop)
+    try:
+        result = t["wait_for_agents"](timeout_minutes=1)
+    finally:
+        tool_stop.reset(token)
+    assert result["error"].startswith("Stopped. The agents were stopped too")
+    assert t["wait_for_agents"](timeout_minutes=0)["still_working"] == []
+
+
+def test_the_wait_shows_every_working_agents_latest_step(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, _repo(tmp_path))
+    jobs = [t["start_agent"](agent="codex", task="sleep", name=n)["job"] for n in ("one", "two")]
+    seen: list[str] = []
+    token = tool_progress.set(seen.append)
+    try:
+        t["wait_for_agents"](timeout_minutes=0.02)
+    finally:
+        tool_progress.reset(token)
+        for job in jobs:
+            t["stop_agent"](job=job)
+    assert "Codex · one: Running: make\nCodex · two: Running: make" in seen
+
+
+def test_feedback_waits_until_the_agent_has_finished(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, _repo(tmp_path))
+    job = t["start_agent"](agent="codex", task="sleep", name="slow")["job"]
+    assert "still working" in t["message_agent"](job=job, message="hurry")["error"]
+    t["stop_agent"](job=job)
+
+
+def test_jobs_belong_to_their_own_conversation(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    mine = _team(tmp_path, monkeypatch, repo, session="mine")
+    theirs = _team(tmp_path, monkeypatch, repo, session="theirs")
+    job = mine["start_agent"](agent="codex", task="write x.txt=1", name="x")["job"]
+    assert "No agent job" in theirs["stop_agent"](job=job)["error"]
+    _wait_all(mine, 1)
+
+
+def test_no_more_than_four_agents_work_at_once(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, _repo(tmp_path))
+    jobs = [t["start_agent"](agent="codex", task="sleep", name=f"n{i}")["job"] for i in range(4)]
+    assert "already working" in t["start_agent"](agent="codex", task="sleep", name="n5")["error"]
+    for job in jobs:
+        t["stop_agent"](job=job)
 
 
 def test_a_folder_outside_the_writable_roots_is_refused_before_anything_runs(tmp_path, monkeypatch):
@@ -145,28 +310,30 @@ def test_a_folder_outside_the_writable_roots_is_refused_before_anything_runs(tmp
     mine.mkdir()
     readonly = tmp_path / "readonly"
     readonly.mkdir()
-    tool = _tool(tmp_path, monkeypatch, CODEX_OK, [RootDir(mine, writable=True), RootDir(readonly)])
-    assert "outside the folders" in tool(agent="codex", task="t", folder=str(readonly))["error"]
-    assert "outside the folders" in tool(agent="codex", task="t", folder="../readonly")["error"]
-    assert tool(agent="codex", task="t")["folder"] == str(mine.resolve())
+    t = _team(tmp_path, monkeypatch, mine)
+    assert "outside the folders" in t["start_agent"](agent="codex", task="t", folder=str(readonly))["error"]
+    assert "outside the folders" in t["start_agent"](agent="codex", task="t", folder="../readonly")["error"]
 
 
 def test_an_agent_that_is_not_installed_is_refused_by_name(tmp_path, monkeypatch):
-    tool = _tool(tmp_path, monkeypatch, CODEX_OK, [RootDir(tmp_path, writable=True)])
-    assert tool(agent="claude_code", task="t")["error"].startswith("'claude_code' is not available here")
+    monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex"})
+    t = delegate.agent_team_tools(workspace=tmp_path, session_id="x")
+    assert t[0](agent="claude_code", task="t")["error"].startswith("'claude_code' is not available here")
 
 
-def test_no_tool_is_offered_when_neither_agent_is_installed(tmp_path, monkeypatch):
+def test_no_tools_are_offered_when_neither_agent_is_installed(tmp_path, monkeypatch):
     monkeypatch.setattr(delegate, "available_agents", lambda: {})
-    assert delegate.delegate_tools(workspace=tmp_path) == []
+    assert delegate.agent_team_tools(workspace=tmp_path) == []
 
 
-def test_every_handoff_needs_the_users_approval(tmp_path, monkeypatch):
-    tool = _tool(tmp_path, monkeypatch, CODEX_OK, None)
-    meta = tool.__aisuite_tool_metadata__
-    assert classify("delegate_to_agent", meta) is RiskClass.EXTERNAL
-    decision = PermissionEngine(workspace_root=tmp_path).evaluate("delegate_to_agent", {"task": "t"}, meta)
-    assert not decision.allowed and decision.needs_user
+def test_starting_an_agent_needs_approval_but_watching_and_feedback_do_not(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, tmp_path)
+    engine = PermissionEngine(workspace_root=tmp_path)
+    meta = {name: fn.__aisuite_tool_metadata__ for name, fn in t.items()}
+    assert classify("start_agent", meta["start_agent"]) is RiskClass.EXTERNAL
+    assert engine.evaluate("start_agent", {"task": "t"}, meta["start_agent"]).needs_user
+    for name in ("wait_for_agents", "message_agent", "stop_agent"):
+        assert engine.evaluate(name, {}, meta[name]).allowed
 
 
 def test_the_agents_are_found_where_installers_put_them_even_on_a_bare_path(tmp_path, monkeypatch):
@@ -216,3 +383,35 @@ def test_a_running_tools_progress_lines_stream_between_its_start_and_finish(tmp_
     assert all(start < i < finish for i, k in enumerate(kinds) if k == EventType.TOOL_PROGRESS)
     # display-only: nothing about progress lands in the conversation history
     assert "first" not in json.dumps(engine.messages)
+
+
+def test_a_priority_message_from_the_user_reaches_a_long_waiting_tool(tmp_path):
+    loop_box: list = []
+
+    def long_wait():
+        """Wait for the user."""
+        flag = tool_yield.get()
+        loop, engine = loop_box
+        loop.call_soon_threadsafe(lambda: engine.queue_steering("look at this", priority=True))
+        return {"yielded": flag.wait(timeout=5)}
+
+    turns = [
+        AssistantTurn(tool_calls=[ToolCall(id="c1", name="long_wait", arguments={})], finish_reason="tool_calls"),
+        AssistantTurn(text="read it", finish_reason="stop"),
+    ]
+    registry = ToolRegistry()
+    registry.register(long_wait, metadata=ai.ToolMetadata(category="x", risk_level="medium"))
+    engine = TurnEngine(
+        provider=ScriptedProvider(turns),
+        registry=registry,
+        permissions=PermissionEngine(workspace_root=tmp_path),
+        model="gpt-5.5",
+    )
+
+    async def _go():
+        loop_box[:] = [asyncio.get_running_loop(), engine]
+        return [ev async for ev in engine.run("go")]
+
+    asyncio.run(_go())
+    tool_msg = next(m for m in engine.messages if m.get("role") == "tool")
+    assert json.loads(tool_msg["content"]) == {"yielded": True}

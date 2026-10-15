@@ -46,7 +46,7 @@ from .risk import SHELL_TOOL, classify, is_consequential
 from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
-from .tools.context import tool_model, tool_progress
+from .tools.context import tool_model, tool_progress, tool_yield
 
 
 class ApprovalOutcome(str, Enum):
@@ -1362,23 +1362,31 @@ class TurnEngine:
             # parallel-safe, and progress interleaved from concurrent calls would be noise.
             progress: asyncio.Queue[str] = asyncio.Queue()
             loop = asyncio.get_running_loop()
+            yield_flag = threading.Event()
             token = tool_progress.set(lambda text, q=progress: loop.call_soon_threadsafe(q.put_nowait, text))
+            yield_token = tool_yield.set(yield_flag)
             try:
                 task = asyncio.ensure_future(self._execute_interruptibly(tool_call))
             finally:
                 tool_progress.reset(token)
+                tool_yield.reset(yield_token)
+            steer = asyncio.ensure_future(self._steer_signal.wait())
             try:
                 while not task.done():
                     line = asyncio.ensure_future(progress.get())
                     try:
-                        await asyncio.wait({task, line}, return_when=asyncio.FIRST_COMPLETED)
+                        await asyncio.wait({task, line, steer}, return_when=asyncio.FIRST_COMPLETED)
                     finally:
                         got = line.done()
                         if not got:
                             line.cancel()
+                    if steer.done() and not yield_flag.is_set():
+                        yield_flag.set()  # tools that honour it return early; others ignore it
+                        steer = loop.create_future()  # fire once, then stop waking the loop
                     if got:
                         yield Event(EventType.TOOL_PROGRESS, {"name": tool_call.name, "text": line.result()})
             finally:
+                steer.cancel()
                 # A cancelled turn must cancel the call, as the plain await it replaced did.
                 if not task.done():
                     task.cancel()

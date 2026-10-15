@@ -634,6 +634,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
     };
     send("ready");
     let pendingTool = "run_shell"; // which proposal the next approval decision resolves
+    let teamStep = 0; // how many agents the "run the team" scenario has started
     let epicTimer: ReturnType<typeof setInterval> | null = null; // the slow stream, stoppable via interrupt
     let hadTurn = false; // a user_message landed — set_model is now a mid-session switch
     ws.onMessage((raw) => {
@@ -666,17 +667,20 @@ export async function mockApi(page: import("@playwright/test").Page) {
           });
           return; // suspended on the approval
         }
-        // A hand-off to an installed coding agent: approval first, then its live progress lines.
-        if (/hand this to codex/i.test(msg.text)) {
-          pendingTool = "delegate_to_agent";
+        // A team of coding agents: two starts (each approved), a watched wait with one line per
+        // agent, a feedback round to the agent whose tests failed, then the summary.
+        if (/run the team/i.test(msg.text)) {
+          pendingTool = "start_agent";
+          teamStep = 0;
           const args = {
             agent: "codex",
+            name: "csv export",
             task: "The CSV export in report.py drops the last row. Find the off-by-one, fix it, and run pytest until it passes.",
             folder: "analysis-scripts",
           };
-          send("assistant_message", { text: "This is a code fix, so I'll ask Codex to do it and check its work." });
-          send("tool_proposed", { name: "delegate_to_agent", arguments: args });
-          send("permission_required", { name: "delegate_to_agent", arguments: args, reason: "requires approval" });
+          send("assistant_message", { text: "Two parts: Codex fixes the export, Claude Code writes the usage guide. I'll review both." });
+          send("tool_proposed", { name: "start_agent", arguments: args });
+          send("permission_required", { name: "start_agent", arguments: args, reason: "requires approval" });
           return; // suspended on the approval
         }
         // Drawing a picture: the description is the proposal, and it is what leaves the computer.
@@ -877,15 +881,30 @@ export async function mockApi(page: import("@playwright/test").Page) {
         });
         send("turn_done");
       } else if (msg.type === "approval") {
-        if (pendingTool === "delegate_to_agent" && msg.decision !== "deny") {
-          send("tool_started", { name: "delegate_to_agent" });
-          const lines = ["Running: rg -n 'rows\\[:-1\\]' report.py", "Changed report.py", "Running: pytest -q"];
-          lines.forEach((text, i) => setTimeout(() => send("tool_progress", { name: "delegate_to_agent", text }), 300 * (i + 1)));
-          setTimeout(() => {
-            send("tool_finished", { name: "delegate_to_agent", status: "ok", result_preview: '{"status": "completed"}' });
-            send("assistant_message", { text: "Codex fixed the off-by-one in report.py and the tests pass." });
-            send("turn_done");
-          }, 2500);
+        if (pendingTool === "start_agent" && msg.decision !== "deny") {
+          send("tool_started", { name: "start_agent" });
+          send("tool_finished", { name: "start_agent", status: "ok", result_preview: '{"status": "running"}' });
+          teamStep += 1;
+          if (teamStep === 1) {
+            const args = { agent: "claude_code", name: "usage guide", task: "Write docs/csv-export.md explaining the export options, with one example per option." };
+            send("tool_proposed", { name: "start_agent", arguments: args });
+            send("permission_required", { name: "start_agent", arguments: args, reason: "requires approval" });
+            return;
+          }
+          const board = (a: string, b: string) => `Codex · csv export: ${a}\nClaude Code · usage guide: ${b}`;
+          const steps: Array<[number, () => void]> = [
+            [0, () => send("tool_proposed", { name: "wait_for_agents", arguments: {} })],
+            [0, () => send("tool_started", { name: "wait_for_agents" })],
+            [300, () => send("tool_progress", { name: "wait_for_agents", text: board("Running: pytest -q", "Read: report.py") })],
+            [900, () => send("tool_progress", { name: "wait_for_agents", text: board("Changed report.py", "Write: docs/csv-export.md") })],
+            [2600, () => send("tool_finished", { name: "wait_for_agents", status: "ok", result_preview: "{}" })],
+            [2600, () => send("assistant_message", { text: "Codex's branch still fails the empty-file test. Sending it back." })],
+            [2600, () => send("tool_proposed", { name: "message_agent", arguments: { job: "csv-export-1a2b", message: "test_empty_file fails: an empty CSV must export a header row only. Fix it and rerun pytest." } })],
+            [2600, () => send("tool_finished", { name: "message_agent", status: "ok", result_preview: '{"status": "running"}' })],
+            [2700, () => send("assistant_message", { text: "Both branches are ready: mimi/codex-csv-export passes all tests, and mimi/claude-usage-guide adds the guide. Want me to merge them?" })],
+            [2700, () => send("turn_done")],
+          ];
+          steps.forEach(([at, fn]) => setTimeout(fn, at));
           return;
         }
         if (pendingTool === "run_shell") {

@@ -69,14 +69,18 @@ describe("TurnGroup (Transcript §33)", () => {
     expect(screen.getByTestId("turn-live-line").textContent).toContain("Looking at the repo");
   });
 
-  it("a hand-off to a coding agent shows what the agent is doing right now, then drops it when done", () => {
+  it("watching a team shows each agent's latest step on its own line, then drops it when done", () => {
     const step = (status: string): Item => ({
-      kind: "tool", id: "t1", name: "delegate_to_agent", args: { agent: "codex", task: "fix the tests" },
-      status, progress: "Running: pytest -q",
+      kind: "tool", id: "t1", name: "wait_for_agents", args: {},
+      status, progress: "Codex · backend: Running: pytest -q\nClaude Code · docs: Write: docs/api.md",
     });
     const { rerender } = render(<Transcript items={[step("…")]} onApprove={vi.fn()} />);
-    expect(screen.getByText(/Handed a task to Codex/)).toBeTruthy();
-    expect(screen.getByTestId("step-progress").textContent).toBe("Running: pytest -q");
+    expect(screen.getByText(/Watched the agents work/)).toBeTruthy();
+    const board = screen.getByTestId("step-progress");
+    expect(Array.from(board.children).map((d) => d.textContent)).toEqual([
+      "Codex · backend: Running: pytest -q",
+      "Claude Code · docs: Write: docs/api.md",
+    ]);
     rerender(<Transcript items={[step("ok")]} onApprove={vi.fn()} />);
     expect(screen.queryByTestId("step-progress")).toBeNull();
   });
