@@ -425,3 +425,46 @@ def test_outbound_replaces_images_for_non_vision_models(tmp_path):
     assert all(p["type"] != "image_url" for p in parts)
     assert "not viewable" in parts[-1]["text"]
     assert engine.messages[-1]["content"][1]["type"] == "image_url"  # history untouched
+
+
+# -- a final answer must not link a file that was never saved ------------------------------
+
+
+async def _approve_all(_req: PermissionRequest):
+    return ApprovalOutcome.ONCE
+
+
+def test_a_link_to_a_file_never_saved_gets_one_nudge_and_then_the_file_is_written(tmp_path):
+    turns = [
+        _text_turn("Done: [Weekly report](artifact:report-1056.md)"),
+        _tool_turn("write_file", {"path": "report-1056.md", "content": "# Report"}),
+        _text_turn("Saved: [Weekly report](artifact:report-1056.md)"),
+    ]
+    engine, _ = _engine(tmp_path, turns, approver=_approve_all)
+    events = _collect(engine, "write the report")
+    notices = [e.data for e in events if e.type == EventType.NOTICE and e.data.get("kind") == "missing_link"]
+    assert len(notices) == 1
+    assert (tmp_path / "report-1056.md").read_text() == "# Report"
+    nudge = next(m for m in engine.messages if m.get("steering") == "missing_link")
+    assert "`report-1056.md`" in nudge["content"]
+    assert events[-1].type == EventType.TURN_END and events[-1].data["status"] == "completed"
+
+
+def test_a_link_to_a_file_that_exists_ends_the_turn_untouched(tmp_path):
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "summary.docx").write_text("x")
+    engine, _ = _engine(tmp_path, [_text_turn("Here: [Summary](artifact:out/summary.docx)")])
+    events = _collect(engine, "summarise")
+    assert not any(e.type == EventType.NOTICE for e in events)
+    assert not any(m.get("steering") for m in engine.messages)
+
+
+def test_a_model_that_keeps_linking_a_missing_file_is_nudged_only_once(tmp_path):
+    turns = [
+        _text_turn("See [it](artifact:ghost.md)"),
+        _text_turn("Sorry, it was not saved. See [it](artifact:ghost.md)"),
+    ]
+    engine, _ = _engine(tmp_path, turns)
+    events = _collect(engine, "go")
+    assert sum(e.type == EventType.NOTICE for e in events) == 1
+    assert events[-1].type == EventType.TURN_END

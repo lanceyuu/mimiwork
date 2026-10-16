@@ -34,6 +34,10 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
         items.push({ kind: "notice", tone: "info", text: "Almost out of steps — asked Mimi to wrap up." });
         continue;
       }
+      if (m.steering === "missing_link") {
+        items.push({ kind: "notice", tone: "info", text: "Mimi linked a file it hadn't saved — asked it to save it." });
+        continue;
+      }
       // Charts handed back to Mimi to check; the user already has them in the artifacts panel.
       if (m.steering === "figures") continue;
       if (m.source?.connector) {

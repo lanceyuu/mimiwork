@@ -128,3 +128,17 @@ describe("itemsFromMessages chart review", () => {
     expect(users[0].text).toBe("plot revenue");
   });
 });
+
+describe("itemsFromMessages engine prompts", () => {
+  it("shows the missing-link prompt as a quiet notice, never as the user's own message", () => {
+    const items = itemsFromMessages([
+      { role: "user", content: "write the report" },
+      { role: "assistant", content: "Done: [Report](artifact:report.md)" },
+      { role: "user", content: "Your answer links to `report.md`, but no such file exists", steering: "missing_link" },
+    ] as any);
+    expect(items.filter((i) => i.kind === "user")).toHaveLength(1);
+    expect(items[items.length - 1]).toEqual({
+      kind: "notice", tone: "info", text: "Mimi linked a file it hadn't saved — asked it to save it.",
+    });
+  });
+});

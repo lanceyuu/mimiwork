@@ -21,6 +21,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Optional
 
 from . import compaction as _compaction
@@ -67,6 +68,14 @@ class PermissionRequest:
 
 Approver = Callable[[PermissionRequest], Awaitable[ApprovalOutcome]]
 
+
+# `[Title](artifact:path)` — the one-click link the system prompt asks for on every deliverable.
+_ARTIFACT_LINK = re.compile(r"\]\(\s*<?artifact:([^)>]+?)>?\s*\)")
+_MISSING_LINK_TEXT = (
+    "Your answer links to {paths}, but no such file exists: you never saved it. Save it now "
+    "at exactly that path with the file tools, or tell the user plainly that it was not "
+    "saved. Do not link a file that does not exist."
+)
 
 _WRAP_UP_TEXT = (
     "You are almost out of tool steps for this turn. Finish now: write the deliverable "
@@ -189,6 +198,7 @@ class TurnEngine:
         # user never sees duplicated text. Tests shrink the delays to zero.
         self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0, 15.0, 30.0, 30.0)
         self._wrap_up_sent = False
+        self._links_checked = False
         # Consecutive failed tool calls in the current turn (see FAIL_HINT_AT).
         self._fail_streak = 0
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
@@ -804,6 +814,23 @@ class TurnEngine:
                 if self._steering:
                     self._inject_steering()
                     yield Event(EventType.NOTICE, {"kind": "steering", "text": "Following your updated instruction."})
+                    continue
+                missing = [] if self._links_checked else self._missing_artifact_links(turn.text or "")
+                if missing and iterations < self.max_iterations:
+                    # A weak model once ended a run linking a report it had only pasted into
+                    # chat; the card then said "moved or deleted" about a file that never
+                    # was (owner report 2026-10-16). One chance per turn to save it or say so.
+                    self._links_checked = True
+                    self.messages.append({
+                        "role": "user",
+                        "content": _MISSING_LINK_TEXT.format(paths=", ".join(f"`{p}`" for p in missing)),
+                        "ts": time.time(),
+                        "steering": "missing_link",
+                    })
+                    yield Event(EventType.NOTICE, {
+                        "kind": "missing_link",
+                        "text": "Mimi linked a file it hadn't saved — asked it to save it.",
+                    })
                     continue
                 yield Event(
                     EventType.TURN_END,
@@ -1785,7 +1812,24 @@ class TurnEngine:
             return ""
         return ""
 
+    def _missing_artifact_links(self, text: str) -> list[str]:
+        """Linked deliverables that exist in none of the session's folders."""
+        if "artifact:" not in text:
+            return []
+        from urllib.parse import unquote
+
+        roots = [root for root, _writable in self.permissions._resolved_roots()]
+        missing: list[str] = []
+        for raw in _ARTIFACT_LINK.findall(text):
+            link = unquote(raw.strip())
+            path = Path(link).expanduser()
+            candidates = [path] if path.is_absolute() else [root / path for root in roots]
+            if not any(c.exists() for c in candidates) and link not in missing:
+                missing.append(link)
+        return missing
+
     def _begin_turn(self) -> None:
+        self._links_checked = False
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
         self._turn_tools = set()
