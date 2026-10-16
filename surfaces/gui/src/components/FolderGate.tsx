@@ -26,11 +26,24 @@ export function FolderGate({ onChoose, onCancel, create, mode = "session" }: Pro
     getRecentWorkspaces().then(setRecents).catch(() => {});
   }, []);
 
+  const [offline, setOffline] = useState(false);
+
   const open = async (p: string, doCreate = false) => {
     setError("");
-    const res = await openWorkspace(p.trim(), doCreate);
-    if (res.ok) onChoose(res.path, res.git_branch);
-    else setError(res.error || "could not open that folder");
+    setOffline(false);
+    try {
+      const res = await openWorkspace(p.trim(), doCreate);
+      if (res.ok) onChoose(res.path, res.git_branch);
+      else setError(res.error || "could not open that folder");
+    } catch {
+      // A rejected fetch never reaches the error boundary, and this gate is also where
+      // boot lands when the local server never answered: say so instead of doing nothing.
+      setOffline(true);
+      setError(
+        "MimiWork can't reach its own local server, so it can't open folders right now. " +
+          "Try again, or quit and reopen MimiWork. Your files and conversations are not affected.",
+      );
+    }
   };
 
   const browse = async () => {
@@ -77,7 +90,16 @@ export function FolderGate({ onChoose, onCancel, create, mode = "session" }: Pro
             {project ? "Create project" : create ? "Create" : "Open"}
           </button>
         </div>
-        {error && <div className="gate-error">{error}</div>}
+        {error && (
+          <div className="gate-error">
+            {error}
+            {offline && (
+              <button className="btn" style={{ marginLeft: 8 }} onClick={() => window.location.reload()}>
+                Try again
+              </button>
+            )}
+          </div>
+        )}
 
         {recents.length > 0 && (
           <>
@@ -85,7 +107,7 @@ export function FolderGate({ onChoose, onCancel, create, mode = "session" }: Pro
             <div className="gate-recents">
               {recents.map((w) => (
                 <div className="gate-recent" key={w.path} onClick={() => open(w.path)} title={w.path}>
-                  <span className="folder">📁 {w.name}</span>
+                  <span className="folder">{w.name}</span>
                   <span className="dim">{w.path}</span>
                 </div>
               ))}

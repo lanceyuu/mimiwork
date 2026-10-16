@@ -3,6 +3,15 @@ import type { ApprovalDecision, Item } from "../types";
 import { humanizeApprovalTitle, type HumanLine } from "../humanize";
 import { Icon } from "./Icon";
 
+// The settled card is the consent record, so it says what the user decided.
+const RESOLVED_LABEL: Record<ApprovalDecision, string> = {
+  once: "Allowed once",
+  deny: "Denied",
+  always_tool: "Allowed for this conversation",
+  always_command: "Allowed for this command",
+  always_task: "Allowed for this automation",
+};
+
 export function shortArgs(args: any): string {
   if (!args || typeof args !== "object") return "";
   return Object.entries(args)
@@ -368,7 +377,7 @@ export function ApprovalCard({
       {reason && <div className="approval-reason">{reason}</div>}
 
       {item.resolved ? (
-        <div className="resolved">Approved: {item.resolved.replace("_", " ")}</div>
+        <div className="resolved">{RESOLVED_LABEL[item.resolved]}</div>
       ) : (
         <Buttons
           item={item}

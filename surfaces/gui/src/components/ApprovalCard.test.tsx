@@ -434,3 +434,16 @@ describe("ApprovalCard — starting a coding agent", () => {
     expect(screen.getByTestId("delegate-note").textContent).toContain("your own OpenAI account");
   });
 });
+
+describe("ApprovalCard — the settled card is the consent record", () => {
+  it("says Denied when the user said no, never Approved", () => {
+    render(<ApprovalCard item={sendApproval({ resolved: "deny" })} onApprove={vi.fn()} />);
+    expect(screen.getByText("Denied")).toBeTruthy();
+    expect(screen.queryByText(/Approved/)).toBeNull();
+  });
+
+  it("names the scope of a yes", () => {
+    render(<ApprovalCard item={sendApproval({ resolved: "always_tool" })} onApprove={vi.fn()} />);
+    expect(screen.getByText("Allowed for this conversation")).toBeTruthy();
+  });
+});

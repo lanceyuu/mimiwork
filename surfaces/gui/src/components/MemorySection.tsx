@@ -28,6 +28,7 @@ const BTN_ACCENT =
 export function MemorySection() {
   const [settings, setSettings] = useState<MemorySettings | null>(null);
   const [entries, setEntries] = useState<MemoryEntry[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   // State-change copy (§5.3): shown under the toggle / list after an action.
   const [toggleMsg, setToggleMsg] = useState<string | null>(null);
   // List | Graph view of the same memories — the graph is the Obsidian-style map.
@@ -36,7 +37,12 @@ export function MemorySection() {
   const [listMsg, setListMsg] = useState<string | null>(null);
 
   const refresh = () => {
-    getMemorySettings().then(setSettings).catch(() => setSettings(null));
+    getMemorySettings()
+      .then((s) => {
+        setSettings(s);
+        setLoadFailed(false);
+      })
+      .catch(() => setLoadFailed(true));
     getMemory().then(setEntries).catch(() => setEntries([]));
   };
   useEffect(refresh, []);
@@ -81,6 +87,15 @@ export function MemorySection() {
     refresh();
   };
 
+  if (loadFailed && !settings)
+    return (
+      <div className="text-[13px] text-muted">
+        Couldn't load memory settings from MimiWork's local server.{" "}
+        <button className="underline" onClick={refresh}>
+          Try again
+        </button>
+      </div>
+    );
   if (!settings || entries === null)
     return <div className="text-[13px] text-muted">Loading…</div>;
 

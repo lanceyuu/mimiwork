@@ -59,7 +59,13 @@ export function PlanCard({
           <button className="btn" onClick={() => onRespond(true, "interactive")}>
             Approve — ask per step
           </button>
-          <button className="btn primary" onClick={() => onRespond(true, "auto")}>
+          {/* Approving a plan is consent to the plan, not to bypass: file edits in the
+              folder flow, while commands and sends still stop for the user. */}
+          <button
+            className="btn primary"
+            title="File edits run without asking; commands and messages still ask first."
+            onClick={() => onRespond(true, "accept_edits")}
+          >
             Approve & run
           </button>
         </div>

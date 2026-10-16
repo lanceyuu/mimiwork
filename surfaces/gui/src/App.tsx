@@ -1762,7 +1762,7 @@ export function App() {
             // returns to the session view first — the spotlights point at live session
             // elements, and setup may have been replayed from Settings. Skipped when
             // setup hands off to another surface.
-            if (next !== "gallery" && next !== "automations")
+            if (next !== "gallery" && next !== "automations" && next !== "connectors")
               window.setTimeout(
                 () => window.dispatchEvent(new CustomEvent("coworker:open-tour")),
                 600,
@@ -1773,6 +1773,8 @@ export function App() {
             } else if (next === "automations") {
               // "Create your first automation" (§29) lands on the Automations quickstart.
               setSurface("scheduled");
+            } else if (next === "connectors") {
+              setSurface("integrations");
             } else if (next === "work") {
               // "Start working" teaches by landing (§24, §32): a fresh session with the rail's
               // Access section expanded. Bump after the session switch settles.

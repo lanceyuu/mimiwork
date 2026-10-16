@@ -106,7 +106,7 @@ export function Onboarding({
   onDone,
   __startStep = 0,
 }: {
-  onDone: (next?: "work" | "gallery" | "automations", starter?: OnboardingStarter) => void;
+  onDone: (next?: "work" | "gallery" | "automations" | "connectors", starter?: OnboardingStarter) => void;
   // Test-only: render pre-advanced to a step (the earlier steps need live provider state).
   __startStep?: number;
 }) {
@@ -119,6 +119,7 @@ export function Onboarding({
   // QualiTaTi right here, models included, nothing to configure. Bring-your-own-key is
   // the fallback path behind one link, not the opening question.
   const [byok, setByok] = useState(false);
+  const [showCn, setShowCn] = useState(false);
   const [qtSignedIn, setQtSignedIn] = useState(false);
   useEffect(() => {
     if (step !== 1 || qtSignedIn) return;
@@ -166,7 +167,7 @@ export function Onboarding({
   }, [step]);
 
   const finish = async (
-    next?: "work" | "gallery" | "automations",
+    next?: "work" | "gallery" | "automations" | "connectors",
     starter?: OnboardingStarter,
   ) => {
     await setOnboarded(true).catch(() => {});
@@ -242,7 +243,18 @@ export function Onboarding({
               /* ---- QualiTaTi account first (owner ask 2026-08-29) ---- */
               <div className="flex-1 min-h-0 overflow-y-auto pr-1" data-testid="ob-qualitati">
                 <QualitatiAccountCard />
-                <QualitatiAccountCard site="cn" />
+                {/* The China account card is written in Chinese, so it leads only for a
+                    Chinese interface; anyone else in mainland China reaches it by link. */}
+                {lang === "zh" || showCn ? (
+                  <QualitatiAccountCard site="cn" />
+                ) : (
+                  <button
+                    className="mt-3 block text-[12.5px] text-faint hover:text-muted underline"
+                    onClick={() => setShowCn(true)}
+                  >
+                    {t("In mainland China? Use a QualiTaTi China account")}
+                  </button>
+                )}
                 <button
                   className="mt-3 text-[12.5px] text-faint hover:text-muted underline"
                   data-testid="ob-byok"
@@ -365,6 +377,13 @@ export function Onboarding({
             </div>
 
             <div className="flex items-center mt-3.5">
+              <button
+                className="text-[12.5px] text-accent"
+                onClick={() => finish("connectors")}
+                data-testid="ob-open-connectors"
+              >
+                Open the Connectors page
+              </button>
               <button
                 className="ml-auto px-6 py-2 rounded-full bg-ink text-panel text-[13px] shrink-0"
                 onClick={() => setStep(3)}
@@ -493,7 +512,7 @@ export function Onboarding({
               </button>
             </div>
             <p className="text-[11px] text-faint text-center mt-3">
-              Replay this setup anytime: Settings ▸ Appearance ▸ Run setup again.
+              Replay this setup anytime: Settings ▸ General ▸ Run setup again.
             </p>
           </section>
         )}

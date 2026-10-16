@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 // real port at runtime. A local resolver that only read the Vite env var returned ""
 // in the packaged app, so every fetch went to tauri://localhost and WebKit threw
 // "The string did not match the expected pattern" (owner report 2026-08-30).
-import { apiToken, httpBase } from "../api";
+import { apiToken, httpBase, revealArtifact } from "../api";
 import { PanelHead } from "./IntegrationsView";
 import { Icon } from "./Icon";
 
@@ -37,6 +37,7 @@ export interface ReadResult {
   content?: string;
   note?: string;
   error?: string;
+  binary?: boolean; // Word/Excel/PDF/image: opened in its own app, never decoded as text
 }
 
 const INPUT =
@@ -139,6 +140,16 @@ export function WorkspaceView(props: {
       })
       .catch((e) => setErr(String(e)))
       .finally(() => setBusy(false));
+  };
+
+  const revealFile = async (fullPath: string, mode: "reveal" | "open") => {
+    setErr("");
+    try {
+      const r = await revealArtifact(props.sessionId!, fullPath, mode);
+      if (!r.ok) setErr(r.error || "Couldn't open that file.");
+    } catch {
+      setErr("Couldn't reach MimiWork's local server to open that file.");
+    }
   };
 
   // ── editor helpers ──
@@ -374,16 +385,29 @@ export function WorkspaceView(props: {
               <span className="text-[13px] font-semibold text-ink truncate" data-testid="workspace-file-title">
                 {file.path}
               </span>
-              <span className="text-[11.5px] text-faint shrink-0">
-                {file.data.total_lines ?? 0} lines
-              </span>
+              {!file.data.binary && (
+                <span className="text-[11.5px] text-faint shrink-0">
+                  {file.data.total_lines ?? 0} lines
+                </span>
+              )}
               {editing && draft !== savedDraft && (
                 <span className="text-[11px] px-1.5 py-0.5 rounded bg-warning/15 text-warning shrink-0">
                   unsaved
                 </span>
               )}
               <div className="ml-auto flex items-center gap-2">
-                {!editing ? (
+                {props.sessionId && file.data.full_path && (
+                  <button className={BTN} onClick={() => void revealFile(file.data.full_path!, "reveal")}>
+                    Show in folder
+                  </button>
+                )}
+                {file.data.binary ? (
+                  props.sessionId && (
+                    <button className={BTN} onClick={() => void revealFile(file.data.full_path!, "open")}>
+                      Open
+                    </button>
+                  )
+                ) : !editing ? (
                   <>
                     <button
                       className={BTN}
@@ -507,7 +531,11 @@ export function WorkspaceView(props: {
                   data-testid="workspace-editor"
                 />
               ) : (
-                <>
+                file.data.binary ? (
+                  <div className="px-5 py-4 text-[12.5px] text-muted" data-testid="workspace-file-binary">
+                    This file opens in its own app. Use Open, or Show in folder to find it.
+                  </div>
+                ) : <>
                   <pre className="text-[12px] leading-[1.55] font-mono px-5 py-4 text-ink whitespace-pre" data-testid="workspace-file-content">
                     {file.data.content ?? ""}
                   </pre>

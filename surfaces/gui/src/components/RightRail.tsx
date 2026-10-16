@@ -166,7 +166,11 @@ export function RightRail({
     (a: ArtifactInfo) => {
       const ext = (a.path.split(".").pop() || "").toLowerCase();
       if (OPENS_ELSEWHERE.has(ext)) {
-        void revealArtifact(sessionId, a.path, "open");
+        // A failed hand-off (file moved or deleted) falls back to the viewer, which
+        // shows the server's reason instead of leaving a dead click.
+        revealArtifact(sessionId, a.path, "open")
+          .then((r) => !r.ok && setSelected(a))
+          .catch(() => setSelected(a));
         return;
       }
       setSelected(a);
@@ -219,7 +223,16 @@ export function RightRail({
   useEffect(() => {
     setContent(null);
     if (!selected) return;
-    readArtifact(sessionId, selected.path).then(setContent).catch(() => setContent(null));
+    readArtifact(sessionId, selected.path)
+      .then(setContent)
+      .catch(() =>
+        setContent({
+          ok: false,
+          path: selected.path,
+          kind: "error",
+          error: "Couldn't reach MimiWork's local server to load this file.",
+        }),
+      );
   }, [selected?.path, sessionId]);
 
   // Notify the app when a preview opens/closes (drives the left-nav auto-collapse).
@@ -856,7 +869,7 @@ function ArtifactViewer({
           </>
         )}
         {!content ? (
-          <div className="rail-muted">Loading...</div>
+          <div className="rail-muted">Loading…</div>
         ) : content.error ? (
           <div className="rail-error">{content.error}</div>
         ) : content.kind === "html" ? (

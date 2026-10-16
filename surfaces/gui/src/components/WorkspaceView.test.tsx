@@ -90,6 +90,21 @@ describe("WorkspaceView", () => {
     expect(screen.getByTestId("workspace-file-content").textContent).toContain("second");
   });
 
+  it("hands a Word file to its own app instead of showing it as text", async () => {
+    const { calls } = mockFetch({
+      "/v1/workspace/tree": treeFixture,
+      "/v1/workspace/read": { path: "notes.md", full_path: "/ws/demo/notes.md", binary: true },
+      "/artifacts/reveal": { ok: true },
+    });
+    render(<WorkspaceView workspace="/ws/demo" sessionId="s1" />);
+    await waitFor(() => screen.getByTestId("workspace-entry-notes.md"));
+    screen.getByTestId("workspace-entry-notes.md").click();
+    await waitFor(() => screen.getByTestId("workspace-file-binary"));
+    expect(screen.queryByTestId("workspace-edit-btn")).toBeNull();
+    screen.getByText("Open").click();
+    await waitFor(() => expect(calls.some((c) => c.includes("/artifacts/reveal"))).toBe(true));
+  });
+
   it("shows the error card when the server rejects the path", async () => {
     mockFetch({ "/v1/workspace/tree": { error: "no workspace folder is open" } });
     render(<WorkspaceView workspace={null} sessionId={null} />);

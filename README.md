@@ -48,7 +48,7 @@ local automation with a full transcript; anything needing a decision waits in yo
 instead of guessing.
 
 **Yours, on your machine.** No vendor cloud, your model keys, every consequential
-action approval-gated, and nothing outside the folders you grant is readable.
+action approval-gated, and Mimi's file tools can't reach outside the folders you grant.
 
 ## What it actually does
 
@@ -71,8 +71,8 @@ into figures.
 Browse **8,400 community skills** by shelf, and **read a skill's real instructions** — and
 which tools it wants — before it ever lands on your disk.
 
-**It connects to where you work.** 25+ integrations — Slack, Gmail, Outlook, Google
-Calendar and Drive, GitHub, Jira, Notion, Linear, HubSpot, Canva, monday.com — plus
+**It connects to where you work.** 25+ integrations — Slack, Outlook, Google Drive,
+GitHub, Jira, Notion, Linear, HubSpot, Canva, monday.com — plus
 anything reachable over [MCP](https://modelcontextprotocol.io/). Tag it in a Slack channel
 and the finished work comes back as a thread reply. Canva signs in with one click and Mimi
 can search, generate, edit, comment on and export your designs there.
@@ -104,7 +104,7 @@ one app.
 |---|---|---|---|
 | **`/`** — app commands, your saved commands, your skills | `/` commands | slash commands | `/` commands |
 | **`@`** — point at a file in a granted folder | `@` mentions | `@` mentions | `@` mentions |
-| **Plan · Ask for approval · Full access** (⇧⇥ cycles) | Manual / Auto / Skip | plan / default / bypass | plan / approval / auto |
+| **Default · Accept edits · Plan** (⇧⇥ cycles; Bypass is a menu pick) | Manual / Auto / Skip | plan / default / bypass | plan / approval / auto |
 | **`AGENTS.md`** — and `CLAUDE.md` is read too | folder instructions | `CLAUDE.md` | `AGENTS.md` |
 | **Skills** — `SKILL.md` folders, importable from `~/.claude/skills` | Skills | Skills | — |
 | **Projects** — folder + instructions + memory + threads | Projects | a repo you `cd` into | a repo you `cd` into |
@@ -196,8 +196,8 @@ Open **Settings ▸ Models**. Two ways in:
 <br>
 
 Click the folder starter card, or just ask *"work in my Projects/interviews folder"*.
-**Nothing outside the folders you grant is readable** — so grant the folder where the
-real files live. Click a folder's name under Access to open it in Finder/Explorer.
+**Mimi's file tools can't read outside the folders you grant** — so grant the folder where
+the real files live. Click a folder's name under Access to open it in Finder/Explorer.
 </details>
 
 <details>
@@ -226,7 +226,7 @@ deliverable in one place.
 |---|---|
 | **`/`** | App commands (`/plan`, `/compact`, `/init`, `/model`…), your saved commands, your skills |
 | **`@`** | Point at a file in a granted folder — no path typing |
-| **`⇧⇥`** | Cycle **Plan** → **Ask for approval** → **Full access** |
+| **`⇧⇥`** | Cycle **Default** → **Accept edits** → **Plan**. **Bypass permissions** is a deliberate pick from the mode menu, never a keystroke |
 
 For anything with stakes, hit `⇧⇥` into **Plan** first: Mimi proposes the whole approach,
 you approve or redirect, *then* it runs. Same gestures as Claude Code / Cowork / Codex —
@@ -249,8 +249,8 @@ you approve or redirect, *then* it runs. Same gestures as Claude Code / Cowork /
 <summary><b>6 · Connect where you work</b> — Slack, Qualtrics, QualiTaTi data, 25+ more</summary>
 <br>
 
-**Settings ▸ Connectors**: Slack (tag Mimi in a channel, work comes back in-thread),
-Gmail/Outlook, Calendar, Drive, GitHub, Jira, Notion, Canva — and **Qualtrics**: read a
+The **Connectors** page: Slack (tag Mimi in a channel, work comes back in-thread),
+Outlook, Drive, GitHub, Jira, Notion, Canva — and **Qualtrics**: read a
 questionnaire so `Q4_1` becomes a real question, pull responses as CSV or labelled SPSS
 `.sav`, with your approval per download. Your QualiTaTi research data works the same way.
 Anything else speaks [MCP](https://modelcontextprotocol.io/).
@@ -284,9 +284,16 @@ automation — every file on your disk, made with your keys, under your approval
 ## Privacy
 
 MimiWork is **fully local**: the agent loop, your conversations, connector tokens and model
-keys all live on your machine. **There is no vendor cloud in the loop** — no hosted sign-in,
-no OAuth broker, no relay. Connectors use your own credentials (or a vendor's own local
-OAuth); your data leaves the machine only through the model and integrations you choose.
+keys all live on your machine. **With your own model key there is no vendor cloud in the
+loop** — no hosted sign-in, no OAuth broker, no relay. A QualiTaTi account is the one opt-in
+exception: its sign-in and its model gateway are hosted. Connectors use your own credentials
+(or a vendor's own local OAuth); your data leaves the machine only through the model and
+integrations you choose.
+
+**What approving code grants.** Folder grants bound Mimi's file tools. Shell commands and
+Python or R code you approve run as your user account, so they can reach whatever your
+account can. Read what a command does before you approve it, and keep Bypass permissions for
+folders you would hand over anyway.
 
 ## Quality
 
