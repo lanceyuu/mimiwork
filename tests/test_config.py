@@ -8,7 +8,7 @@ from coworker.config import load_config
 def test_defaults_when_no_files(tmp_path):
     cfg = load_config(global_path=tmp_path / "nope.toml")
     assert cfg.model == "gpt-5.6-sol"
-    assert cfg.mode == "interactive"
+    assert cfg.mode == "accept_edits"  # owner's default for every new conversation
     assert cfg.max_iterations == 150
     assert cfg.allowed_commands == []
 

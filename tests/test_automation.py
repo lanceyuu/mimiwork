@@ -181,6 +181,7 @@ def test_create_and_list_tools(tmp_path):
     )
     saved = store.list()[0]
     assert saved.origin_session_id == "s1" and saved.workspace == "/tmp/ws"
+    assert saved.mode == "accept_edits"  # same default as a new conversation
 
     bad = tools["create_scheduled_task"](title="x", instructions="y", cron="not-a-cron")
     assert "invalid cron" in bad["error"]

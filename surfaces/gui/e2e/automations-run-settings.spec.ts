@@ -19,10 +19,10 @@ test("a new automation can pin a model and a permission level", async ({ page })
   await form.getByPlaceholder("Title", { exact: false }).fill("Weekly CRM report");
   await form.getByPlaceholder("What should it do each run?", { exact: false }).fill("Write the report.");
 
-  // Defaults: the app's model, and asking — never full access by inheritance.
+  // Defaults: the app's model, and Accept edits — never full access by inheritance.
   await expect(form.getByTestId("auto-model")).toHaveValue("");
-  await expect(form.getByTestId("auto-mode")).toHaveValue("interactive");
-  await expect(form).toContainText("Parks the question in your Inbox");
+  await expect(form.getByTestId("auto-mode")).toHaveValue("accept_edits");
+  await expect(form).toContainText("parks commands and sends in your Inbox");
 
   await form.getByTestId("auto-model").selectOption("gpt-5.5");
   await form.getByTestId("auto-mode").selectOption("auto");

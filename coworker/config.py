@@ -30,7 +30,9 @@ DEFAULT_ALLOWED_COMMANDS: list[str] = []
 @dataclass
 class Config:
     model: str = "gpt-5.6-sol"
-    mode: str = "interactive"
+    # Accept edits (owner's choice, 2026-10-16): file edits inside the conversation's
+    # folders run without asking; commands, sends and anything else consequential still ask.
+    mode: str = "accept_edits"
     max_iterations: int = 150
     allowed_commands: list[str] = field(
         default_factory=lambda: list(DEFAULT_ALLOWED_COMMANDS)

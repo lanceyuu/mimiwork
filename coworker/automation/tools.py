@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import aisuite as ai
 
-from .models import Schedule, ScheduledTask, grant_entries
+from .models import NEW_TASK_MODE, Schedule, ScheduledTask, grant_entries
 from .store import TaskStore
 
 _CREATE_SCHEMA = {
@@ -185,6 +185,7 @@ def scheduling_tools(
             origin_session_id=origin.get("session_id", ""),
             agent=origin.get("agent", "cowork"),
             always_allowed_tools=grants,
+            mode=NEW_TASK_MODE,
         )
         store.save(task)
         return {

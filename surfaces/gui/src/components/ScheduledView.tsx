@@ -345,9 +345,9 @@ function NewAutomationForm({
   const [folder, setFolder] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
   const [model, setModel] = useState<string>("");
-  // Default to asking: an unattended task that can do anything is a decision, not
-  // a default.
-  const [mode, setMode] = useState<string>("interactive");
+  // Accept edits, like a new conversation (owner's choice, 2026-10-16): it writes its
+  // files, while commands and sends still wait in the Inbox. Full access stays a choice.
+  const [mode, setMode] = useState<string>("accept_edits");
   const valid = title.trim() && instructions.trim();
 
   // The flow diagram used to live here, drawn from a half-filled draft — so it showed a
@@ -530,7 +530,7 @@ function TaskDetail({
   const [time, setTime] = useState("09:00");
   const [freq, setFreq] = useState("daily");
   const [model, setModel] = useState("");
-  const [mode, setMode] = useState("interactive");
+  const [mode, setMode] = useState("accept_edits");
   const [saving, setSaving] = useState(false);
 
   // The seen mark AS OF opening — the "new" pills compare against this frozen value

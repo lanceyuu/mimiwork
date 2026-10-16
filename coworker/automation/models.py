@@ -65,6 +65,10 @@ def grant_entries(permissions: Any) -> list[str]:
 # Inbox and the run waits there instead of failing.
 TASK_MODES = ("plan", "interactive", "accept_edits", "auto")
 DEFAULT_TASK_MODE = "interactive"
+# What a NEW automation starts with (owner's choice, 2026-10-16), matching new conversations.
+# Records saved before it keep DEFAULT_TASK_MODE, and junk still falls back to asking, so no
+# existing automation is ever widened by this.
+NEW_TASK_MODE = "accept_edits"
 
 
 def normalize_mode(value: Any, fallback: str = DEFAULT_TASK_MODE) -> str:

@@ -75,9 +75,9 @@ def test_a_record_written_before_levels_existed_still_loads(tmp_path, monkeypatc
 # ── creating ─────────────────────────────────────────────────────────────────
 
 
-def test_the_default_is_ask_and_the_app_default_model(tmp_path, monkeypatch):
+def test_a_new_automation_starts_at_accept_edits_and_the_app_default_model(tmp_path, monkeypatch):
     task = _create(_manager(tmp_path, monkeypatch))["task"]
-    assert task["mode"] == "interactive"
+    assert task["mode"] == "accept_edits"
     assert task["model"] is None  # follow the app default, whatever it becomes
 
 
@@ -149,7 +149,7 @@ def test_the_run_engine_is_built_at_the_tasks_level_and_model(tmp_path, monkeypa
     assert seen["model"] == "qualitati:mimi-wolf"
 
 
-def test_asking_is_still_the_mode_when_nothing_was_chosen(tmp_path, monkeypatch):
+def test_accept_edits_is_the_mode_a_run_gets_when_nothing_was_chosen(tmp_path, monkeypatch):
     manager = _manager(tmp_path, monkeypatch)
     task = manager.task_store.get(_create(manager)["task"]["id"])
     seen: dict = {}
@@ -163,7 +163,7 @@ def test_asking_is_still_the_mode_when_nothing_was_chosen(tmp_path, monkeypatch)
     monkeypatch.setattr(manager_mod, "build_engine", fake_build)
     with pytest.raises(RuntimeError):
         manager._build_task_engine(task, session_id="__run__y")
-    assert seen["mode"] is Mode.INTERACTIVE
+    assert seen["mode"] is Mode.ACCEPT_EDITS
     assert seen["model"] == manager.model  # the app default, resolved at run time
 
 

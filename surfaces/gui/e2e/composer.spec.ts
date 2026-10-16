@@ -33,9 +33,9 @@ test("composer: send-gating, + attach menu, Mode menu", async ({ page }) => {
   await expect(menu.getByText("Plan", { exact: true })).toBeVisible();
   await expect(menu.getByText("Discuss", { exact: true })).toHaveCount(0);
   await expect(menu.getByText("Custom", { exact: true })).toHaveCount(0);
-  // The current mode is marked with a ✓.
-  await expect(menu.locator("button").filter({ hasText: "Default" })).toContainText("✓");
-  await expect(menu.getByText("Accept edits")).toBeVisible();
+  // The current mode is marked with a ✓: a new conversation starts at Accept edits.
+  await expect(menu.locator("button").filter({ hasText: "Accept edits" })).toContainText("✓");
+  await expect(menu.locator("button").filter({ hasText: "Default" })).not.toContainText("✓");
   await expect(menu.getByRole("switch", { name: "Send approvals to the Inbox" })).toBeVisible();
   // Picking an option closes the menu (and would flip the live engine's mode).
   await menu.getByText("Bypass permissions").click();

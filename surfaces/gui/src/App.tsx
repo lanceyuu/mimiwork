@@ -220,7 +220,7 @@ export function App() {
   const [timeSaved, setTimeSaved] = useState<TimeSaved>(emptyTimeSaved());
   const [timeSavedTotal, setTimeSavedTotal] = useState<TimeSaved>(emptyTimeSaved());
   const [surfaces, setSurfaces] = useState<SurfaceVisibility>({ cowork: true });
-  const [mode, setMode] = useState("interactive");
+  const [mode, setMode] = useState("accept_edits"); // the server default; `ready` confirms it
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
   // Mimi Puppy's free allowance today (owner ask 2026-09-04: warn before the gateway

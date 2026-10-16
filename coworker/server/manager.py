@@ -5228,7 +5228,7 @@ class SessionManager:
             fire_at=fire_at,
             timezone=timezone,
         )
-        from ..automation.models import grant_entries, normalize_mode
+        from ..automation.models import NEW_TASK_MODE, grant_entries, normalize_mode
 
         # Optional user-chosen folder: the automation runs THERE (reads the user's
         # real files, writes deliverables next to them) instead of a scratch dir.
@@ -5254,7 +5254,7 @@ class SessionManager:
             # the user's call at creation time; empty model = the app default at
             # run time, so the automation follows the default when it changes.
             model=(payload.get("model") or "").strip() or None,
-            mode=normalize_mode(payload.get("mode")),
+            mode=normalize_mode(payload.get("mode") or NEW_TASK_MODE),
         )
         task.workspace = workspace or self._provision_scratch(task.task_session_id)
 
