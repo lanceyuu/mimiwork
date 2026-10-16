@@ -30,3 +30,18 @@ describe("ModelsTab load failure", () => {
     await waitFor(() => expect(settingsCalls).toBe(2));
   });
 });
+
+// The QualiTaTi card is the app's only sign-in form, so it must survive a dead sidecar:
+// hiding it behind the settings fetch left a signed-out user with no way to sign in at
+// all (user report 2026-10-16 - "I don't see anywhere to log in").
+describe("ModelsTab with the sidecar unreachable", () => {
+  it("still shows the QualiTaTi sign-in form", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    }));
+    render(<ModelsTab />);
+    expect(await screen.findByTestId("qualitati-card")).toBeTruthy();
+    expect(await screen.findByTestId("qualitati-username")).toBeTruthy();
+    expect(screen.getByTestId("qualitati-password")).toBeTruthy();
+  });
+});

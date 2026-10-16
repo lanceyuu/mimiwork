@@ -93,16 +93,26 @@ export function ModelsTab() {
     refreshSettings();
   }, []);
 
+  // Settings may be unavailable (sidecar booting or dead), but the QualiTaTi cards are
+  // this page's ONLY sign-in entry point - hiding them behind the settings fetch left a
+  // signed-out user with nowhere to sign in (user report 2026-10-16). Cards first, then
+  // whatever we can say about the rest of the page.
   if (!settings)
-    return loadError ? (
-      <div className="text-[13px] text-muted" data-testid="models-load-error">
-        Could not load model settings — {loadError}
-        <button className="btn ml-2" onClick={refreshSettings}>
-          Retry
-        </button>
+    return (
+      <div>
+        <QualitatiAccountCard onChanged={() => { ps.refreshProviders(); refreshSettings(); }} />
+        <QualitatiAccountCard site="cn" onChanged={() => { ps.refreshProviders(); refreshSettings(); }} />
+        {loadError ? (
+          <div className="text-[13px] text-muted" data-testid="models-load-error">
+            Could not load model settings — {loadError}
+            <button className="btn ml-2" onClick={refreshSettings}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          <div className="text-[13px] text-muted">Loading…</div>
+        )}
       </div>
-    ) : (
-      <div className="text-[13px] text-muted">Loading…</div>
     );
 
   const info = ps.info;
