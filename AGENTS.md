@@ -38,6 +38,7 @@ github.com/lanceyuu/mimiwork. Owner: Shubin Yu (`lanceyuu`).
   rejection — this has happened twice.
 - **Version lives only in `tauri.conf.json`.** Bump it, tag `vX.Y.Z`, push the tag; CI
   (`release.yml`) builds all three platforms and drafts the release.
+  The draft's intro is read from `docs/release-notes/next.md`; rewrite it before tagging.
 
 ## House style
 

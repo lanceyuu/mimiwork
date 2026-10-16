@@ -262,6 +262,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags, so the notes step can tell whether next.md was
+          # edited since the previous release.
+          fetch-depth: 0
 
       - uses: actions/download-artifact@v4
         with:
@@ -290,16 +294,32 @@ jobs:
             echo "::warning::no updater signatures in dist/ — release ships WITHOUT auto-update manifest"
           fi
 
+      - name: Compose the release notes
+        # The intro comes from docs/release-notes/next.md so each version describes
+        # itself. A hardcoded intro once announced v0.6.27's features on every later
+        # draft. If next.md was not touched since the previous tag, its text belongs to
+        # an older release, so a placeholder goes in instead and the step warns.
+        run: |
+          NOTES=docs/release-notes/next.md
+          PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -f "$NOTES" ] && { [ -z "$PREV" ] || ! git diff --quiet "$PREV" HEAD -- "$NOTES"; }; then
+            cat "$NOTES" > release-body.md
+          else
+            echo "::warning::$NOTES unchanged since $PREV, the draft gets a placeholder intro"
+            echo "Replace this paragraph with what is new in ${GITHUB_REF_NAME} before publishing." > release-body.md
+          fi
+          cat >> release-body.md <<'BODY'
+
+          - **Windows** — signed by **QUALITATI**. A new download can still receive a SmartScreen reputation warning. Check the installer's **Properties ▸ Digital Signatures** for its publisher.
+          - **Mac** — signed by **Fengming Liu** and notarized by Apple. Choose Apple Silicon or Intel to match your Mac, open the DMG, and drag MimiWork to Applications.
+          - **Updates** — existing users can update from inside MimiWork. On a managed work computer, company installation policies still apply.
+
+          Installation help: [Install](https://github.com/lanceyuu/mimiwork#install).
+          BODY
+
       - uses: softprops/action-gh-release@v2
         with:
           draft: true
           files: dist/*
           generate_release_notes: true
-          body: |
-            MimiWork now ships with verified publisher signatures on Windows and Mac, plus Apple's notarization on both Mac architectures. This version also adds a choice of Classic or Teal Mimi for the floating companion.
-
-            - **Windows** — signed by **QUALITATI**. A new download can still receive a SmartScreen reputation warning. Check the installer's **Properties ▸ Digital Signatures** for its publisher.
-            - **Mac** — signed by **Fengming Liu** and notarized by Apple. Choose Apple Silicon or Intel to match your Mac, open the DMG, and drag MimiWork to Applications.
-            - **Updates** — existing users can update from inside MimiWork. On a managed work computer, company installation policies still apply.
-
-            Installation help: [Install](https://github.com/lanceyuu/mimiwork#install).
+          body_path: release-body.md
