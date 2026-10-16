@@ -121,7 +121,14 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
   const [socialProviders, setSocialProviders] = useState<QualitatiSocialProvider[]>([]);
   const [socialWaiting, setSocialWaiting] = useState<QualitatiSocialProvider | null>(null);
 
-  const refresh = () => qualitatiStatus(site).then(setState).catch(() => setState(null));
+  // A status call that fails (sidecar still booting, dead, or unreachable) used to leave
+  // `state` null, which rendered NOTHING - the only sign-in form in the app disappeared,
+  // so a signed-out user had no way back in (user report 2026-10-16). Fall back to
+  // signed-out: the form shows, and a login attempt reports the real error.
+  const refresh = () =>
+    qualitatiStatus(site)
+      .then(setState)
+      .catch(() => setState({ ok: false, signed_in: false, error: "server unreachable" }));
   useEffect(() => {
     refresh();
     qualitatiSocialProviders(site).then(setSocialProviders).catch(() => setSocialProviders([]));
