@@ -209,6 +209,38 @@ def test_update_and_delete_tools(tmp_path):
     assert tools["update_scheduled_task"](id=tid)["error"]
 
 
+async def test_a_scheduled_run_whose_model_fails_is_recorded_as_an_error_and_sends_no_done_notice(
+    tmp_path, monkeypatch
+):
+    from coworker.providers import ModelCapabilities, ProviderClient
+    from coworker.server.manager import SessionManager
+
+    class DeadProvider(ProviderClient):
+        def complete(self, *, model, messages, tools=None, **settings):
+            raise RuntimeError("model is dead (401)")
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    manager = SessionManager(data_dir=tmp_path / "data", provider=DeadProvider())
+    notified = []
+
+    async def notify(task, run):
+        notified.append(run)
+
+    manager._notify_task_done = notify
+    task = _task(workspace=str(ws), agent="cowork", notify_on_completion=True)
+    manager.task_store.save(task)
+
+    run = await manager._run_scheduled_task(task, trigger="manual")
+    assert run.status == "error"
+    assert run.error
+    assert notified == []
+
+
 # -- run persists as a continuable session -------------------------------------
 async def test_scheduled_run_persists_continuable_session(tmp_path, monkeypatch):
     from coworker.providers import AssistantTurn, ModelCapabilities, ProviderClient
@@ -597,6 +629,7 @@ def test_finished_automation_runs_do_not_pile_up_live_engines(tmp_path):
     class _Engine:
         def __init__(self) -> None:
             self.python_kernel = _Kernel()
+            self.executor = _Kernel()
 
     class _Kernel:
         closed = False
@@ -623,6 +656,8 @@ def test_finished_automation_runs_do_not_pile_up_live_engines(tmp_path):
     # not reclaim a child process holding pipes.
     retired = [sid for sid in engines if sid not in kept]
     assert retired and all(engines[sid].python_kernel.closed for sid in retired)
+    # ...and so are their shells, which a reader thread otherwise keeps alive.
+    assert all(engines[sid].executor.closed for sid in retired)
 
 
 def test_a_run_still_going_is_never_retired(tmp_path):

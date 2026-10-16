@@ -55,6 +55,7 @@ from ..connectors.browser_automation import (
 from ..connectors.parked import ParkedStore
 from ..conversations import ConversationStore, title_from
 from ..engine import Approver, TurnEngine
+from ..events import EventType
 from ..inbox import InboxStore, args_preview
 from ..inbox_routing import InboxRouting
 from ..mcp import (
@@ -864,6 +865,18 @@ class SessionManager:
                 break
         if target is None or not target.is_file():
             return {"error": f"not a file in this workspace: {path}"}
+        # Word, Excel, PDF and images are zip or binary containers: decoded as text they
+        # are a screen of replacement characters with an Edit button beside them. The
+        # caller opens them in their own app instead.
+        try:
+            with open(target, "rb") as fh:
+                binary = _artifact_kind(target) in {"office", "image", "pdf", "sheet"} or (
+                    b"\0" in fh.read(8192)
+                )
+        except OSError as exc:
+            return {"error": f"read failed: {exc}"}
+        if binary:
+            return {"path": rel, "full_path": str(target), "binary": True}
 
         start = start_line if isinstance(start_line, int) and start_line > 0 else 1
         n = max_lines if isinstance(max_lines, int) and max_lines > 0 else 500
@@ -1096,6 +1109,18 @@ class SessionManager:
         d = self.scratch_base() / session_id
         d.mkdir(parents=True, exist_ok=True)
         return str(d.resolve())
+
+    def _workspace_in_use(self, resolved: Path) -> bool:
+        """Does any remaining conversation or automation still work in this folder?"""
+        paths = [r.workspace for r in self.session_store.list()]
+        paths += [t.workspace for t in self.task_store.list()]
+        for p in paths:
+            try:
+                if p and Path(p).resolve() == resolved:
+                    return True
+            except OSError:
+                continue
+        return False
 
     def _new_session_workspace(self, session_id: str) -> str:
         """Where a brand-new Cowork conversation works: the folder the user handed over
@@ -5020,10 +5045,24 @@ class SessionManager:
             f"{task.instructions}"
         )
         try:
-            async for _event in engine.run(opening):
-                pass
+            # The engine reports failure as an event, not an exception, so the run's
+            # outcome is whatever its last terminal event says. Running out of events is
+            # not success: a provider error, a stop or a spent step budget all end that way.
+            failure: Optional[str] = "The run ended without finishing."
+            async for event in engine.run(opening):
+                if event.type is EventType.ERROR:
+                    failure = event.data.get("error") or "The run failed."
+                elif event.type is EventType.INTERRUPTED:
+                    failure = "The run was stopped before it finished."
+                elif event.type is EventType.TURN_END:
+                    status = event.data.get("status")
+                    failure = None if status == "completed" else _RUN_STOP_REASONS.get(
+                        status, "The run ended without finishing."
+                    )
             run.result_text = _last_assistant_text(engine.messages)
             run.artifacts = _recent_files(task.workspace, since=run.started_at)
+            if failure:
+                raise _RunFailed(failure)
             run.status = "ok"
             # Bank what the run did. Interactive turns bank from the websocket loop in
             # app.py; a scheduled run never goes through it, so its time and its place
@@ -5083,15 +5122,23 @@ class SessionManager:
             if sid.startswith("__run__") and sid != keep and not self.is_running(sid)
         ]
         for sid in run_ids[: max(0, len(run_ids) - self._RUN_ENGINE_CACHE)]:
-            engine = self._engines.pop(sid, None)
-            # Dropping the reference is not enough for the analysis kernel: it is a
-            # child process holding pipes, and it outlives the engine unless closed.
-            kernel = getattr(engine, "python_kernel", None)
-            if kernel is not None:
+            self._drop_engine(sid)
+
+    def _drop_engine(self, session_id: str) -> None:
+        """Evict a live engine and close the child processes it owns.
+
+        Dropping the reference is not enough: the shell and the analysis kernel are
+        child processes holding pipes, and a reader thread keeps the shell alive, so
+        both outlive the engine unless closed. Background jobs are separate processes
+        that closing the shell does not stop."""
+        engine = self._engines.pop(session_id, None)
+        for attr in ("executor", "python_kernel"):
+            proc = getattr(engine, attr, None)
+            if proc is not None:
                 try:
-                    kernel.close()
+                    proc.close()
                 except Exception:
-                    logger.exception("could not close the analysis kernel for %s", sid)
+                    logger.exception("could not close the %s for %s", attr, session_id)
 
     async def _notify_task_done(self, task, run: TaskRun) -> None:
         summary = (run.result_text or "").strip()[:280]
@@ -5847,7 +5894,7 @@ class SessionManager:
             [{"path": r["path"], "writable": r["writable"], "label": r.get("label", "")} for r in extra],
         )
         self.session_store.touch_workspace(str(folder))
-        self._engines.pop(session_id, None)
+        self._drop_engine(session_id)
         try:
             Path(scratch).rmdir()  # only an EMPTY temp dir goes; anything inside stays
         except OSError:
@@ -5945,7 +5992,7 @@ class SessionManager:
         self.session_store.set_workspace(session_id, target)
         self.session_store.set_extra_roots(session_id, extra)
         self.session_store.touch_workspace(target)
-        self._engines.pop(session_id, None)
+        self._drop_engine(session_id)
         return {"ok": True, "session_id": session_id, "workspace": target}
 
     def set_session_flags(
@@ -5963,14 +6010,18 @@ class SessionManager:
     def delete_session(self, session_id: str) -> dict[str, Any]:
         if session_id.startswith("__"):
             return {"ok": False, "error": "internal sessions cannot be deleted here"}
-        engine = self._engines.pop(session_id, None)
-        if engine is not None:
+        engine = self._engines.get(session_id)
+        if engine is not None and self.is_running(session_id):
             try:
                 # (was engine.interrupt() — a method that never existed; the AttributeError
                 # was silently swallowed, so deleting a running session never stopped it.)
                 engine.request_interrupt()
             except Exception:
                 pass
+            # A running turn still holds its shell; it closes when the turn unwinds.
+            self._engines.pop(session_id, None)
+        else:
+            self._drop_engine(session_id)
         record = self.session_store.load(session_id)
         ok = self.session_store.delete(session_id)
         # Deleting a session is the one implicit unsubscribe (otherwise subscriptions are permanent).
@@ -5984,18 +6035,15 @@ class SessionManager:
         # ...and closes its pending Inbox items — an orphaned approval/question can never be
         # meaningfully answered (owner call, 2026-07-03).
         self.inbox.resolve_session(session_id)
-        # ...and its scratch dir. STRICTLY scoped: only a directory inside scratch_base is
-        # removed — a real project folder the user picked is never touched.
+        # ...and its scratch dir. Only the exact <scratch_base>/<session_id> folder that
+        # _provision_scratch made, and only when nothing else still points at it. Sitting
+        # under scratch_base is not ownership: the base defaults to ~/MimiWork, where users
+        # keep real project folders, and a fork or an automation shares the parent's dir.
         if ok and record and record.workspace:
-            scratch = self.scratch_base().resolve()
-            ws = Path(record.workspace)
             try:
-                resolved = ws.resolve()
-                if (
-                    resolved.is_relative_to(scratch)
-                    and resolved != scratch
-                    and resolved.is_dir()
-                ):
+                resolved = Path(record.workspace).resolve()
+                own = (self.scratch_base() / session_id).resolve()
+                if resolved == own and resolved.is_dir() and not self._workspace_in_use(resolved):
                     shutil.rmtree(resolved)
             except OSError:
                 pass  # a stale/foreign path must not fail the delete
@@ -6845,6 +6893,17 @@ def _inbound_epoch(message_id: Optional[str]) -> float:
         except ValueError:
             pass
     return time.time()
+
+
+class _RunFailed(Exception):
+    """A scheduled run whose engine ended on a failure event rather than raising."""
+
+
+_RUN_STOP_REASONS = {
+    "max_iterations_exceeded": "The run used up its step budget before it finished.",
+    "repetition_stop": "The run stopped because it kept repeating the same step.",
+    "tool_failure_stop": "The run stopped after its tools failed several times in a row.",
+}
 
 
 def _last_assistant_text(messages: list[dict[str, Any]]) -> Optional[str]:

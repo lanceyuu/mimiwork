@@ -846,6 +846,15 @@ class TurnEngine:
             )
             verdict = rep_guard.observe(signature)
             if verdict == "stop":
+                # Every call in the assistant message still needs a result, or the next
+                # request carries orphaned tool_calls that strict providers reject.
+                for tool_call in turn.tool_calls:
+                    self._cancel_tool_recovery(
+                        tool_call, reason="repetition stop", status="interrupted"
+                    )
+                    self.messages.append(
+                        _tool_error_message(tool_call, "skipped: the same step was repeated")
+                    )
                 self._append_notice(
                     "error", "Stopped: the model kept repeating the same step without progress."
                 )
@@ -861,6 +870,10 @@ class TurnEngine:
                     {**{"status": "repetition_stop", "iterations": iterations}, "time_saved": self._close_turn()},
                 )
                 return
+            async for event in self._handle_tool_calls(turn.tool_calls):
+                yield event
+            # The hint goes after the batch's results: a user message between an
+            # assistant's tool_calls and their results breaks the pairing providers require.
             if verdict == "hint":
                 self.messages.append(
                     {
@@ -874,9 +887,6 @@ class TurnEngine:
                     EventType.NOTICE,
                     {"kind": "repetition", "text": "Mimi seems to be looping — nudging it to change course."},
                 )
-
-            async for event in self._handle_tool_calls(turn.tool_calls):
-                yield event
             self._show_pending_images()
 
             if self._fail_streak >= FAIL_STOP_AT:

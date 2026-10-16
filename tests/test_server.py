@@ -926,6 +926,41 @@ def test_delete_session_removes_its_scratch_dir_only(tmp_path):
     assert proj.is_dir()  # user folders are sacred
 
 
+def test_deleting_a_conversation_keeps_a_real_folder_that_sits_inside_the_scratch_base(tmp_path):
+    from coworker.server.manager import SessionManager
+    from coworker.sessions import SessionRecord
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    base = tmp_path / "MimiWork"
+    mgr._prefs["scratch_base"] = str(base)
+
+    research = base / "Research"
+    research.mkdir(parents=True)
+    (research / "notes.txt").write_text("years of work")
+    mgr.session_store.save(
+        SessionRecord(session_id="s1", workspace=str(research), model="m", mode="interactive")
+    )
+    assert mgr.delete_session("s1")["ok"]
+    assert (research / "notes.txt").read_text() == "years of work"
+
+
+def test_deleting_a_conversation_keeps_a_scratch_dir_its_fork_still_uses(tmp_path):
+    from pathlib import Path
+
+    from coworker.server.manager import SessionManager
+    from coworker.sessions import SessionRecord
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    mgr._prefs["scratch_base"] = str(tmp_path / "scratch")
+    scratch = Path(mgr._provision_scratch("parent"))
+    mgr.session_store.save(
+        SessionRecord(session_id="parent", workspace=str(scratch), model="m", mode="interactive")
+    )
+    assert mgr.fork_session("parent")["ok"]
+    assert mgr.delete_session("parent")["ok"]
+    assert scratch.is_dir()
+
+
 def test_open_invalid_workspace(tmp_path):
     client = _client(tmp_path, [])
     bad = client.post(
@@ -1332,3 +1367,18 @@ def test_invalid_force_stop_frames_are_rejected(tmp_path):
         ws.receive_json()
         ws.send_json({"type": "interrupt", "force": "yes"})
         assert ws.receive_json()["type"] == "input_rejected"
+
+
+def test_the_files_page_reader_hands_a_word_file_back_to_be_opened_not_decoded(tmp_path):
+    from coworker.server.manager import SessionManager
+
+    mgr = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    (tmp_path / "brief.docx").write_bytes(b"PK\x03\x04\x14\x00\x00\x00 zip body")
+    (tmp_path / "notes.md").write_text("# Notes\n")
+
+    docx = mgr.workspace_read("brief.docx", workspace=str(tmp_path))
+    assert docx["binary"] is True and "content" not in docx
+    assert docx["full_path"] == str((tmp_path / "brief.docx").resolve())
+
+    md = mgr.workspace_read("notes.md", workspace=str(tmp_path))
+    assert "binary" not in md and "# Notes" in md["content"]

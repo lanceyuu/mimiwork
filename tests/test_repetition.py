@@ -86,3 +86,23 @@ def test_a_model_that_takes_the_hint_recovers(tmp_path):
     assert end.data["status"] == "completed"
     kinds = [e.data.get("kind") for e in events if e.type == EventType.NOTICE]
     assert kinds.count("repetition") == 1  # hinted once, never stopped
+
+
+def _assert_every_tool_call_is_answered_before_anything_else(messages):
+    pending: set[str] = set()
+    for msg in messages:
+        if msg.get("role") == "notice":
+            continue
+        if msg.get("role") == "tool":
+            pending.discard(msg.get("tool_call_id"))
+            continue
+        assert not pending, f"{msg.get('role')} message arrived before results for {pending}"
+        if msg.get("role") == "assistant":
+            pending = {tc["id"] for tc in msg.get("tool_calls") or []}
+    assert not pending, f"unanswered tool calls: {pending}"
+
+
+def test_the_repetition_guard_leaves_a_history_a_strict_provider_accepts(tmp_path):
+    engine, _ = _looping_engine(tmp_path, 10)
+    _collect(engine, "find the report")
+    _assert_every_tool_call_is_answered_before_anything_else(engine.messages)
