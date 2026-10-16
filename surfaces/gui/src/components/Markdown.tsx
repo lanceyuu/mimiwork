@@ -1,6 +1,6 @@
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "./Icon";
 import { Mermaid } from "./Mermaid";
@@ -39,7 +39,10 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
   // Right-click offers the two things you actually want from a file the app just made:
   // open it in whatever program owns it, or show it where it lives. Left-click keeps its
   // meaning (the in-app preview), so the menu adds without taking anything away.
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; opener: Event } | null>(null);
+  // Stable, because the menu's listeners depend on it: a fresh closure every render had
+  // the menu tear them down and put them back on each re-render of the transcript.
+  const closeMenu = useCallback(() => setMenu(null), []);
   const reveal = (mode: "open" | "reveal") => {
     setMenu(null);
     window.dispatchEvent(
@@ -55,7 +58,7 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
-        setMenu({ x: e.clientX, y: e.clientY });
+        setMenu({ x: e.clientX, y: e.clientY, opener: e.nativeEvent });
       }}
       onClick={() =>
         window.dispatchEvent(new CustomEvent(OPEN_ARTIFACT_EVENT, { detail: { path } }))
@@ -70,7 +73,15 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
       </span>
       <span className="art-chip-open">{t("Open")} ›</span>
     </button>
-    {menu && <ArtifactMenu x={menu.x} y={menu.y} onPick={reveal} onClose={() => setMenu(null)} />}
+    {menu && (
+      <ArtifactMenu
+        x={menu.x}
+        y={menu.y}
+        opener={menu.opener}
+        onPick={reveal}
+        onClose={closeMenu}
+      />
+    )}
     </>
   );
 }
@@ -80,11 +91,13 @@ function ArtifactChip({ path: raw, title }: { path: string; title: string }) {
 function ArtifactMenu({
   x,
   y,
+  opener,
   onPick,
   onClose,
 }: {
   x: number;
   y: number;
+  opener: Event;
   onPick: (mode: "open" | "reveal") => void;
   onClose: () => void;
 }) {
@@ -95,27 +108,26 @@ function ArtifactMenu({
     // unmounted the menu before its own button could be clicked — the item then did
     // nothing at all. Invisible to a unit test firing click() alone; a real browser
     // shows it immediately.
+    // The contextmenu that opened this may still be unwinding when these listeners go on,
+    // and catching it would close the menu at once. Skip that one event by identity
+    // rather than arming a frame late: a late arm drops any click or Escape that lands
+    // before the next frame, and on a busy transcript that frame can be slow to come.
     const away = (e: Event) => {
-      if (ref.current?.contains(e.target as Node)) return;
+      if (e === opener || ref.current?.contains(e.target as Node)) return;
       onClose();
     };
     const key = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    // Capture, and on the NEXT frame: the contextmenu that opened this is still
-    // unwinding, and a listener added synchronously would catch it and close at once.
-    const id = requestAnimationFrame(() => {
-      window.addEventListener("mousedown", away, true);
-      window.addEventListener("contextmenu", away, true);
-      window.addEventListener("scroll", away, true);
-      window.addEventListener("keydown", key, true);
-    });
+    window.addEventListener("mousedown", away, true);
+    window.addEventListener("contextmenu", away, true);
+    window.addEventListener("scroll", away, true);
+    window.addEventListener("keydown", key, true);
     return () => {
-      cancelAnimationFrame(id);
       window.removeEventListener("mousedown", away, true);
       window.removeEventListener("contextmenu", away, true);
       window.removeEventListener("scroll", away, true);
       window.removeEventListener("keydown", key, true);
     };
-  }, [onClose]);
+  }, [opener, onClose]);
 
   // "Show in Finder" on a Mac, "Show in File Explorer" on Windows — the name the person
   // in front of the machine already uses for it.
