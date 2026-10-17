@@ -135,6 +135,16 @@ QualiTaTi research data (projects, interviews, surveys — each retrieval asks f
 signs in with one click: Mimi can search, generate, edit, comment on and export your designs.
 Anything else speaks [MCP](https://modelcontextprotocol.io/).
 
+**Coding agents.** If you have Claude Code or Codex, open **Connectors ▸ Coding agents**:
+it shows whether each is installed and signed in, signs it in, tests it, and sets its model
+(the latest unless you choose another). Then ask Mimi to use both on one job:
+
+> Have Codex build the CSV export and Claude Code write its tests, then have each review
+> the other's branch.
+
+Each agent works on its own branch, Mimi passes what one found back to the other until the
+work is right, and merging into your branch goes through the same approval as any other command.
+
 ## 7 · Make it run while you don't
 
 Ask in plain words:

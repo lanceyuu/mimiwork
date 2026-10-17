@@ -14,7 +14,9 @@ import { CHIP_OFF, CHIP_OK, CHIP_WARN, FOOT, GRP, PILL_ACCENT, PILL_LINE, ROW } 
 // a real test call, and the model and effort Mimi's hand-offs will use. Delegation reads the
 // same status, so what this page says is what start_agent will find.
 
-type TestResult = { ok: boolean; reply?: string; seconds?: number; error?: string };
+type TestResult = { ok: boolean; reply?: string; seconds?: number; error?: string; model?: string };
+// The dropdown's value for a model typed by hand.
+const CUSTOM = "__custom";
 
 export function CodingAgentsSection() {
   const t = useT();
@@ -59,6 +61,16 @@ export function CodingAgentsSection() {
 
   return (
     <div className="space-y-6">
+      {/* What start_agent / wait_for_agents / message_agent do together today; Mimi relays
+          between the agents, they never talk to each other directly. */}
+      <div className="rounded-xl2 border border-line bg-panel px-4 py-3 text-[12.5px]" data-testid="coding-agents-together">
+        <div className="font-semibold text-[13px] mb-1">{t("Claude Code and Codex can work together")}</div>
+        <p className="text-muted">
+          {t(
+            "Ask Mimi to use both on one job. Mimi splits the work and gives each agent its own part on its own branch, can have one review the other's branch, and passes what one found back to the other as feedback until the work is right. You see each agent's progress while they work.",
+          )}
+        </p>
+      </div>
       {agents.map((a) => (
         <AgentCard
           key={a.key}
@@ -75,6 +87,20 @@ export function CodingAgentsSection() {
       </div>
     </div>
   );
+}
+
+function modelHint(a: CodingAgent): string {
+  if (a.key === "claude_code")
+    return "Claude Code cannot list its models. Latest is the model Claude Code recommends for your account, and each family follows its newest model as your installed Claude Code knows it. Updating Claude Code moves them forward.";
+  if (a.models_listed) return "From Codex's own model list, newest first. Latest follows that list as it changes.";
+  return "Codex did not share its model list. Type a model name, or leave it empty for Codex's own default.";
+}
+
+// Codex says which effort levels each model takes; the chosen (or latest) model decides.
+function effortsFor(a: CodingAgent): string[] {
+  const id = a.model || a.latest;
+  const m = a.models.find((x) => x.id === id);
+  return m?.efforts?.length ? m.efforts : a.efforts;
 }
 
 function statusOf(a: CodingAgent): { label: string; chip: string } {
@@ -98,6 +124,9 @@ function AgentCard({
   const t = useT();
   const status = statusOf(a);
   const [model, setModel] = useState(a.model);
+  const known = a.models.some((m) => m.id === a.model);
+  // Shown while the user is typing a name of their own (or one is already saved).
+  const [custom, setCustom] = useState(!!a.model && !known);
   const [saveError, setSaveError] = useState("");
   const [saved, setSaved] = useState(false);
   const [signIn, setSignIn] = useState<{ url?: string; error?: string } | null>(null);
@@ -208,19 +237,53 @@ function AgentCard({
         </div>
 
         <div className={ROW}>
-          <label className="w-24 shrink-0 text-[13px] text-muted" htmlFor={`model-${a.key}`}>
+          <label className="w-24 shrink-0 self-start pt-1 text-[13px] text-muted" htmlFor={`model-${a.key}`}>
             {t("Model")}
           </label>
-          <input
-            id={`model-${a.key}`}
-            className="min-w-0 flex-1 rounded-md border border-line bg-paper px-2 py-1 text-[12.5px]"
-            value={model}
-            placeholder={t("Default: {model}").replace("{model}", a.defaults.model || t("the agent's own choice"))}
-            onChange={(e) => setModel(e.target.value)}
-            onBlur={() => model !== a.model && save({ model, effort: a.effort })}
-            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            data-testid="coding-agent-model"
-          />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            {a.models.length > 0 && (
+              <select
+                id={`model-${a.key}`}
+                className="max-w-full rounded-md border border-line bg-paper px-2 py-1 text-[12.5px]"
+                value={custom ? CUSTOM : a.model}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === CUSTOM) {
+                    setCustom(true);
+                    setModel("");
+                    return;
+                  }
+                  setCustom(false);
+                  setModel(v);
+                  save({ model: v, effort: a.effort });
+                }}
+                data-testid="coding-agent-model-select"
+              >
+                <option value="">
+                  {a.latest ? t("Latest (currently {model})").replace("{model}", a.latest) : t("Latest")}
+                </option>
+                {a.models.map((m) => (
+                  <option key={m.id} value={m.id} title={m.description}>
+                    {m.resolved ? `${t(m.label)} (${m.resolved})` : t(m.label)}
+                  </option>
+                ))}
+                <option value={CUSTOM}>{t("Custom…")}</option>
+              </select>
+            )}
+            {(custom || a.models.length === 0) && (
+              <input
+                id={a.models.length ? undefined : `model-${a.key}`}
+                className="w-full rounded-md border border-line bg-paper px-2 py-1 text-[12.5px]"
+                value={model}
+                placeholder={t("Type a model name, or leave empty for the latest")}
+                onChange={(e) => setModel(e.target.value)}
+                onBlur={() => model !== a.model && save({ model, effort: a.effort })}
+                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                data-testid="coding-agent-model"
+              />
+            )}
+            <p className="text-[12px] text-faint">{t(modelHint(a))}</p>
+          </div>
         </div>
 
         <div className={ROW}>
@@ -237,7 +300,7 @@ function AgentCard({
             <option value="">
               {a.defaults.effort ? t("Default: {model}").replace("{model}", a.defaults.effort) : t("Default")}
             </option>
-            {a.efforts.map((e) => (
+            {effortsFor(a).map((e) => (
               <option key={e} value={e}>
                 {e}
               </option>
@@ -266,7 +329,9 @@ function AgentCard({
             {result && (
               <div className={result.ok ? "text-ok" : "text-danger"} data-testid="coding-agent-test-result">
                 {result.ok
-                  ? t("It answered in {s} seconds.").replace("{s}", String(result.seconds ?? ""))
+                  ? (result.model ? t("It answered in {s} seconds, using {model}.") : t("It answered in {s} seconds."))
+                      .replace("{s}", String(result.seconds ?? ""))
+                      .replace("{model}", result.model ?? "")
                   : result.error}
               </div>
             )}

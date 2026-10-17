@@ -185,6 +185,7 @@ def _team(tmp_path, monkeypatch, folder, session="s1"):
     monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex", "claude_code": "claude"})
     monkeypatch.setattr(delegate, "connection_problem", lambda key: "")
     monkeypatch.setattr(delegate, "find_agent", lambda key: delegate.AGENTS[key][1])
+    monkeypatch.setattr(delegate, "codex_models", lambda exe: [])  # never the real catalog
     monkeypatch.setattr(
         delegate, "agent_command",
         lambda key, exe, resume_id="", **_: [sys.executable, str(script), *([resume_id] if resume_id else [])],

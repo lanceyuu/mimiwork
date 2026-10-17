@@ -581,6 +581,12 @@ export interface CodingAgent {
   sign_in_command: string;
   efforts: string[];
   defaults: { model: string; effort: string };
+  /** Codex: its own catalog, newest first. Claude Code: its family aliases. */
+  models: { id: string; label: string; description?: string; resolved?: string; efforts?: string[] }[];
+  /** True when the CLI listed its models itself (Codex); false for aliases or a failed list. */
+  models_listed: boolean;
+  /** The model "Latest" runs as, when known ("" until Claude Code has run once). */
+  latest: string;
   model: string;
   effort: string;
 }
@@ -605,7 +611,7 @@ export async function setCodingAgent(
 
 export async function testCodingAgent(
   key: string,
-): Promise<{ ok: boolean; reply?: string; seconds?: number; error?: string }> {
+): Promise<{ ok: boolean; reply?: string; seconds?: number; error?: string; model?: string }> {
   const res = await fetch(`${httpBase()}/v1/coding-agents/${encodeURIComponent(key)}/test`, { method: "POST" });
   return res.json();
 }

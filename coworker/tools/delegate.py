@@ -115,10 +115,17 @@ def agent_command(key: str, executable: str, resume_id: str = "", model: str = "
 
 # ── Connecting: the Coding agents page (Connectors) reads and drives everything below. ──
 
+# Codex's catalog lists the levels each model takes; these stand in when it cannot be read.
 EFFORTS: dict[str, list[str]] = {
     "claude_code": ["low", "medium", "high", "xhigh", "max"],
-    "codex": ["minimal", "low", "medium", "high", "xhigh"],
+    "codex": ["low", "medium", "high", "xhigh", "max"],
 }
+# An empty model means Latest. Claude Code cannot list models, but takes aliases that follow
+# the newest model of each family as the installed CLI knows it (2.1.270 resolves `opus` to
+# claude-opus-5 and `fable` to claude-fable-5-1); `default` is the one it recommends for the
+# signed-in account. Updating Claude Code moves them, so nothing here goes stale.
+_CLAUDE_LATEST = "default"
+_CLAUDE_ALIASES = [("fable", "Latest Fable"), ("opus", "Latest Opus"), ("sonnet", "Latest Sonnet"), ("haiku", "Latest Haiku")]
 _SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"]}
 _INSTALL = {
     "claude_code": "irm https://claude.ai/install.ps1 | iex" if _IS_WINDOWS else "curl -fsSL https://claude.ai/install.sh | bash",
@@ -130,7 +137,8 @@ _MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,99}$")
 _PAGE = "Connectors > Coding agents"
 
 _settings_path: Optional[Path] = None
-_settings: dict[str, dict[str, str]] = {}
+# key → {"model", "effort", "resolved": {alias: the model id it last ran as}}
+_settings: dict[str, dict[str, Any]] = {}
 
 
 def load_settings(path: Path) -> None:
@@ -149,19 +157,91 @@ def agent_settings(key: str) -> dict[str, str]:
     return {"model": str(saved.get("model") or ""), "effort": str(saved.get("effort") or "")}
 
 
+def _write_settings() -> str:
+    if _settings_path is None:
+        return ""
+    try:
+        _settings_path.write_text(json.dumps(_settings, indent=2), encoding="utf-8")
+    except OSError as exc:
+        return f"Could not save the setting: {exc}"
+    return ""
+
+
 def save_settings(key: str, model: str = "", effort: str = "") -> dict[str, Any]:
     model, effort = (model or "").strip(), (effort or "").strip()
     if model and not _MODEL_NAME.match(model):
         return {"ok": False, "error": "That model name has characters a model name never has."}
-    if effort and effort not in EFFORTS[key]:
-        return {"ok": False, "error": f"Effort must be one of: {', '.join(EFFORTS[key])}."}
-    _settings[key] = {"model": model, "effort": effort}
-    if _settings_path is not None:
-        try:
-            _settings_path.write_text(json.dumps(_settings, indent=2), encoding="utf-8")
-        except OSError as exc:
-            return {"ok": False, "error": f"Could not save the setting: {exc}"}
-    return {"ok": True, **agent_settings(key)}
+    allowed = _efforts(key)
+    if effort and effort not in allowed:
+        return {"ok": False, "error": f"Effort must be one of: {', '.join(allowed)}."}
+    _settings[key] = {**_settings.get(key, {}), "model": model, "effort": effort}
+    problem = _write_settings()
+    return {"ok": False, "error": problem} if problem else {"ok": True, **agent_settings(key)}
+
+
+_CATALOG_TTL = 60 * 60
+# ponytail: one cached catalog per process; Codex itself refreshes it from OpenAI.
+_catalog: dict[str, Any] = {"at": 0.0, "models": []}
+
+
+def codex_models(executable: str) -> list[dict[str, Any]]:
+    """The models Codex offers in its own picker, newest first; [] when it cannot say.
+
+    `codex debug models` (0.162) prints the catalog Codex refreshes from OpenAI, with the
+    effort levels each model takes. It sits under `debug`, so a failure is expected someday
+    and only costs the dropdown: the page falls back to typing a model name."""
+    if _catalog["models"] and time.monotonic() - _catalog["at"] < _CATALOG_TTL:
+        return _catalog["models"]
+    if not executable:
+        return []
+    code, out = _probe([executable, "debug", "models"], timeout=30)
+    try:
+        raw = json.loads(out)["models"] if code == 0 else []
+        models = [
+            {
+                "id": str(m["slug"]),
+                "label": str(m.get("display_name") or m["slug"]),
+                "description": str(m.get("description") or ""),
+                "efforts": [str(e["effort"]) for e in m.get("supported_reasoning_levels") or [] if e.get("effort")],
+            }
+            for m in sorted(raw, key=lambda m: m.get("priority", 999))
+            if m.get("visibility") == "list" and _MODEL_NAME.match(str(m.get("slug") or ""))
+        ]
+    except (ValueError, KeyError, TypeError, AttributeError):
+        models = []
+    if models:
+        _catalog.update(at=time.monotonic(), models=models)
+    return models
+
+
+def _efforts(key: str) -> list[str]:
+    if key == "codex":
+        seen = [e for m in codex_models(find_agent(key)) for e in m["efforts"]]
+        if seen:
+            return list(dict.fromkeys(seen))
+    return EFFORTS[key]
+
+
+def run_settings(key: str) -> dict[str, str]:
+    """What a run actually passes: the chosen model, or Latest made concrete."""
+    chosen = agent_settings(key)
+    if not chosen["model"]:
+        if key == "claude_code":
+            chosen["model"] = _CLAUDE_LATEST
+        else:
+            models = codex_models(find_agent(key))
+            chosen["model"] = models[0]["id"] if models else ""  # "" → Codex's own default
+    return chosen
+
+
+def note_resolved(key: str, requested: str, resolved: str) -> None:
+    """Remember which model an alias ran as, so the page can say "currently …"."""
+    if not requested or not resolved or requested == resolved:
+        return
+    entry = _settings.setdefault(key, {})
+    if entry.get("resolved", {}).get(requested) != resolved:
+        entry["resolved"] = {**entry.get("resolved", {}), requested: resolved}
+        _write_settings()
 
 
 def _probe(argv: list[str], timeout: float = 20) -> tuple[Optional[int], str]:
@@ -224,8 +304,13 @@ def agent_status(key: str) -> dict[str, Any]:
         "install_command": _INSTALL[key],
         "sign_in_command": " ".join([exe_name, *_SIGN_IN_ARGS[key]]),
         "efforts": EFFORTS[key], "defaults": _own_defaults(key),
+        "models": [], "models_listed": False, "latest": "",
         **agent_settings(key),
     }
+    resolved = _settings.get(key, {}).get("resolved", {})
+    if key == "claude_code":
+        out["models"] = [{"id": a, "label": lbl, "resolved": resolved.get(a, "")} for a, lbl in _CLAUDE_ALIASES]
+        out["latest"] = resolved.get(_CLAUDE_LATEST, "")
     if not path:
         return out
     code, version = _probe([path, "--version"])
@@ -237,6 +322,11 @@ def agent_status(key: str) -> dict[str, Any]:
     if signed_in is None:
         out["error"] = f"Could not check whether {label} is signed in: {_short(detail, 300)}"
     out["signed_in"], out["account"] = bool(signed_in), detail if signed_in else ""
+    if key == "codex":
+        models = codex_models(path)
+        out["models"], out["models_listed"] = models, bool(models)
+        out["latest"] = models[0]["id"] if models else ""
+        out["efforts"] = _efforts(key)
     return out
 
 
@@ -259,15 +349,18 @@ def try_agent(key: str) -> dict[str, Any]:
     if problem:
         return {"ok": False, "error": problem}
     started = time.monotonic()
+    chosen = run_settings(key)
     with tempfile.TemporaryDirectory(prefix="mimiwork-agent-test-") as tmp:
         result = run_agent(
             key, find_agent(key), "Reply with just the word OK. Do not run any commands or change any files.",
-            Path(tmp), timeout=300, silence=240, **agent_settings(key),
+            Path(tmp), timeout=300, silence=240, **chosen,
         )
     seconds = round(time.monotonic() - started, 1)
+    model = result.get("model") or chosen["model"]
+    note_resolved(key, chosen["model"], model)
     if "error" in result:
         return {"ok": False, "error": result["error"], "seconds": seconds}
-    return {"ok": True, "reply": _short(result.get("summary") or "", 200), "seconds": seconds}
+    return {"ok": True, "reply": _short(result.get("summary") or "", 200), "seconds": seconds, "model": model}
 
 
 _LOGINS: dict[str, subprocess.Popen] = {}
@@ -352,10 +445,13 @@ class _Run:
         self.error = ""
         self.finished = False
         self.session_id = ""  # what a follow-up resumes
+        self.model = ""  # the model an alias resolved to, when the CLI says
 
     def claude(self, event: dict) -> list[str]:
         kind = event.get("type")
         self.session_id = str(event.get("session_id") or self.session_id)
+        if kind == "system" and event.get("subtype") == "init":
+            self.model = str(event.get("model") or "")
         if kind == "assistant":
             out = []
             for block in (event.get("message") or {}).get("content") or []:
@@ -549,6 +645,8 @@ def run_agent(
             result["changed_files_note"] = f"{len(changed) - _MAX_CHANGED} more not listed"
     if run.summary:
         result["summary"] = run.summary[:_SUMMARY_CHARS]
+    if run.model:
+        result["model"] = run.model
     if outcome == "stopped":
         return {**result, "error": f"Stopped. {label} may have changed some files before it stopped."}
     if outcome == "silent":
@@ -691,10 +789,12 @@ class Job:
         def work() -> None:
             # Read at every round, so a model changed on the Coding agents page applies to
             # the next round without restarting anything.
+            chosen = run_settings(self.key)
             result = run_agent(
                 self.key, self.executable, message, self.workdir,
-                report=note, stop=self.stop, resume_id=self.resume_id, **agent_settings(self.key),
+                report=note, stop=self.stop, resume_id=self.resume_id, **chosen,
             )
+            note_resolved(self.key, chosen["model"], result.get("model", ""))
             self.resume_id = result.pop("session_id", "") or self.resume_id
             if self.branch:
                 commit = commit_round(self.workdir, f"{self.label}: {self.name}", result)

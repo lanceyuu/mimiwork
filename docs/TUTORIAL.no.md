@@ -77,6 +77,8 @@ Forskjellen på et godt verktøy og en kollega er at en kollega husker.
 
 **Settings ▸ Connectors.** Slack (tagg Mimi i en kanal, det ferdige arbeidet kommer tilbake i tråden), Gmail/Outlook, Google Kalender og Disk, GitHub, Jira, Notion, Canva, **Qualtrics** (les spørreskjemaet så `Q4_1` blir et ekte spørsmål, hent svar som CSV eller etikettert SPSS `.sav` — med din godkjenning per nedlasting), og QualiTaTi-forskningsdataene dine (prosjekter, intervjuer, undersøkelser — hver henting spør først). Canva kobles til med ett klikk: Mimi kan søke i, generere, redigere, kommentere og eksportere designene dine. Alt annet snakker [MCP](https://modelcontextprotocol.io/).
 
+**Kodeagenter.** Har du Claude Code eller Codex, åpne **Connectors ▸ Coding agents**: der ser du om hver av dem er installert og logget inn, kan logge inn, teste og velge modell (den nyeste med mindre du velger en annen). Be så Mimi bruke begge på én jobb — for eksempel «la Codex lage CSV-eksporten og Claude Code skrive testene, og la hver gjennomgå den andres gren». Hver agent jobber på sin egen gren, Mimi sender det den ene fant tilbake til den andre til arbeidet er riktig, og sammenslåing inn i din gren går gjennom samme godkjenning som andre kommandoer.
+
 ## 7 · La den jobbe når du ikke gjør det
 
 Si det med vanlige ord:

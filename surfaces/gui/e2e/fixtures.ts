@@ -584,6 +584,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
     signed_in: true, account: "me@example.com", error: "",
     install_command: "curl -fsSL https://claude.ai/install.sh | bash", sign_in_command: "claude auth login",
     efforts: ["low", "medium", "high", "xhigh", "max"], defaults: { model: "claude-opus-5", effort: "high" },
+    models: [
+      { id: "fable", label: "Latest Fable", resolved: "claude-fable-5-1" },
+      { id: "opus", label: "Latest Opus", resolved: "claude-opus-5" },
+      { id: "sonnet", label: "Latest Sonnet", resolved: "" },
+      { id: "haiku", label: "Latest Haiku", resolved: "" },
+    ],
+    models_listed: false, latest: "claude-opus-5[1m]",
     model: "", effort: "", ...over,
   });
   const codingAgents: any[] = [
@@ -592,7 +599,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
       key: "codex", label: "Codex", billing: "your own OpenAI account",
       path: "/opt/homebrew/bin/codex", version: "codex-cli 0.162.1", signed_in: false, account: "",
       install_command: "npm install -g @openai/codex", sign_in_command: "codex login",
-      efforts: ["minimal", "low", "medium", "high", "xhigh"], defaults: { model: "gpt-6-astra", effort: "xhigh" },
+      efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaults: { model: "gpt-6-astra", effort: "xhigh" },
+      models: [
+        { id: "gpt-6.1-sol", label: "GPT-6.1-Sol", description: "Latest workhorse model for coding and everyday work.", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+        { id: "gpt-6-astra", label: "GPT-6-Astra", description: "Frontier intelligence for the most demanding work.", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
+        { id: "gpt-6-luna", label: "GPT-6-Luna", description: "Fast and affordable model for easier tasks.", efforts: ["low", "medium", "high", "xhigh", "max"] },
+      ],
+      models_listed: true, latest: "gpt-6.1-sol",
     }),
   ];
   let codexSignInStarted = false;

@@ -39,3 +39,19 @@ test("a chosen effort is saved and the Test button reports the real call", async
   await expect(claude.getByTestId("coding-agent-test-result")).toHaveText("It answered in 6.2 seconds.");
   await page.screenshot({ path: "test-results/coding-agents-tested.png", fullPage: true });
 });
+
+test("each agent offers Latest first, then its own models, and the page says they can work together", async ({ page }) => {
+  await openCodingAgents(page);
+  await expect(page.getByTestId("coding-agents-together")).toContainText("review the other's branch");
+  const codexModel = page.getByTestId("coding-agent-codex").getByTestId("coding-agent-model-select");
+  await expect(codexModel.locator("option").first()).toHaveText("Latest (currently gpt-6.1-sol)");
+  await codexModel.selectOption("gpt-6-astra");
+  await expect(page.getByTestId("coding-agent-codex")).toContainText("Saved");
+  const claudeModel = page.getByTestId("coding-agent-claude_code").getByTestId("coding-agent-model-select");
+  await expect(claudeModel.locator("option").nth(2)).toHaveText("Latest Opus (claude-opus-5)");
+  await claudeModel.selectOption("__custom");
+  await expect(page.getByTestId("coding-agent-claude_code").getByTestId("coding-agent-model")).toBeVisible();
+  await page.screenshot({ path: "test-results/coding-agents-models.png", fullPage: true });
+  await page.getByTestId("coding-agent-codex").getByTestId("coding-agent-test").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/coding-agents-codex-models.png" });
+});

@@ -42,6 +42,12 @@ const CLAUDE = {
   sign_in_command: "claude auth login",
   efforts: ["low", "medium", "high", "xhigh", "max"],
   defaults: { model: "opus", effort: "high" },
+  models: [
+    { id: "fable", label: "Latest Fable", resolved: "" },
+    { id: "opus", label: "Latest Opus", resolved: "claude-opus-5" },
+  ],
+  models_listed: false,
+  latest: "claude-opus-5-5",
   model: "",
   effort: "",
 };
@@ -58,6 +64,12 @@ const CODEX = {
   sign_in_command: "codex login",
   efforts: ["minimal", "low", "medium", "high", "xhigh"],
   defaults: { model: "gpt-6-astra", effort: "xhigh" },
+  models: [
+    { id: "gpt-6.1-sol", label: "GPT-6.1-Sol", description: "Latest workhorse model.", efforts: ["low", "high", "ultra"] },
+    { id: "gpt-6-luna", label: "GPT-6-Luna", description: "Fast and affordable.", efforts: ["low", "medium"] },
+  ],
+  models_listed: true,
+  latest: "gpt-6.1-sol",
 };
 
 const card = (key: string) => within(screen.getByTestId(`coding-agent-${key}`));
@@ -71,7 +83,9 @@ describe("Coding agents", () => {
     expect(claude.getByTestId("coding-agent-status").textContent).toBe("Connected");
     expect(claude.getByText("/Users/me/.local/bin/claude")).toBeTruthy();
     expect(claude.getByText("me@example.com")).toBeTruthy();
-    expect(claude.getByPlaceholderText("Default: opus")).toBeTruthy();
+    expect((claude.getByTestId("coding-agent-model-select") as HTMLSelectElement).selectedOptions[0].textContent).toBe(
+      "Latest (currently claude-opus-5-5)",
+    );
     expect(card("codex").getByTestId("coding-agent-status").textContent).toBe("Not signed in");
     expect(card("codex").getByText("Runs on your own OpenAI account, not QualiTaTi credits.")).toBeTruthy();
   });
@@ -116,28 +130,75 @@ describe("Coding agents", () => {
     await waitFor(() => expect(card("codex").getByText("Codex's sign-in did not start: port in use")).toBeTruthy());
   });
 
-  it("choosing an effort and a model saves them for that agent", async () => {
+  it("the model list offers Latest first, then the agent's own models, then a custom name", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX] } }]);
+    render(<CodingAgentsSection />);
+
+    const options = (key: string) =>
+      Array.from((card(key).getByTestId("coding-agent-model-select") as HTMLSelectElement).options).map((o) => o.textContent);
+    await waitFor(() => card("codex"));
+    expect(options("claude_code")).toEqual([
+      "Latest (currently claude-opus-5-5)",
+      "Latest Fable",
+      "Latest Opus (claude-opus-5)",
+      "Custom…",
+    ]);
+    expect(options("codex")).toEqual(["Latest (currently gpt-6.1-sol)", "GPT-6.1-Sol", "GPT-6-Luna", "Custom…"]);
+    expect(card("claude_code").getByText(/Claude Code cannot list its models/)).toBeTruthy();
+    expect(card("codex").getByText(/From Codex's own model list/)).toBeTruthy();
+  });
+
+  it("choosing a model, an effort, or a custom name saves it for that agent", async () => {
     const calls = stubFetch([
-      { match: "/settings", method: "POST", json: { ok: true, model: "haiku", effort: "low" } },
+      { match: "/settings", method: "POST", json: { ok: true } },
       { match: "/v1/coding-agents", json: { agents: [CLAUDE] } },
     ]);
     render(<CodingAgentsSection />);
 
     const claude = await waitFor(() => card("claude_code"));
+    fireEvent.change(claude.getByTestId("coding-agent-model-select"), { target: { value: "fable" } });
     fireEvent.change(claude.getByTestId("coding-agent-effort"), { target: { value: "low" } });
-    const model = claude.getByTestId("coding-agent-model");
-    fireEvent.change(model, { target: { value: "haiku" } });
-    fireEvent.blur(model);
+    fireEvent.change(claude.getByTestId("coding-agent-model-select"), { target: { value: "__custom" } });
+    const typed = claude.getByTestId("coding-agent-model");
+    fireEvent.change(typed, { target: { value: "claude-sonnet-5" } });
+    fireEvent.blur(typed);
 
-    await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/claude_code/settings")).length).toBe(2));
+    await waitFor(() => expect(calls.filter((c) => c.url.endsWith("/claude_code/settings")).length).toBe(3));
     const saved = calls.filter((c) => c.url.endsWith("/claude_code/settings")).map((c) => c.body);
-    expect(saved[0]).toEqual({ model: "", effort: "low" });
-    expect(saved[1].model).toBe("haiku");
+    expect(saved[0]).toEqual({ model: "fable", effort: "" });
+    expect(saved[1].effort).toBe("low");
+    expect(saved[2].model).toBe("claude-sonnet-5");
+  });
+
+  it("when Codex cannot list its models, a text box takes a model name and says why", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...CODEX, models: [], models_listed: false, latest: "" }] } }]);
+    render(<CodingAgentsSection />);
+
+    const codex = await waitFor(() => card("codex"));
+    expect(codex.queryByTestId("coding-agent-model-select")).toBeNull();
+    expect(codex.getByTestId("coding-agent-model")).toBeTruthy();
+    expect(codex.getByText(/Codex did not share its model list/)).toBeTruthy();
+  });
+
+  it("the effort list follows the levels the chosen Codex model takes", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...CODEX, model: "gpt-6-luna" }] } }]);
+    render(<CodingAgentsSection />);
+
+    const effort = (await waitFor(() => card("codex").getByTestId("coding-agent-effort"))) as HTMLSelectElement;
+    expect(Array.from(effort.options).map((o) => o.value)).toEqual(["", "low", "medium"]);
+  });
+
+  it("the page says Claude Code and Codex can work together on one job", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX] } }]);
+    render(<CodingAgentsSection />);
+
+    const note = await waitFor(() => screen.getByTestId("coding-agents-together"));
+    expect(note.textContent).toContain("can have one review the other's branch");
   });
 
   it("the Test button reports how long the real call took, or the error in plain words", async () => {
     stubFetch([
-      { match: "/claude_code/test", method: "POST", json: { ok: true, reply: "OK", seconds: 6.2 } },
+      { match: "/claude_code/test", method: "POST", json: { ok: true, reply: "OK", seconds: 6.2, model: "claude-opus-5-5" } },
       { match: "/v1/coding-agents", json: { agents: [CLAUDE] } },
     ]);
     render(<CodingAgentsSection />);
@@ -145,7 +206,7 @@ describe("Coding agents", () => {
     fireEvent.click(await waitFor(() => card("claude_code").getByTestId("coding-agent-test")));
 
     await waitFor(() =>
-      expect(card("claude_code").getByTestId("coding-agent-test-result").textContent).toBe("It answered in 6.2 seconds."),
+      expect(card("claude_code").getByTestId("coding-agent-test-result").textContent).toBe("It answered in 6.2 seconds, using claude-opus-5-5."),
     );
   });
 

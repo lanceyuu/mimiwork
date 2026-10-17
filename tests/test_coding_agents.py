@@ -24,20 +24,32 @@ elif args[:1] == ["-p"]:
     open(LOG, "w").write(json.dumps(args))
     sys.stdin.read()
     for e in [
-        {"type": "system", "subtype": "init", "session_id": "s1"},
+        {"type": "system", "subtype": "init", "session_id": "s1", "model": globals().get("RESOLVED", "")},
         {"type": "result", "subtype": "success", "is_error": False, "result": "OK"},
     ]:
         print(json.dumps(e), flush=True)
 """
 
 CODEX = """
-import sys, time
+import json, sys, time
 args = sys.argv[1:]
 if args == ["--version"]:
     print("codex-cli 0.162.1")
 elif args == ["login", "status"]:
     print("Logged in using ChatGPT" if SIGNED_IN else "Not logged in")
     sys.exit(0 if SIGNED_IN else 1)
+elif args == ["debug", "models"]:
+    if not globals().get("CATALOG"):
+        print("error: unknown subcommand", file=sys.stderr)
+        sys.exit(2)
+    print(json.dumps({"models": CATALOG}))
+elif args[:1] == ["exec"]:
+    open(LOG, "w").write(json.dumps(args))
+    sys.stdin.read()
+    for e in [{"type": "thread.started", "thread_id": "t1"},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": "OK"}},
+              {"type": "turn.completed"}]:
+        print(json.dumps(e), flush=True)
 elif args == ["login"]:
     if not LOGIN_WORKS:
         print("Error: port 1455 is already in use", flush=True)
@@ -53,7 +65,9 @@ elif args == ["login"]:
 def _clean_state():
     delegate._settings.clear()
     delegate._settings_path = None
+    delegate._catalog.update(at=0.0, models=[])
     yield
+    delegate._catalog.update(at=0.0, models=[])
     for proc in delegate._LOGINS.values():
         delegate._kill(proc)
     delegate._LOGINS.clear()
@@ -233,3 +247,62 @@ def test_the_coding_agents_routes_answer_for_both_agents_and_refuse_any_other_na
     assert client.get("/v1/coding-agents").json()["agents"][1]["effort"] == "high"
     assert client.post("/v1/coding-agents/rm -rf/test").status_code == 404
     assert client.post("/v1/coding-agents/gemini/sign-in").status_code == 404
+
+
+CATALOG = [
+    {"slug": "gpt-old", "display_name": "GPT-Old", "description": "Older model.", "priority": 5, "visibility": "list",
+     "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}]},
+    {"slug": "gpt-internal", "display_name": "Internal", "priority": 0, "visibility": "hide",
+     "supported_reasoning_levels": [{"effort": "low"}]},
+    {"slug": "gpt-new", "display_name": "GPT-New", "description": "Latest model.", "priority": 1, "visibility": "list",
+     "supported_reasoning_levels": [{"effort": "low"}, {"effort": "high"}, {"effort": "ultra"}]},
+]
+
+
+def test_with_no_model_chosen_claude_code_runs_on_its_recommended_alias_and_the_page_learns_what_that_was(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG=str(log), RESOLVED="claude-opus-5-5")
+    assert delegate.agent_status("claude_code")["latest"] == ""  # not known until it has run
+
+    result = delegate.try_agent("claude_code")
+
+    argv = json.loads(log.read_text())
+    assert argv[argv.index("--model") + 1] == "default"
+    assert result["model"] == "claude-opus-5-5"
+    assert delegate.agent_status("claude_code")["latest"] == "claude-opus-5-5"
+
+
+def test_claude_code_offers_its_family_aliases_because_it_cannot_list_models(home):
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG="")
+    delegate.note_resolved("claude_code", "opus", "claude-opus-5")
+
+    status = delegate.agent_status("claude_code")
+
+    assert status["models_listed"] is False
+    assert [m["id"] for m in status["models"]] == ["fable", "opus", "sonnet", "haiku"]
+    assert status["models"][1] == {"id": "opus", "label": "Latest Opus", "resolved": "claude-opus-5"}
+
+
+def test_with_no_model_chosen_codex_runs_on_the_newest_model_in_its_own_catalog(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "codex", CODEX, SIGNED_IN=True, LOGIN_WORKS=True, LOG=str(log), CATALOG=CATALOG)
+
+    status = delegate.agent_status("codex")
+    result = delegate.try_agent("codex")
+
+    assert status["models_listed"] and [m["id"] for m in status["models"]] == ["gpt-new", "gpt-old"]
+    assert status["latest"] == "gpt-new" and status["efforts"] == ["low", "high", "ultra"]
+    argv = json.loads(log.read_text())
+    assert argv[argv.index("-m") + 1] == "gpt-new" and result["model"] == "gpt-new"
+    assert delegate.save_settings("codex", "gpt-old", "ultra")["ok"]  # a level the catalog lists
+
+
+def test_when_codex_cannot_list_its_models_the_page_falls_back_to_a_typed_name_and_codex_keeps_its_own_default(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "codex", CODEX, SIGNED_IN=True, LOGIN_WORKS=True, LOG=str(log), CATALOG=[])
+
+    status = delegate.agent_status("codex")
+    delegate.try_agent("codex")
+
+    assert (status["models_listed"], status["models"], status["latest"]) == (False, [], "")
+    assert "-m" not in json.loads(log.read_text())
