@@ -80,6 +80,22 @@ describe("Onboarding first-task step", () => {
     });
   });
 
+  it("starter cards and the picked folder carry line icons, not emoji", async () => {
+    stubFetch();
+    render(<Onboarding onDone={vi.fn()} __startStep={3} />);
+    const emoji = /\p{Extended_Pictographic}/u;
+    const cards = () => screen.getAllByTestId(/^ob-starter-/);
+    for (const card of cards()) {
+      expect(card.textContent).not.toMatch(emoji);
+      expect(card.querySelector("svg")).toBeTruthy();
+    }
+    chooseFolder.mockResolvedValue("/Users/me/Course");
+    fireEvent.click(screen.getByTestId("ob-pick-folder"));
+    await screen.findByTestId("ob-starter-tidy");
+    for (const card of cards()) expect(card.textContent).not.toMatch(emoji);
+    expect(screen.getByTestId("ob-folder-picked").textContent).not.toMatch(emoji);
+  });
+
   it("blank-session and automation doors survive as footer links", async () => {
     const onDone = vi.fn();
     stubFetch();

@@ -1382,3 +1382,27 @@ def test_the_files_page_reader_hands_a_word_file_back_to_be_opened_not_decoded(t
 
     md = mgr.workspace_read("notes.md", workspace=str(tmp_path))
     assert "binary" not in md and "# Notes" in md["content"]
+
+
+def test_ws_a_turn_that_crashes_reports_an_error_and_keeps_it_in_the_transcript(tmp_path, monkeypatch):
+    from coworker.engine import TurnEngine
+
+    async def crash(self, content, display=None):
+        raise RuntimeError("boom")
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr(TurnEngine, "run", crash)
+    client = _client(tmp_path, [])
+    with client.websocket_connect("/ws/session/crash") as ws:
+        assert ws.receive_json()["type"] == "ready"
+        ws.send_json({"type": "user_message", "text": "hello"})
+        events = []
+        while True:
+            event = ws.receive_json()
+            events.append(event)
+            if event["type"] == "turn_done":
+                break
+    errors = [e for e in events if e["type"] == "error"]
+    assert errors and "Something went wrong" in errors[0]["data"]["error"]
+    engine = client.app.state.manager._engines["crash"]
+    assert any(m.get("role") == "notice" and m.get("kind") == "error" for m in engine.messages)

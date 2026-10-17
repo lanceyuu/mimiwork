@@ -23,6 +23,7 @@ import {
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { InlineNotice } from "./InlineNotice";
 import { PanelHead } from "./IntegrationsView";
 import { RunSettings } from "./ScheduledView";
 
@@ -55,6 +56,7 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
   const [starters, setStarters] = useState<AppStarter[]>([]);
   const [wish, setWish] = useState("");
   const [confirmDel, setConfirmDel] = useState<MimiApp | null>(null);
+  const [problem, setProblem] = useState("");
   // The build conversation's model and permission level, and the model the app is pinned
   // to — the same two controls an automation has (owner ask 2026-09-02).
   const [model, setModel] = useState("");
@@ -195,6 +197,7 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
           <div className="dim" style={{ marginBottom: 10, fontSize: 12.5 }}>
             Ready-made apps to add as your own, then change however you like.
           </div>
+          {problem && <InlineNotice text={problem} onDismiss={() => setProblem("")} />}
           {Array.from(new Set(starters.map((s) => s.category))).map((cat) => (
             <div key={cat} className="apps-gallery-group">
               <div className="apps-gallery-cat">{cat}</div>
@@ -211,6 +214,7 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
                       <button
                         className="btn sm self-start"
                         onClick={async () => {
+                          setProblem("");
                           const r = await importApp({
                             title: s.title,
                             icon: s.icon,
@@ -218,12 +222,12 @@ export function AppsView({ onBuild, initialOpenId }: Props) {
                             intro: s.intro,
                             suggestions: s.suggestions,
                             html: s.html,
-                          });
+                          }).catch(() => ({ ok: false as const, app: undefined }));
                           if (r.ok && r.app) {
                             announceAppsChanged();
                             await refresh();
                             setOpenId(r.app.id);
-                          } else alert(r.error || "Could not add the template.");
+                          } else setProblem(`The template "${s.title}" could not be added. Try again in a moment.`);
                         }}
                       >
                         Add
@@ -287,6 +291,7 @@ function AppDetail({
   const [asks, setAsks] = useState<AskEntry[]>([]);
   const [suggestion, setSuggestion] = useState<{ text: string; nonce: number } | null>(null);
   const [undoing, setUndoing] = useState(false);
+  const [notice, setNotice] = useState<{ text: string; tone: "error" | "info" } | null>(null);
 
   const load = () =>
     getApp(id)
@@ -414,7 +419,7 @@ function AppDetail({
                   setApp(r.app);
                   setHtml(r.html ?? "");
                   announceAppsChanged();
-                } else alert(("error" in r && r.error) || "Could not undo.");
+                } else setNotice({ tone: "error", text: "The last change could not be undone. Try again in a moment." });
               }}
             >
               Undo last change
@@ -427,8 +432,12 @@ function AppDetail({
             className="btn sm"
             title="Save a shareable .mimiapp.html file"
             onClick={async () => {
-              const r = await exportApp(app.id);
-              alert(r.ok ? `Saved to ${r.path}\n\nSend the file — anyone can import it from Apps.` : r.error || "Export failed.");
+              const r = await exportApp(app.id).catch(() => ({ ok: false as const, path: "" }));
+              setNotice(
+                r.ok
+                  ? { tone: "info", text: `Saved to ${r.path}. Send the file — anyone can import it from Apps.` }
+                  : { tone: "error", text: "The app could not be exported. Try again in a moment." },
+              );
             }}
           >
             Export
@@ -438,6 +447,7 @@ function AppDetail({
           </button>
         </div>
       </div>
+      {notice && <InlineNotice text={notice.text} tone={notice.tone} onDismiss={() => setNotice(null)} />}
       {note && (
         <div className="flow-note app-note" data-testid="app-note">
           <div className="flow-note-head">

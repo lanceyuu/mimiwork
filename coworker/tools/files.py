@@ -13,6 +13,8 @@ from typing import Any
 
 import aisuite as ai
 
+from .registry import reports_failures
+
 _DEFAULT_MAX_LINES = 2000
 
 _DELETE_SCHEMA = {
@@ -228,4 +230,4 @@ def file_tools(workspace: str, roots: Any = None) -> list:
         requires_approval=True,
     )
     delete_file.__coworker_schema__ = _DELETE_SCHEMA
-    return [read_file, delete_file]
+    return [reports_failures(read_file), reports_failures(delete_file)]

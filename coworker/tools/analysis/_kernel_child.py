@@ -120,8 +120,24 @@ def _split_trailing_expression(code: str):
     return body, ast.Expression(body=last.value)
 
 
+class _Capped(io.StringIO):
+    """A capture stream that stops storing at MAX_STREAM_CHARS. Clipping after the run let
+    a loop printing a dataframe a million times grow the kernel by gigabytes first."""
+
+    truncated = False
+
+    def write(self, text: str) -> int:
+        room = MAX_STREAM_CHARS - self.tell()
+        if len(text) > room:
+            self.truncated = True
+            if room > 0:
+                super().write(text[:room])
+            return len(text)
+        return super().write(text)
+
+
 def _run(code: str, namespace: dict, figdir: str) -> dict:
-    out, err = io.StringIO(), io.StringIO()
+    out, err = _Capped(), _Capped()
     value = None
     error = None
 
@@ -151,15 +167,9 @@ def _run(code: str, namespace: dict, figdir: str) -> dict:
 
     figures = _capture_figures(namespace, figdir)
 
-    stdout = out.getvalue()
-    stderr = err.getvalue()
-    truncated = False
-    if len(stdout) > MAX_STREAM_CHARS:
-        stdout = stdout[:MAX_STREAM_CHARS] + "\n… (output truncated)"
-        truncated = True
-    if len(stderr) > MAX_STREAM_CHARS:
-        stderr = stderr[:MAX_STREAM_CHARS] + "\n… (output truncated)"
-        truncated = True
+    stdout = out.getvalue() + ("\n… (output truncated)" if out.truncated else "")
+    stderr = err.getvalue() + ("\n… (output truncated)" if err.truncated else "")
+    truncated = out.truncated or err.truncated
     if value is not None and len(value) > MAX_VALUE_CHARS:
         value = value[:MAX_VALUE_CHARS] + "… (truncated)"
         truncated = True

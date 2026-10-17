@@ -31,6 +31,7 @@ import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
+from collections import deque
 from pathlib import Path
 from typing import Any, Optional
 
@@ -72,11 +73,41 @@ class Executor(ABC):
         pass
 
 
+class _Tail:
+    """The last `limit` characters of a stream, bounded while it arrives. Truncating only
+    after the command finished let a noisy build or a dataframe dump hold its whole output
+    in memory first; the tail is kept because builds and test runners end on the verdict."""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        self._parts: deque[str] = deque()
+        self._size = 0
+        self._dropped = False
+
+    def append(self, text: str) -> None:
+        self._parts.append(text)
+        self._size += len(text)
+        while self._size > self.limit and len(self._parts) > 1:
+            self._size -= len(self._parts.popleft())
+            self._dropped = True
+
+    def take(self) -> tuple[str, bool]:
+        """Everything held (at most `limit` chars) and whether anything was cut; empties it."""
+        text = "".join(self._parts)
+        truncated = self._dropped or len(text) > self.limit
+        self._parts.clear()
+        self._size = 0
+        self._dropped = False
+        return text[-self.limit :], truncated
+
+
 class _BackgroundTask:
     """One detached background command: its own process (not the persistent shell), a
     reader thread draining output into a buffer, and an incremental-read cursor."""
 
-    def __init__(self, task_id: str, command: str, cwd: str, env: dict[str, str]):
+    def __init__(
+        self, task_id: str, command: str, cwd: str, env: dict[str, str], limit: int = 20_000
+    ):
         self.id = task_id
         self.command = command
         if _IS_WINDOWS:
@@ -99,8 +130,9 @@ class _BackgroundTask:
             **spawn_kwargs,
         )
         self._lock = threading.Lock()
-        self._lines: list[str] = []
-        self._cursor = 0
+        # Holds only what the caller has not read yet: a long-running job's log would
+        # otherwise stay in memory for the life of the session.
+        self._buffer = _Tail(limit)
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()
 
@@ -108,13 +140,11 @@ class _BackgroundTask:
         assert self.proc.stdout is not None
         for line in self.proc.stdout:
             with self._lock:
-                self._lines.append(line)
+                self._buffer.append(line)
 
-    def read_new(self) -> str:
+    def read_new(self) -> tuple[str, bool]:
         with self._lock:
-            new = "".join(self._lines[self._cursor :])
-            self._cursor = len(self._lines)
-        return new
+            return self._buffer.take()
 
     def drain(self, timeout: float = 2.0) -> None:
         """Once the process has exited, wait for the reader to reach EOF so the buffer
@@ -265,7 +295,7 @@ class LocalExecutor(Executor):
         timed_out = False
         aborted = False
         exit_code: Optional[int] = None
-        lines: list[str] = []
+        lines = _Tail(self.max_output_chars)
 
         while True:
             if self._abort.is_set() or (stop is not None and stop.is_set()):
@@ -310,11 +340,7 @@ class LocalExecutor(Executor):
                 break
             lines.append(item)
 
-        output = "".join(lines)
-        truncated = len(output) > self.max_output_chars
-        if truncated:
-            # Keep the TAIL: builds and test runners put the verdict at the end.
-            output = output[-self.max_output_chars :]
+        output, truncated = lines.take()
         return self._result(
             command,
             exit_code,
@@ -335,7 +361,9 @@ class LocalExecutor(Executor):
         self._bg_counter += 1
         task_id = f"bg-{self._bg_counter}"
         try:
-            task = _BackgroundTask(task_id, command, self.cwd, self._env)
+            task = _BackgroundTask(
+                task_id, command, self.cwd, self._env, limit=self.max_output_chars
+            )
         except OSError as exc:
             return {"error": f"failed to start background task: {exc}"}
         self._bg_tasks[task_id] = task
@@ -356,10 +384,7 @@ class LocalExecutor(Executor):
         exit_code = task.proc.poll()
         if exit_code is not None:
             task.drain()
-        output = task.read_new()
-        truncated = len(output) > self.max_output_chars
-        if truncated:
-            output = output[-self.max_output_chars :]
+        output, truncated = task.read_new()
         return {
             "task_id": task_id,
             "status": "running" if exit_code is None else "exited",

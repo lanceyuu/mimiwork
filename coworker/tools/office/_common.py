@@ -7,6 +7,8 @@ from typing import Any, Callable, Optional
 
 import aisuite as ai
 
+from ..registry import reports_failures
+
 # Model-visible caps. Office files routinely hold more text than a context window: a long
 # report or a 200k-row sheet must be windowed rather than dumped, exactly as `read_file`
 # windows a large text file.
@@ -38,7 +40,7 @@ def decorate(
         requires_approval=approval,
     )
     func.__coworker_schema__ = schema
-    return func
+    return reports_failures(func)
 
 
 def require(module: str, package: str, extra: str = "office") -> Any:

@@ -74,3 +74,22 @@ describe("AppsView", () => {
     expect(opts.builderSession).toBe("sess-9");
   });
 });
+
+describe("AppsView notices", () => {
+  it("reports an export in the page instead of a native alert", async () => {
+    const { exportApp } = await import("../api");
+    const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+    vi.mocked(exportApp).mockResolvedValueOnce({ ok: true, path: "/Users/me/Translator.mimiapp.html" } as never);
+    render(<AppsView onBuild={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("app-card-app-0000aaaa"));
+    fireEvent.click(await screen.findByText("Export"));
+    expect((await screen.findByTestId("inline-notice")).textContent).toContain("Saved to /Users/me/Translator.mimiapp.html");
+    vi.mocked(exportApp).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    fireEvent.click(screen.getByText("Export"));
+    await waitFor(() =>
+      expect(screen.getByTestId("inline-notice").textContent).toContain("could not be exported"),
+    );
+    expect(alert).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+});

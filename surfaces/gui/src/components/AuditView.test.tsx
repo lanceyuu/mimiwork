@@ -110,3 +110,49 @@ describe("Activity — credits", () => {
     expect(screen.getByText("No audit events yet.")).toBeTruthy();
   });
 });
+
+describe("Activity — empty list and wording", () => {
+  it("says a filter matched nothing instead of claiming nothing was ever logged", async () => {
+    getAudit.mockResolvedValue([]);
+    qualitatiCredits.mockResolvedValue({ ok: false });
+    render(<AuditView />);
+    await screen.findByText("No audit events yet.");
+    fireEvent.change(screen.getByPlaceholderText("session id"), { target: { value: "typo" } });
+    fireEvent.click(screen.getByText("Filter"));
+    expect(await screen.findByText(/Nothing matches these filters/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Clear filters"));
+    await screen.findByText("No audit events yet.");
+    expect(getAudit).toHaveBeenLastCalledWith({ limit: 150 });
+  });
+
+  it("says the list could not be loaded when the server does not answer", async () => {
+    getAudit.mockRejectedValue(new Error("offline"));
+    qualitatiCredits.mockResolvedValue({ ok: false });
+    render(<AuditView />);
+    expect(await screen.findByText(/Activity could not be loaded/)).toBeTruthy();
+  });
+
+  it("promises cost only when there is a credit ledger to show it", async () => {
+    getAudit.mockResolvedValue([]);
+    qualitatiCredits.mockResolvedValue({ ok: false, error: "not signed in" });
+    render(<AuditView />);
+    await waitFor(() => expect(getAudit).toHaveBeenCalled());
+    expect(screen.queryByText(/what it cost/)).toBeNull();
+    cleanup();
+    qualitatiCredits.mockResolvedValue(LEDGER);
+    render(<AuditView />);
+    expect(await screen.findByText(/what it cost/)).toBeTruthy();
+  });
+
+  it("explains what an estimated credit row means", async () => {
+    getAudit.mockResolvedValue([]);
+    qualitatiCredits.mockResolvedValue({
+      ...LEDGER,
+      entries: [{ ...LEDGER.entries[0], estimated: true }],
+    });
+    render(<AuditView />);
+    fireEvent.click(await screen.findByTestId("activity-credits-toggle"));
+    const note = screen.getByText(/estimated/);
+    expect(note.getAttribute("title")).toContain("did not report token counts");
+  });
+});

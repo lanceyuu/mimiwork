@@ -330,3 +330,49 @@ def test_wrong_arguments_get_the_parameter_list_back():
         registry.execute("greet", {"nam": "x"})
     assert "Its parameters are: name, loud" in str(exc.value)
     assert registry.execute("greet", {"name": "x"}) == "x"
+
+
+def _file_tool_engine(tmp_path, turns):
+    from coworker.tools.files import file_tools
+
+    registry = ToolRegistry()
+    registry.register_all(file_tools(str(tmp_path)))
+    engine = TurnEngine(
+        provider=FlakyProvider([], turns),
+        registry=registry,
+        permissions=PermissionEngine(workspace_root=tmp_path),
+        model="gpt-5.5",
+        approver=_allow,
+    )
+    engine.retry_delays = tuple(0 for _ in engine.retry_delays)
+    return engine
+
+
+def test_a_tool_that_returns_an_error_counts_as_a_failed_call_even_when_every_call_differs(tmp_path):
+    turns = [
+        _tool_turn_n(i, name="read_file", args={"path": f"missing-{i}.txt"}) for i in range(6)
+    ]
+    engine = _file_tool_engine(tmp_path, turns)
+    events = _run(engine, "go")
+    finished = [e.data["status"] for e in events if e.type == EventType.TOOL_FINISHED]
+    assert finished == ["error"] * 6
+    assert events[-1].data["status"] == "tool_failure_stop"
+    tool_msgs = [m for m in engine.messages if m.get("role") == "tool"]
+    assert "not a file" in tool_msgs[0]["content"]
+    assert "_failed" not in tool_msgs[0]["content"], "the marker is bookkeeping, not model input"
+
+
+def test_tool_arguments_that_are_valid_json_but_not_an_object_get_a_paired_error(tmp_path):
+    turns = [
+        AssistantTurn(
+            text="writing",
+            tool_calls=[ToolCall(id="c0", name="write_file", arguments=[1])],
+            finish_reason="tool_calls",
+        ),
+        AssistantTurn(text="fixed it"),
+    ]
+    engine = _engine(tmp_path, FlakyProvider([], turns))
+    events = _run(engine, "go")
+    assert events[-1].data["status"] == "completed"
+    answer = [m for m in engine.messages if m.get("tool_call_id") == "c0"]
+    assert len(answer) == 1 and "JSON object" in answer[0]["content"]

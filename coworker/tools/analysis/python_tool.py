@@ -18,6 +18,7 @@ import aisuite as ai
 
 from ..office._common import decorate
 from ..office.paths import context_roots, display_path
+from ..registry import reports_failures
 from .kernel import DEFAULT_TIMEOUT, MAX_TIMEOUT, PythonKernel
 
 _RUN_SCHEMA = {
@@ -164,7 +165,7 @@ def python_tools(context: Any) -> list:
     run_python.__coworker_schema__ = _RUN_SCHEMA
 
     return [
-        run_python,
+        reports_failures(run_python),
         decorate(
             reset_python,
             name="reset_python",
