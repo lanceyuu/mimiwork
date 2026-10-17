@@ -212,3 +212,26 @@ describe("Composer — the doorway prefill (SKILLS-SPEC §5.2)", () => {
     expect((box() as HTMLTextAreaElement).value).toBe("");
   });
 });
+
+describe("Composer while a task runs", () => {
+  const box = () => screen.getByPlaceholderText(/Mimi is working/);
+
+  it("says why a skill message waits instead of ignoring Enter in silence", async () => {
+    stubFetch();
+    const p = props({ running: true });
+    render(<Composer {...p} />);
+    fireEvent.change(box(), { target: { value: "/gr" } });
+    fireEvent.click(await screen.findByRole("option", { name: /greet/ }));
+    fireEvent.change(box(), { target: { value: "/greet now" } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(p.onSend).not.toHaveBeenCalled();
+    expect(screen.getByTestId("steer-waits").textContent).toContain("start a new task");
+  });
+
+  it("shows no waiting note for plain text, which steers the running task", () => {
+    stubFetch();
+    render(<Composer {...props({ running: true })} />);
+    fireEvent.change(box(), { target: { value: "focus on the summary" } });
+    expect(screen.queryByTestId("steer-waits")).toBeNull();
+  });
+});

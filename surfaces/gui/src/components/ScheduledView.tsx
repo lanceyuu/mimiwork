@@ -21,6 +21,7 @@ import {
 } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { InlineNotice } from "./InlineNotice";
 import { PanelHead } from "./IntegrationsView";
 import { SelectMenu } from "./SelectMenu";
 import { AutomationQuickstart } from "./AutomationQuickstart";
@@ -66,6 +67,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
   const [openId, setOpenId] = useState<string | null>(initialOpenId ?? null);
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState("");
   // The automation the delete dialog is asking about (null = not asking).
   const [confirmDel, setConfirmDel] = useState<{ id: string; title: string } | null>(null);
   // A parsed .mimiflow.json waiting in the creation form (import flow).
@@ -114,6 +116,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
     mode?: string;
   }) => {
     setBusy(payload.title);
+    setProblem("");
     try {
       const res = await createAutomation(payload);
       announceAutomationsChanged(); // new entry shows in the sidebar band right away
@@ -121,9 +124,13 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
       if (res.ok && res.task) {
         setShowForm(false);
         setOpenId(res.task.id);
-      } else if (res.error) {
-        alert(res.error);
+      } else {
+        // The server's reason ("invalid cron expression", "folder not found") is what
+        // the user needs to fix it; the lead sentence says what did not happen.
+        setProblem(`The automation was not created${res.error ? ` (${res.error})` : ""}.`);
       }
+    } catch {
+      setProblem("The automation was not created. Try again in a moment.");
     } finally {
       setBusy(null);
     }
@@ -168,13 +175,14 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
               try {
                 const bp = JSON.parse(await file.text()) as Blueprint;
                 if (!bp || bp.mimiwork_blueprint !== 1 || !bp.title || !bp.instructions) {
-                  alert("That file isn't a MimiWork blueprint.");
+                  setProblem("That file isn't a MimiWork blueprint.");
                   return;
                 }
+                setProblem("");
                 setPrefill(bp);
                 setShowForm(true);
               } catch {
-                alert("Could not read that file as JSON.");
+                setProblem("That file could not be read. Pick a .mimiflow.json blueprint.");
               }
             }}
           />
@@ -208,6 +216,8 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
           + New automation
         </button>
       </div>
+
+      {problem && <InlineNotice text={problem} onDismiss={() => setProblem("")} />}
 
       <div className="text-[12px] text-faint flex gap-1.5 mb-4">
         <span aria-hidden>ⓘ</span>
@@ -524,6 +534,7 @@ function TaskDetail({
 }) {
   const [task, setTask] = useState<Automation | null>(null);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
+  const [shared, setShared] = useState<{ text: string; tone: "error" | "info" } | null>(null);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -653,11 +664,14 @@ function TaskDetail({
                   data-testid="share-blueprint"
                   title="Save this automation's design as a shareable .mimiflow.json file"
                   onClick={async () => {
-                    const res = await exportBlueprint(id);
-                    alert(
+                    const res = await exportBlueprint(id).catch(() => ({ ok: false as const, path: "" }));
+                    setShared(
                       res.ok
-                        ? `Blueprint saved to ${res.path}\n\nShare the file — anyone can import it from Automations → Import blueprint.`
-                        : res.error || "Export failed.",
+                        ? {
+                            tone: "info",
+                            text: `Blueprint saved to ${res.path}. Share the file — anyone can import it from Automations → Import blueprint.`,
+                          }
+                        : { tone: "error", text: "The blueprint could not be saved. Try again in a moment." },
                     );
                   }}
                 >
@@ -675,6 +689,7 @@ function TaskDetail({
             )}
           </div>
         </div>
+        {shared && <InlineNotice text={shared.text} tone={shared.tone} onDismiss={() => setShared(null)} />}
 
         {editing ? (
           <div className="tmpl-sched sched-edit-sched">

@@ -102,3 +102,20 @@ describe("ModelChecklist shortlist for long live catalogs", () => {
     expect(screen.queryByTestId("mlist-more")).toBeNull();
   });
 });
+
+describe("ModelChecklist when a save fails", () => {
+  it("says the change was not saved when the server refuses it", async () => {
+    vi.mocked(addModel).mockResolvedValueOnce({ ok: false, error: "nope", models: [], model: "" } as never);
+    renderList("openai");
+    addTyped("gpt-9");
+    expect((await screen.findByRole("alert")).textContent).toContain("That change was not saved");
+    expect((screen.getByPlaceholderText("Add another model…") as HTMLInputElement).value).toBe("gpt-9");
+  });
+
+  it("says the change was not saved when the server cannot be reached", async () => {
+    vi.mocked(addModel).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    renderList("openai");
+    addTyped("gpt-9");
+    expect((await screen.findByRole("alert")).textContent).toContain("That change was not saved");
+  });
+});

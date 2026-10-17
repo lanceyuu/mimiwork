@@ -54,6 +54,7 @@ import type {
 } from "./types";
 import { isProjectScoped } from "./personaScope";
 import { baseName } from "./paths";
+import { InlineNotice } from "./components/InlineNotice";
 import { itemsFromMessages } from "./itemsFromMessages";
 import { addTurnUsage, emptyUsage, usageFromMessages } from "./usage";
 import { streamMode } from "./streamGate";
@@ -1339,6 +1340,10 @@ export function App() {
   // UX-026: 5s top-right toast when a SCHEDULED automation run starts (never for
   // manual Run-now — the user is already watching). Rides the app-wide /ws/events
   // stream; View run opens the run's live session.
+  // A problem the user has to know about but that belongs to no page they are on (a
+  // sidebar drag, a background step of setup). It stays until dismissed: a native
+  // alert() blocked the whole window and carried the server's own wording.
+  const [appNotice, setAppNotice] = useState("");
   const [runToast, setRunToast] = useState<{
     kind: "started" | "finished"; title: string; sessionId: string; workspace: string; agent: string; time: string;
   } | null>(null);
@@ -1506,7 +1511,7 @@ export function App() {
       error: "server unreachable",
     }));
     if (!res.ok) {
-      if (res.error) alert(`Couldn't file the conversation: ${res.error}`);
+      setAppNotice("That conversation could not be moved into the project. Try again in a moment.");
       return;
     }
     refreshSessions();
@@ -1686,6 +1691,11 @@ export function App() {
       )}
       {/* Desktop-only auto-update prompt (15s after boot, then every 30 min; inert in browser). */}
       <UpdateBanner />
+      {appNotice && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[46] w-[440px] max-w-[92vw] shadow-lg rounded-lg" data-testid="app-notice">
+          <InlineNotice text={appNotice} onDismiss={() => setAppNotice("")} />
+        </div>
+      )}
       {/* UX-026: automation-start toast — quiet panel, neutral dot/drain, accent only
           on the action (rev 2); auto-dismisses with the 5s drain bar. */}
       {runToast && (
@@ -1794,15 +1804,26 @@ export function App() {
                 // 2026-09-02: "even i have already set the folder at the beginning").
                 void setDefaultFolder(workspace, true).catch(() => {});
                 let tries = 0;
+                const retry = () => {
+                  if (++tries < 15) {
+                    setTimeout(attach, 400);
+                    return;
+                  }
+                  // Out of retries after a slow boot: still hand over the task the user
+                  // picked, and say which part is missing, rather than an empty composer.
+                  if (starter.prompt) prefillComposer(starter.prompt);
+                  setAppNotice(
+                    `MimiWork could not open the folder “${baseName(workspace)}” for this conversation. ` +
+                      "Your task is in the message box. Add the folder under Folders on the right, then send it.",
+                  );
+                };
                 const attach = () => {
                   addRoot(id, workspace, true)
                     .then((r) => {
-                      if (r.ok && starter.prompt) prefillComposer(starter.prompt);
-                      else if (++tries < 15) setTimeout(attach, 400);
+                      if (!r.ok) retry();
+                      else if (starter.prompt) prefillComposer(starter.prompt);
                     })
-                    .catch(() => {
-                      if (++tries < 15) setTimeout(attach, 400);
-                    });
+                    .catch(retry);
                 };
                 setTimeout(attach, 300);
               }

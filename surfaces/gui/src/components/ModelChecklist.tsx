@@ -66,27 +66,49 @@ export function ModelChecklist({
     onChanged({ models: s.models, model: s.model });
   };
 
-  const tick = async (id: string, on: boolean) => {
-    const res = on ? await addModel(id) : await removeModel(id);
-    if (res.ok) onChanged({ models: res.models, model: res.model });
+  // A failed save leaves the checkbox where it was, which reads as the click not
+  // registering; say so, or the user keeps clicking.
+  const [problem, setProblem] = useState("");
+  const save = async (work: () => Promise<boolean>) => {
+    setProblem("");
+    let saved = false;
+    try {
+      saved = await work();
+    } catch {
+      saved = false;
+    }
+    if (!saved) setProblem("That change was not saved. Try again in a moment.");
   };
-  const makeDefault = async (id: string) => {
-    if (!checked(id)) await addModel(id); // defaulting an unticked row ticks it too
-    await setDefaultModel(id);
-    await refresh();
-  };
-  const add = async () => {
+
+  const tick = (id: string, on: boolean) =>
+    save(async () => {
+      const res = on ? await addModel(id) : await removeModel(id);
+      if (res.ok) onChanged({ models: res.models, model: res.model });
+      return res.ok;
+    });
+  const makeDefault = (id: string) =>
+    save(async () => {
+      // Defaulting an unticked row ticks it too.
+      if (!checked(id) && !(await addModel(id)).ok) return false;
+      const res = await setDefaultModel(id);
+      await refresh();
+      return res.ok;
+    });
+  const add = () => {
     let typed = draft.trim();
     if (!typed) return;
     // Fold the family choice into the id unless the user already typed one.
     if (families && !families.some((f) => typed.startsWith(`${f.value}/`))) {
       typed = `${family}/${typed}`;
     }
-    const res = await addModel(prefixed(typed));
-    if (res.ok) {
-      setDraft("");
-      onChanged({ models: res.models, model: res.model });
-    }
+    return save(async () => {
+      const res = await addModel(prefixed(typed));
+      if (res.ok) {
+        setDraft("");
+        onChanged({ models: res.models, model: res.model });
+      }
+      return res.ok;
+    });
   };
 
   return (
@@ -150,6 +172,11 @@ export function ModelChecklist({
           Add
         </button>
       </div>
+      {problem && (
+        <div className="mlist-problem" role="alert">
+          {problem}
+        </div>
+      )}
       {(hidden > 0 || (showAll && suggested.length > SHORTLIST + 2)) && (
         <button className="mlist-more" data-testid="mlist-more" onClick={() => setShowAll((v) => !v)}>
           {hidden > 0 ? `Show all ${all.length}` : "Show fewer"}

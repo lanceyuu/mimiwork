@@ -29,16 +29,32 @@ export function AuditView() {
   const [connectorFilter, setConnectorFilter] = useState("");
   const [toolFilter, setToolFilter] = useState("");
   const [credits, setCredits] = useState<QualitatiCredits | null>(null);
+  // An empty list means three different things; saying "nothing yet" after a typo in a
+  // filter, or after the server failed to answer, reads as "nothing was ever logged".
+  const [empty, setEmpty] = useState<"none" | "filtered" | "failed">("none");
 
+  const load = (filter: { session_id?: string; connector?: string; tool?: string }) =>
+    getAudit({ limit: 150, ...filter })
+      .then((rows) => {
+        setEvents(rows);
+        setEmpty(Object.values(filter).some(Boolean) ? "filtered" : "none");
+      })
+      .catch(() => {
+        setEvents([]);
+        setEmpty("failed");
+      });
   const refresh = () =>
-    getAudit({
-      limit: 150,
+    load({
       session_id: sessionFilter.trim() || undefined,
       connector: connectorFilter.trim() || undefined,
       tool: toolFilter.trim() || undefined,
-    })
-      .then(setEvents)
-      .catch(() => setEvents([]));
+    });
+  const clearFilters = () => {
+    setSessionFilter("");
+    setConnectorFilter("");
+    setToolFilter("");
+    load({});
+  };
 
   useEffect(() => {
     refresh();
@@ -68,7 +84,13 @@ export function AuditView() {
         <div className="max-w-4xl mx-auto px-7 py-6">
           <PanelHead
             title="Activity"
-            sub="What ran, and what it cost. Tool arguments are sanitized before storage."
+            sub={
+              // Cost is only on this page for a QualiTaTi account; promising it to a
+              // bring-your-own-key user sends them looking for a number that is not there.
+              credits?.ok
+                ? "What ran, and what it cost. Tool arguments are sanitized before storage."
+                : "What ran. Tool arguments are sanitized before storage."
+            }
           />
 
           {edge?.ready && (
@@ -112,7 +134,20 @@ export function AuditView() {
           </div>
 
           {events.length === 0 ? (
-            <div className={CARD + " p-4 text-[13px] text-muted"}>No audit events yet.</div>
+            <div className={CARD + " p-4 text-[13px] text-muted"} data-testid="activity-empty">
+              {empty === "filtered" ? (
+                <>
+                  Nothing matches these filters.{" "}
+                  <button className="text-accent hover:underline" onClick={clearFilters}>
+                    Clear filters
+                  </button>
+                </>
+              ) : empty === "failed" ? (
+                "Activity could not be loaded. Press Filter to try again."
+              ) : (
+                "No audit events yet."
+              )}
+            </div>
           ) : (
             <div className="space-y-2">
               {events.map((ev) => (
@@ -194,7 +229,12 @@ function CreditRow({ row }: { row: QualitatiCreditRow }) {
       <span className="text-muted">{row.model || row.route || "model call"}</span>
       <span className="text-faint">
         {row.tokens_in.toLocaleString()} in · {row.tokens_out.toLocaleString()} out
-        {row.estimated ? " · estimated" : ""}
+        {row.estimated && (
+          <span title="The model's provider did not report token counts for this call, so QualiTaTi estimated them from the length of the text.">
+            {" "}
+            · estimated
+          </span>
+        )}
       </span>
       {paid && <span className="text-faint">{paid}</span>}
       <span className="text-faint ml-auto">{row.at ?? ""}</span>

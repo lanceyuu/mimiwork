@@ -7,6 +7,7 @@ import {
 } from "../api";
 import { QualitatiAccountCard } from "./QualitatiAccountCard";
 import { useT } from "../i18n";
+import { Icon } from "./Icon";
 import { ConnectorBadge } from "../connectors/ConnectorIcon";
 import { chooseFolder } from "../tauri";
 import { LANGS, getLang, setLang } from "../i18n";
@@ -44,7 +45,7 @@ const TOOLS_SOON = ["gmail", "google_calendar"];
 const STARTERS = [
   {
     key: "summarize",
-    icon: "📋",
+    icon: "file",
     label: "Summarize what's in this folder",
     prompt:
       "Look through this folder and give me a short overview: what's in it, what seems " +
@@ -53,7 +54,7 @@ const STARTERS = [
   },
   {
     key: "tidy",
-    icon: "🧹",
+    icon: "folder",
     label: "Tidy and organize these files",
     prompt:
       "Propose a tidy structure for this folder (groups, naming, what to archive). " +
@@ -62,7 +63,7 @@ const STARTERS = [
   },
   {
     key: "plan",
-    icon: "🗓️",
+    icon: "clock",
     label: "Plan my week from what's here",
     prompt:
       "Based on the documents in this folder, draft a plan for my week: open threads, " +
@@ -76,7 +77,7 @@ const STARTERS = [
 const QUICK_STARTERS = [
   {
     key: "summarize",
-    icon: "📋",
+    icon: "file",
     label: "Summarize a document",
     prompt:
       "I'll drop a document into this chat. Give me a short overview: what it says, what " +
@@ -84,7 +85,7 @@ const QUICK_STARTERS = [
   },
   {
     key: "email",
-    icon: "✉️",
+    icon: "pencil",
     label: "Draft an email",
     prompt:
       "Help me draft an email. Ask me who it is for and what I want to achieve, then write " +
@@ -92,7 +93,7 @@ const QUICK_STARTERS = [
   },
   {
     key: "plan",
-    icon: "🗓️",
+    icon: "clock",
     label: "Plan my week",
     prompt:
       "Help me plan my week. Ask me what is on my plate and when things are due, then " +
@@ -416,8 +417,8 @@ export function Onboarding({
                 className="flex items-center gap-3 rounded-xl2 border border-line bg-paper px-4 py-3"
                 data-testid="ob-folder-picked"
               >
-                <span className="w-9 h-9 rounded-lg bg-okSoft text-ok grid place-items-center text-[15px] shrink-0">
-                  📁
+                <span className="w-9 h-9 rounded-lg bg-okSoft text-ok grid place-items-center shrink-0">
+                  <Icon name="folder" size={16} />
                 </span>
                 <span className="flex-1 min-w-0">
                   <b className="block text-[13.5px] truncate" title={folder}>
@@ -465,7 +466,7 @@ export function Onboarding({
                     }
                     data-testid={`ob-starter-${s.key}`}
                   >
-                    <span className="text-[16px] shrink-0">{s.icon}</span>
+                    <Icon name={s.icon} size={16} className="shrink-0 text-muted self-center" />
                     <span className="flex-1 min-w-0">
                       <b className="block text-[13.5px]">{s.label}</b>
                       {needsWrite && (

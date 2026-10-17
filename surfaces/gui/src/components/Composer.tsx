@@ -780,12 +780,22 @@ export function Composer(props: Props) {
   // A pinned /skill is sendable content on its own (tester catch 2026-07-26: the arrow
   // stayed grey after picking a skill, reading as "stuck").
   const hasContent = text.trim().length > 0 || attachments.length > 0 || !!pendingSkill;
+  // Steering injects plain text into the running task; files and skills need a turn of
+  // their own. Enter does nothing then, so say why before the user presses it twice.
+  const waitsForTurn = props.running && (attachments.length > 0 || !!pendingSkill);
+  const waitsNote = t("Files and skills start a new task. Send this when the current one finishes, or stop it first.");
 
   return (
     <div className="composer-wrap px-6 pb-5 pt-4">
       {props.approvalSlot}
 
       <FreeTierBanner model={props.model} freeTier={props.freeTier} accountCredits={props.accountCredits} onModelChange={props.onModelChange} />
+
+      {waitsForTurn && (
+        <div className="max-w-3xl mx-auto mb-1.5 px-1 text-[12px] text-muted" data-testid="steer-waits" role="status">
+          {waitsNote}
+        </div>
+      )}
 
       {dictationError && (
         <div className="max-w-3xl mx-auto mb-2 px-1 text-[12px] text-red-600" role="alert">
@@ -1064,7 +1074,7 @@ export function Composer(props: Props) {
           {props.running ? (
             <>
               {hasContent && !props.stopping && (
-                <button className="btn" onClick={submit} disabled={!props.connected || attachments.length > 0 || !!pendingSkill || !!dictation?.recording || !!dictationBusy}>
+                <button className="btn" onClick={submit} disabled={!props.connected || waitsForTurn || !!dictation?.recording || !!dictationBusy} title={waitsForTurn ? waitsNote : undefined}>
                   {t("Steer")}
                 </button>
               )}
