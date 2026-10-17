@@ -55,3 +55,13 @@ test("each agent offers Latest first, then its own models, and the page says the
   await page.getByTestId("coding-agent-codex").getByTestId("coding-agent-test").scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/coding-agents-codex-models.png" });
 });
+
+test("recent hand-offs show each session with a command that reopens it in its own CLI", async ({ page }) => {
+  await openCodingAgents(page);
+  const runs = page.getByTestId("coding-agent-runs");
+  await runs.scrollIntoViewIfNeeded();
+  await expect(runs.getByTestId("coding-agent-run")).toHaveCount(2);
+  await expect(runs).toContainText("codex resume 01a14b45-ec04-7822-990e-feaaf12fb9ad");
+  await expect(runs).toContainText("Its folder has been removed");
+  await page.screenshot({ path: "test-results/coding-agents-runs.png" });
+});

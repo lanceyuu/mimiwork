@@ -1527,6 +1527,12 @@ def create_app(manager: SessionManager) -> FastAPI:
 
         return {"agents": [agent_status(k) for k in AGENTS]}
 
+    @app.get("/v1/coding-agents/runs")
+    def coding_agent_runs() -> dict[str, Any]:
+        from ..tools.delegate import recent_runs
+
+        return {"runs": recent_runs()}
+
     @app.post("/v1/coding-agents/{key}/settings")
     def coding_agent_settings(key: str, body: dict) -> dict[str, Any]:
         from ..tools.delegate import save_settings

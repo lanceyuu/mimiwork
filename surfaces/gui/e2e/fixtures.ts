@@ -1467,6 +1467,24 @@ export async function mockApi(page: import("@playwright/test").Page) {
         hubspotState.hidden_fields = b.hidden_fields.map((f: string) => f.trim().toLowerCase());
       return json({ ok: true, hidden_fields: [...hubspotState.hidden_fields] });
     }
+    if (p.endsWith("/v1/coding-agents/runs"))
+      return json({
+        runs: [
+          {
+            job: "codex-csv-1a2b", key: "codex", agent: "Codex", name: "csv export", status: "finished",
+            branch: "mimi/codex-csv-export", workdir: "/Users/me/analysis/.mimiwork/agents/codex-csv-export",
+            session_id: "01a14b45-ec04-7822-990e-feaaf12fb9ad", at: Date.now() / 1000 - 600,
+            resume_command: "cd /Users/me/analysis/.mimiwork/agents/codex-csv-export && codex resume 01a14b45-ec04-7822-990e-feaaf12fb9ad",
+            folder_exists: true,
+          },
+          {
+            job: "claude-tests-3c4d", key: "claude_code", agent: "Claude Code", name: "tests for the export", status: "failed",
+            branch: "mimi/claude-tests", workdir: "/Users/me/analysis/.mimiwork/agents/claude-tests",
+            session_id: "cd6f96aa-cd47-42f9-b81a-31847f443649", at: Date.now() / 1000 - 3600,
+            resume_command: "claude --resume cd6f96aa-cd47-42f9-b81a-31847f443649", folder_exists: false,
+          },
+        ],
+      });
     if (p.endsWith("/v1/coding-agents")) {
       if (codexSignInStarted) Object.assign(codingAgents[1], { signed_in: true, account: "ChatGPT" });
       return json({ agents: codingAgents });

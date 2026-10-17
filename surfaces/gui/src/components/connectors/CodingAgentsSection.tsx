@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  getCodingAgentRuns,
   getCodingAgents,
   setCodingAgent,
   signInCodingAgent,
   testCodingAgent,
   type CodingAgent,
+  type CodingAgentRun,
 } from "../../api";
 import { useT } from "../../i18n";
 import { openExternal } from "../../tauri";
@@ -22,6 +24,7 @@ export function CodingAgentsSection() {
   const t = useT();
   const [agents, setAgents] = useState<CodingAgent[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [runs, setRuns] = useState<CodingAgentRun[]>([]);
   // Agents whose browser sign-in is under way: the page polls until they report signed in.
   const [waiting, setWaiting] = useState<Record<string, boolean>>({});
 
@@ -37,6 +40,9 @@ export function CodingAgentsSection() {
         });
       })
       .catch(() => setFailed(true));
+    getCodingAgentRuns()
+      .then(setRuns)
+      .catch(() => {}); // the list is a convenience; the agents above still work without it
   }, []);
 
   useEffect(refresh, [refresh]);
@@ -80,6 +86,7 @@ export function CodingAgentsSection() {
           onChanged={refresh}
         />
       ))}
+      <RecentRuns runs={runs} />
       <div className="flex justify-end">
         <button className={PILL_LINE} onClick={refresh} data-testid="coding-agents-refresh">
           {t("Check again")}
@@ -343,6 +350,59 @@ function AgentCard({
           ? t("Runs on your own Claude account, not QualiTaTi credits.")
           : t("Runs on your own OpenAI account, not QualiTaTi credits.")}
       </p>
+    </section>
+  );
+}
+
+const RUN_STATUS: Record<CodingAgentRun["status"], { label: string; chip: string }> = {
+  running: { label: "Working now", chip: CHIP_OK },
+  finished: { label: "Done", chip: CHIP_OK },
+  failed: { label: "Did not finish", chip: CHIP_WARN },
+  stopped: { label: "Stopped", chip: CHIP_OFF },
+};
+
+// Each hand-off is a real Claude Code or Codex conversation, but neither app lists it where
+// people look (it lives under the agent's own copy of the project, and Codex hides runs it
+// did not start interactively). The command opens it there, to read it or carry on by hand.
+function RecentRuns({ runs }: { runs: CodingAgentRun[] }) {
+  const t = useT();
+  return (
+    <section data-testid="coding-agent-runs">
+      <h3 className="text-[14px] font-semibold px-1 mb-0.5">{t("Recent hand-offs")}</h3>
+      <p className="text-[12px] text-muted px-1 mb-2">
+        {t("Each hand-off is a conversation in Claude Code or Codex itself. Run its command in a terminal to read it or carry on yourself.")}
+      </p>
+      {runs.length === 0 ? (
+        <div className="text-[12.5px] text-faint px-1">
+          {t("No hand-offs yet. When Mimi gives work to Claude Code or Codex, it appears here.")}
+        </div>
+      ) : (
+        <div className={GRP}>
+          {runs.map((r) => {
+            const st = RUN_STATUS[r.status] ?? RUN_STATUS.stopped;
+            return (
+              <div key={r.job} className="px-4 py-2.5 text-[12.5px]" data-testid="coding-agent-run">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium shrink-0">{r.agent}</span>
+                  <span className="truncate" data-no-translate>{r.name}</span>
+                  <span className={st.chip}>{t(st.label)}</span>
+                  <span className="ml-auto text-faint shrink-0">{new Date(r.at * 1000).toLocaleString()}</span>
+                </div>
+                <div className="text-faint mt-0.5">
+                  {r.branch && <span data-no-translate>{r.branch} · </span>}
+                  {t("Session")} <span className="font-mono" data-no-translate>{r.session_id}</span>
+                </div>
+                <Command text={r.resume_command} />
+                {!r.folder_exists && (
+                  <div className="text-faint mt-0.5">
+                    {t("Its folder has been removed; the conversation can still be read.")}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

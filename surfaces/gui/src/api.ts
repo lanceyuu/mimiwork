@@ -597,6 +597,27 @@ export async function getCodingAgents(): Promise<CodingAgent[]> {
   return (await res.json()).agents ?? [];
 }
 
+/** A hand-off Mimi gave to Claude Code or Codex, with the command that reopens it there. */
+export interface CodingAgentRun {
+  job: string;
+  key: "claude_code" | "codex";
+  agent: string;
+  name: string;
+  status: "running" | "finished" | "failed" | "stopped";
+  branch: string;
+  workdir: string;
+  session_id: string;
+  at: number;
+  resume_command: string;
+  folder_exists: boolean;
+}
+
+export async function getCodingAgentRuns(): Promise<CodingAgentRun[]> {
+  const res = await fetch(`${httpBase()}/v1/coding-agents/runs`);
+  if (!res.ok) throw new Error(`coding agent runs: ${res.status}`);
+  return (await res.json()).runs ?? [];
+}
+
 export async function setCodingAgent(
   key: string,
   settings: { model: string; effort: string },

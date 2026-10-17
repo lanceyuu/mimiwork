@@ -65,8 +65,10 @@ elif args == ["login"]:
 def _clean_state():
     delegate._settings.clear()
     delegate._settings_path = None
+    delegate._runs_path = None
     delegate._catalog.update(at=0.0, models=[])
     yield
+    delegate._runs_path = None
     delegate._catalog.update(at=0.0, models=[])
     for proc in delegate._LOGINS.values():
         delegate._kill(proc)
@@ -306,3 +308,51 @@ def test_when_codex_cannot_list_its_models_the_page_falls_back_to_a_typed_name_a
 
     assert (status["models_listed"], status["models"], status["latest"]) == (False, [], "")
     assert "-m" not in json.loads(log.read_text())
+
+
+def test_a_hand_off_is_listed_with_a_command_that_reopens_it_in_its_own_cli_from_its_folder(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    work = tmp_path / "my project" / ".mimiwork" / "agents" / "csv"
+    work.mkdir(parents=True)
+    job = delegate.Job("s", "claude_code", "claude", "csv export", work, "mimi/csv")
+    job.resume_id, job.status = "sess-1", "finished"
+
+    delegate.record_run(job)
+
+    run = delegate.recent_runs()[0]
+    assert (run["agent"], run["name"], run["branch"], run["session_id"]) == ("Claude Code", "csv export", "mimi/csv", "sess-1")
+    assert run["resume_command"] == f"cd '{work}' && claude --resume sess-1"
+    assert job.report()["resume_command"] == run["resume_command"]
+    assert (tmp_path / "coding-agent-runs.json").exists()  # survives a restart
+
+
+def test_codex_hand_offs_resume_with_codex_resume_and_a_removed_folder_still_gives_the_id(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    job = delegate.Job("s", "codex", "codex", "review", tmp_path / "gone", "mimi/review")
+    job.resume_id, job.status = "thread-9", "failed"
+
+    delegate.record_run(job)
+
+    run = delegate.recent_runs()[0]
+    assert run["resume_command"] == "codex resume thread-9"
+    assert run["folder_exists"] is False and run["status"] == "failed"
+
+
+def test_a_later_round_replaces_its_row_and_the_list_keeps_only_the_newest_fifty(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    jobs = [delegate.Job("s", "codex", "codex", f"task {n}", tmp_path, "") for n in range(52)]
+    for job in jobs:
+        job.resume_id, job.status = "t", "finished"
+        delegate.record_run(job)
+    jobs[-1].status = "failed"
+    delegate.record_run(jobs[-1])
+
+    runs = delegate.recent_runs()
+    assert len(runs) == 50 and runs[0]["name"] == "task 51" and runs[0]["status"] == "failed"
+    assert [r["name"] for r in runs].count("task 51") == 1
+
+
+def test_a_job_that_never_started_a_session_is_not_listed(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    delegate.record_run(delegate.Job("s", "codex", "codex", "x", tmp_path, ""))
+    assert delegate.recent_runs() == []

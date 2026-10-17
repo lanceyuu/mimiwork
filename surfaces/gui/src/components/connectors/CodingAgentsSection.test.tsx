@@ -227,4 +227,49 @@ describe("Coding agents", () => {
     await waitFor(() => expect(screen.getByTestId("coding-agents-error")).toBeTruthy());
     expect(screen.getByText("Try again")).toBeTruthy();
   });
+
+  it("recent hand-offs list each run with its session and a command that reopens it in its own CLI", async () => {
+    const run = {
+      job: "csv-1", key: "codex", agent: "Codex", name: "csv export", status: "failed", branch: "mimi/codex-csv",
+      workdir: "/p/.mimiwork/agents/codex-csv", session_id: "01a1-thread", at: 1_790_000_000,
+      resume_command: "cd /p/.mimiwork/agents/codex-csv && codex resume 01a1-thread", folder_exists: true,
+    };
+    stubFetch([
+      { match: "/v1/coding-agents/runs", json: { runs: [run] } },
+      { match: "/v1/coding-agents", json: { agents: [CLAUDE] } },
+    ]);
+    render(<CodingAgentsSection />);
+
+    const row = await waitFor(() => screen.getByTestId("coding-agent-run"));
+    expect(row.textContent).toContain("csv export");
+    expect(row.textContent).toContain("Did not finish");
+    expect(row.textContent).toContain("01a1-thread");
+    expect(within(row).getByText("cd /p/.mimiwork/agents/codex-csv && codex resume 01a1-thread")).toBeTruthy();
+    expect(within(row).getByText("Copy")).toBeTruthy();
+  });
+
+  it("a hand-off whose folder has been removed says its conversation can still be read", async () => {
+    stubFetch([
+      { match: "/v1/coding-agents/runs", json: { runs: [{
+        job: "a", key: "claude_code", agent: "Claude Code", name: "docs", status: "finished", branch: "", workdir: "/gone",
+        session_id: "s9", at: 1_790_000_000, resume_command: "claude --resume s9", folder_exists: false,
+      }] } },
+      { match: "/v1/coding-agents", json: { agents: [CLAUDE] } },
+    ]);
+    render(<CodingAgentsSection />);
+
+    const row = await waitFor(() => screen.getByTestId("coding-agent-run"));
+    expect(row.textContent).toContain("Its folder has been removed");
+    expect(within(row).getByText("claude --resume s9")).toBeTruthy();
+  });
+
+  it("before any hand-off the list says what will appear there", async () => {
+    stubFetch([
+      { match: "/v1/coding-agents/runs", json: { runs: [] } },
+      { match: "/v1/coding-agents", json: { agents: [CLAUDE] } },
+    ]);
+    render(<CodingAgentsSection />);
+
+    await waitFor(() => expect(screen.getByText(/No hand-offs yet/)).toBeTruthy());
+  });
 });

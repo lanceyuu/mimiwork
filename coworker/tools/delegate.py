@@ -20,6 +20,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -145,6 +146,8 @@ def load_settings(path: Path) -> None:
     """Where the chosen model and effort live (a small JSON file beside the app's prefs)."""
     global _settings_path, _settings
     _settings_path = path
+    global _runs_path
+    _runs_path = path.with_name("coding-agent-runs.json")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         _settings = {k: dict(v) for k, v in data.items() if k in AGENTS and isinstance(v, dict)}
@@ -802,6 +805,7 @@ class Job:
                     result["commit"] = commit
             self.result = result
             self.status = "stopped" if self.stop.is_set() else ("failed" if "error" in result else "finished")
+            record_run(self)
 
         self.thread = threading.Thread(target=work, daemon=True, name=f"agent-{self.id}")
         self.thread.start()
@@ -811,11 +815,72 @@ class Job:
         if self.branch:
             out["branch"] = self.branch
         out["workdir"] = str(self.workdir)
+        if self.resume_id:
+            # So Mimi can tell the user how to open the agent's own conversation themselves.
+            out["session_id"] = self.resume_id
+            out["resume_command"] = resume_command(self.key, self.workdir, self.resume_id)
         if self.status == "running":
             out["latest"] = self.last
         else:
             out.update({k: v for k, v in self.result.items() if k not in ("agent", "folder")})
         return out
+
+
+def resume_command(key: str, workdir: str | Path, session_id: str) -> str:
+    """The command that opens an agent's own conversation in its CLI, in the agent's copy of
+    the project. Both CLIs find a session by id from any folder (checked with Claude Code
+    2.1.270 and Codex 0.162), but the folder decides which files a resumed agent works on.
+    A hand-off's history otherwise hides: Claude Code files it under the agent's worktree,
+    and Codex's resume list leaves out non-interactive runs."""
+    exe = AGENTS[key][1]
+    run = f"{exe} --resume {session_id}" if key == "claude_code" else f"{exe} resume {session_id}"
+    if not workdir or not Path(workdir).is_dir():
+        return run  # the worktree is gone (usually removed after a merge); the history is still there
+    folder = f'"{workdir}"' if _IS_WINDOWS else shlex.quote(str(workdir))
+    return f"cd {folder}; {run}" if _IS_WINDOWS else f"cd {folder} && {run}"
+
+
+_runs_path: Optional[Path] = None
+_runs_lock = threading.Lock()
+_MAX_RUNS = 50
+
+
+def record_run(job: "Job") -> None:
+    """Keep the latest round of each hand-off (newest first) for the Coding agents page.
+    Jobs live in memory; this list outlives a restart so their history stays findable."""
+    if not job.resume_id:
+        return
+    entry = {
+        "job": job.id, "key": job.key, "agent": job.label, "name": job.name, "status": job.status,
+        "branch": job.branch, "workdir": str(job.workdir), "session_id": job.resume_id, "at": time.time(),
+    }
+    with _runs_lock:
+        runs = [r for r in _read_runs() if r.get("job") != job.id]
+        runs = [entry, *runs][:_MAX_RUNS]
+        if _runs_path is not None:
+            try:
+                _runs_path.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+            except OSError:
+                pass  # the page loses a row; the agent's own history is unaffected
+
+
+def _read_runs() -> list[dict[str, Any]]:
+    if _runs_path is None:
+        return []
+    try:
+        data = json.loads(_runs_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [r for r in data if isinstance(r, dict) and r.get("key") in AGENTS and r.get("session_id")]
+
+
+def recent_runs() -> list[dict[str, Any]]:
+    """Recent hand-offs with the command that reopens each in its own CLI."""
+    return [
+        {**r, "resume_command": resume_command(r["key"], r.get("workdir") or "", r["session_id"]),
+         "folder_exists": bool(r.get("workdir")) and Path(r["workdir"]).is_dir()}
+        for r in _read_runs()
+    ]
 
 
 # Finished jobs stay so a later follow-up can resume them. ponytail: never pruned — one small
