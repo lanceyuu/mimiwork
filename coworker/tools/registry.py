@@ -8,6 +8,7 @@ docstring/type-hint → JSON-schema extraction.
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional
@@ -25,6 +26,26 @@ class RecoveryPolicy(str, Enum):
 
     REPLAY_SAFE = "replay_safe"
     NON_REPLAYABLE = "non_replayable"
+
+
+# Sidecar key a tool sets on its result dict to say "this call failed". The engine
+# strips it and records the call as an error, so the failure guard counts it. It is
+# opt-in per tool: connector payloads carry their own "error" fields whose meaning
+# varies, and reading every dict with an "error" key as a failure would misjudge them.
+FAILED = "_failed"
+
+
+def reports_failures(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Mark a first-party tool whose `{"error": ...}` results are failures."""
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = func(*args, **kwargs)
+        if isinstance(result, dict) and result.get("error"):
+            result[FAILED] = True
+        return result
+
+    return wrapper
 
 
 @dataclass

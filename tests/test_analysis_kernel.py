@@ -215,3 +215,13 @@ def test_run_python_hands_its_charts_to_the_model_as_images(tmp_path):
     assert result["figures"] == ["figures/figure-01.png"]
     assert len(result["_images"]) == 1
     assert Path(result["_images"][0]).read_bytes().startswith(b"\x89PNG")
+
+
+def test_printed_output_stops_being_stored_at_the_cap_while_code_still_prints():
+    from coworker.tools.analysis._kernel_child import MAX_STREAM_CHARS, _Capped
+
+    out = _Capped()
+    for _ in range(1_000):
+        assert out.write("x" * 1_000) == 1_000, "print() must still see a full write"
+    assert len(out.getvalue()) == MAX_STREAM_CHARS
+    assert out.truncated

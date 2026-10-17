@@ -218,20 +218,40 @@ def test_an_exited_task_reports_its_last_line_even_if_the_pipe_drains_late(execu
     import time
     from types import SimpleNamespace
 
-    from coworker.tools.shell import _BackgroundTask
+    from coworker.tools.shell import _BackgroundTask, _Tail
 
     task = _BackgroundTask.__new__(_BackgroundTask)
     task.id, task.command = "late", "echo late"
-    task._lock, task._lines, task._cursor = threading.Lock(), [], 0
+    task._lock, task._buffer = threading.Lock(), _Tail(1000)
     task.proc = SimpleNamespace(poll=lambda: 0)
 
     def slow_reader():
         time.sleep(0.3)
         with task._lock:
-            task._lines.append("late_line\n")
+            task._buffer.append("late_line\n")
 
     task._reader = threading.Thread(target=slow_reader, daemon=True)
     task._reader.start()
     executor._bg_tasks["late"] = task
     res = executor.background_output("late")
     assert res["status"] == "exited" and "late_line" in res["output"]
+
+
+def test_command_output_is_bounded_while_it_arrives_not_after():
+    from coworker.tools.shell import _Tail
+
+    tail = _Tail(200)
+    for i in range(1, 10_001):
+        tail.append(f"line{i}\n")
+        assert tail._size <= 200 + len("line10000\n"), "the buffer never grows past one line over"
+    output, truncated = tail.take()
+    assert truncated and len(output) <= 200 and output.endswith("line10000\n")
+
+
+def test_background_output_already_read_is_not_kept(executor):
+    reg = ToolRegistry()
+    reg.register_all(shell_tools(executor))
+    started = reg.execute("run_shell", {"command": PRINT_1000, "run_in_background": True})
+    task = executor._bg_tasks[started["task_id"]]
+    _poll_output(reg, started["task_id"], until_status="exited")
+    assert task._buffer.take() == ("", False)

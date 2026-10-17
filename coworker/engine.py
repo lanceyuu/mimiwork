@@ -48,6 +48,7 @@ from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
 from .tools.context import tool_model, tool_progress, tool_yield
+from .tools.registry import FAILED
 
 
 class ApprovalOutcome(str, Enum):
@@ -1304,6 +1305,21 @@ class TurnEngine:
                 # Stopped: every remaining call still gets an answer (no orphans).
                 yield self._interrupted_tool(tool_call)
                 continue
+            if not isinstance(tool_call.arguments, dict):
+                # Valid JSON that is not an object ([1], "x", 3) parses fine in every
+                # provider, then breaks every `.get` downstream. Answer it here so the
+                # call is paired and the model can correct itself.
+                reason = (
+                    f"{tool_call.name} takes its arguments as a JSON object, "
+                    f"not {type(tool_call.arguments).__name__}"
+                )
+                self.messages.append(_tool_error_message(tool_call, reason))
+                self._fail_streak += 1
+                yield Event(
+                    EventType.TOOL_FINISHED,
+                    {"name": tool_call.name, "status": "error", "reason": "invalid arguments"},
+                )
+                continue
             recovery = (
                 None
                 if tool_call.name
@@ -1653,7 +1669,9 @@ class TurnEngine:
                 result = {"error": "interrupted by user"}, "interrupted"
             else:
                 try:
-                    result = self.registry.execute(tool_call.name, tool_call.arguments), "ok"
+                    value = self.registry.execute(tool_call.name, tool_call.arguments)
+                    failed = isinstance(value, dict) and value.pop(FAILED, False)
+                    result = value, "error" if failed else "ok"
                 except Exception as exc:
                     result = {"error": str(exc), "error_type": type(exc).__name__}, "error"
         if result[1] == "ok" and tool_call.name == "write_file":

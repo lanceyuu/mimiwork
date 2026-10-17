@@ -1987,6 +1987,19 @@ def create_app(manager: SessionManager) -> FastAPI:
                         )
                     if event.type.value in _CHECKPOINTS:
                         manager.save(session_id, engine)
+            except Exception as exc:
+                # This task is fire-and-forget: an exception escaping here would vanish
+                # into the event loop and leave the user watching a turn that never ends.
+                logging.getLogger(__name__).exception("session %s: turn failed", session_id)
+                text = "Something went wrong inside Mimi and this task stopped. Try again."
+                engine._append_notice("error", text)
+                await manager.broadcast_session(
+                    session_id,
+                    {
+                        "type": "error",
+                        "data": {"error": text, "error_type": type(exc).__name__, "raw": str(exc)},
+                    },
+                )
             finally:
                 manager.mark_idle(session_id)
                 manager.save(session_id, engine)

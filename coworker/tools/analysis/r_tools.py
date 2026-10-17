@@ -17,6 +17,7 @@ import aisuite as ai
 
 from ..office._common import MAX_TEXT_CHARS, clip
 from ..office.paths import PathError, context_roots, display_path, resolve_write
+from ..registry import reports_failures
 
 DEFAULT_TIMEOUT = 300
 MAX_TIMEOUT = 900
@@ -133,4 +134,4 @@ def r_tools(context: Any) -> list:
         requires_approval=True,
     )
     run_r.__coworker_schema__ = _SCHEMA
-    return [run_r]
+    return [reports_failures(run_r)]
