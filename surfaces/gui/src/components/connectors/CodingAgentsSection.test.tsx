@@ -50,6 +50,7 @@ const CLAUDE = {
   latest: "claude-opus-5-5",
   model: "",
   effort: "",
+  keep_hooks: false,
 };
 const CODEX = {
   ...CLAUDE,
@@ -271,5 +272,21 @@ describe("Coding agents", () => {
     render(<CodingAgentsSection />);
 
     await waitFor(() => expect(screen.getByText(/No hand-offs yet/)).toBeTruthy());
+  });
+
+  it("Claude Code hand-offs run without your own hooks by default, and turning them on saves that choice", async () => {
+    const calls = stubFetch([
+      { match: "/settings", method: "POST", json: { ok: true } },
+      { match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX] } },
+    ]);
+    render(<CodingAgentsSection />);
+
+    const hooks = await waitFor(() => card("claude_code").getByTestId("coding-agent-hooks"));
+    expect(hooks.textContent).toContain("Off for hand-offs (faster)");
+    fireEvent.click(within(hooks).getByRole("switch"));
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/claude_code/settings"))).toBe(true));
+    expect(calls.find((c) => c.url.endsWith("/claude_code/settings"))!.body).toEqual({ model: "", effort: "", keep_hooks: true });
+    expect(card("codex").queryByTestId("coding-agent-hooks")).toBeNull();
   });
 });

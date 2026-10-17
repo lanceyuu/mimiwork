@@ -89,7 +89,9 @@ def available_agents() -> dict[str, str]:
     return {key: path for key in AGENTS if (path := find_agent(key))}
 
 
-def agent_command(key: str, executable: str, resume_id: str = "", model: str = "", effort: str = "") -> list[str]:
+def agent_command(
+    key: str, executable: str, resume_id: str = "", model: str = "", effort: str = "", skip_hooks: bool = False,
+) -> list[str]:
     """argv for a headless run; the task goes in on stdin (no length or leading-dash trouble).
     With `resume_id`, the message continues that agent session, its memory intact. An empty
     `model` or `effort` leaves the agent's own configured default in charge."""
@@ -101,6 +103,7 @@ def agent_command(key: str, executable: str, resume_id: str = "", model: str = "
             executable, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
             *(["--model", model] if model else []),
             *(["--effort", effort] if effort else []),
+            *(["--settings", _NO_HOOKS] if skip_hooks else []),
             *(["--resume", resume_id] if resume_id else []),
         ]
     # `exec resume` takes no --sandbox flag; the config key sets the same policy for both.
@@ -126,6 +129,13 @@ EFFORTS: dict[str, list[str]] = {
 # claude-opus-5 and `fable` to claude-fable-5-1); `default` is the one it recommends for the
 # signed-in account. Updating Claude Code moves them, so nothing here goes stale.
 _CLAUDE_LATEST = "default"
+# The user's own Claude Code hooks are for their interactive sessions. In a hand-off they
+# cost time and change the answer: on the owner's Mac a memory plugin's end-of-turn hook
+# held every run for ~110 s after a 5 s answer, and a prompt hook wrote "No skills needed"
+# into every reply (2026-10-17). Off by default; plugins, MCP servers, skills and
+# permissions still load. The page can turn them back on for anyone whose hooks guard
+# what an agent may do.
+_NO_HOOKS = '{"disableAllHooks": true}'
 _CLAUDE_ALIASES = [("fable", "Latest Fable"), ("opus", "Latest Opus"), ("sonnet", "Latest Sonnet"), ("haiku", "Latest Haiku")]
 _SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"]}
 _INSTALL = {
@@ -170,7 +180,11 @@ def _write_settings() -> str:
     return ""
 
 
-def save_settings(key: str, model: str = "", effort: str = "") -> dict[str, Any]:
+def keeps_hooks(key: str) -> bool:
+    return key == "claude_code" and bool(_settings.get(key, {}).get("keep_hooks"))
+
+
+def save_settings(key: str, model: str = "", effort: str = "", keep_hooks: Optional[bool] = None) -> dict[str, Any]:
     model, effort = (model or "").strip(), (effort or "").strip()
     if model and not _MODEL_NAME.match(model):
         return {"ok": False, "error": "That model name has characters a model name never has."}
@@ -178,8 +192,10 @@ def save_settings(key: str, model: str = "", effort: str = "") -> dict[str, Any]
     if effort and effort not in allowed:
         return {"ok": False, "error": f"Effort must be one of: {', '.join(allowed)}."}
     _settings[key] = {**_settings.get(key, {}), "model": model, "effort": effort}
+    if keep_hooks is not None:
+        _settings[key]["keep_hooks"] = bool(keep_hooks)
     problem = _write_settings()
-    return {"ok": False, "error": problem} if problem else {"ok": True, **agent_settings(key)}
+    return {"ok": False, "error": problem} if problem else {"ok": True, **agent_settings(key), "keep_hooks": keeps_hooks(key)}
 
 
 _CATALOG_TTL = 60 * 60
@@ -225,9 +241,10 @@ def _efforts(key: str) -> list[str]:
     return EFFORTS[key]
 
 
-def run_settings(key: str) -> dict[str, str]:
-    """What a run actually passes: the chosen model, or Latest made concrete."""
-    chosen = agent_settings(key)
+def run_settings(key: str) -> dict[str, Any]:
+    """What a run actually passes: the chosen model, or Latest made concrete, and whether
+    the user's own hooks stay out of it."""
+    chosen: dict[str, Any] = {**agent_settings(key), "skip_hooks": key == "claude_code" and not keeps_hooks(key)}
     if not chosen["model"]:
         if key == "claude_code":
             chosen["model"] = _CLAUDE_LATEST
@@ -308,7 +325,7 @@ def agent_status(key: str) -> dict[str, Any]:
         "sign_in_command": " ".join([exe_name, *_SIGN_IN_ARGS[key]]),
         "efforts": EFFORTS[key], "defaults": _own_defaults(key),
         "models": [], "models_listed": False, "latest": "",
-        **agent_settings(key),
+        **agent_settings(key), "keep_hooks": keeps_hooks(key),
     }
     resolved = _settings.get(key, {}).get("resolved", {})
     if key == "claude_code":
@@ -554,6 +571,7 @@ def run_agent(
     silence: float = _SILENCE,
     model: str = "",
     effort: str = "",
+    skip_hooks: bool = False,
 ) -> dict[str, Any]:
     """Run one headless hand-off to completion, streaming progress through `report`."""
     label = AGENTS[key][0]
@@ -564,7 +582,7 @@ def run_agent(
     before = _snapshot(folder)
     try:
         proc = subprocess.Popen(
-            argv or agent_command(key, executable, resume_id, model=model, effort=effort),
+            argv or agent_command(key, executable, resume_id, model=model, effort=effort, skip_hooks=skip_hooks),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

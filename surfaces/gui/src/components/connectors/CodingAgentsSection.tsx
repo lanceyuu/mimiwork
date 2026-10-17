@@ -10,6 +10,7 @@ import {
 } from "../../api";
 import { useT } from "../../i18n";
 import { openExternal } from "../../tauri";
+import { Toggle } from "../Toggle";
 import { CHIP_OFF, CHIP_OK, CHIP_WARN, FOOT, GRP, PILL_ACCENT, PILL_LINE, ROW } from "./ui";
 
 // Claude Code and Codex, connected like any other tool: installed where, signed in as whom,
@@ -140,7 +141,7 @@ function AgentCard({
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
 
-  const save = (next: { model: string; effort: string }) => {
+  const save = (next: { model: string; effort: string; keep_hooks?: boolean }) => {
     setSaved(false);
     setCodingAgent(a.key, next)
       .then((r) => {
@@ -316,6 +317,27 @@ function AgentCard({
           {saved && <span className="text-[12px] text-ok">{t("Saved")}</span>}
           {saveError && <span className="text-[12px] text-danger">{saveError}</span>}
         </div>
+
+        {a.key === "claude_code" && (
+          <div className={ROW} data-testid="coding-agent-hooks">
+            <span className="w-24 shrink-0 self-start pt-0.5 text-[13px] text-muted">{t("Your hooks")}</span>
+            <div className="min-w-0 flex-1 text-[12.5px]">
+              <div className="flex items-center gap-3">
+                <Toggle
+                  checked={a.keep_hooks}
+                  onChange={(on) => save({ model: a.model, effort: a.effort, keep_hooks: on })}
+                  title={t("Run hand-offs with your own Claude Code hooks")}
+                />
+                <span>{a.keep_hooks ? t("On for hand-offs") : t("Off for hand-offs (faster)")}</span>
+              </div>
+              <p className="text-[12px] text-faint mt-1">
+                {t(
+                  "Hooks you set up for your own Claude Code sessions can slow every hand-off and add text to its answers, so they are off here by default. Your plugins, MCP servers, skills and permissions still load. Turn this on if a hook of yours guards what Claude Code may do.",
+                )}
+              </p>
+            </div>
+          </div>
+        )}
 
         <div className={ROW}>
           <span className="w-24 shrink-0 text-[13px] text-muted">{t("Test")}</span>

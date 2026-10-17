@@ -405,7 +405,7 @@ def test_each_round_uses_the_model_and_effort_chosen_on_the_coding_agents_page(t
         _wait_all(t, 1)
     finally:
         delegate._settings.clear()
-    assert seen == [{"model": "gpt-6-astra", "effort": "high"}]
+    assert seen == [{"model": "gpt-6-astra", "effort": "high", "skip_hooks": False}]
 
 
 def test_starting_an_agent_needs_approval_but_watching_and_feedback_do_not(tmp_path, monkeypatch):

@@ -591,7 +591,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
       { id: "haiku", label: "Latest Haiku", resolved: "" },
     ],
     models_listed: false, latest: "claude-opus-5[1m]",
-    model: "", effort: "", ...over,
+    model: "", effort: "", keep_hooks: false, ...over,
   });
   const codingAgents: any[] = [
     codingAgent({}),
@@ -1497,6 +1497,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
         if (ca[2] === "settings") {
           const b = req.postDataJSON() || {};
           Object.assign(agent, { model: b.model || "", effort: b.effort || "" });
+          if (typeof b.keep_hooks === "boolean") agent.keep_hooks = b.keep_hooks;
           return json({ ok: true, model: agent.model, effort: agent.effort });
         }
         if (ca[2] === "sign-in") {

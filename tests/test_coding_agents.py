@@ -177,7 +177,9 @@ def test_the_chosen_model_and_effort_reach_both_command_lines_and_blank_leaves_t
 def test_a_chosen_model_survives_a_restart_and_a_name_that_could_break_the_command_is_refused(tmp_path):
     path = tmp_path / "coding-agents.json"
     delegate.load_settings(path)
-    assert delegate.save_settings("codex", " gpt-6-astra ", "high") == {"ok": True, "model": "gpt-6-astra", "effort": "high"}
+    assert delegate.save_settings("codex", " gpt-6-astra ", "high") == {
+        "ok": True, "model": "gpt-6-astra", "effort": "high", "keep_hooks": False,
+    }
 
     delegate._settings.clear()
     delegate.load_settings(path)
@@ -356,3 +358,29 @@ def test_a_job_that_never_started_a_session_is_not_listed(tmp_path):
     delegate.load_settings(tmp_path / "coding-agents.json")
     delegate.record_run(delegate.Job("s", "codex", "codex", "x", tmp_path, ""))
     assert delegate.recent_runs() == []
+
+
+def test_claude_code_hand_offs_run_without_the_users_own_hooks_unless_the_page_keeps_them(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG=str(log))
+    delegate.load_settings(tmp_path / "coding-agents.json")
+
+    delegate.try_agent("claude_code")
+    argv = json.loads(log.read_text())
+    assert argv[argv.index("--settings") + 1] == '{"disableAllHooks": true}'
+    assert delegate.agent_status("claude_code")["keep_hooks"] is False
+
+    assert delegate.save_settings("claude_code", "", "", keep_hooks=True)["keep_hooks"] is True
+    delegate.try_agent("claude_code")
+    assert "--settings" not in json.loads(log.read_text())
+
+
+def test_saving_a_model_leaves_the_hooks_choice_alone_and_codex_is_never_given_the_claude_setting(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    delegate.save_settings("claude_code", "", "", keep_hooks=True)
+
+    delegate.save_settings("claude_code", "opus", "high")  # what the model and effort boxes send
+
+    assert delegate.keeps_hooks("claude_code") is True
+    assert delegate.run_settings("claude_code")["skip_hooks"] is False
+    assert "--settings" not in delegate.agent_command("codex", "codex", skip_hooks=True)

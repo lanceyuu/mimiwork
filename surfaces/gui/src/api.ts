@@ -589,6 +589,8 @@ export interface CodingAgent {
   latest: string;
   model: string;
   effort: string;
+  /** Claude Code only: run hand-offs with the user's own hooks (off by default, for speed). */
+  keep_hooks: boolean;
 }
 
 export async function getCodingAgents(): Promise<CodingAgent[]> {
@@ -620,7 +622,7 @@ export async function getCodingAgentRuns(): Promise<CodingAgentRun[]> {
 
 export async function setCodingAgent(
   key: string,
-  settings: { model: string; effort: string },
+  settings: { model: string; effort: string; keep_hooks?: boolean },
 ): Promise<{ ok: boolean; error?: string; model?: string; effort?: string }> {
   const res = await fetch(`${httpBase()}/v1/coding-agents/${encodeURIComponent(key)}/settings`, {
     method: "POST",

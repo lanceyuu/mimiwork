@@ -1538,7 +1538,11 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..tools.delegate import save_settings
 
         b = body or {}
-        return save_settings(_coding_agent(key), str(b.get("model") or ""), str(b.get("effort") or ""))
+        keep = b.get("keep_hooks")
+        return save_settings(
+            _coding_agent(key), str(b.get("model") or ""), str(b.get("effort") or ""),
+            keep_hooks=None if keep is None else bool(keep),
+        )
 
     @app.post("/v1/coding-agents/{key}/test")
     def coding_agent_test(key: str) -> dict[str, Any]:

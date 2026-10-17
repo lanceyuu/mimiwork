@@ -65,3 +65,14 @@ test("recent hand-offs show each session with a command that reopens it in its o
   await expect(runs).toContainText("Its folder has been removed");
   await page.screenshot({ path: "test-results/coding-agents-runs.png" });
 });
+
+test("Claude Code hand-offs skip your own hooks by default, and the switch turns them back on", async ({ page }) => {
+  await openCodingAgents(page);
+  const hooks = page.getByTestId("coding-agent-claude_code").getByTestId("coding-agent-hooks");
+  await hooks.scrollIntoViewIfNeeded();
+  await expect(hooks).toContainText("Off for hand-offs (faster)");
+  await page.screenshot({ path: "test-results/coding-agents-hooks.png" });
+  await hooks.getByRole("switch").click();
+  await expect(hooks).toContainText("On for hand-offs");
+  await expect(page.getByTestId("coding-agent-codex").getByTestId("coding-agent-hooks")).toHaveCount(0);
+});
