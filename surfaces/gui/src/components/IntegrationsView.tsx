@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getConnectors } from "../api";
 import { McpTab } from "./ManageTabs";
+import { CodingAgentsSection } from "./connectors/CodingAgentsSection";
 import { ConnectorsSection } from "./connectors/ConnectorsSection";
 import { Icon } from "./Icon";
 
@@ -9,12 +10,14 @@ import { Icon } from "./Icon";
 // Inbox ▸ Configure (§28): inbox-delivery config belongs with the Inbox, and Unrouted is
 // "messages that never reached you". The one remaining Activity is the audit log, reached from
 // the account menu.
-type IntTab = "connectors" | "mcp";
+type IntTab = "connectors" | "agents" | "mcp";
 
 // Fixed sub-nav (UX-DECISIONS §21): connector detail lives as a SUBPAGE under
 // Connectors, never as a nav item — the nav must not grow per connector.
-const INT_TABS: { key: IntTab; label: string; icon: "plug" | "code" }[] = [
+const INT_TABS: { key: IntTab; label: string; icon: "plug" | "code" | "branch" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
+  // Claude Code and Codex: tools Mimi hands software work to, connected like the rest.
+  { key: "agents", label: "Coding agents", icon: "branch" },
   { key: "mcp", label: "MCP servers", icon: "code" },
 ];
 
@@ -50,6 +53,7 @@ export function IntegrationsView() {
                   : "text-muted hover:bg-paper hover:text-ink")
               }
               onClick={() => setTab(t.key)}
+              data-testid={`connectors-tab-${t.key}`}
             >
               <span className="flex items-center gap-2 min-w-0">
                 <Icon name={t.icon} size={15} /> {t.label}
@@ -73,6 +77,14 @@ export function IntegrationsView() {
                 sub="Apps and tools your coworkers can use. Connected ones come first."
               />
               <ConnectorsSection />
+            </section>
+          ) : tab === "agents" ? (
+            <section>
+              <PanelHead
+                title="Coding agents"
+                sub="Claude Code and Codex can take on software work for Mimi. They run on this computer, and Mimi asks before starting one."
+              />
+              <CodingAgentsSection />
             </section>
           ) : (
             <section>

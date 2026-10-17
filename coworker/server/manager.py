@@ -271,6 +271,11 @@ class SessionManager:
         from ..pdf_support import set_fallback_mode
 
         set_fallback_mode(self.pdf_settings()["pdf_fallback"])
+        # Model and effort chosen for Claude Code / Codex on the Coding agents page; each
+        # agent round reads them from the module, so a change applies on the next round.
+        from ..tools.delegate import load_settings as load_agent_settings
+
+        load_agent_settings(base / "coding-agents.json")
         # Per-session live-view registry: every socket open on a session id gets the turn's events,
         # whoever drives the turn (foreground user_message, channel delivery, self-wake, resume).
         # Delivery itself is socket-independent — this only governs *live visibility*.

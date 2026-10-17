@@ -183,9 +183,11 @@ def _team(tmp_path, monkeypatch, folder, session="s1"):
     script = tmp_path / "team_agent.py"
     script.write_text(TEAM_AGENT, encoding="utf-8")
     monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex", "claude_code": "claude"})
+    monkeypatch.setattr(delegate, "connection_problem", lambda key: "")
+    monkeypatch.setattr(delegate, "find_agent", lambda key: delegate.AGENTS[key][1])
     monkeypatch.setattr(
         delegate, "agent_command",
-        lambda key, exe, resume_id="": [sys.executable, str(script), *([resume_id] if resume_id else [])],
+        lambda key, exe, resume_id="", **_: [sys.executable, str(script), *([resume_id] if resume_id else [])],
     )
     tools = delegate.agent_team_tools(workspace=folder, roots=[RootDir(folder, writable=True)], session_id=session)
     return {t.__name__: t for t in tools}
@@ -383,15 +385,26 @@ def test_a_folder_outside_the_writable_roots_is_refused_before_anything_runs(tmp
     assert "outside the folders" in t["start_agent"](agent="codex", task="t", folder="../readonly")["error"]
 
 
-def test_an_agent_that_is_not_installed_is_refused_by_name(tmp_path, monkeypatch):
+def test_an_agent_that_is_not_connected_is_refused_with_the_reason(tmp_path, monkeypatch):
     monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex"})
+    monkeypatch.setattr(delegate, "connection_problem", lambda key: "Claude Code is not installed." if key == "claude_code" else "")
     t = delegate.agent_team_tools(workspace=tmp_path, session_id="x")
-    assert t[0](agent="claude_code", task="t")["error"].startswith("'claude_code' is not available here")
+    assert t[0](agent="claude_code", task="t")["error"] == "Claude Code is not installed."
+    assert "not a coding agent" in t[0](agent="gemini", task="t")["error"]
 
 
-def test_no_tools_are_offered_when_neither_agent_is_installed(tmp_path, monkeypatch):
-    monkeypatch.setattr(delegate, "available_agents", lambda: {})
-    assert delegate.agent_team_tools(workspace=tmp_path) == []
+def test_each_round_uses_the_model_and_effort_chosen_on_the_coding_agents_page(tmp_path, monkeypatch):
+    t = _team(tmp_path, monkeypatch, tmp_path)
+    seen: list[dict] = []
+    fake = delegate.agent_command  # _team's stand-in agent
+    monkeypatch.setattr(delegate, "agent_command", lambda key, exe, resume_id="", **kw: seen.append(kw) or fake(key, exe, resume_id))
+    delegate.save_settings("codex", "gpt-6-astra", "high")
+    try:
+        t["start_agent"](agent="codex", task="t")
+        _wait_all(t, 1)
+    finally:
+        delegate._settings.clear()
+    assert seen == [{"model": "gpt-6-astra", "effort": "high"}]
 
 
 def test_starting_an_agent_needs_approval_but_watching_and_feedback_do_not(tmp_path, monkeypatch):

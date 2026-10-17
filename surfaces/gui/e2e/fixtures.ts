@@ -576,6 +576,26 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const APP_HTML = "<!doctype html><html><head></head><body><h1>Hello</h1><script>Mimi.ask('x')</script></body></html>";
   // MCP servers (empty by default; the granola OAuth quick-add test populates it).
   const mcpServers: any[] = [];
+  // Coding agents page: Claude Code connected, Codex installed but signed out until its
+  // (mocked) browser sign-in finishes on the next status check.
+  const codingAgent = (over: any) => ({
+    key: "claude_code", label: "Claude Code", billing: "your own Claude account",
+    installed: true, path: "/Users/me/.local/bin/claude", version: "2.1.270 (Claude Code)",
+    signed_in: true, account: "me@example.com", error: "",
+    install_command: "curl -fsSL https://claude.ai/install.sh | bash", sign_in_command: "claude auth login",
+    efforts: ["low", "medium", "high", "xhigh", "max"], defaults: { model: "claude-opus-5", effort: "high" },
+    model: "", effort: "", ...over,
+  });
+  const codingAgents: any[] = [
+    codingAgent({}),
+    codingAgent({
+      key: "codex", label: "Codex", billing: "your own OpenAI account",
+      path: "/opt/homebrew/bin/codex", version: "codex-cli 0.162.1", signed_in: false, account: "",
+      install_command: "npm install -g @openai/codex", sign_in_command: "codex login",
+      efforts: ["minimal", "low", "medium", "high", "xhigh"], defaults: { model: "gpt-6-astra", effort: "xhigh" },
+    }),
+  ];
+  let codexSignInStarted = false;
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));
   // Per-session unattended flag — mutable so the composer's "Send to Inbox" toggle persists and
   // the app reads it back (which is what gates parking approvals to the Inbox vs an inline card).
@@ -1433,6 +1453,27 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (Array.isArray(b.hidden_fields))
         hubspotState.hidden_fields = b.hidden_fields.map((f: string) => f.trim().toLowerCase());
       return json({ ok: true, hidden_fields: [...hubspotState.hidden_fields] });
+    }
+    if (p.endsWith("/v1/coding-agents")) {
+      if (codexSignInStarted) Object.assign(codingAgents[1], { signed_in: true, account: "ChatGPT" });
+      return json({ agents: codingAgents });
+    }
+    {
+      const ca = p.match(/\/v1\/coding-agents\/([^/]+)\/(settings|test|sign-in)$/);
+      if (ca && m === "POST") {
+        const agent = codingAgents.find((a) => a.key === ca[1]);
+        if (!agent) return json({ detail: "unknown coding agent" }, 404);
+        if (ca[2] === "settings") {
+          const b = req.postDataJSON() || {};
+          Object.assign(agent, { model: b.model || "", effort: b.effort || "" });
+          return json({ ok: true, model: agent.model, effort: agent.effort });
+        }
+        if (ca[2] === "sign-in") {
+          codexSignInStarted = true;
+          return json({ started: true, url: "https://auth.openai.com/oauth/authorize?client=mimi" });
+        }
+        return json({ ok: true, reply: "OK", seconds: 6.2 });
+      }
     }
     if (p.endsWith("/v1/connectors"))
       return json({

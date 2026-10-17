@@ -1,0 +1,235 @@
+"""Connecting Claude Code and Codex like any other tool — driven by fake CLIs on a bare PATH."""
+
+from __future__ import annotations
+
+import json
+import sys
+import textwrap
+
+import pytest
+
+from coworker.tools import delegate
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="fake CLIs are POSIX scripts")
+
+CLAUDE = """
+import json, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("2.1.270 (Claude Code)")
+elif args[:2] == ["auth", "status"]:
+    print(json.dumps({"loggedIn": SIGNED_IN, "authMethod": "claude.ai", "email": "me@example.com"}))
+    sys.exit(0 if SIGNED_IN else 1)
+elif args[:1] == ["-p"]:
+    open(LOG, "w").write(json.dumps(args))
+    sys.stdin.read()
+    for e in [
+        {"type": "system", "subtype": "init", "session_id": "s1"},
+        {"type": "result", "subtype": "success", "is_error": False, "result": "OK"},
+    ]:
+        print(json.dumps(e), flush=True)
+"""
+
+CODEX = """
+import sys, time
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("codex-cli 0.162.1")
+elif args == ["login", "status"]:
+    print("Logged in using ChatGPT" if SIGNED_IN else "Not logged in")
+    sys.exit(0 if SIGNED_IN else 1)
+elif args == ["login"]:
+    if not LOGIN_WORKS:
+        print("Error: port 1455 is already in use", flush=True)
+        sys.exit(1)
+    print("Starting local login server on http://localhost:1455.", flush=True)
+    print("If your browser did not open, navigate to this URL to authenticate:", flush=True)
+    print("https://auth.openai.com/oauth/authorize?client=mimi", flush=True)
+    time.sleep(30)
+"""
+
+
+@pytest.fixture(autouse=True)
+def _clean_state():
+    delegate._settings.clear()
+    delegate._settings_path = None
+    yield
+    for proc in delegate._LOGINS.values():
+        delegate._kill(proc)
+    delegate._LOGINS.clear()
+    delegate._settings.clear()
+    delegate._settings_path = None
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")  # what an app opened from Finder gets
+    # Only the fake home's bin: the real machine's Homebrew copy must not be found.
+    monkeypatch.setattr(delegate, "_EXTRA_DIRS", ["~/.local/bin"])
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+    return tmp_path
+
+
+def _install(home, name, body, **values):
+    script = home / f"{name}_cli.py"
+    head = "".join(f"{k} = {v!r}\n" for k, v in values.items())
+    script.write_text(head + textwrap.dedent(body), encoding="utf-8")
+    exe = home / ".local" / "bin" / name
+    # A shell wrapper, not a shebang: the interpreter's path may hold spaces.
+    exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+    exe.chmod(0o755)
+    return exe
+
+
+def test_the_page_shows_where_each_agent_is_installed_and_which_account_it_is_signed_in_with(home):
+    claude = _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG="")
+    _install(home, "codex", CODEX, SIGNED_IN=True, LOGIN_WORKS=True)
+
+    c, x = delegate.agent_status("claude_code"), delegate.agent_status("codex")
+
+    assert (c["installed"], c["path"], c["version"]) == (True, str(claude), "2.1.270 (Claude Code)")
+    assert (c["signed_in"], c["account"], c["error"]) == (True, "me@example.com", "")
+    assert (x["signed_in"], x["account"]) == (True, "ChatGPT")
+    assert delegate.connection_problem("claude_code") == delegate.connection_problem("codex") == ""
+
+
+def test_the_page_shows_the_model_and_effort_each_agent_uses_when_none_is_chosen(home):
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG="")
+    _install(home, "codex", CODEX, SIGNED_IN=True, LOGIN_WORKS=True)
+    (home / ".claude").mkdir()
+    (home / ".claude" / "settings.json").write_text(json.dumps({"model": "opus", "effortLevel": "high"}))
+    (home / ".codex").mkdir()
+    (home / ".codex" / "config.toml").write_text(
+        'model = "gpt-6-astra"\nmodel_reasoning_effort = "xhigh"\n\n[profiles.fast]\nmodel = "gpt-mini"\n'
+    )
+
+    assert delegate.agent_status("claude_code")["defaults"] == {"model": "opus", "effort": "high"}
+    assert delegate.agent_status("codex")["defaults"] == {"model": "gpt-6-astra", "effort": "xhigh"}
+
+
+def test_a_missing_agent_shows_how_to_install_it_and_delegation_points_to_the_page(home):
+    status = delegate.agent_status("codex")
+
+    assert (status["installed"], status["path"]) == (False, "")
+    assert status["install_command"] == "npm install -g @openai/codex"
+    assert "Codex is not installed" in delegate.connection_problem("codex")
+    assert "Connectors > Coding agents" in delegate.connection_problem("codex")
+
+
+def test_a_signed_out_agent_is_refused_before_anything_runs_with_directions_to_sign_in(home, tmp_path):
+    log = tmp_path / "ran.json"
+    _install(home, "claude", CLAUDE, SIGNED_IN=False, LOG=str(log))
+    tools = {t.__name__: t for t in delegate.agent_team_tools(workspace=tmp_path, session_id="s")}
+
+    error = tools["start_agent"](agent="claude_code", task="fix it")["error"]
+
+    assert "Claude Code is installed but not signed in" in error
+    assert "Connectors > Coding agents" in error
+    assert not log.exists()
+    assert delegate.agent_status("claude_code")["sign_in_command"] == "claude auth login"
+
+
+def test_with_neither_agent_installed_asking_for_one_says_where_to_connect_it_without_an_approval(home, tmp_path):
+    tools = delegate.agent_team_tools(workspace=tmp_path, session_id="s")
+
+    assert [t.__name__ for t in tools] == ["start_agent"]
+    assert tools[0].__aisuite_tool_metadata__.requires_approval is False
+    assert "Connectors > Coding agents" in tools[0](agent="codex", task="t")["error"]
+
+
+def test_an_agent_installed_after_the_conversation_began_never_runs_through_the_unapproved_tool(home, tmp_path):
+    log = tmp_path / "ran.json"
+    tools = delegate.agent_team_tools(workspace=tmp_path, session_id="s")
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG=str(log))
+
+    assert "Start a new conversation" in tools[0](agent="claude_code", task="t")["error"]
+    assert not log.exists()
+
+
+def test_the_chosen_model_and_effort_reach_both_command_lines_and_blank_leaves_the_agents_default():
+    claude = delegate.agent_command("claude_code", "claude", model="opus", effort="max")
+    codex = delegate.agent_command("codex", "codex", "t1", model="gpt-6-astra", effort="high")
+
+    assert claude[claude.index("--model") + 1] == "opus" and claude[claude.index("--effort") + 1] == "max"
+    assert codex[codex.index("-m") + 1] == "gpt-6-astra"
+    assert 'model_reasoning_effort="high"' in codex and codex[-2:] == ["t1", "-"]
+    assert "--model" not in delegate.agent_command("claude_code", "claude")
+    assert "-m" not in delegate.agent_command("codex", "codex")
+
+
+def test_a_chosen_model_survives_a_restart_and_a_name_that_could_break_the_command_is_refused(tmp_path):
+    path = tmp_path / "coding-agents.json"
+    delegate.load_settings(path)
+    assert delegate.save_settings("codex", " gpt-6-astra ", "high") == {"ok": True, "model": "gpt-6-astra", "effort": "high"}
+
+    delegate._settings.clear()
+    delegate.load_settings(path)
+
+    assert delegate.agent_settings("codex") == {"model": "gpt-6-astra", "effort": "high"}
+    assert not delegate.save_settings("codex", 'x" -c sandbox_mode="danger', "")["ok"]
+    assert not delegate.save_settings("codex", "--yolo", "")["ok"]
+    assert not delegate.save_settings("claude_code", "", "minimal")["ok"]  # a Codex-only level
+    assert delegate.agent_settings("codex")["model"] == "gpt-6-astra"
+
+
+def test_the_test_button_makes_one_real_call_with_the_chosen_model_and_reports_the_reply(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "claude", CLAUDE, SIGNED_IN=True, LOG=str(log))
+    delegate.save_settings("claude_code", "haiku", "low")
+
+    result = delegate.try_agent("claude_code")
+
+    assert result["ok"] and result["reply"] == "OK"
+    argv = json.loads(log.read_text())
+    assert argv[argv.index("--model") + 1] == "haiku" and argv[argv.index("--effort") + 1] == "low"
+
+
+def test_the_test_button_on_a_signed_out_agent_says_so_instead_of_running(home):
+    _install(home, "codex", CODEX, SIGNED_IN=False, LOGIN_WORKS=True)
+
+    result = delegate.try_agent("codex")
+
+    assert not result["ok"] and "not signed in" in result["error"]
+
+
+def test_sign_in_starts_the_agents_own_browser_login_and_hands_back_its_link(home):
+    _install(home, "codex", CODEX, SIGNED_IN=False, LOGIN_WORKS=True)
+
+    result = delegate.sign_in("codex")
+
+    assert result == {"started": True, "url": "https://auth.openai.com/oauth/authorize?client=mimi"}
+    assert delegate._LOGINS["codex"].poll() is None  # still waiting for the browser
+
+
+def test_a_sign_in_that_cannot_start_says_why(home):
+    _install(home, "codex", CODEX, SIGNED_IN=False, LOGIN_WORKS=False)
+
+    result = delegate.sign_in("codex")
+
+    assert not result["started"] and "port 1455 is already in use" in result["error"]
+
+
+def test_the_coding_agents_routes_answer_for_both_agents_and_refuse_any_other_name(home, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from coworker.providers import ModelCapabilities, ProviderClient
+    from coworker.server.app import create_app
+    from coworker.server.manager import SessionManager
+
+    class _Provider(ProviderClient):
+        def complete(self, *, model, messages, tools=None, **settings):
+            raise AssertionError("no turns expected")
+
+        def capabilities(self, model):
+            return ModelCapabilities()
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    client = TestClient(create_app(SessionManager(workspace=tmp_path, provider=_Provider())))
+
+    agents = client.get("/v1/coding-agents").json()["agents"]
+    assert [a["key"] for a in agents] == ["claude_code", "codex"]
+    assert client.post("/v1/coding-agents/codex/settings", json={"effort": "high"}).json()["ok"]
+    assert client.get("/v1/coding-agents").json()["agents"][1]["effort"] == "high"
+    assert client.post("/v1/coding-agents/rm -rf/test").status_code == 404
+    assert client.post("/v1/coding-agents/gemini/sign-in").status_code == 404

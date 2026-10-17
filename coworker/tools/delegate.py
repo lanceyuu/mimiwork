@@ -19,10 +19,12 @@ import atexit
 import json
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -73,6 +75,10 @@ def _search_path() -> str:
     return os.pathsep.join([*extra, os.environ.get("PATH", "")])
 
 
+def _env() -> dict[str, str]:
+    return {**os.environ, "PATH": _search_path(), "NO_COLOR": "1"}
+
+
 def find_agent(key: str) -> str:
     """The executable for `key`, or "" when it is not installed."""
     return shutil.which(AGENTS[key][1], path=_search_path()) or ""
@@ -82,22 +88,234 @@ def available_agents() -> dict[str, str]:
     return {key: path for key in AGENTS if (path := find_agent(key))}
 
 
-def agent_command(key: str, executable: str, resume_id: str = "") -> list[str]:
+def agent_command(key: str, executable: str, resume_id: str = "", model: str = "", effort: str = "") -> list[str]:
     """argv for a headless run; the task goes in on stdin (no length or leading-dash trouble).
-    With `resume_id`, the message continues that agent session, its memory intact."""
+    With `resume_id`, the message continues that agent session, its memory intact. An empty
+    `model` or `effort` leaves the agent's own configured default in charge."""
     if key == "claude_code":
         # Auto mode (owner's choice, 2026-10-15): Claude Code's own classifier approves safe
         # edits and commands, so a headless run can test its work instead of having every
         # command denied for want of someone to ask.
         return [
             executable, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+            *(["--model", model] if model else []),
+            *(["--effort", effort] if effort else []),
             *(["--resume", resume_id] if resume_id else []),
         ]
     # `exec resume` takes no --sandbox flag; the config key sets the same policy for both.
-    sandbox = ["-c", 'sandbox_mode="workspace-write"']
+    flags = ["-c", 'sandbox_mode="workspace-write"']
+    if model:
+        flags += ["-m", model]
+    if effort:
+        flags += ["-c", f'model_reasoning_effort="{effort}"']
     if resume_id:
-        return [executable, "exec", "resume", "--json", "--skip-git-repo-check", *sandbox, resume_id, "-"]
-    return [executable, "exec", "--json", "--skip-git-repo-check", *sandbox, "-"]
+        return [executable, "exec", "resume", "--json", "--skip-git-repo-check", *flags, resume_id, "-"]
+    return [executable, "exec", "--json", "--skip-git-repo-check", *flags, "-"]
+
+
+# ── Connecting: the Coding agents page (Connectors) reads and drives everything below. ──
+
+EFFORTS: dict[str, list[str]] = {
+    "claude_code": ["low", "medium", "high", "xhigh", "max"],
+    "codex": ["minimal", "low", "medium", "high", "xhigh"],
+}
+_SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"]}
+_INSTALL = {
+    "claude_code": "irm https://claude.ai/install.ps1 | iex" if _IS_WINDOWS else "curl -fsSL https://claude.ai/install.sh | bash",
+    "codex": "npm install -g @openai/codex",
+}
+# A model name goes into argv and, for Codex, into a TOML value: names only, nothing that
+# could close the quote or read as a flag.
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/\[\]-]{0,99}$")
+_PAGE = "Connectors > Coding agents"
+
+_settings_path: Optional[Path] = None
+_settings: dict[str, dict[str, str]] = {}
+
+
+def load_settings(path: Path) -> None:
+    """Where the chosen model and effort live (a small JSON file beside the app's prefs)."""
+    global _settings_path, _settings
+    _settings_path = path
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        _settings = {k: dict(v) for k, v in data.items() if k in AGENTS and isinstance(v, dict)}
+    except (OSError, ValueError, AttributeError):
+        _settings = {}
+
+
+def agent_settings(key: str) -> dict[str, str]:
+    saved = _settings.get(key, {})
+    return {"model": str(saved.get("model") or ""), "effort": str(saved.get("effort") or "")}
+
+
+def save_settings(key: str, model: str = "", effort: str = "") -> dict[str, Any]:
+    model, effort = (model or "").strip(), (effort or "").strip()
+    if model and not _MODEL_NAME.match(model):
+        return {"ok": False, "error": "That model name has characters a model name never has."}
+    if effort and effort not in EFFORTS[key]:
+        return {"ok": False, "error": f"Effort must be one of: {', '.join(EFFORTS[key])}."}
+    _settings[key] = {"model": model, "effort": effort}
+    if _settings_path is not None:
+        try:
+            _settings_path.write_text(json.dumps(_settings, indent=2), encoding="utf-8")
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not save the setting: {exc}"}
+    return {"ok": True, **agent_settings(key)}
+
+
+def _probe(argv: list[str], timeout: float = 20) -> tuple[Optional[int], str]:
+    try:
+        done = subprocess.run(
+            argv, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=timeout, env=_env(), stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "it did not answer in time"
+    except OSError as exc:
+        return None, str(exc)
+    return done.returncode, (done.stdout or done.stderr or "").strip()
+
+
+def _own_defaults(key: str) -> dict[str, str]:
+    """The model and effort the agent uses when MimiWork sets none: its own config file."""
+    try:
+        if key == "claude_code":
+            data = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
+            return {"model": str(data.get("model") or ""), "effort": str(data.get("effortLevel") or "")}
+        text = (Path.home() / ".codex" / "config.toml").read_text(encoding="utf-8")
+    except (OSError, ValueError, AttributeError):
+        return {"model": "", "effort": ""}
+    top = re.split(r"(?m)^\s*\[", text, maxsplit=1)[0]  # top-level keys only, before any [table]
+
+    def value(name: str) -> str:
+        m = re.search(rf'(?m)^\s*{name}\s*=\s*"([^"]*)"', top)
+        return m.group(1) if m else ""
+
+    return {"model": value("model"), "effort": value("model_reasoning_effort")}
+
+
+def _sign_in_state(key: str, executable: str) -> tuple[Optional[bool], str]:
+    """(signed in?, account or reason). None means the check itself failed."""
+    if key == "claude_code":
+        code, out = _probe([executable, "auth", "status", "--json"])
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return None, out or "its sign-in check gave no answer"
+        if not data.get("loggedIn"):
+            return False, ""
+        return True, str(data.get("email") or data.get("authMethod") or "")
+    code, out = _probe([executable, "login", "status"])
+    if code is None:
+        return None, out
+    # "Logged in using ChatGPT" / "Not logged in" (Codex CLI 0.162)
+    return (True, out.splitlines()[0].removeprefix("Logged in using ") if out else "") if code == 0 else (False, "")
+
+
+def agent_status(key: str) -> dict[str, Any]:
+    """Everything the Coding agents page shows for one agent. Never raises."""
+    label, exe_name, billing = AGENTS[key]
+    path = find_agent(key)
+    out: dict[str, Any] = {
+        "key": key, "label": label, "billing": billing,
+        "installed": bool(path), "path": path, "version": "",
+        "signed_in": False, "account": "", "error": "",
+        "install_command": _INSTALL[key],
+        "sign_in_command": " ".join([exe_name, *_SIGN_IN_ARGS[key]]),
+        "efforts": EFFORTS[key], "defaults": _own_defaults(key),
+        **agent_settings(key),
+    }
+    if not path:
+        return out
+    code, version = _probe([path, "--version"])
+    if code != 0:
+        out["error"] = f"{label} is installed at {path} but does not start: {_short(version, 300)}"
+        return out
+    out["version"] = _short(version, 80)
+    signed_in, detail = _sign_in_state(key, path)
+    if signed_in is None:
+        out["error"] = f"Could not check whether {label} is signed in: {_short(detail, 300)}"
+    out["signed_in"], out["account"] = bool(signed_in), detail if signed_in else ""
+    return out
+
+
+def connection_problem(key: str) -> str:
+    """Why `key` cannot take work right now, in words for the user; "" when it can."""
+    status = agent_status(key)
+    label = status["label"]
+    if not status["installed"]:
+        return f"{label} is not installed on this computer. The user can set it up in {_PAGE}."
+    if status["error"]:
+        return f"{status['error']}. The user can check it in {_PAGE}."
+    if not status["signed_in"]:
+        return f"{label} is installed but not signed in. The user can sign in from {_PAGE}."
+    return ""
+
+
+def try_agent(key: str) -> dict[str, Any]:
+    """The page's Test button: one tiny real call with the chosen model and effort."""
+    problem = connection_problem(key)
+    if problem:
+        return {"ok": False, "error": problem}
+    started = time.monotonic()
+    with tempfile.TemporaryDirectory(prefix="mimiwork-agent-test-") as tmp:
+        result = run_agent(
+            key, find_agent(key), "Reply with just the word OK. Do not run any commands or change any files.",
+            Path(tmp), timeout=300, silence=240, **agent_settings(key),
+        )
+    seconds = round(time.monotonic() - started, 1)
+    if "error" in result:
+        return {"ok": False, "error": result["error"], "seconds": seconds}
+    return {"ok": True, "reply": _short(result.get("summary") or "", 200), "seconds": seconds}
+
+
+_LOGINS: dict[str, subprocess.Popen] = {}
+_LOGIN_LIMIT = 10 * 60  # a sign-in nobody finishes stops holding its local callback port
+_URL = re.compile(r"https://\S+")
+
+
+def sign_in(key: str) -> dict[str, Any]:
+    """Start the agent's own browser sign-in in the background. The CLI opens the browser;
+    its link comes back too, for when no browser window appears."""
+    label = AGENTS[key][0]
+    path = find_agent(key)
+    if not path:
+        return {"started": False, "error": f"{label} is not installed on this computer."}
+    old = _LOGINS.pop(key, None)
+    if old is not None:
+        _kill(old)
+    spawn: dict[str, Any] = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if _IS_WINDOWS else {"start_new_session": True}
+    )
+    try:
+        proc = subprocess.Popen(
+            [path, *_SIGN_IN_ARGS[key]], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, env=_env(), text=True, encoding="utf-8", errors="replace", **spawn,
+        )
+    except OSError as exc:
+        return {"started": False, "error": f"Could not start {label}'s sign-in: {exc}"}
+    _LOGINS[key] = proc
+    seen: list[str] = []
+
+    def _drain() -> None:  # keeps reading so a chatty CLI never blocks on a full pipe
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            seen.append(line.strip())
+
+    threading.Thread(target=_drain, daemon=True).start()
+    timer = threading.Timer(_LOGIN_LIMIT, _kill, args=(proc,))
+    timer.daemon = True  # never what keeps the app from quitting
+    timer.start()
+    deadline = time.monotonic() + 5
+    url = ""
+    while time.monotonic() < deadline and proc.poll() is None and not url:
+        url = next((m.group(0) for line in seen if (m := _URL.search(line))), "")
+        time.sleep(0.1)
+    if proc.poll() not in (None, 0):
+        why = _short(" ".join(seen[-5:]), 400) or f"exited with code {proc.returncode}"
+        return {"started": False, "error": f"{label}'s sign-in did not start: {why}"}
+    return {"started": True, "url": url}
 
 
 def _short(text: str, n: int = 140) -> str:
@@ -235,17 +453,19 @@ def run_agent(
     argv: Optional[list[str]] = None,
     resume_id: str = "",
     silence: float = _SILENCE,
+    model: str = "",
+    effort: str = "",
 ) -> dict[str, Any]:
     """Run one headless hand-off to completion, streaming progress through `report`."""
     label = AGENTS[key][0]
-    env = {**os.environ, "PATH": _search_path(), "NO_COLOR": "1"}
+    env = _env()
     spawn: dict[str, Any] = (
         {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if _IS_WINDOWS else {"start_new_session": True}
     )
     before = _snapshot(folder)
     try:
         proc = subprocess.Popen(
-            argv or agent_command(key, executable, resume_id),
+            argv or agent_command(key, executable, resume_id, model=model, effort=effort),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -469,9 +689,11 @@ class Job:
             self.last = line
 
         def work() -> None:
+            # Read at every round, so a model changed on the Coding agents page applies to
+            # the next round without restarting anything.
             result = run_agent(
                 self.key, self.executable, message, self.workdir,
-                report=note, stop=self.stop, resume_id=self.resume_id,
+                report=note, stop=self.stop, resume_id=self.resume_id, **agent_settings(self.key),
             )
             self.resume_id = result.pop("session_id", "") or self.resume_id
             if self.branch:
@@ -513,17 +735,17 @@ def _stop_all(jobs: Iterable[Job]) -> None:
 
 # Agents run in their own process groups and would outlive the app; quitting stops them.
 atexit.register(lambda: _stop_all([j for j in _JOBS.values() if j.status == "running"]))
+atexit.register(lambda: [_kill(p) for p in list(_LOGINS.values())])
 
 
 def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, session_id: str = "") -> list:
-    """start_agent / wait_for_agents / message_agent / stop_agent, or nothing when neither
-    agent is installed (an unusable tool in the catalog misleads the model)."""
+    """start_agent / wait_for_agents / message_agent / stop_agent. With neither agent
+    installed, only start_agent, ungated, whose one job is to say where to connect one — so
+    "ask Codex to…" gets a plain answer instead of a model that has never heard of agents."""
     installed = available_agents()
-    if not installed:
-        return []
     ws = Path(workspace).resolve()
     session = session_id or str(ws)
-    choices = ", ".join(f"'{k}' ({AGENTS[k][0]})" for k in installed)
+    choices = ", ".join(f"'{k}' ({AGENTS[k][0]})" for k in AGENTS)
 
     def mine() -> list[Job]:
         return [j for j in _JOBS.values() if j.session == session]
@@ -537,8 +759,15 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
 
     def start_agent(agent: str, task: str, name: str = "", folder: str = "") -> dict:
         key = agent.strip().lower().replace(" ", "_")
-        if key not in installed:
-            return {"error": f"'{agent}' is not available here. Installed: {choices}."}
+        if key not in AGENTS:
+            return {"error": f"'{agent}' is not a coding agent MimiWork can use. Choose {choices}."}
+        # Checked at the call, not when the tools were built: the user may have signed in
+        # (or out) on the Coding agents page since this conversation started.
+        problem = connection_problem(key)
+        if problem or not installed:
+            # Built without agents, this tool skips approval, so it must never start one —
+            # even if the user installed one meanwhile.
+            return {"error": problem or f"{AGENTS[key][0]} was connected after this conversation started. Start a new conversation to use it."}
         if sum(j.status == "running" for j in mine()) >= _MAX_RUNNING:
             return {"error": f"{_MAX_RUNNING} agents are already working. Wait for one to finish first."}
         where = _resolve_folder(folder, roots or [], ws)
@@ -546,7 +775,7 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
             return {"error": where}
         title = name.strip() or f"{AGENTS[key][0]} task"
         workdir, branch = isolate(where, _slug(f"{key.split('_')[0]}-{title}"))
-        job = Job(session, key, installed[key], title, workdir, branch)
+        job = Job(session, key, find_agent(key), title, workdir, branch)
         _JOBS[job.id] = job
         job.launch(task + (_COMMIT_NOTE if branch else ""))
         out = job.report()
@@ -595,6 +824,9 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
             return {"error": f"{found.label} is still working on '{found.name}'. Wait for it to finish first."}
         if not found.resume_id:
             return {"error": f"{found.label} never started a session for '{found.name}', so there is nothing to continue. Start a new agent instead."}
+        problem = connection_problem(found.key)
+        if problem:
+            return {"error": problem}
         found.launch(message + (_COMMIT_NOTE if found.branch else ""))
         return found.report()
 
@@ -661,6 +893,19 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     # Starting an agent is the consequential act — another program working on its own — so
     # it asks. Feedback stays inside a job the user already approved (owner's choice,
     # 2026-10-15); merging into the user's branch goes through the shell and asks there.
+    if not installed:
+        start_agent.__doc__ = """Hand software work to Claude Code or Codex. Neither is installed
+        on this computer yet, so this only returns how the user can connect one. Call it when
+        the user asks for Claude Code, Codex or a team of coding agents, and pass the answer on.
+
+        Args:
+            agent (str): 'claude_code' or 'codex'.
+            task (str): What the user wanted done.
+            name (str): Unused.
+            folder (str): Unused.
+        """
+        # Nothing can run, so there is nothing to approve.
+        return [ai.tool(start_agent, metadata=ai.ToolMetadata(category="agent", risk_level="low", requires_approval=False))]
     gated = ai.ToolMetadata(category="agent", risk_level="high", capabilities=["execute", "write"], requires_approval=True)
     return [
         ai.tool(start_agent, metadata=gated),

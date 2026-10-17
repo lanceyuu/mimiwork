@@ -566,6 +566,55 @@ export async function getConnectors(): Promise<Connector[]> {
   return (await res.json()).connectors ?? [];
 }
 
+// Coding agents (Connectors > Coding agents): Claude Code and Codex as connectable tools.
+export interface CodingAgent {
+  key: "claude_code" | "codex";
+  label: string;
+  billing: string;
+  installed: boolean;
+  path: string;
+  version: string;
+  signed_in: boolean;
+  account: string;
+  error: string;
+  install_command: string;
+  sign_in_command: string;
+  efforts: string[];
+  defaults: { model: string; effort: string };
+  model: string;
+  effort: string;
+}
+
+export async function getCodingAgents(): Promise<CodingAgent[]> {
+  const res = await fetch(`${httpBase()}/v1/coding-agents`);
+  if (!res.ok) throw new Error(`coding agents: ${res.status}`);
+  return (await res.json()).agents ?? [];
+}
+
+export async function setCodingAgent(
+  key: string,
+  settings: { model: string; effort: string },
+): Promise<{ ok: boolean; error?: string; model?: string; effort?: string }> {
+  const res = await fetch(`${httpBase()}/v1/coding-agents/${encodeURIComponent(key)}/settings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return res.json();
+}
+
+export async function testCodingAgent(
+  key: string,
+): Promise<{ ok: boolean; reply?: string; seconds?: number; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/coding-agents/${encodeURIComponent(key)}/test`, { method: "POST" });
+  return res.json();
+}
+
+export async function signInCodingAgent(key: string): Promise<{ started: boolean; url?: string; error?: string }> {
+  const res = await fetch(`${httpBase()}/v1/coding-agents/${encodeURIComponent(key)}/sign-in`, { method: "POST" });
+  return res.json();
+}
+
 export async function connectConnector(
   name: string,
   fields: Record<string, string>,

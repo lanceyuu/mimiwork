@@ -1512,6 +1512,40 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Composer: show the context-window fill bar, or just the popover (owner ask).
         return manager.set_context_bar((body or {}).get("context_bar", True))
 
+    # Coding agents (Connectors > Coding agents): Claude Code and Codex connect like any
+    # other tool — installed, signed in, tested, with the model and effort they will use.
+    def _coding_agent(key: str) -> str:
+        from ..tools.delegate import AGENTS
+
+        if key not in AGENTS:
+            raise HTTPException(status_code=404, detail="unknown coding agent")
+        return key
+
+    @app.get("/v1/coding-agents")
+    def coding_agents_list() -> dict[str, Any]:
+        from ..tools.delegate import AGENTS, agent_status
+
+        return {"agents": [agent_status(k) for k in AGENTS]}
+
+    @app.post("/v1/coding-agents/{key}/settings")
+    def coding_agent_settings(key: str, body: dict) -> dict[str, Any]:
+        from ..tools.delegate import save_settings
+
+        b = body or {}
+        return save_settings(_coding_agent(key), str(b.get("model") or ""), str(b.get("effort") or ""))
+
+    @app.post("/v1/coding-agents/{key}/test")
+    def coding_agent_test(key: str) -> dict[str, Any]:
+        from ..tools.delegate import try_agent
+
+        return try_agent(_coding_agent(key))
+
+    @app.post("/v1/coding-agents/{key}/sign-in")
+    def coding_agent_sign_in(key: str) -> dict[str, Any]:
+        from ..tools.delegate import sign_in
+
+        return sign_in(_coding_agent(key))
+
     @app.post("/v1/settings/pdf")
     def settings_set_pdf(body: dict) -> dict[str, Any]:
         # Token savings (owner ask, 2026-07-17): fallback mode for models without native
