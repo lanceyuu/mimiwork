@@ -151,3 +151,16 @@ test("grouped questions step through the header chips and resolve as one answer 
   );
   await expect(page.getByText("Nothing pending.")).toBeVisible();
 });
+
+test("closing a question answers it as skipped and removes the card", async ({ page }) => {
+  await seedInbox(page, [RICH_ITEM]);
+  await openInbox(page, "How should I format the report?");
+  await page.screenshot({ path: process.env.ASK_SHOT || "test-results/ask-close.png" });
+
+  const resolved = page.waitForRequest(
+    (r) => r.url().includes("/resolve") && r.method() === "POST",
+  );
+  await page.getByRole("button", { name: "Close" }).click();
+  expect((await resolved).postDataJSON().resolution).toBe("Skipped — use your own judgement");
+  await expect(page.getByText("How should I format the report?")).not.toBeVisible();
+});

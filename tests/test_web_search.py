@@ -137,6 +137,20 @@ def test_engine_registers_web_search(tmp_path):
     assert "web_search" in eng.registry.names()
 
 
+def test_every_agent_is_told_to_offer_choices_and_keep_replies_tidy(tmp_path):
+    from coworker.agent import build_engine
+    from coworker.agents import chat_agent
+
+    eng = build_engine(
+        agent=chat_agent(),
+        provider=_StubProvider(),
+        secrets=SecretStore(tmp_path / "s.json"),
+    )
+    system = eng.messages[0]["content"]
+    assert "two to four concrete options" in system
+    assert "No emoji." in system
+
+
 class _StubProvider:
     def complete(self, **_kw):
         from coworker.providers import AssistantTurn

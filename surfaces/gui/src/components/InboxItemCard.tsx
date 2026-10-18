@@ -20,6 +20,11 @@ import {
 
 // Shared styles (mock parity — same language as SourcesDrawer/PersonaView).
 const SEC = "text-[11px] text-faint font-semibold";
+
+// Closing a question still answers it: the agent is suspended on ask_user, and a card that
+// just vanished would leave the turn hanging. This line is what the agent (and the
+// transcript) sees instead of a choice.
+export const QUESTION_SKIPPED = "Skipped — use your own judgement";
 const BTN_PRIMARY =
   "px-3 py-1.5 rounded-lg bg-ink text-paper text-[12.5px] font-medium hover:brightness-105 disabled:opacity-40 disabled:hover:brightness-100";
 const BTN_BORDERED =
@@ -277,6 +282,14 @@ function QuestionCard({
             )}
           </>
         )}
+        <button
+          className="ml-auto text-faint hover:text-ink leading-none text-[16px] px-1"
+          title="Close"
+          aria-label="Close"
+          onClick={() => onResolve(item.id, QUESTION_SKIPPED)}
+        >
+          ×
+        </button>
       </div>
       <div className="text-[15px] font-semibold mt-0.5 leading-snug">{spec.question}</div>
       {item.body ? (

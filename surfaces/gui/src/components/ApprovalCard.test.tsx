@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ApprovalCard } from "./ApprovalCard";
-import { InboxItemCard } from "./InboxItemCard";
+import { InboxItemCard, QUESTION_SKIPPED } from "./InboxItemCard";
 import type { Item } from "../types";
 import type { InboxItem } from "../api";
 
@@ -459,5 +459,31 @@ describe("ApprovalCard — the settled card is the consent record", () => {
   it("names the scope of a yes", () => {
     render(<ApprovalCard item={sendApproval({ resolved: "always_tool" })} onApprove={vi.fn()} />);
     expect(screen.getByText("Allowed for this conversation")).toBeTruthy();
+  });
+});
+
+describe("InboxItemCard — closing a question", () => {
+  it("answers it as skipped so the agent is never left waiting", () => {
+    const onResolve = vi.fn();
+    render(
+      <InboxItemCard
+        item={{
+          id: "q1",
+          session_id: "s1",
+          kind: "question",
+          title: "Which format?",
+          body: "",
+          state: "pending",
+          resolution: null,
+          inbox: "default",
+          created_at: "",
+          resolved_at: null,
+          options: ["Word", "PDF"],
+        }}
+        onResolve={onResolve}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Close"));
+    expect(onResolve).toHaveBeenCalledWith("q1", QUESTION_SKIPPED);
   });
 });
