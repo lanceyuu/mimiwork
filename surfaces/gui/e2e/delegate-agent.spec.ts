@@ -29,3 +29,33 @@ test("Mimi starts two agents, watches both, and sends one back with feedback", a
   await expect(page.getByText(/Sent feedback/).first()).toBeVisible();
   await page.screenshot({ path: "test-results/team-done.png", fullPage: false });
 });
+
+// Every attended approval is also a pending item in the session's Inbox (visibility
+// "inline"). The composer docked that item as a second card, so each request showed
+// twice (owner report 2026-10-18). Only the live card may show.
+test("a permission request shows once, not again above the composer", async ({ page }) => {
+  await page.route(/\/v1\/inbox\?.*session_id=.*/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            id: "inline-1", session_id: "s", kind: "approval", visibility: "inline",
+            title: "Run `start_agent`?", body: "", state: "pending", resolution: null,
+            inbox: "default", created_at: "", resolved_at: null,
+            data: { tool: "start_agent", arguments: { agent: "codex", task: "csv export" } },
+          },
+        ],
+      }),
+    }),
+  );
+  await page.goto("/");
+  await page.getByPlaceholder(/Ask Mimi/).fill("please run the team");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByTestId("delegate-note")).toHaveCount(1);
+  await page.waitForTimeout(4500); // one session-Inbox poll cycle
+  await expect(page.getByTestId("delegate-note")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Yes", exact: true })).toHaveCount(1);
+  await page.screenshot({ path: process.env.ONE_SHOT || "test-results/one-approval.png" });
+});

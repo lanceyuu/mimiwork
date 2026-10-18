@@ -1273,6 +1273,11 @@ export function App() {
     dropSessionInbox("directory");
     sessionRef.current?.respondDirectory(granted, path, writable);
   };
+  // An attended approval is ALSO a pending item in this session's Inbox (visibility
+  // "inline"), and the transcript already shows it as a live card. Docking that item above
+  // the composer too showed every permission request twice (owner report 2026-10-18).
+  const inlineApproval = !unattended && items.some((it) => it.kind === "approval" && !it.resolved);
+  const dockedInbox = sessionInbox.find((it) => !(inlineApproval && it.kind === "approval"));
   const answerQuestion = (answer: string) => {
     setItems((p) => resolveLastQuestion(p, answer));
     dropSessionInbox("question");
@@ -2273,9 +2278,9 @@ export function App() {
                     onResolve={(_id, answer) => answerQuestion(answer)}
                     compact
                   />
-                ) : sessionInbox[0] ? (
+                ) : dockedInbox ? (
                   // Unattended session blocked on an Inbox item — answer it in context.
-                  <InboxItemCard item={sessionInbox[0]} onResolve={resolveSessionInbox} compact />
+                  <InboxItemCard item={dockedInbox} onResolve={resolveSessionInbox} compact />
                 ) : undefined
               }
             />
