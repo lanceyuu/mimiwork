@@ -249,3 +249,24 @@ def friendly_credential_error(exc: Exception) -> Optional[str]:
         "straight away. A key can stop working because it was revoked on qualitati.com "
         "or replaced by signing in on another computer."
     )
+
+
+# A request refused because it carries an image the serving model cannot read. Seen
+# 2026-10-18 through the QualiTaTi gateway: after an image turn, switching to Mimi Hound
+# failed every message with "unsupported multimodal content: image_url" (DigitalOcean
+# inference). The model claims vision via the service, so the per-call capability check
+# lets the image through; this is the runtime backstop for any model that lies about it.
+_IMAGE_REFUSED = (
+    "unsupported multimodal",
+    "image_url is not supported",
+    "does not support image",
+    "image input is not supported",
+    "images are not supported",
+    "unsupported content type: image",
+    "vision is not supported",
+)
+
+
+def is_image_refusal(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _IMAGE_REFUSED)

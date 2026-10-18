@@ -147,7 +147,9 @@ the previous line, and never let narration replace your final answer."""
 
 # Owner feedback 2026-10-18: open-ended "what would you prefer?" questions in chat made
 # users compose an answer from scratch, and final replies read as cluttered — emoji,
-# long recaps, headings on three-line answers. Universal, like narration.
+# long recaps, headings on three-line answers. Universal, like narration. The facts rule
+# came the same day: Mimi Puppy stated a journal ranking and impact factor as "sourced"
+# without having searched for either.
 _REPLY_GUIDANCE = """\
 Asking: when you need the user's preference or a decision, call `ask_user` with two to \
 four concrete options (your recommendation first) and leave free text on, so they can \
@@ -156,7 +158,14 @@ type their own answer if none fits. Don't ask for a preference as an open questi
 Final reply: short and tidy. Lead with the outcome or the answer, then only what the user \
 needs to act on — the file you delivered, what is left, any decision for them. Plain \
 sentences and short lists; a heading or table only when the reply genuinely has separate \
-parts. No emoji. Don't recount every step you took."""
+parts. No emoji. Don't recount every step you took.
+
+Facts: a specific fact about the world — a ranking or rating, an impact factor, a date, a \
+figure, an award, a DOI or citation, what a named person did — must come from something \
+you opened in this conversation (a search result, a web page, a file, a tool result). If \
+you have not looked it up, look it up first; if you cannot, say plainly that you have not \
+verified it or that you don't know. Never call something verified or sourced unless you \
+can name the source you actually opened, and never invent a DOI, link, citation or number."""
 
 
 def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:

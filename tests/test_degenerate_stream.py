@@ -107,3 +107,110 @@ def test_strip_keeps_prose_and_drops_the_breakdown():
     assert _strip_degenerate("A\nB\nB\nB\nB\nB\nB") == "A"
     assert _strip_degenerate("A\nB\nA\nB") == "A\nB\nA\nB"
     assert _strip_degenerate("<|DSML|x>garbage") == ""
+
+
+# --- the three loop shapes from the owner report of 2026-10-18 (Mimi Puppy) -----------
+# Each one slipped past the old check, which only knew a single line repeated 25 times.
+
+_REPLY = (
+    "Shashank Dubey（HEC Paris 市场营销博士）的学术情况，给你结论：\n\n"
+    "研究领域\n计算量化营销——强化学习、大语言模型、贝叶斯方法。\n\n"
+    "已发表论文\n期刊一作：JPPM 2025, 44(3)，DOI 10.1177/07439156241311300\n\n"
+    "需要我把论文摘要译成中文吗？说一声就行。😊\n\n"
+)
+
+
+class _Loops(ProviderClient):
+    """Streams `garbage` for ever on every call listed in `bad_calls`, else answers."""
+
+    def __init__(self, garbage: str, *, bad_calls=(1,), thinking=False, loops=400):
+        self.calls = 0
+        self.chunks_read = 0
+        self.garbage, self.bad_calls, self.thinking, self.loops = garbage, bad_calls, thinking, loops
+
+    def complete(self, **kwargs):  # pragma: no cover
+        raise NotImplementedError
+
+    def capabilities(self, model):
+        return ModelCapabilities()
+
+    def stream(self, *, model, messages, tools=None, **settings):
+        self.calls += 1
+        if self.calls in self.bad_calls:
+            for _ in range(self.loops):
+                self.chunks_read += 1
+                yield (StreamChunk(reasoning_delta=self.garbage) if self.thinking
+                       else StreamChunk(text_delta=self.garbage))
+                time.sleep(0.002)  # a network stream has pacing; a list does not
+            yield StreamChunk(turn=AssistantTurn(text="never used", finish_reason="stop"))
+            return
+        yield StreamChunk(text_delta="Done.")
+        yield StreamChunk(turn=AssistantTurn(text="Done.", finish_reason="stop"))
+
+
+def _breakdown(events):
+    return next(e for e in events if e.type == EventType.NOTICE and e.data.get("kind") == "degenerate")
+
+
+def test_a_whole_reply_repeated_is_cut_to_one_copy(tmp_path):
+    provider = _Loops(_REPLY, loops=60)
+    engine = _engine(tmp_path, provider)
+    events = _run(engine)
+    assert "repeating itself" in _breakdown(events).data["text"]
+    assert provider.chunks_read < 20
+    first = [m for m in engine.messages if m.get("role") == "assistant"][0]["content"]
+    assert first.count("DOI 10.1177/07439156241311300") == 1
+    assert events[-1].data["status"] == "completed"
+
+
+def test_short_lines_taking_turns_are_caught():
+    import random
+
+    random.seed(3)
+    tail = "".join(random.choice(["好。😊\n\n", "收。😊\n\n", "嗯。😊\n\n"]) for _ in range(600))
+    from coworker.engine import _degenerate_reason
+
+    assert _degenerate_reason(tail[-4000:]) == "loop"
+
+
+def test_a_loop_with_no_line_breaks_is_caught_and_cut(tmp_path):
+    provider = _Loops("好。😊收。😊", loops=800)
+    engine = _engine(tmp_path, provider)
+    events = _run(engine)
+    _breakdown(events)
+    assert provider.chunks_read < 400
+    assert _strip_degenerate("我就此收工。" + "好。😊收。😊" * 300) == "我就此收工。"
+
+
+def test_looping_thinking_is_caught_too(tmp_path):
+    provider = _Loops("Let me reconsider. ", thinking=True, loops=600)
+    engine = _engine(tmp_path, provider)
+    events = _run(engine)
+    _breakdown(events)
+    assert provider.chunks_read < 300
+    assert events[-1].data["status"] == "completed"
+
+
+def test_a_redo_that_breaks_down_again_ends_the_turn(tmp_path):
+    provider = _Loops("好。😊收。😊", bad_calls=(1, 2, 3), loops=800)
+    engine = _engine(tmp_path, provider)
+    events = _run(engine)
+    assert events[-1].type == EventType.TURN_END
+    assert events[-1].data["status"] == "repetition_stop"
+    assert provider.calls == 2
+
+
+def test_long_tables_and_prose_are_not_mistaken_for_a_loop():
+    import random
+    from pathlib import Path
+
+    from coworker.engine import _degenerate_reason
+
+    random.seed(1)
+    table = "| id | name | score | group |\n|---|---|---|---|\n" + "".join(
+        f"| {i} | P{i:03d} | {random.randint(1, 7)} | {random.choice('AB')} |\n" for i in range(300)
+    )
+    assert _degenerate_reason(table[-4000:]) is None
+    code = Path(__file__).resolve().parents[1].joinpath("coworker", "engine.py").read_text()
+    assert _degenerate_reason(code[:4000]) is None
+    assert _degenerate_reason(_REPLY) is None

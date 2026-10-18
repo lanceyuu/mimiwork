@@ -149,6 +149,9 @@ def test_every_agent_is_told_to_offer_choices_and_keep_replies_tidy(tmp_path):
     system = eng.messages[0]["content"]
     assert "two to four concrete options" in system
     assert "No emoji." in system
+    # A free model called JPPM "ABS 4*, has a source" without searching (owner report
+    # 2026-10-18); every agent is now told to look facts up or say they are unverified.
+    assert "never invent a DOI" in system
 
 
 class _StubProvider:

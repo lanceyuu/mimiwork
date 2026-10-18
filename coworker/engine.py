@@ -19,6 +19,7 @@ import os
 import re
 import threading
 import time
+import zlib
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -38,6 +39,7 @@ from .providers.errors import (
     friendly_gateway_error,
     friendly_model_error,
     friendly_transient_error,
+    is_image_refusal,
     is_stale_credential,
     is_transient,
     retry_after_seconds,
@@ -200,6 +202,9 @@ class TurnEngine:
         self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0, 15.0, 30.0, 30.0)
         self._wrap_up_sent = False
         self._links_checked = False
+        # Models that refused an image at runtime despite claiming vision; images go to
+        # them as placeholders for the rest of the session.
+        self._images_refused: set[str] = set()
         # Consecutive failed tool calls in the current turn (see FAIL_HINT_AT).
         self._fail_streak = 0
         # Auto-compaction (OPE-27) — set post-construction by the surface/manager so the
@@ -525,6 +530,7 @@ class TurnEngine:
         # args): "read_file {'path': 'a.txt'}" repeated six times is a loop even
         # though it's short. The class default (40) targets plain prose.
         rep_guard = _RepetitionGuard(min_chars=16)
+        breakdowns = 0  # degenerate streams this turn; the second one ends it
         self._fail_streak = 0
         while True:
             if self._cancel.is_set():
@@ -616,10 +622,15 @@ class TurnEngine:
 
             degenerate: Optional[str] = None
             tail = ""  # the last few KB of streamed text, for the degeneration check
+            thought_tail = ""  # the same for thinking, which loops just as readily
             try:
                 async for chunk in self._astream():
                     if chunk.reasoning_delta:
                         streamed_reasoning.append(chunk.reasoning_delta)
+                        thought_tail = (thought_tail + chunk.reasoning_delta)[-_DEGENERATE_WINDOW:]
+                        degenerate = _degenerate_reason(thought_tail)
+                        if degenerate:
+                            break
                         yield Event(
                             EventType.REASONING_DELTA, {"text": chunk.reasoning_delta}
                         )
@@ -681,6 +692,23 @@ class TurnEngine:
                     credential_reloaded = True
                     iterations -= 1  # the retry is the same step, not a new one
                     continue
+                # The model refused an image it was told it could read. Send the same
+                # step again with the images as placeholders, and keep doing so for this
+                # model, instead of failing every message after an image turn.
+                if (
+                    is_image_refusal(exc)
+                    and not streamed
+                    and not streamed_reasoning
+                    and self.model not in self._images_refused
+                    and not self._cancel.is_set()
+                ):
+                    self._images_refused.add(self.model)
+                    iterations -= 1  # the retry is the same step, not a new one
+                    yield Event(
+                        EventType.NOTICE,
+                        {"kind": "images_dropped", "text": "This model can't read the earlier images, so they were left out."},
+                    )
+                    continue
                 if _compaction.is_context_overflow(exc) and not self._cancel.is_set():
                     yield Event(EventType.COMPACTING, {})
                     notice = await self._compact_now(force=True)
@@ -716,13 +744,30 @@ class TurnEngine:
                 text = _strip_degenerate("".join(streamed))
                 turn = AssistantTurn(
                     text=text or None,
-                    reasoning="".join(streamed_reasoning) or None,
+                    reasoning=_strip_degenerate("".join(streamed_reasoning)) or None,
                 )
                 self.messages.append(_assistant_message(turn, model=self.model))
                 yield Event(
                     EventType.ASSISTANT_MESSAGE,
                     {"text": turn.text, "tool_calls": [], "degenerate": degenerate},
                 )
+                breakdowns += 1
+                if breakdowns > 1:
+                    # A redo that breaks down again will break down a third time: a free
+                    # model once looped "好。😊收。😊" through every retry until the user hit
+                    # Stop (owner report 2026-10-18). End the turn instead of paying for more.
+                    yield Event(
+                        EventType.NOTICE,
+                        {
+                            "kind": "degenerate",
+                            "text": "Mimi's reply kept breaking down, so it was stopped. Try again, or switch to a stronger model.",
+                        },
+                    )
+                    yield Event(
+                        EventType.TURN_END,
+                        {"status": "repetition_stop", "iterations": iterations, "time_saved": self._close_turn()},
+                    )
+                    return
                 self.messages.append(
                     {
                         "role": "user",
@@ -2175,7 +2220,7 @@ class TurnEngine:
             for p in msg["content"]
         ):
             caps = self.provider.capabilities(self.model)
-            if not getattr(caps, "vision", False):
+            if not getattr(caps, "vision", False) or self.model in self._images_refused:
                 placeholder = {
                     "type": "text",
                     "text": "[image attachment — not viewable by this model]",
@@ -2238,13 +2283,43 @@ _DEGENERATE_HINT = (
 )
 
 
+# A loop compresses to almost nothing; prose, code and data do not. Measured 2026-10-18 on
+# 4 KB windows: a whole reply repeated 0.11, short lines alternating 0.04, the same pair
+# with no newlines 0.04 — against 0.21 for a markdown table (the lowest legitimate text)
+# and 0.40–0.56 for prose and code in English or Chinese. The old check only knew one
+# identical line repeated 25 times and missed all three shapes in that report.
+_LOW_ENTROPY = 0.15
+_ENTROPY_MIN_CHARS = 2000
+
+
+def _compression_ratio(text: str) -> float:
+    raw = text.encode("utf-8")
+    return len(zlib.compress(raw, 6)) / len(raw) if raw else 1.0
+
+
 def _degenerate_reason(tail: str) -> Optional[str]:
     if _NATIVE_MARKUP.search(tail):
         return "markup"
     lines = [ln for ln in tail.split("\n") if ln.strip()]
     if len(lines) >= _LOOP_LINES and len(set(lines[-_LOOP_LINES:])) == 1:
         return "loop"
+    if len(tail) >= _ENTROPY_MIN_CHARS and _compression_ratio(tail) < _LOW_ENTROPY:
+        return "loop"
     return None
+
+
+def _cut_low_entropy(text: str, window: int = 1000, step: int = 50) -> str:
+    """Cut a paragraph where it turns into a loop with no line breaks to split on."""
+    for i in range(0, len(text) - window + 1, step):
+        if _compression_ratio(text[i : i + window]) < _LOW_ENTROPY:
+            # The window holds the loop's start somewhere; it begins where the text
+            # starts reading like the end of the paragraph does.
+            tail = text[-window:]
+            for j in range(i, i + window):
+                if text[j : j + 12] in tail:
+                    return text[:j]
+            return text[:i]
+    return text
 
 
 def _strip_degenerate(text: str) -> str:
@@ -2265,7 +2340,16 @@ def _strip_degenerate(text: str) -> str:
                 break
         else:
             run = 0
-    return "\n".join(lines).rstrip()
+    # A whole reply repeated is a run of identical PARAGRAPHS: keep the first of each.
+    seen: set[str] = set()
+    kept: list[str] = []
+    for paragraph in re.split(r"\n[ \t]*\n", "\n".join(lines)):
+        key = paragraph.strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        kept.append(_cut_low_entropy(paragraph).rstrip())
+    return "\n\n".join(p for p in kept if p.strip()).rstrip()
 
 
 def _assistant_message(turn: AssistantTurn, model: Optional[str] = None) -> dict[str, Any]:
