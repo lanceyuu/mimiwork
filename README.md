@@ -84,9 +84,10 @@ the others as feedback until the work is right. Merging a branch into yours goes
 same approval as any other command. **Connectors ▸ Coding agents** shows whether each is
 installed and signed in, tests it with one small call, and picks its model: the latest by
 default, or one from the agent's own list. Claude Code and Codex run on your own Claude or
-OpenAI account; opencode runs on the providers you set up in it, or its free models. None
-of them uses QualiTaTi credits. opencode does not stop to ask before it edits files or runs
-commands in its folder, so Mimi still asks you before every hand-off.
+OpenAI account; opencode runs on its newest free model unless you pick one from the
+providers you set up in it. None of them uses QualiTaTi credits. opencode does not stop to
+ask before it edits files or runs commands in its folder, so Mimi still asks you before
+every hand-off.
 
 **Including where your data lives.** Connect **Qualtrics** and ask for the December wave:
 it reads the questionnaire so `Q4_1` arrives as *"How satisfied were you with — speed of

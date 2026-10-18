@@ -138,7 +138,8 @@ Anything else speaks [MCP](https://modelcontextprotocol.io/).
 **Coding agents.** If you have Claude Code, Codex or opencode, open **Connectors ▸ Coding
 agents**: it shows whether each is installed and signed in, signs it in, tests it, and sets
 its model (the latest unless you choose another). opencode needs no account to start: its
-free models work as installed, and you can add your own providers. Then ask Mimi to use
+free models work as installed, and it uses the newest of them unless you pick another. You
+can also add your own providers. Then ask Mimi to use
 several on one job:
 
 > Have Codex build the CSV export, Claude Code write its tests and opencode update the docs,

@@ -83,12 +83,12 @@ test("Claude Code hand-offs skip your own hooks by default, and the switch turns
   await expect(page.getByTestId("coding-agent-codex").getByTestId("coding-agent-hooks")).toHaveCount(0);
 });
 
-test("opencode offers its own choice first, its own models, its providers, and says it does not stop to ask", async ({ page }) => {
+test("opencode offers its newest free model first, its own models, its providers, and says it does not stop to ask", async ({ page }) => {
   await openCodingAgents(page);
   const opencode = page.getByTestId("coding-agent-opencode");
   await opencode.scrollIntoViewIfNeeded();
   const model = opencode.getByTestId("coding-agent-model-select");
-  await expect(model.locator("option").first()).toHaveText("opencode's choice (currently github-copilot/gpt-5.6-terra)");
+  await expect(model.locator("option").first()).toHaveText("Latest free model (currently opencode/nemotron-3.5-super-vl-free)");
   await expect(model.locator("option").nth(2)).toHaveText("GPT-6 Luna · github-copilot");
   await expect(opencode.getByTestId("coding-agent-providers")).toContainText("GitHub Copilot");
   await expect(opencode.getByTestId("coding-agent-providers")).toContainText("opencode auth login");

@@ -615,9 +615,10 @@ export async function mockApi(page: import("@playwright/test").Page) {
       models: [
         { id: "github-copilot/claude-haiku-5.5", label: "Claude Haiku 5.5 · github-copilot", description: "github-copilot/claude-haiku-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
         { id: "github-copilot/gpt-6-luna", label: "GPT-6 Luna · github-copilot", description: "github-copilot/gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
-        { id: "opencode/big-pickle", label: "Big Pickle · opencode", description: "opencode/big-pickle", efforts: [] },
+        { id: "opencode/nemotron-3.5-super-vl-free", label: "Nemotron 3.5 Super VL Free · opencode", description: "opencode/nemotron-3.5-super-vl-free", efforts: ["none", "minimal", "low", "medium", "high", "xhigh"], free: true },
+        { id: "opencode/big-pickle", label: "Big Pickle · opencode", description: "opencode/big-pickle", efforts: [], free: true },
       ],
-      models_listed: true, latest: "github-copilot/gpt-5.6-terra",
+      models_listed: true, latest: "opencode/nemotron-3.5-super-vl-free",
     }),
   ];
   let codexSignInStarted = false;

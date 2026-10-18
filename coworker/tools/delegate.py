@@ -292,10 +292,22 @@ def opencode_models(executable: str) -> list[dict[str, Any]]:
                 "description": model_id,
                 "efforts": [str(v) for v in data.get("variants") or {}],
                 "released": str(data.get("release_date") or ""),
+                # opencode's own hosted models that cost nothing and can use tools: what a
+                # hand-off runs on when no model is chosen, so it bills nobody.
+                "free": provider == "opencode"
+                and not any((data.get("cost") or {}).get(k, 1) for k in ("input", "output"))
+                and bool((data.get("capabilities") or {}).get("toolcall")),
             })
         return sorted(found, key=lambda m: m["released"], reverse=True)
 
     return _cached("opencode", read)
+
+
+def opencode_latest() -> str:
+    """opencode's Latest: its newest free model (owner's choice, 2026-10-18), so a hand-off
+    costs nothing unless the user picks a model; "" when it lists none."""
+    free = [m for m in opencode_models(find_agent("opencode")) if m.get("free")]
+    return free[0]["id"] if free else ""
 
 
 def _catalog_for(key: str) -> list[dict[str, Any]]:
@@ -321,16 +333,14 @@ def run_settings(key: str) -> dict[str, Any]:
         elif key == "codex":
             models = codex_models(find_agent(key))
             chosen["model"] = models[0]["id"] if models else ""  # "" → Codex's own default
-        # opencode stays "": its list mixes every provider's newest previews, so the newest
-        # entry is no sensible default. Its own pick (the user's opencode settings, or the
-        # best model of the providers they set up) is.
+        elif key == "opencode":
+            chosen["model"] = opencode_latest()  # "" → opencode's own pick
     return chosen
 
 
 def note_resolved(key: str, requested: str, resolved: str) -> None:
-    """Remember which model an alias ran as, so the page can say "currently …". An empty
-    `requested` is the agent's own choice (opencode's Latest)."""
-    if not resolved or requested == resolved:
+    """Remember which model an alias ran as, so the page can say "currently …"."""
+    if not requested or not resolved or requested == resolved:
         return
     entry = _settings.setdefault(key, {})
     if entry.get("resolved", {}).get(requested) != resolved:
@@ -440,7 +450,7 @@ def agent_status(key: str) -> dict[str, Any]:
     if key == "opencode":
         models = opencode_models(path)
         out["models"], out["models_listed"] = models, bool(models)
-        out["latest"] = resolved.get("", "")  # what opencode's own choice last ran as
+        out["latest"] = opencode_latest()
         out["efforts"] = _efforts(key)
     return out
 

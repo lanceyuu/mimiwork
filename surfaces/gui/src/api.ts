@@ -584,10 +584,10 @@ export interface CodingAgent {
   efforts: string[];
   defaults: { model: string; effort: string };
   /** Codex and opencode: their own lists, newest first. Claude Code: its family aliases. */
-  models: { id: string; label: string; description?: string; resolved?: string; efforts?: string[] }[];
+  models: { id: string; label: string; description?: string; resolved?: string; efforts?: string[]; free?: boolean }[];
   /** True when the CLI listed its models itself (Codex, opencode); false for aliases or a failed list. */
   models_listed: boolean;
-  /** The model "Latest" runs as, when known ("" until Claude Code or opencode has run once). */
+  /** The model "Latest" runs as, when known ("" until Claude Code has run once; opencode's newest free model). */
   latest: string;
   model: string;
   effort: string;

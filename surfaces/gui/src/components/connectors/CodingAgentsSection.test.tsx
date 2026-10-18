@@ -236,7 +236,7 @@ describe("Coding agents", () => {
     );
   });
 
-  it("opencode's first model is its own choice, then its own list, and the effort follows the chosen model", async () => {
+  it("with no free model listed, opencode's first option is its own choice, then its list, and the effort follows the model", async () => {
     stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, model: "github-copilot/gpt-6-luna" }] } }]);
     render(<CodingAgentsSection />);
 
@@ -253,12 +253,13 @@ describe("Coding agents", () => {
     expect(card("opencode").getByText(/Runs on the providers you set up in opencode/)).toBeTruthy();
   });
 
-  it("once opencode has run, its first option says which model its own choice was", async () => {
-    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, latest: "github-copilot/gpt-5.6-terra" }] } }]);
+  it("opencode's Latest is its newest free model, named in the first option", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, latest: "opencode/beam-free" }] } }]);
     render(<CodingAgentsSection />);
 
     const select = (await waitFor(() => card("opencode").getByTestId("coding-agent-model-select"))) as HTMLSelectElement;
-    expect(select.options[0].text).toBe("opencode's choice (currently github-copilot/gpt-5.6-terra)");
+    expect(select.options[0].text).toBe("Latest free model (currently opencode/beam-free)");
+    expect(card("opencode").getByText(/so a hand-off costs nothing unless you pick another/)).toBeTruthy();
   });
 
   it("the Test button reports how long the real call took, or the error in plain words", async () => {

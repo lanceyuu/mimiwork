@@ -77,7 +77,7 @@
 
 **Settings ▸ Connectors**(连接器)。Slack(在频道里@Mimi,成果回到原话题)、Gmail/Outlook、Google 日历和云端硬盘、GitHub、Jira、Notion、Canva、**Qualtrics**(读取问卷让 `Q4_1` 变成真实问题,把答卷拉成 CSV 或带标签的 SPSS `.sav`——每次下载都需你批准),以及你的 QualiTaTi 研究数据(项目、访谈、问卷——每次读取都先征求同意)。Canva 一键登录:Mimi 可以搜索、生成、编辑、评论并导出你的设计。其他系统走 [MCP](https://modelcontextprotocol.io/)。
 
-**编程智能体**。如果你装有 Claude Code、Codex 或 opencode,打开 **Connectors ▸ Coding agents**:可以看到它们是否已安装、是否已登录,一键登录、测试,并选择模型(默认使用最新模型)。opencode 无需账户即可开始:安装后即可使用它的免费模型,也可以添加你自己的模型提供商。然后让 Mimi 在同一项工作中同时使用多个智能体——例如“让 Codex 做 CSV 导出,让 Claude Code 写测试,让 opencode 更新文档,再让它们互相审查彼此的分支”。每个智能体在自己的分支上工作,Mimi 把一方发现的问题转给其他智能体,直到工作合格;合并到你的分支与其他命令一样需要经过批准。
+**编程智能体**。如果你装有 Claude Code、Codex 或 opencode,打开 **Connectors ▸ Coding agents**:可以看到它们是否已安装、是否已登录,一键登录、测试,并选择模型(默认使用最新模型)。opencode 无需账户即可开始:安装后即可使用它的免费模型,除非你另选模型,它会使用其中最新的一个;也可以添加你自己的模型提供商。然后让 Mimi 在同一项工作中同时使用多个智能体——例如“让 Codex 做 CSV 导出,让 Claude Code 写测试,让 opencode 更新文档,再让它们互相审查彼此的分支”。每个智能体在自己的分支上工作,Mimi 把一方发现的问题转给其他智能体,直到工作合格;合并到你的分支与其他命令一样需要经过批准。
 
 ## 7 · 你不在时,它继续干活
 

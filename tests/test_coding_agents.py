@@ -89,11 +89,19 @@ elif args[:1] == ["run"]:
         print(json.dumps(e), flush=True)
 """
 
+FREE = {"cost": {"input": 0, "output": 0}, "capabilities": {"toolcall": True}}
 OPENCODE_CATALOG = [
     ("opencode/big-pickle", {"id": "big-pickle", "providerID": "opencode", "name": "Big Pickle", "status": "active",
-                             "release_date": "2025-10-17", "variants": {}}),
+                             "release_date": "2025-10-17", "variants": {}, **FREE}),
+    ("opencode/beam-free", {"id": "beam-free", "providerID": "opencode", "name": "Beam Free", "status": "active",
+                            "release_date": "2026-10-05", "variants": {"low": {}, "max": {}}, **FREE}),
+    # Free but unable to use tools: no good for coding.
+    ("opencode/chat-only-free", {"id": "chat-only-free", "providerID": "opencode", "name": "Chat Only", "status": "active",
+                                 "release_date": "2026-10-10", "cost": {"input": 0, "output": 0},
+                                 "capabilities": {"toolcall": False}}),
     ("github-copilot/gpt-6-luna", {"id": "gpt-6-luna", "providerID": "github-copilot", "name": "GPT-6 Luna",
-                                   "status": "active", "release_date": "2026-09-22",
+                                   "status": "active", "release_date": "2026-10-12",
+                                   "cost": {"input": 1.25, "output": 10}, "capabilities": {"toolcall": True},
                                    "variants": {"none": {}, "low": {}, "high": {}, "max": {}}}),
     ("github-copilot/gpt-old", {"id": "gpt-old", "providerID": "github-copilot", "name": "Old", "status": "deprecated",
                                 "release_date": "2026-01-01", "variants": {}}),
@@ -453,24 +461,39 @@ def test_opencode_offers_its_own_model_list_newest_first_with_each_models_effort
     status = delegate.agent_status("opencode")
 
     assert status["models_listed"] is True
-    assert [m["id"] for m in status["models"]] == ["github-copilot/gpt-6-luna", "opencode/big-pickle"]  # no deprecated
+    assert [m["id"] for m in status["models"]] == [  # newest first, no deprecated
+        "github-copilot/gpt-6-luna", "opencode/chat-only-free", "opencode/beam-free", "opencode/big-pickle",
+    ]
     assert status["models"][0]["label"] == "GPT-6 Luna · github-copilot"
     assert status["models"][0]["efforts"] == ["none", "low", "high", "max"]
     assert delegate.save_settings("opencode", "github-copilot/gpt-6-luna", "none")["ok"]  # a level it lists
 
 
-def test_with_no_model_chosen_opencode_makes_its_own_choice_and_the_page_learns_what_that_was(home, tmp_path):
+def test_with_no_model_chosen_opencode_runs_on_its_newest_free_model_that_can_use_tools(home, tmp_path):
     log = tmp_path / "argv.json"
-    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=OPENCODE_CATALOG, LOG=str(log))
-    delegate.load_settings(tmp_path / "coding-agents.json")
+    _install(home, "opencode", OPENCODE, PROVIDERS=[["GitHub Copilot", "oauth"]], CATALOG=OPENCODE_CATALOG, LOG=str(log))
+
+    status = delegate.agent_status("opencode")
+    result = delegate.try_agent("opencode")
+
+    # Not the newer paid Copilot model, and not the newer free one that cannot use tools.
+    assert status["latest"] == "opencode/beam-free"
+    argv = json.loads(log.read_text())
+    assert argv[:3] == ["run", "--format", "json"] and argv[argv.index("-m") + 1] == "opencode/beam-free"
+    assert "--auto" not in argv  # what opencode's own settings mark "ask" stays refused
+    assert (result["ok"], result["reply"], result["model"]) == (True, "OK", "opencode/beam-free")
+
+
+def test_with_no_free_model_listed_opencode_makes_its_own_choice_and_the_test_names_it(home, tmp_path):
+    log = tmp_path / "argv.json"
+    paid = [m for m in OPENCODE_CATALOG if not m[0].startswith("opencode/")]
+    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=paid, LOG=str(log))
 
     result = delegate.try_agent("opencode")
 
-    argv = json.loads(log.read_text())
-    assert argv[:3] == ["run", "--format", "json"] and "-m" not in argv
-    assert "--auto" not in argv  # what opencode's own settings mark "ask" stays refused
-    assert (result["ok"], result["reply"], result["model"]) == (True, "OK", "github-copilot/gpt-6-luna")
-    assert delegate.agent_status("opencode")["latest"] == "github-copilot/gpt-6-luna"
+    assert delegate.agent_status("opencode")["latest"] == ""
+    assert "-m" not in json.loads(log.read_text())
+    assert result["model"] == "github-copilot/gpt-6-luna"  # read back from opencode's own session
 
 
 def test_a_chosen_opencode_model_and_effort_reach_its_command_line(home, tmp_path):

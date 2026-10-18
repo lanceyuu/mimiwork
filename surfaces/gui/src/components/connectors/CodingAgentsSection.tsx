@@ -102,7 +102,7 @@ function modelHint(a: CodingAgent): string {
     return "Claude Code cannot list its models. Latest is the model Claude Code recommends for your account, and each family follows its newest model as your installed Claude Code knows it. Updating Claude Code moves them forward.";
   if (a.key === "opencode")
     return a.models_listed
-      ? "From opencode's own list: its free models and the providers you set up, newest first. opencode's choice is the model in your opencode settings, or the one it picks for your providers."
+      ? "From opencode's own list: its free models and the providers you set up, newest first. Latest free model is the newest of opencode's free models that can use tools, so a hand-off costs nothing unless you pick another."
       : "opencode did not share its model list. Type a model as provider/model, or leave it empty for opencode's own choice.";
   if (a.models_listed) return "From Codex's own model list, newest first. Latest follows that list as it changes.";
   return "Codex did not share its model list. Type a model name, or leave it empty for Codex's own default.";
@@ -179,11 +179,11 @@ function AgentCard({
 
   const connected = a.installed && a.signed_in && !a.error;
   const opencode = a.key === "opencode";
-  // opencode's own pick is not the newest model (its list mixes every provider's previews),
-  // so its first option says whose choice it is rather than "Latest".
+  // opencode's Latest is its newest free model, so the option says so; with none listed,
+  // opencode picks for itself.
   const firstOption = opencode
     ? a.latest
-      ? t("opencode's choice (currently {model})").replace("{model}", a.latest)
+      ? t("Latest free model (currently {model})").replace("{model}", a.latest)
       : t("opencode's choice")
     : a.latest
       ? t("Latest (currently {model})").replace("{model}", a.latest)
