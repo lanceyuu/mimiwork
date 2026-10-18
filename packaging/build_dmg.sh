@@ -282,7 +282,16 @@ elif [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
       --key-id "$NOTARYTOOL_API_KEY_ID" \
       --issuer "$NOTARYTOOL_API_ISSUER_ID" \
       --wait
-    xcrun stapler staple "$DMG"
+    # Stapling fetches the ticket from Apple's CDN, and the Intel runner's network drops
+    # mid-fetch ("The network connection was lost", error 68): v0.6.30 and v0.6.31 each
+    # needed a rerun, and v0.6.32 failed here twice, each time after notarization had
+    # already been accepted. Retry the fetch instead of losing a 50-minute build.
+    for i in 1 2 3 4 5; do
+      xcrun stapler staple "$DMG" && break
+      [ "$i" = 5 ] && { echo "ERROR: could not staple the notarization ticket after 5 tries" >&2; exit 1; }
+      echo "    stapling failed (try $i of 5); retrying in $((i * 20)) s"
+      sleep $((i * 20))
+    done
     # The same check Gatekeeper runs on download — fail the build rather than ship a
     # DMG that greets users with the "Move to Trash" malware dialog.
     spctl -a -t open --context context:primary-signature "$DMG"
