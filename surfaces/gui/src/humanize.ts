@@ -26,7 +26,7 @@ function messageTarget(target: string): { platform: string; tail: string } {
   return { platform: names[platform] || platform, tail };
 }
 
-const AGENT_NAMES: Record<string, string> = { claude_code: "Claude Code", codex: "Codex" };
+const AGENT_NAMES: Record<string, string> = { claude_code: "Claude Code", codex: "Codex", opencode: "opencode" };
 const agentName = (a: any) => AGENT_NAMES[String(a?.agent ?? "")] || String(a?.agent ?? "a coding agent");
 
 export function humanizeTool(name: string, args: any): HumanLine {

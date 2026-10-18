@@ -1,14 +1,15 @@
-"""A small team of coding agents — Mimi hands work to Claude Code and Codex and reviews it.
+"""A small team of coding agents — Mimi hands work to Claude Code, Codex and opencode and reviews it.
 
 Mimi splits a project into tasks, starts an agent on each (`start_agent`), watches them all
 (`wait_for_agents`), reviews what comes back, and sends feedback into the same agent session
 (`message_agent`) until the work is right. In a git project every agent gets its own worktree
 and branch, so parallel agents never collide and nothing reaches the user's branch until a
-merge — which goes through the shell and so asks the user. Each agent runs headless (`claude -p` / `codex exec`) under its own safety
-model — `roots.py` cannot confine another program — so starting one is approval-gated and
-the card says so. It also bills the user's own Claude or OpenAI account, not QualiTaTi credits.
+merge — which goes through the shell and so asks the user. Each agent runs headless
+(`claude -p` / `codex exec` / `opencode run`) under its own safety model — `roots.py` cannot
+confine another program — so starting one is approval-gated and the card says so. It also
+bills the user's own Claude, OpenAI or opencode provider account, not QualiTaTi credits.
 
-Both CLIs stream JSON lines. Each line that means something to a person (a command, an edit,
+All three CLIs stream JSON lines. Each line that means something to a person (a command, an edit,
 a sentence of narration) becomes a progress line on the running step via `tool_progress`;
 the rest is ignored, so a format change degrades to a quieter card, never a crash.
 """
@@ -42,13 +43,15 @@ _IS_WINDOWS = sys.platform == "win32"
 AGENTS: dict[str, tuple[str, str, str]] = {
     "claude_code": ("Claude Code", "claude", "your own Claude account"),
     "codex": ("Codex", "codex", "your own OpenAI account"),
+    "opencode": ("opencode", "opencode", "the model provider you set up in opencode"),
 }
 
-# An app opened from Finder inherits launchd's PATH (/usr/bin:/bin:…), which holds neither
-# CLI — and Codex is a `#!/usr/bin/env node` script, so the child needs these dirs too.
+# An app opened from Finder inherits launchd's PATH (/usr/bin:/bin:…), which holds none of
+# these CLIs — and Codex is a `#!/usr/bin/env node` script, so the child needs these dirs too.
 _EXTRA_DIRS = [
     "~/.local/bin",
     "~/.claude/local",
+    "~/.opencode/bin",  # opencode's own installer
     "/opt/homebrew/bin",
     "/usr/local/bin",
     "~/.npm-global/bin",
@@ -67,7 +70,7 @@ _MAX_CHANGED = 200
 # Snapshotting a huge folder to find changed files would cost more than the run; skip it.
 _MAX_SNAPSHOT = 50_000
 # Where the agents' own tools keep logs and settings — never the project's work.
-_AGENT_DIRS = (".claude", ".codex")
+_AGENT_DIRS = (".claude", ".codex", ".opencode")
 _SKIP_DIRS = {".git", ".mimiwork", *_AGENT_DIRS, "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"}
 
 
@@ -106,6 +109,16 @@ def agent_command(
             *(["--settings", _NO_HOOKS] if skip_hooks else []),
             *(["--resume", resume_id] if resume_id else []),
         ]
+    if key == "opencode":
+        # No --auto (opencode 1.19): its defaults already let a run edit files and run
+        # commands in its folder, and whatever the user's own opencode settings mark "ask"
+        # (reading outside the folder, by default) is refused instead of approved.
+        return [
+            executable, "run", "--format", "json",
+            *(["-m", model] if model else []),
+            *(["--variant", effort] if effort else []),
+            *(["--session", resume_id] if resume_id else []),
+        ]
     # `exec resume` takes no --sandbox flag; the config key sets the same policy for both.
     flags = ["-c", 'sandbox_mode="workspace-write"']
     if model:
@@ -123,6 +136,7 @@ def agent_command(
 EFFORTS: dict[str, list[str]] = {
     "claude_code": ["low", "medium", "high", "xhigh", "max"],
     "codex": ["low", "medium", "high", "xhigh", "max"],
+    "opencode": ["low", "medium", "high", "xhigh", "max"],
 }
 # An empty model means Latest. Claude Code cannot list models, but takes aliases that follow
 # the newest model of each family as the installed CLI knows it (2.1.270 resolves `opus` to
@@ -137,10 +151,13 @@ _CLAUDE_LATEST = "default"
 # what an agent may do.
 _NO_HOOKS = '{"disableAllHooks": true}'
 _CLAUDE_ALIASES = [("fable", "Latest Fable"), ("opus", "Latest Opus"), ("sonnet", "Latest Sonnet"), ("haiku", "Latest Haiku")]
-_SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"]}
+# opencode needs no sign-in: its own free models work as installed. Adding a provider is an
+# interactive picker, so the page shows the command instead of driving it.
+_SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"], "opencode": ["auth", "login"]}
 _INSTALL = {
     "claude_code": "irm https://claude.ai/install.ps1 | iex" if _IS_WINDOWS else "curl -fsSL https://claude.ai/install.sh | bash",
     "codex": "npm install -g @openai/codex",
+    "opencode": "npm install -g opencode-ai" if _IS_WINDOWS else "curl -fsSL https://opencode.ai/install | bash",
 }
 # A model name goes into argv and, for Codex, into a TOML value: names only, nothing that
 # could close the quote or read as a flag.
@@ -199,8 +216,18 @@ def save_settings(key: str, model: str = "", effort: str = "", keep_hooks: Optio
 
 
 _CATALOG_TTL = 60 * 60
-# ponytail: one cached catalog per process; Codex itself refreshes it from OpenAI.
-_catalog: dict[str, Any] = {"at": 0.0, "models": []}
+# ponytail: one cached catalog per agent per process; each CLI refreshes its own list.
+_catalogs: dict[str, dict[str, Any]] = {k: {"at": 0.0, "models": []} for k in ("codex", "opencode")}
+
+
+def _cached(key: str, read: Callable[[], list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    cache = _catalogs[key]
+    if cache["models"] and time.monotonic() - cache["at"] < _CATALOG_TTL:
+        return cache["models"]
+    models = read()
+    if models:
+        cache.update(at=time.monotonic(), models=models)
+    return models
 
 
 def codex_models(executable: str) -> list[dict[str, Any]]:
@@ -209,36 +236,79 @@ def codex_models(executable: str) -> list[dict[str, Any]]:
     `codex debug models` (0.162) prints the catalog Codex refreshes from OpenAI, with the
     effort levels each model takes. It sits under `debug`, so a failure is expected someday
     and only costs the dropdown: the page falls back to typing a model name."""
-    if _catalog["models"] and time.monotonic() - _catalog["at"] < _CATALOG_TTL:
-        return _catalog["models"]
     if not executable:
         return []
-    code, out = _probe([executable, "debug", "models"], timeout=30)
-    try:
-        raw = json.loads(out)["models"] if code == 0 else []
-        models = [
-            {
-                "id": str(m["slug"]),
-                "label": str(m.get("display_name") or m["slug"]),
-                "description": str(m.get("description") or ""),
-                "efforts": [str(e["effort"]) for e in m.get("supported_reasoning_levels") or [] if e.get("effort")],
-            }
-            for m in sorted(raw, key=lambda m: m.get("priority", 999))
-            if m.get("visibility") == "list" and _MODEL_NAME.match(str(m.get("slug") or ""))
-        ]
-    except (ValueError, KeyError, TypeError, AttributeError):
-        models = []
-    if models:
-        _catalog.update(at=time.monotonic(), models=models)
-    return models
+
+    def read() -> list[dict[str, Any]]:
+        code, out = _probe([executable, "debug", "models"], timeout=30)
+        try:
+            raw = json.loads(out)["models"] if code == 0 else []
+            return [
+                {
+                    "id": str(m["slug"]),
+                    "label": str(m.get("display_name") or m["slug"]),
+                    "description": str(m.get("description") or ""),
+                    "efforts": [str(e["effort"]) for e in m.get("supported_reasoning_levels") or [] if e.get("effort")],
+                }
+                for m in sorted(raw, key=lambda m: m.get("priority", 999))
+                if m.get("visibility") == "list" and _MODEL_NAME.match(str(m.get("slug") or ""))
+            ]
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return []
+
+    return _cached("codex", read)
+
+
+_MODEL_HEADER = re.compile(r"(?m)^([A-Za-z0-9][^\s{}]*/[^\s{}]+)[ \t]*$")
+
+
+def opencode_models(executable: str) -> list[dict[str, Any]]:
+    """Every model opencode can use with the providers set up on this computer (its free
+    ones included), newest release first; [] when it cannot say.
+
+    `opencode models --verbose` (1.19) prints each `provider/model` line followed by that
+    model's JSON, whose `variants` are the effort levels it takes (`--variant`)."""
+    if not executable:
+        return []
+
+    def read() -> list[dict[str, Any]]:
+        code, out = _probe([executable, "models", "--verbose"], timeout=60)
+        if code != 0:
+            return []
+        decoder, found = json.JSONDecoder(), []
+        for head in _MODEL_HEADER.finditer(out):
+            start = out.find("{", head.end())
+            try:
+                data, _ = decoder.raw_decode(out, start) if start >= 0 else ({}, 0)
+            except ValueError:
+                continue
+            model_id = head.group(1)
+            if not isinstance(data, dict) or data.get("status", "active") != "active" or not _MODEL_NAME.match(model_id):
+                continue
+            provider = str(data.get("providerID") or model_id.split("/")[0])
+            found.append({
+                "id": model_id,
+                "label": f"{data.get('name') or model_id} · {provider}",
+                "description": model_id,
+                "efforts": [str(v) for v in data.get("variants") or {}],
+                "released": str(data.get("release_date") or ""),
+            })
+        return sorted(found, key=lambda m: m["released"], reverse=True)
+
+    return _cached("opencode", read)
+
+
+def _catalog_for(key: str) -> list[dict[str, Any]]:
+    if key == "codex":
+        return codex_models(find_agent(key))
+    if key == "opencode":
+        return opencode_models(find_agent(key))
+    return []
 
 
 def _efforts(key: str) -> list[str]:
-    if key == "codex":
-        seen = [e for m in codex_models(find_agent(key)) for e in m["efforts"]]
-        if seen:
-            return list(dict.fromkeys(seen))
-    return EFFORTS[key]
+    seen = [e for m in _catalog_for(key) for e in m["efforts"]]
+    return list(dict.fromkeys(seen)) if seen else EFFORTS[key]
 
 
 def run_settings(key: str) -> dict[str, Any]:
@@ -248,15 +318,19 @@ def run_settings(key: str) -> dict[str, Any]:
     if not chosen["model"]:
         if key == "claude_code":
             chosen["model"] = _CLAUDE_LATEST
-        else:
+        elif key == "codex":
             models = codex_models(find_agent(key))
             chosen["model"] = models[0]["id"] if models else ""  # "" → Codex's own default
+        # opencode stays "": its list mixes every provider's newest previews, so the newest
+        # entry is no sensible default. Its own pick (the user's opencode settings, or the
+        # best model of the providers they set up) is.
     return chosen
 
 
 def note_resolved(key: str, requested: str, resolved: str) -> None:
-    """Remember which model an alias ran as, so the page can say "currently …"."""
-    if not requested or not resolved or requested == resolved:
+    """Remember which model an alias ran as, so the page can say "currently …". An empty
+    `requested` is the agent's own choice (opencode's Latest)."""
+    if not resolved or requested == resolved:
         return
     entry = _settings.setdefault(key, {})
     if entry.get("resolved", {}).get(requested) != resolved:
@@ -283,6 +357,15 @@ def _own_defaults(key: str) -> dict[str, str]:
         if key == "claude_code":
             data = json.loads((Path.home() / ".claude" / "settings.json").read_text(encoding="utf-8"))
             return {"model": str(data.get("model") or ""), "effort": str(data.get("effortLevel") or "")}
+        if key == "opencode":
+            # JSON with comments allowed, so no json.loads. ponytail: the first "model" key
+            # wins, which may be an agent's own model in an unusual config; display only.
+            folder = Path.home() / ".config" / "opencode"
+            for name in ("opencode.json", "opencode.jsonc", "config.json"):
+                if (folder / name).is_file():
+                    m = re.search(r'"model"\s*:\s*"([^"]+)"', (folder / name).read_text(encoding="utf-8"))
+                    return {"model": m.group(1) if m else "", "effort": ""}
+            return {"model": "", "effort": ""}
         text = (Path.home() / ".codex" / "config.toml").read_text(encoding="utf-8")
     except (OSError, ValueError, AttributeError):
         return {"model": "", "effort": ""}
@@ -306,6 +389,13 @@ def _sign_in_state(key: str, executable: str) -> tuple[Optional[bool], str]:
         if not data.get("loggedIn"):
             return False, ""
         return True, str(data.get("email") or data.get("authMethod") or "")
+    if key == "opencode":
+        # Always ready: its free models need no account. The account line names the
+        # providers the user added ("●  GitHub Copilot \x1b[90moauth" in opencode 1.19).
+        code, out = _probe([executable, "providers", "list"])
+        if code is None:
+            return None, out
+        return True, ", ".join(m.group(1) for m in re.finditer(r"●\s+(.+?)\s*(?:\x1b|$)", out, re.M))
     code, out = _probe([executable, "login", "status"])
     if code is None:
         return None, out
@@ -346,6 +436,11 @@ def agent_status(key: str) -> dict[str, Any]:
         models = codex_models(path)
         out["models"], out["models_listed"] = models, bool(models)
         out["latest"] = models[0]["id"] if models else ""
+        out["efforts"] = _efforts(key)
+    if key == "opencode":
+        models = opencode_models(path)
+        out["models"], out["models_listed"] = models, bool(models)
+        out["latest"] = resolved.get("", "")  # what opencode's own choice last ran as
         out["efforts"] = _efforts(key)
     return out
 
@@ -516,6 +611,34 @@ class _Run:
             self.error = _error_text((event.get("error") or {}).get("message") or event.get("message"))
         return []
 
+    def opencode(self, event: dict) -> list[str]:
+        # opencode 1.19 `run --format json`: step_start / text / tool_use / step_finish, and
+        # an "error" event on failure — with exit code 0, so the event is the only signal.
+        kind = event.get("type")
+        self.session_id = str(event.get("sessionID") or self.session_id)
+        part = event.get("part") or {}
+        if kind == "step_start":
+            self._step_text: list[str] = []
+        if kind == "text" and str(part.get("text") or "").strip():
+            # One answer can arrive as several text parts in a step (a live run split it
+            # mid-sentence); the summary is the whole of the latest step's text.
+            self._step_text = [*getattr(self, "_step_text", []), str(part["text"])]
+            self.summary = "".join(self._step_text)
+            return [_short(part["text"])]
+        if kind == "tool_use":
+            state = part.get("state") or {}
+            args = state.get("input") or {}
+            target = args.get("command") or args.get("filePath") or args.get("pattern") or state.get("title") or ""
+            tool = str(part.get("tool") or "tool")
+            return [_short(f"{tool}: {target}" if target else tool)]
+        if kind == "step_finish":
+            # "tool-calls" means another step follows; anything else ends the turn.
+            self.finished = part.get("reason") != "tool-calls"
+        if kind == "error":
+            err = event.get("error") or {}
+            self.error = str((err.get("data") or {}).get("message") or err.get("name") or "opencode stopped with an error")
+        return []
+
 
 def _snapshot(folder: Path) -> Optional[dict[str, tuple[int, int]]]:
     seen: dict[str, tuple[int, int]] = {}
@@ -575,7 +698,10 @@ def run_agent(
 ) -> dict[str, Any]:
     """Run one headless hand-off to completion, streaming progress through `report`."""
     label = AGENTS[key][0]
-    env = _env()
+    # opencode (1.19) works in the folder $PWD names, not its real working directory, and
+    # a child inherits MimiWork's own $PWD: the first live hand-off edited the app's folder
+    # instead of the agent's branch (2026-10-18). The folder goes in both places.
+    env = {**_env(), "PWD": str(folder)}
     spawn: dict[str, Any] = (
         {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if _IS_WINDOWS else {"start_new_session": True}
     )
@@ -613,7 +739,7 @@ def run_agent(
     threading.Thread(target=_read, args=(proc.stdout,), daemon=True).start()
 
     run = _Run()
-    parse = run.claude if key == "claude_code" else run.codex
+    parse = {"claude_code": run.claude, "codex": run.codex, "opencode": run.opencode}[key]
     plain: list[str] = []  # non-JSON output (startup errors, stack traces)
     deadline = time.monotonic() + timeout
     heard = time.monotonic()
@@ -658,6 +784,8 @@ def run_agent(
         _kill(proc)
         code = None
 
+    if key == "opencode" and run.session_id and not model:
+        run.model = _opencode_model(executable, run.session_id)
     changed = changed_files(before, _snapshot(folder))
     result: dict[str, Any] = {"agent": label, "folder": str(folder), "session_id": run.session_id or resume_id}
     if changed is not None:
@@ -673,7 +801,7 @@ def run_agent(
     if outcome == "silent":
         return {**result, "error": (
             f"{label} showed no activity for {max(1, round(silence / 60))} minutes and was stopped; its model service "
-            "may be down. Its branch keeps what it did; try it again or give the task to the other agent."
+            "may be down. Its branch keeps what it did; try it again or give the task to another agent."
         )}
     if outcome == "timed out":
         return {**result, "error": f"{label} was still working at its {_minutes(timeout)} limit and was stopped."}
@@ -681,6 +809,20 @@ def run_agent(
         why = run.error or _short(" ".join(plain[-5:]), 600) or f"exited with code {code}"
         return {**result, "error": f"{label} did not finish: {why}"}
     return {**result, "status": "completed"}
+
+
+def _opencode_model(executable: str, session_id: str) -> str:
+    """The `provider/model` opencode chose for a session; its events never say. ""
+    when unknown — the page then just cannot say what Latest ran as."""
+    code, out = _probe([executable, "export", session_id], timeout=30)
+    # Into a pipe, opencode 1.19 cuts the export off at 64 KB, so a real session never parses
+    # whole. The session's `info` comes first, and its "model" object is the first one.
+    start = out.find("{", out.find('"model"')) if code == 0 and '"model"' in out else -1
+    try:
+        model, _ = json.JSONDecoder().raw_decode(out, start) if start >= 0 else ({}, 0)
+        return f"{model['providerID']}/{model['id']}"
+    except (ValueError, KeyError, TypeError):
+        return ""
 
 
 def _resolve_folder(folder: str, roots: list, workspace: Path) -> Path | str:
@@ -846,12 +988,17 @@ class Job:
 
 def resume_command(key: str, workdir: str | Path, session_id: str) -> str:
     """The command that opens an agent's own conversation in its CLI, in the agent's copy of
-    the project. Both CLIs find a session by id from any folder (checked with Claude Code
-    2.1.270 and Codex 0.162), but the folder decides which files a resumed agent works on.
-    A hand-off's history otherwise hides: Claude Code files it under the agent's worktree,
+    the project. Claude Code and Codex find a session by id from any folder (checked with
+    Claude Code 2.1.270 and Codex 0.162); opencode files sessions by project, so the folder
+    matters there too, and it always decides which files a resumed agent works on. A
+    hand-off's history otherwise hides: Claude Code files it under the agent's worktree,
     and Codex's resume list leaves out non-interactive runs."""
     exe = AGENTS[key][1]
-    run = f"{exe} --resume {session_id}" if key == "claude_code" else f"{exe} resume {session_id}"
+    run = {
+        "claude_code": f"{exe} --resume {session_id}",
+        "codex": f"{exe} resume {session_id}",
+        "opencode": f"{exe} --session {session_id}",
+    }[key]
     if not workdir or not Path(workdir).is_dir():
         return run  # the worktree is gone (usually removed after a merge); the history is still there
     folder = f'"{workdir}"' if _IS_WINDOWS else shlex.quote(str(workdir))
@@ -922,7 +1069,7 @@ atexit.register(lambda: [_kill(p) for p in list(_LOGINS.values())])
 
 
 def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, session_id: str = "") -> list:
-    """start_agent / wait_for_agents / message_agent / stop_agent. With neither agent
+    """start_agent / wait_for_agents / message_agent / stop_agent. With no agent
     installed, only start_agent, ungated, whose one job is to say where to connect one — so
     "ask Codex to…" gets a plain answer instead of a model that has never heard of agents."""
     installed = available_agents()
@@ -1024,8 +1171,8 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     start_agent.__doc__ = f"""Start a coding agent installed on this computer on one task. It
         works on its own, in the background, while you start others and watch them with
         `wait_for_agents`. Use agents for substantial software work (building, fixing,
-        refactoring, testing) or when the user asks for Claude Code or Codex. Do the writing,
-        analysis and documents yourself.
+        refactoring, testing) or when the user asks for Claude Code, Codex or opencode. Do the
+        writing, analysis and documents yourself.
 
         Running a project with several agents:
         1. Split it into tasks that touch different parts, and start one agent per task.
@@ -1077,12 +1224,13 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     # it asks. Feedback stays inside a job the user already approved (owner's choice,
     # 2026-10-15); merging into the user's branch goes through the shell and asks there.
     if not installed:
-        start_agent.__doc__ = """Hand software work to Claude Code or Codex. Neither is installed
-        on this computer yet, so this only returns how the user can connect one. Call it when
-        the user asks for Claude Code, Codex or a team of coding agents, and pass the answer on.
+        start_agent.__doc__ = """Hand software work to Claude Code, Codex or opencode. None is
+        installed on this computer yet, so this only returns how the user can connect one.
+        Call it when the user asks for Claude Code, Codex, opencode or a team of coding
+        agents, and pass the answer on.
 
         Args:
-            agent (str): 'claude_code' or 'codex'.
+            agent (str): 'claude_code', 'codex' or 'opencode'.
             task (str): What the user wanted done.
             name (str): Unused.
             folder (str): Unused.

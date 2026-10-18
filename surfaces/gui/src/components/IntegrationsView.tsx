@@ -16,7 +16,7 @@ type IntTab = "connectors" | "agents" | "mcp";
 // Connectors, never as a nav item — the nav must not grow per connector.
 const INT_TABS: { key: IntTab; label: string; icon: "plug" | "code" | "branch" }[] = [
   { key: "connectors", label: "Connectors", icon: "plug" },
-  // Claude Code and Codex: tools Mimi hands software work to, connected like the rest.
+  // Claude Code, Codex and opencode: tools Mimi hands software work to, connected like the rest.
   { key: "agents", label: "Coding agents", icon: "branch" },
   { key: "mcp", label: "MCP servers", icon: "code" },
 ];
@@ -82,7 +82,7 @@ export function IntegrationsView() {
             <section>
               <PanelHead
                 title="Coding agents"
-                sub="Claude Code and Codex can take on software work for Mimi. They run on this computer, and Mimi asks before starting one."
+                sub="Claude Code, Codex and opencode can take on software work for Mimi. They run on this computer, and Mimi asks before starting one."
               />
               <CodingAgentsSection />
             </section>

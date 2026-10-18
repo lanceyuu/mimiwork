@@ -1,4 +1,4 @@
-/** Coding agents page: Claude Code and Codex connected like any other tool. */
+/** Coding agents page: Claude Code, Codex and opencode connected like any other tool. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CodingAgentsSection } from "./CodingAgentsSection";
@@ -71,6 +71,26 @@ const CODEX = {
   ],
   models_listed: true,
   latest: "gpt-6.1-sol",
+};
+
+const OPENCODE = {
+  ...CLAUDE,
+  key: "opencode",
+  label: "opencode",
+  billing: "the model provider you set up in opencode",
+  path: "/Users/me/.opencode/bin/opencode",
+  version: "1.19.3",
+  account: "",
+  install_command: "curl -fsSL https://opencode.ai/install | bash",
+  sign_in_command: "opencode auth login",
+  efforts: ["none", "low", "medium", "high", "max"],
+  defaults: { model: "", effort: "" },
+  models: [
+    { id: "github-copilot/gpt-6-luna", label: "GPT-6 Luna · github-copilot", description: "github-copilot/gpt-6-luna", efforts: ["none", "low", "high"] },
+    { id: "opencode/big-pickle", label: "Big Pickle · opencode", description: "opencode/big-pickle", efforts: [] },
+  ],
+  models_listed: true,
+  latest: "",
 };
 
 const card = (key: string) => within(screen.getByTestId(`coding-agent-${key}`));
@@ -189,12 +209,56 @@ describe("Coding agents", () => {
     expect(Array.from(effort.options).map((o) => o.value)).toEqual(["", "low", "medium"]);
   });
 
-  it("the page says Claude Code and Codex can work together on one job", async () => {
-    stubFetch([{ match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX] } }]);
+  it("the page says Claude Code, Codex and opencode can work together on one job", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX, OPENCODE] } }]);
     render(<CodingAgentsSection />);
 
     const note = await waitFor(() => screen.getByTestId("coding-agents-together"));
-    expect(note.textContent).toContain("can have one review the other's branch");
+    expect(note.textContent).toContain("Claude Code, Codex and opencode can work together");
+    expect(note.textContent).toContain("can have one review another's branch");
+  });
+
+  it("opencode needs no sign-in: it lists the providers you added, or says its free models work without one", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, account: "GitHub Copilot, OpenRouter" }] } }]);
+    render(<CodingAgentsSection />);
+
+    const providers = await waitFor(() => card("opencode").getByTestId("coding-agent-providers"));
+    expect(providers.textContent).toContain("GitHub Copilot, OpenRouter");
+    expect(providers.textContent).toContain("opencode auth login");
+    expect(card("opencode").getByTestId("coding-agent-status").textContent).toBe("Connected");
+    expect(card("opencode").queryByTestId("coding-agent-sign-in")).toBeNull();
+    cleanup();
+
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [OPENCODE] } }]);
+    render(<CodingAgentsSection />);
+    expect((await waitFor(() => card("opencode").getByTestId("coding-agent-providers"))).textContent).toContain(
+      "None added. opencode's free models work without one.",
+    );
+  });
+
+  it("opencode's first model is its own choice, then its own list, and the effort follows the chosen model", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, model: "github-copilot/gpt-6-luna" }] } }]);
+    render(<CodingAgentsSection />);
+
+    const select = (await waitFor(() => card("opencode").getByTestId("coding-agent-model-select"))) as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.text)).toEqual([
+      "opencode's choice", "GPT-6 Luna · github-copilot", "Big Pickle · opencode", "Custom…",
+    ]);
+    const effort = card("opencode").getByTestId("coding-agent-effort") as HTMLSelectElement;
+    expect(Array.from(effort.options).map((o) => o.value)).toEqual(["", "none", "low", "high"]);
+    expect(card("opencode").getByTestId("coding-agent-unattended").textContent).toContain(
+      "opencode does not stop to ask",
+    );
+    expect(card("opencode").queryByTestId("coding-agent-hooks")).toBeNull();
+    expect(card("opencode").getByText(/Runs on the providers you set up in opencode/)).toBeTruthy();
+  });
+
+  it("once opencode has run, its first option says which model its own choice was", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [{ ...OPENCODE, latest: "github-copilot/gpt-5.6-terra" }] } }]);
+    render(<CodingAgentsSection />);
+
+    const select = (await waitFor(() => card("opencode").getByTestId("coding-agent-model-select"))) as HTMLSelectElement;
+    expect(select.options[0].text).toBe("opencode's choice (currently github-copilot/gpt-5.6-terra)");
   });
 
   it("the Test button reports how long the real call took, or the error in plain words", async () => {

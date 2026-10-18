@@ -174,8 +174,14 @@ function MessagePreview({ text, label }: { text: string; label?: string }) {
 }
 
 export function DelegatePreview({ args }: { args: any }) {
-  const agent = args?.agent === "claude_code" ? "Claude Code" : args?.agent === "codex" ? "Codex" : "The agent";
-  const account = args?.agent === "codex" ? "OpenAI" : "Claude";
+  const agent =
+    ({ claude_code: "Claude Code", codex: "Codex", opencode: "opencode" } as Record<string, string>)[args?.agent] ||
+    "The agent";
+  // opencode's unattended mode does not stop to ask, so the card says so before the user approves.
+  const pays =
+    args?.agent === "opencode"
+      ? "opencode does not stop to ask before it edits files or runs commands there. It uses the model providers you set up in opencode, or its free models, not QualiTaTi credits."
+      : `It uses your own ${args?.agent === "codex" ? "OpenAI" : "Claude"} account, not QualiTaTi credits.`;
   const folder = String(args?.folder || "").trim();
   return (
     <>
@@ -183,8 +189,9 @@ export function DelegatePreview({ args }: { args: any }) {
       <div className="approval-with" data-testid="delegate-note">
         {agent} works on its own in {folder ? <b>{folder}</b> : "this conversation's main folder"}: it can
         read and change files there and run commands. In a git project it gets its own branch, and
-        nothing reaches yours until you approve a merge. Mimi reviews its work and sends it feedback.
-        It uses your own {account} account, not QualiTaTi credits.
+        nothing reaches yours until you approve a merge.
+        Mimi reviews its work and sends it feedback.{" "}
+        {pays}
       </div>
     </>
   );

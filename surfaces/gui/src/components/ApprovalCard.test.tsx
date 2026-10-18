@@ -433,6 +433,20 @@ describe("ApprovalCard — starting a coding agent", () => {
     render(<InboxItemCard item={item} onResolve={vi.fn()} />);
     expect(screen.getByTestId("delegate-note").textContent).toContain("your own OpenAI account");
   });
+
+  it("warns before an opencode hand-off that opencode does not stop to ask, and who pays", () => {
+    render(
+      <ApprovalCard
+        item={{ kind: "approval", name: "start_agent", reason: "requires approval", args: { agent: "opencode", name: "tests", task: "Add tests." } }}
+        onApprove={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("opencode")).toBeTruthy();
+    const note = screen.getByTestId("delegate-note").textContent || "";
+    expect(note).toContain("gets its own branch, and nothing reaches yours until you approve a merge");
+    expect(note).toContain("opencode does not stop to ask before it edits files or runs commands there");
+    expect(note).toContain("model providers you set up in opencode, or its free models, not QualiTaTi credits");
+  });
 });
 
 describe("ApprovalCard — the settled card is the consent record", () => {

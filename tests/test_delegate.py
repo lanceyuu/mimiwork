@@ -1,4 +1,4 @@
-"""Hand-offs to Claude Code / Codex — driven by fake agents that print the CLIs' real JSON lines."""
+"""Hand-offs to Claude Code / Codex / opencode — driven by fake agents that print the CLIs' real JSON lines."""
 
 from __future__ import annotations
 
@@ -50,6 +50,25 @@ CLAUDE_OK = [
     {"type": "result", "subtype": "success", "is_error": False, "result": "Wrote notes.md."},
 ]
 
+# Recorded from real runs on 2026-10-18 (opencode 1.19.3), trimmed.
+OPENCODE_OK = [
+    {"type": "step_start", "sessionID": "ses_9", "part": {"type": "step-start"}},
+    {"type": "text", "sessionID": "ses_9", "part": {"type": "text", "text": "Creating the requested file."}},
+    {"type": "tool_use", "sessionID": "ses_9", "part": {"type": "tool", "tool": "apply_patch", "state": {
+        "status": "completed", "input": {"patchText": "*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** End Patch"}}}},
+    {"type": "step_finish", "sessionID": "ses_9", "part": {"type": "step-finish", "reason": "tool-calls"}},
+    {"type": "step_start", "sessionID": "ses_9", "part": {"type": "step-start"}},
+    {"type": "tool_use", "sessionID": "ses_9", "part": {"type": "tool", "tool": "bash", "state": {
+        "status": "completed", "input": {"command": "ls"}, "title": "ls"}}},
+    {"type": "step_finish", "sessionID": "ses_9", "part": {"type": "step-finish", "reason": "tool-calls"}},
+    {"type": "text", "sessionID": "ses_9", "part": {"type": "text", "text": "Created hello.txt containing hi."}},
+    {"type": "step_finish", "sessionID": "ses_9", "part": {"type": "step-finish", "reason": "stop"}},
+]
+OPENCODE_UNKNOWN_MODEL = [
+    {"type": "error", "sessionID": "ses_8", "error": {"name": "UnknownError", "data": {
+        "message": "Unexpected server error. Check server logs for details.", "ref": "err_8578b641"}}},
+]
+
 
 def _fake_agent(tmp_path, events, *, write=None, sleep=0.0, exit_code=0):
     """argv for a stand-in agent: reads the task from stdin, optionally writes a file, prints events."""
@@ -84,6 +103,14 @@ def test_claude_code_runs_headless_in_its_auto_permission_mode_and_codex_in_its_
     assert 'sandbox_mode="workspace-write"' in codex
 
 
+def test_opencode_runs_unattended_with_json_events_and_without_approving_what_its_settings_ask_about():
+    assert delegate.agent_command("opencode", "opencode") == ["opencode", "run", "--format", "json"]
+    full = delegate.agent_command("opencode", "opencode", "ses_9", model="opencode/big-pickle", effort="high")
+    assert full[full.index("--session") + 1] == "ses_9"
+    assert full[full.index("-m") + 1] == "opencode/big-pickle" and full[full.index("--variant") + 1] == "high"
+    assert "--auto" not in full
+
+
 def test_a_follow_up_resumes_the_same_agent_session_in_both_clis():
     claude = delegate.agent_command("claude_code", "claude", "sess-9")
     assert claude[claude.index("--resume") + 1] == "sess-9"
@@ -106,6 +133,43 @@ def test_a_claude_code_handoff_reports_its_tool_steps_and_result(tmp_path):
     result, lines = _run(tmp_path, "claude_code", CLAUDE_OK)
     assert result["status"] == "completed" and result["summary"] == "Wrote notes.md."
     assert lines == ["Write: notes.md"]
+
+
+def test_an_opencode_handoff_reports_its_tool_steps_and_final_text(tmp_path):
+    result, lines = _run(tmp_path, "opencode", OPENCODE_OK, model="opencode/big-pickle")
+    assert result["status"] == "completed" and result["summary"] == "Created hello.txt containing hi."
+    assert lines == ["Creating the requested file.", "apply_patch", "bash: ls", "Created hello.txt containing hi."]
+    assert result["session_id"] == "ses_9"  # what a follow-up continues
+
+
+def test_an_opencode_answer_split_into_several_parts_comes_back_whole(tmp_path):
+    split = [
+        OPENCODE_OK[4],  # a step_start
+        {"type": "text", "sessionID": "ses_9", "part": {"type": "text", "text": "Fixed add() to return `a + b"}},
+        {"type": "text", "sessionID": "ses_9", "part": {"type": "text", "text": "`.\n\nAdded test_calc.py."}},
+        OPENCODE_OK[-1],
+    ]
+    result, _ = _run(tmp_path, "opencode", OPENCODE_OK[:4] + split, model="opencode/big-pickle")
+    assert result["summary"] == "Fixed add() to return `a + b`.\n\nAdded test_calc.py."
+
+
+def test_an_agent_is_told_its_own_folder_even_through_pwd_which_opencode_follows(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    script = tmp_path / "where.py"
+    script.write_text("import os\nopen('pwd.txt', 'w').write(os.environ['PWD'])\n", encoding="utf-8")
+    delegate.run_agent("opencode", "unused", "t", work, argv=[sys.executable, str(script)])
+    assert (work / "pwd.txt").read_text() == str(work)
+
+
+def test_an_opencode_error_fails_the_run_even_though_opencode_exits_cleanly(tmp_path):
+    result, _ = _run(tmp_path, "opencode", OPENCODE_UNKNOWN_MODEL, model="nope/nothing")
+    assert result["error"] == "opencode did not finish: Unexpected server error. Check server logs for details."
+
+
+def test_an_opencode_run_cut_off_between_steps_is_not_reported_as_finished(tmp_path):
+    result, _ = _run(tmp_path, "opencode", OPENCODE_OK[:4], model="opencode/big-pickle")
+    assert "status" not in result and result["error"].startswith("opencode did not finish")
 
 
 def test_a_signed_out_claude_code_comes_back_as_an_error_that_says_why(tmp_path):
@@ -156,8 +220,13 @@ def test_a_run_past_its_time_limit_is_stopped_and_says_so(tmp_path):
 
 TEAM_AGENT = """import json, os, sys, time
 task = sys.stdin.read()
-resume = sys.argv[1] if len(sys.argv) > 1 else ""
-print(json.dumps({"type": "thread.started", "thread_id": resume or "thr-" + str(os.getpid())}), flush=True)
+key = sys.argv[1]
+resume = sys.argv[2] if len(sys.argv) > 2 else ""
+sid = resume or "thr-" + str(os.getpid())
+if key == "opencode":
+    print(json.dumps({"type": "step_start", "sessionID": sid, "part": {}}), flush=True)
+else:
+    print(json.dumps({"type": "thread.started", "thread_id": sid}), flush=True)
 if task.startswith("sleep"):
     print(json.dumps({"type": "item.started", "item": {"type": "command_execution", "command": "make"}}), flush=True)
     time.sleep(30)
@@ -166,8 +235,12 @@ for line in task.splitlines():
         name, text = line[6:].split("=", 1)
         open(name, "w").write(text)
 reply = ("resumed " + resume + ": " if resume else "") + "done " + task.strip()
-print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": reply}}), flush=True)
-print(json.dumps({"type": "turn.completed"}), flush=True)
+if key == "opencode":
+    print(json.dumps({"type": "text", "sessionID": sid, "part": {"text": reply}}), flush=True)
+    print(json.dumps({"type": "step_finish", "sessionID": sid, "part": {"reason": "stop"}}), flush=True)
+else:
+    print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": reply}}), flush=True)
+    print(json.dumps({"type": "turn.completed"}), flush=True)
 """
 
 
@@ -182,13 +255,14 @@ def _no_jobs_from_other_tests():
 def _team(tmp_path, monkeypatch, folder, session="s1"):
     script = tmp_path / "team_agent.py"
     script.write_text(TEAM_AGENT, encoding="utf-8")
-    monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex", "claude_code": "claude"})
+    monkeypatch.setattr(delegate, "available_agents", lambda: {"codex": "codex", "claude_code": "claude", "opencode": "opencode"})
     monkeypatch.setattr(delegate, "connection_problem", lambda key: "")
     monkeypatch.setattr(delegate, "find_agent", lambda key: delegate.AGENTS[key][1])
     monkeypatch.setattr(delegate, "codex_models", lambda exe: [])  # never the real catalog
+    monkeypatch.setattr(delegate, "_opencode_model", lambda exe, sid: "")  # nor the real opencode
     monkeypatch.setattr(
         delegate, "agent_command",
-        lambda key, exe, resume_id="", **_: [sys.executable, str(script), *([resume_id] if resume_id else [])],
+        lambda key, exe, resume_id="", **_: [sys.executable, str(script), key, *([resume_id] if resume_id else [])],
     )
     tools = delegate.agent_team_tools(workspace=folder, roots=[RootDir(folder, writable=True)], session_id=session)
     return {t.__name__: t for t in tools}
@@ -224,6 +298,28 @@ def test_parallel_agents_each_work_on_their_own_branch_and_leave_the_main_folder
     assert not (repo / "api.py").exists() and not (repo / "docs.md").exists()
     status = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True).stdout
     assert status == ""  # the agents' copies never show up as untracked files
+
+
+def test_a_mixed_team_with_opencode_works_on_three_branches_and_opencode_takes_feedback_in_its_own_session(tmp_path, monkeypatch):
+    repo = _repo(tmp_path)
+    t = _team(tmp_path, monkeypatch, repo)
+    starts = {
+        "api": t["start_agent"](agent="codex", task="write api.py=A", name="api"),
+        "docs": t["start_agent"](agent="claude_code", task="write docs.md=B", name="docs"),
+        "tests": t["start_agent"](agent="opencode", task="write test_api.py=C", name="tests"),
+    }
+    assert starts["tests"]["branch"] == "mimi/opencode-tests" and starts["tests"]["agent"] == "opencode"
+    done = _wait_all(t, 3)
+    assert done["tests"]["status"] == "completed" and done["tests"]["changed_files"] == ["test_api.py"]
+    assert done["tests"]["resume_command"].endswith(f"opencode --session {done['tests']['session_id']}")
+    assert not (repo / "test_api.py").exists()
+
+    again = t["message_agent"](job=starts["tests"]["job"], message="write test_api.py=D")
+    second = _wait_all(t, 1)["tests"]
+    assert second["summary"].startswith(f"resumed {done['tests']['session_id']}: ")
+    assert again["branch"] == "mimi/opencode-tests" and (Path(again["workdir"]) / "test_api.py").read_text() == "D"
+    log = subprocess.run(["git", "log", "-1", "--format=%s", "mimi/opencode-tests"], cwd=repo, capture_output=True, text=True)
+    assert log.stdout.strip() == "opencode: tests"
 
 
 def test_each_round_is_committed_on_the_agents_branch_so_a_merge_brings_the_work_in(tmp_path, monkeypatch):

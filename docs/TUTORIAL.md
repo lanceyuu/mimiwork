@@ -135,14 +135,16 @@ QualiTaTi research data (projects, interviews, surveys — each retrieval asks f
 signs in with one click: Mimi can search, generate, edit, comment on and export your designs.
 Anything else speaks [MCP](https://modelcontextprotocol.io/).
 
-**Coding agents.** If you have Claude Code or Codex, open **Connectors ▸ Coding agents**:
-it shows whether each is installed and signed in, signs it in, tests it, and sets its model
-(the latest unless you choose another). Then ask Mimi to use both on one job:
+**Coding agents.** If you have Claude Code, Codex or opencode, open **Connectors ▸ Coding
+agents**: it shows whether each is installed and signed in, signs it in, tests it, and sets
+its model (the latest unless you choose another). opencode needs no account to start: its
+free models work as installed, and you can add your own providers. Then ask Mimi to use
+several on one job:
 
-> Have Codex build the CSV export and Claude Code write its tests, then have each review
-> the other's branch.
+> Have Codex build the CSV export, Claude Code write its tests and opencode update the docs,
+> then have each review another's branch.
 
-Each agent works on its own branch, Mimi passes what one found back to the other until the
+Each agent works on its own branch, Mimi passes what one found back to the others until the
 work is right, and merging into your branch goes through the same approval as any other command.
 
 ## 7 · Make it run while you don't

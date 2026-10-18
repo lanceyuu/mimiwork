@@ -577,7 +577,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   // MCP servers (empty by default; the granola OAuth quick-add test populates it).
   const mcpServers: any[] = [];
   // Coding agents page: Claude Code connected, Codex installed but signed out until its
-  // (mocked) browser sign-in finishes on the next status check.
+  // (mocked) browser sign-in finishes on the next status check, opencode ready on its own list.
   const codingAgent = (over: any) => ({
     key: "claude_code", label: "Claude Code", billing: "your own Claude account",
     installed: true, path: "/Users/me/.local/bin/claude", version: "2.1.270 (Claude Code)",
@@ -606,6 +606,18 @@ export async function mockApi(page: import("@playwright/test").Page) {
         { id: "gpt-6-luna", label: "GPT-6-Luna", description: "Fast and affordable model for easier tasks.", efforts: ["low", "medium", "high", "xhigh", "max"] },
       ],
       models_listed: true, latest: "gpt-6.1-sol",
+    }),
+    codingAgent({
+      key: "opencode", label: "opencode", billing: "the model provider you set up in opencode",
+      path: "/Users/me/.opencode/bin/opencode", version: "1.19.3", account: "GitHub Copilot",
+      install_command: "curl -fsSL https://opencode.ai/install | bash", sign_in_command: "opencode auth login",
+      efforts: ["none", "low", "medium", "high", "xhigh", "max"], defaults: { model: "", effort: "" },
+      models: [
+        { id: "github-copilot/claude-haiku-5.5", label: "Claude Haiku 5.5 · github-copilot", description: "github-copilot/claude-haiku-5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+        { id: "github-copilot/gpt-6-luna", label: "GPT-6 Luna · github-copilot", description: "github-copilot/gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+        { id: "opencode/big-pickle", label: "Big Pickle · opencode", description: "opencode/big-pickle", efforts: [] },
+      ],
+      models_listed: true, latest: "github-copilot/gpt-5.6-terra",
     }),
   ];
   let codexSignInStarted = false;
@@ -1470,6 +1482,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/coding-agents/runs"))
       return json({
         runs: [
+          {
+            job: "opencode-tests-5e6f", key: "opencode", agent: "opencode", name: "tests for the api", status: "finished",
+            branch: "mimi/opencode-tests-for-the-api", workdir: "/Users/me/analysis/.mimiwork/agents/opencode-tests-for-the-api",
+            session_id: "ses_eb0eba29cffeV3qX7zbZa88CCb", at: Date.now() / 1000 - 300,
+            resume_command: "cd /Users/me/analysis/.mimiwork/agents/opencode-tests-for-the-api && opencode --session ses_eb0eba29cffeV3qX7zbZa88CCb",
+            folder_exists: true,
+          },
           {
             job: "codex-csv-1a2b", key: "codex", agent: "Codex", name: "csv export", status: "finished",
             branch: "mimi/codex-csv-export", workdir: "/Users/me/analysis/.mimiwork/agents/codex-csv-export",

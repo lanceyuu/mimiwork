@@ -566,9 +566,11 @@ export async function getConnectors(): Promise<Connector[]> {
   return (await res.json()).connectors ?? [];
 }
 
-// Coding agents (Connectors > Coding agents): Claude Code and Codex as connectable tools.
+// Coding agents (Connectors > Coding agents): Claude Code, Codex and opencode as connectable tools.
+export type CodingAgentKey = "claude_code" | "codex" | "opencode";
+
 export interface CodingAgent {
-  key: "claude_code" | "codex";
+  key: CodingAgentKey;
   label: string;
   billing: string;
   installed: boolean;
@@ -581,11 +583,11 @@ export interface CodingAgent {
   sign_in_command: string;
   efforts: string[];
   defaults: { model: string; effort: string };
-  /** Codex: its own catalog, newest first. Claude Code: its family aliases. */
+  /** Codex and opencode: their own lists, newest first. Claude Code: its family aliases. */
   models: { id: string; label: string; description?: string; resolved?: string; efforts?: string[] }[];
-  /** True when the CLI listed its models itself (Codex); false for aliases or a failed list. */
+  /** True when the CLI listed its models itself (Codex, opencode); false for aliases or a failed list. */
   models_listed: boolean;
-  /** The model "Latest" runs as, when known ("" until Claude Code has run once). */
+  /** The model "Latest" runs as, when known ("" until Claude Code or opencode has run once). */
   latest: string;
   model: string;
   effort: string;
@@ -599,10 +601,10 @@ export async function getCodingAgents(): Promise<CodingAgent[]> {
   return (await res.json()).agents ?? [];
 }
 
-/** A hand-off Mimi gave to Claude Code or Codex, with the command that reopens it there. */
+/** A hand-off Mimi gave to a coding agent, with the command that reopens it in that agent. */
 export interface CodingAgentRun {
   job: string;
-  key: "claude_code" | "codex";
+  key: CodingAgentKey;
   agent: string;
   name: string;
   status: "running" | "finished" | "failed" | "stopped";

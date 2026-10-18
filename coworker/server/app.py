@@ -1512,7 +1512,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         # Composer: show the context-window fill bar, or just the popover (owner ask).
         return manager.set_context_bar((body or {}).get("context_bar", True))
 
-    # Coding agents (Connectors > Coding agents): Claude Code and Codex connect like any
+    # Coding agents (Connectors > Coding agents): Claude Code, Codex and opencode connect like any
     # other tool — installed, signed in, tested, with the model and effort they will use.
     def _coding_agent(key: str) -> str:
         from ..tools.delegate import AGENTS

@@ -1,4 +1,4 @@
-"""Connecting Claude Code and Codex like any other tool — driven by fake CLIs on a bare PATH."""
+"""Connecting Claude Code, Codex and opencode like any other tool — driven by fake CLIs on a bare PATH."""
 
 from __future__ import annotations
 
@@ -60,16 +60,57 @@ elif args == ["login"]:
     time.sleep(30)
 """
 
+# Output shapes recorded from opencode 1.19.3 on 2026-10-18.
+OPENCODE = """
+import json, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("1.19.3")
+elif args == ["providers", "list"]:
+    print("\\x1b[0m\\n┌  Credentials \\x1b[90m~/.local/share/opencode/auth.json\\n│")
+    for name, how in PROVIDERS:
+        print("●  " + name + " \\x1b[90m" + how + "\\n│")
+    print("└  " + str(len(PROVIDERS)) + " credentials")
+elif args == ["models", "--verbose"]:
+    for model_id, info in CATALOG:
+        print(model_id)
+        print(json.dumps(info, indent=2))
+elif args[:1] == ["export"]:
+    # Cut off mid-document, as opencode 1.19 does past 64 KB when its output is a pipe.
+    doc = {"info": {"id": args[1], "model": {"id": "gpt-6-luna", "providerID": "github-copilot"}},
+           "messages": [{"info": {"model": {"id": "other"}}, "parts": [{"text": "x" * 500}]}]}
+    print(json.dumps(doc, indent=2)[:-200])
+elif args[:1] == ["run"]:
+    open(LOG, "w").write(json.dumps(args))
+    sys.stdin.read()
+    for e in [{"type": "step_start", "sessionID": "ses_1", "part": {"type": "step-start"}},
+              {"type": "text", "sessionID": "ses_1", "part": {"type": "text", "text": "OK"}},
+              {"type": "step_finish", "sessionID": "ses_1", "part": {"type": "step-finish", "reason": "stop"}}]:
+        print(json.dumps(e), flush=True)
+"""
+
+OPENCODE_CATALOG = [
+    ("opencode/big-pickle", {"id": "big-pickle", "providerID": "opencode", "name": "Big Pickle", "status": "active",
+                             "release_date": "2025-10-17", "variants": {}}),
+    ("github-copilot/gpt-6-luna", {"id": "gpt-6-luna", "providerID": "github-copilot", "name": "GPT-6 Luna",
+                                   "status": "active", "release_date": "2026-09-22",
+                                   "variants": {"none": {}, "low": {}, "high": {}, "max": {}}}),
+    ("github-copilot/gpt-old", {"id": "gpt-old", "providerID": "github-copilot", "name": "Old", "status": "deprecated",
+                                "release_date": "2026-01-01", "variants": {}}),
+]
+
 
 @pytest.fixture(autouse=True)
 def _clean_state():
     delegate._settings.clear()
     delegate._settings_path = None
     delegate._runs_path = None
-    delegate._catalog.update(at=0.0, models=[])
+    for cache in delegate._catalogs.values():
+        cache.update(at=0.0, models=[])
     yield
     delegate._runs_path = None
-    delegate._catalog.update(at=0.0, models=[])
+    for cache in delegate._catalogs.values():
+        cache.update(at=0.0, models=[])
     for proc in delegate._LOGINS.values():
         delegate._kill(proc)
     delegate._LOGINS.clear()
@@ -228,7 +269,7 @@ def test_a_sign_in_that_cannot_start_says_why(home):
     assert not result["started"] and "port 1455 is already in use" in result["error"]
 
 
-def test_the_coding_agents_routes_answer_for_both_agents_and_refuse_any_other_name(home, tmp_path, monkeypatch):
+def test_the_coding_agents_routes_answer_for_all_three_agents_and_refuse_any_other_name(home, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from coworker.providers import ModelCapabilities, ProviderClient
@@ -246,7 +287,7 @@ def test_the_coding_agents_routes_answer_for_both_agents_and_refuse_any_other_na
     client = TestClient(create_app(SessionManager(workspace=tmp_path, provider=_Provider())))
 
     agents = client.get("/v1/coding-agents").json()["agents"]
-    assert [a["key"] for a in agents] == ["claude_code", "codex"]
+    assert [a["key"] for a in agents] == ["claude_code", "codex", "opencode"]
     assert client.post("/v1/coding-agents/codex/settings", json={"effort": "high"}).json()["ok"]
     assert client.get("/v1/coding-agents").json()["agents"][1]["effort"] == "high"
     assert client.post("/v1/coding-agents/rm -rf/test").status_code == 404
@@ -384,3 +425,74 @@ def test_saving_a_model_leaves_the_hooks_choice_alone_and_codex_is_never_given_t
     assert delegate.keeps_hooks("claude_code") is True
     assert delegate.run_settings("claude_code")["skip_hooks"] is False
     assert "--settings" not in delegate.agent_command("codex", "codex", skip_hooks=True)
+
+
+def test_opencode_needs_no_sign_in_and_names_the_providers_the_user_added(home):
+    exe = _install(home, "opencode", OPENCODE, PROVIDERS=[["GitHub Copilot", "oauth"], ["OpenRouter", "OPENROUTER_API_KEY"]], CATALOG=[])
+
+    status = delegate.agent_status("opencode")
+
+    assert (status["installed"], status["path"], status["version"]) == (True, str(exe), "1.19.3")
+    assert (status["signed_in"], status["account"]) == (True, "GitHub Copilot, OpenRouter")
+    assert status["sign_in_command"] == "opencode auth login"
+    assert delegate.connection_problem("opencode") == ""
+
+
+def test_opencode_with_only_its_free_models_is_still_ready_for_work(home):
+    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=[])
+
+    status = delegate.agent_status("opencode")
+
+    assert (status["signed_in"], status["account"]) == (True, "")
+    assert delegate.connection_problem("opencode") == ""
+
+
+def test_opencode_offers_its_own_model_list_newest_first_with_each_models_effort_levels(home):
+    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=OPENCODE_CATALOG)
+
+    status = delegate.agent_status("opencode")
+
+    assert status["models_listed"] is True
+    assert [m["id"] for m in status["models"]] == ["github-copilot/gpt-6-luna", "opencode/big-pickle"]  # no deprecated
+    assert status["models"][0]["label"] == "GPT-6 Luna · github-copilot"
+    assert status["models"][0]["efforts"] == ["none", "low", "high", "max"]
+    assert delegate.save_settings("opencode", "github-copilot/gpt-6-luna", "none")["ok"]  # a level it lists
+
+
+def test_with_no_model_chosen_opencode_makes_its_own_choice_and_the_page_learns_what_that_was(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=OPENCODE_CATALOG, LOG=str(log))
+    delegate.load_settings(tmp_path / "coding-agents.json")
+
+    result = delegate.try_agent("opencode")
+
+    argv = json.loads(log.read_text())
+    assert argv[:3] == ["run", "--format", "json"] and "-m" not in argv
+    assert "--auto" not in argv  # what opencode's own settings mark "ask" stays refused
+    assert (result["ok"], result["reply"], result["model"]) == (True, "OK", "github-copilot/gpt-6-luna")
+    assert delegate.agent_status("opencode")["latest"] == "github-copilot/gpt-6-luna"
+
+
+def test_a_chosen_opencode_model_and_effort_reach_its_command_line(home, tmp_path):
+    log = tmp_path / "argv.json"
+    _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=OPENCODE_CATALOG, LOG=str(log))
+    delegate.save_settings("opencode", "opencode/big-pickle", "high")
+
+    delegate.try_agent("opencode")
+
+    argv = json.loads(log.read_text())
+    assert argv[argv.index("-m") + 1] == "opencode/big-pickle"
+    assert argv[argv.index("--variant") + 1] == "high"
+
+
+def test_opencode_hand_offs_reopen_with_opencode_session_in_their_folder(tmp_path):
+    delegate.load_settings(tmp_path / "coding-agents.json")
+    work = tmp_path / "proj"
+    work.mkdir()
+    job = delegate.Job("s", "opencode", "opencode", "tests", work, "mimi/opencode-tests")
+    job.resume_id, job.status = "ses_abc", "finished"
+
+    delegate.record_run(job)
+
+    run = delegate.recent_runs()[0]
+    assert (run["agent"], run["resume_command"]) == ("opencode", f"cd {work} && opencode --session ses_abc")

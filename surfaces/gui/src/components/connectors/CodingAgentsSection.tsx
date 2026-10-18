@@ -13,7 +13,7 @@ import { openExternal } from "../../tauri";
 import { Toggle } from "../Toggle";
 import { CHIP_OFF, CHIP_OK, CHIP_WARN, FOOT, GRP, PILL_ACCENT, PILL_LINE, ROW } from "./ui";
 
-// Claude Code and Codex, connected like any other tool: installed where, signed in as whom,
+// Claude Code, Codex and opencode, connected like any other tool: installed where, signed in as whom,
 // a real test call, and the model and effort Mimi's hand-offs will use. Delegation reads the
 // same status, so what this page says is what start_agent will find.
 
@@ -71,10 +71,10 @@ export function CodingAgentsSection() {
       {/* What start_agent / wait_for_agents / message_agent do together today; Mimi relays
           between the agents, they never talk to each other directly. */}
       <div className="rounded-xl2 border border-line bg-panel px-4 py-3 text-[12.5px]" data-testid="coding-agents-together">
-        <div className="font-semibold text-[13px] mb-1">{t("Claude Code and Codex can work together")}</div>
+        <div className="font-semibold text-[13px] mb-1">{t("Claude Code, Codex and opencode can work together")}</div>
         <p className="text-muted">
           {t(
-            "Ask Mimi to use both on one job. Mimi splits the work and gives each agent its own part on its own branch, can have one review the other's branch, and passes what one found back to the other as feedback until the work is right. You see each agent's progress while they work.",
+            "Ask Mimi to use more than one on a job. Mimi splits the work and gives each agent its own part on its own branch, can have one review another's branch, and passes what one found back to the others as feedback until the work is right. You see each agent's progress while they work.",
           )}
         </p>
       </div>
@@ -100,11 +100,15 @@ export function CodingAgentsSection() {
 function modelHint(a: CodingAgent): string {
   if (a.key === "claude_code")
     return "Claude Code cannot list its models. Latest is the model Claude Code recommends for your account, and each family follows its newest model as your installed Claude Code knows it. Updating Claude Code moves them forward.";
+  if (a.key === "opencode")
+    return a.models_listed
+      ? "From opencode's own list: its free models and the providers you set up, newest first. opencode's choice is the model in your opencode settings, or the one it picks for your providers."
+      : "opencode did not share its model list. Type a model as provider/model, or leave it empty for opencode's own choice.";
   if (a.models_listed) return "From Codex's own model list, newest first. Latest follows that list as it changes.";
   return "Codex did not share its model list. Type a model name, or leave it empty for Codex's own default.";
 }
 
-// Codex says which effort levels each model takes; the chosen (or latest) model decides.
+// Codex and opencode say which effort levels each model takes; the chosen (or latest) model decides.
 function effortsFor(a: CodingAgent): string[] {
   const id = a.model || a.latest;
   const m = a.models.find((x) => x.id === id);
@@ -174,6 +178,16 @@ function AgentCard({
   };
 
   const connected = a.installed && a.signed_in && !a.error;
+  const opencode = a.key === "opencode";
+  // opencode's own pick is not the newest model (its list mixes every provider's previews),
+  // so its first option says whose choice it is rather than "Latest".
+  const firstOption = opencode
+    ? a.latest
+      ? t("opencode's choice (currently {model})").replace("{model}", a.latest)
+      : t("opencode's choice")
+    : a.latest
+      ? t("Latest (currently {model})").replace("{model}", a.latest)
+      : t("Latest");
 
   return (
     <section data-testid={`coding-agent-${a.key}`}>
@@ -211,10 +225,25 @@ function AgentCard({
         </div>
 
         <div className={ROW}>
-          <span className="w-24 shrink-0 text-[13px] text-muted">{t("Signed in")}</span>
+          <span className="w-24 shrink-0 text-[13px] text-muted">{opencode ? t("Providers") : t("Signed in")}</span>
           <div className="min-w-0 flex-1 text-[12.5px]">
             {!a.installed ? (
               <span className="text-faint">{t("Install it first.")}</span>
+            ) : opencode ? (
+              // No sign-in: opencode's free models work as installed. Adding a provider is an
+              // interactive picker in the terminal.
+              <div className="space-y-0.5" data-testid="coding-agent-providers">
+                <div>
+                  {a.account ? (
+                    <span data-no-translate>{a.account}</span>
+                  ) : (
+                    t("None added. opencode's free models work without one.")
+                  )}
+                </div>
+                <div className="text-faint">
+                  {t("To add a provider, run this in a terminal:")} <Command text={a.sign_in_command} />
+                </div>
+              </div>
             ) : a.signed_in ? (
               <span data-no-translate>{a.account || t("Signed in")}</span>
             ) : (
@@ -267,9 +296,7 @@ function AgentCard({
                 }}
                 data-testid="coding-agent-model-select"
               >
-                <option value="">
-                  {a.latest ? t("Latest (currently {model})").replace("{model}", a.latest) : t("Latest")}
-                </option>
+                <option value="">{firstOption}</option>
                 {a.models.map((m) => (
                   <option key={m.id} value={m.id} title={m.description}>
                     {m.resolved ? `${t(m.label)} (${m.resolved})` : t(m.label)}
@@ -339,6 +366,17 @@ function AgentCard({
           </div>
         )}
 
+        {opencode && (
+          <div className={ROW} data-testid="coding-agent-unattended">
+            <span className="w-24 shrink-0 text-[13px] text-muted">{t("Approvals")}</span>
+            <p className="min-w-0 flex-1 text-[12.5px]">
+              {t(
+                "In a hand-off, opencode does not stop to ask: it edits files and runs commands in its folder on its own. Anything your opencode settings mark to ask about, like reading outside that folder, is refused. Mimi still asks you before every hand-off, and in a git project opencode works on its own branch.",
+              )}
+            </p>
+          </div>
+        )}
+
         <div className={ROW}>
           <span className="w-24 shrink-0 text-[13px] text-muted">{t("Test")}</span>
           <div className="min-w-0 flex-1 text-[12.5px] space-y-1">
@@ -370,7 +408,9 @@ function AgentCard({
       <p className={FOOT}>
         {a.key === "claude_code"
           ? t("Runs on your own Claude account, not QualiTaTi credits.")
-          : t("Runs on your own OpenAI account, not QualiTaTi credits.")}
+          : opencode
+            ? t("Runs on the providers you set up in opencode, or its free models, not QualiTaTi credits.")
+            : t("Runs on your own OpenAI account, not QualiTaTi credits.")}
       </p>
     </section>
   );
@@ -383,7 +423,7 @@ const RUN_STATUS: Record<CodingAgentRun["status"], { label: string; chip: string
   stopped: { label: "Stopped", chip: CHIP_OFF },
 };
 
-// Each hand-off is a real Claude Code or Codex conversation, but neither app lists it where
+// Each hand-off is a real conversation in the agent itself, but none of them lists it where
 // people look (it lives under the agent's own copy of the project, and Codex hides runs it
 // did not start interactively). The command opens it there, to read it or carry on by hand.
 function RecentRuns({ runs }: { runs: CodingAgentRun[] }) {
@@ -392,11 +432,11 @@ function RecentRuns({ runs }: { runs: CodingAgentRun[] }) {
     <section data-testid="coding-agent-runs">
       <h3 className="text-[14px] font-semibold px-1 mb-0.5">{t("Recent hand-offs")}</h3>
       <p className="text-[12px] text-muted px-1 mb-2">
-        {t("Each hand-off is a conversation in Claude Code or Codex itself. Run its command in a terminal to read it or carry on yourself.")}
+        {t("Each hand-off is a conversation in Claude Code, Codex or opencode itself. Run its command in a terminal to read it or carry on yourself.")}
       </p>
       {runs.length === 0 ? (
         <div className="text-[12.5px] text-faint px-1">
-          {t("No hand-offs yet. When Mimi gives work to Claude Code or Codex, it appears here.")}
+          {t("No hand-offs yet. When Mimi gives work to Claude Code, Codex or opencode, it appears here.")}
         </div>
       ) : (
         <div className={GRP}>
