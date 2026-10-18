@@ -26,12 +26,11 @@ def capabilities_for(model: str) -> ModelCapabilities:
     # bound to ("mimi", "hound", "wolf"). The gateway diverts any image-bearing request
     # to a multimodal leg server-side, so vision=True is a fact about the SERVICE, not
     # a guess about one model; without this, a pre-rename session silently strips every
-    # image into a "[not viewable]" placeholder (owner report 2026-08-19). The free
-    # tier ("puppy"/"deepseek-v4-flash") stays text-only.
+    # image into a "[not viewable]" placeholder (owner report 2026-08-19). The free tier
+    # joined them on 2026-10-18, when its image legs were measured reading images.
     if provider == "qualitati":
-        free_tier = "puppy" in name or name.startswith("deepseek")
         return ModelCapabilities(
-            tools=True, vision=not free_tier, parallel_tool_calls=True, streaming=True
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
         )
 
     # Ollama (local) models vary widely and many fake/mishandle parallel tool calls — assume

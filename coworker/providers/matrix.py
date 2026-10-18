@@ -139,10 +139,15 @@ MATRIX: dict[str, ModelEntry] = {
         context_window=1_000_000,
     ),
     # "Mimi Puppy": free daily allowance for signed-in QualiTaTi accounts. Zero
-    # credits; the gateway enforces the per-day cap and 429s past it.
+    # credits; the gateway enforces the per-day cap and 429s past it. Images: since
+    # 2026-10-18 US Puppy runs GPT-6 Luna and EU Puppy has its own image leg; both read
+    # a test image through the gateway that day, so the app stops replacing pictures
+    # with a placeholder. (The China site was not measured and stays text-only.)
     "qualitati:mimi-puppy": ModelEntry(
         label="Mimi Puppy · free, fastest",
-        caps=_AGENTIC,
+        caps=ModelCapabilities(
+            tools=True, vision=True, parallel_tool_calls=True, streaming=True
+        ),
     ),
     # 质见中国 — the same four tiers on the China site (qualitati.cn), DeepSeek/Qwen
     # served domestically. A separate provider so the picker says where a call goes and

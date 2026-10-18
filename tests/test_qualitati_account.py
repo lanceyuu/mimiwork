@@ -256,8 +256,16 @@ def test_legacy_qualitati_ids_keep_vision():
 
     for legacy in ("qualitati:mimi", "qualitati:hound", "qualitati:wolf"):
         assert capabilities_for(legacy).vision, legacy
-    assert not capabilities_for("qualitati:puppy").vision
-    assert not capabilities_for("qualitati:deepseek-v4-flash").vision
+
+
+def test_puppy_sends_images_on_the_global_site_but_not_yet_in_china():
+    """US Puppy moved to GPT-6 Luna and EU Puppy has an image leg; both read a test image
+    through the gateway on 2026-10-18. The China site was not measured."""
+    from coworker.providers.capabilities import capabilities_for
+
+    assert capabilities_for("qualitati:mimi-puppy").vision
+    assert capabilities_for("qualitati:puppy").vision
+    assert not capabilities_for("qualitati_cn:mimi-puppy").vision
 
 
 # -- in-app registration (mirrors qualitati.com/register) --------------------------
