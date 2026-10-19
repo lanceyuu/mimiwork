@@ -5,9 +5,11 @@ an address + app password and servers are inferred from the address domain (adva
 fields override). Credentials are read from the SecretStore at execution time and never
 enter prompts. All mailbox reads are non-destructive (read-only SELECT / PEEK fetches,
 so the user's unread flags never flip) and v1 ships no delete/move/flag tools. Sending
-and attachment download require approval. Sending is deliberately single-shot — SMTP
-only, no APPEND-to-Sent afterwards — so a failure can never leave "delivered but looks
-failed" state that tempts a retry into double-sending (Gmail saves to Sent server-side).
+and attachment download require approval. After SMTP accepts a message, a copy is
+filed in Sent with IMAP APPEND, because most hosts (Namecheap Private Email, iCloud,
+cPanel) do not do that themselves and an empty Sent folder read as a failed send. The
+copy is best-effort: once SMTP has accepted the message the result is "ok" whatever
+happens to the copy, so a filing error can never tempt a retry into double-sending.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import imaplib
 import re
 import smtplib
 import ssl
+import time
 from dataclasses import dataclass
 from email.header import decode_header
 from email.message import EmailMessage
@@ -91,6 +94,11 @@ def resolve_servers(profile: dict[str, Any]) -> tuple[Optional[EmailServers], st
 
 def _is_gmail(servers: EmailServers) -> bool:
     return servers.imap_host.endswith(".gmail.com")
+
+
+# These file SMTP submissions into Sent on the server; a second copy would duplicate it.
+_SERVER_FILES_SENT = (".gmail.com", ".office365.com", ".outlook.com")
+_SENT_NAMES = ("Sent", "Sent Items", "Sent Messages", "INBOX.Sent", "Sent Mail")
 
 
 def _auth_hint(servers: EmailServers) -> str:
@@ -280,6 +288,23 @@ def _parse_list_line(line: bytes) -> Optional[str]:
         return name.decode("utf-8")
     except UnicodeDecodeError:
         return name.decode("latin-1")
+
+
+def _find_sent_folder(imap: imaplib.IMAP4) -> Optional[str]:
+    """The folder flagged \\Sent (RFC 6154), else the first conventionally named one."""
+    status, lines = imap.list()
+    if status != "OK":
+        return None
+    names = []
+    for line in lines or []:
+        m = _LIST_RE.match(line) if isinstance(line, bytes) else None
+        name = _parse_list_line(line) if m else None
+        if name is None:
+            continue
+        if rb"\Sent" in m.group("flags"):
+            return name
+        names.append(name)
+    return next((n for n in _SENT_NAMES if n in names), None)
 
 
 def _select_readonly(imap: imaplib.IMAP4, folder: str) -> Optional[str]:
@@ -670,7 +695,34 @@ def make_email_tools(
                 smtp.quit()
             except Exception:
                 pass
-        return {"ok": True, "message_id": msg["Message-ID"], "subject": final_subject}
+        result = {"ok": True, "message_id": msg["Message-ID"], "subject": final_subject}
+        if servers.imap_host.endswith(_SERVER_FILES_SENT):
+            return result
+        imap, _, _, err = _connect_imap()
+        if err:
+            result["sent_copy"] = "delivered, but no copy was filed in Sent"
+            return result
+        try:
+            folder = _find_sent_folder(imap)
+            if folder is None:
+                result["sent_copy"] = "delivered, but the mailbox has no Sent folder"
+            else:
+                status, _ = imap.append(
+                    _quote(folder),
+                    r"(\Seen)",
+                    imaplib.Time2Internaldate(time.time()),
+                    msg.as_bytes(),
+                )
+                result["sent_copy"] = (
+                    f"filed in {folder}"
+                    if status == "OK"
+                    else f"delivered, but filing a copy in {folder} failed"
+                )
+        except Exception as exc:
+            result["sent_copy"] = f"delivered, but filing a copy in Sent failed: {exc}"
+        finally:
+            _logout(imap)
+        return result
 
     return [
         _attach(

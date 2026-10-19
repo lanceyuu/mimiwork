@@ -70,6 +70,11 @@ class FakeIMAP:
             return "OK", [(meta, raw), b")"]
         raise AssertionError(f"unexpected uid command {command}")
 
+    def append(self, folder, flags, date_time, message):
+        self.commands.append(("append", folder, flags))
+        self.appended = message
+        return "OK", [b"APPEND completed"]
+
     def logout(self):
         return "BYE", []
 
@@ -298,6 +303,64 @@ def test_send_reply_threads_and_reuses_subject(tmp_path):
     assert sent["In-Reply-To"] == "<orig-123@example.com>"
     assert "<orig-123@example.com>" in sent["References"]
     assert sent["Subject"] == "Re: Quarterly report"
+
+
+class PrivateEmailIMAP(FakeIMAP):
+    """A Namecheap-style host: Sent is flagged by RFC 6154 under a plain name."""
+
+    def list(self):
+        return "OK", [
+            b'(\\HasNoChildren) "/" "INBOX"',
+            b'(\\HasNoChildren \\Sent) "/" "Sent"',
+            b'(\\HasNoChildren \\Trash) "/" "Trash"',
+        ]
+
+
+def _private_email_secrets(tmp_path) -> SecretStore:
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put(
+        "email:default",
+        {
+            "address": "contact@qualitati.com",
+            "app_password": "pw",
+            "imap_host": "mail.privateemail.com",
+            "smtp_host": "mail.privateemail.com",
+            "smtp_port": "465",
+        },
+    )
+    return secrets
+
+
+def test_a_sent_message_is_filed_in_sent_where_the_host_does_not_do_it(tmp_path):
+    imap, smtp = PrivateEmailIMAP(), FakeSMTP()
+    tools = _tools(_private_email_secrets(tmp_path), imap=imap, smtp=smtp)
+    result = tools["email_send"](
+        to="ana@example.com", subject="Hi", body="Hello", bcc="boss@example.com"
+    )
+    assert result["ok"] and result["sent_copy"] == "filed in Sent"
+    assert ("append", '"Sent"', "(\\Seen)") in imap.commands
+    assert b"Bcc: boss@example.com" in imap.appended  # the sender's record keeps it
+
+
+def test_gmail_is_not_given_a_duplicate_sent_copy(tmp_path):
+    imap = FakeIMAP()
+    tools = _tools(_connected_secrets(tmp_path), imap=imap, smtp=FakeSMTP())
+    result = tools["email_send"](to="ana@example.com", subject="Hi", body="Hello")
+    assert result["ok"] and "sent_copy" not in result
+    assert not any(c[0] == "append" for c in imap.commands)
+
+
+def test_a_failed_sent_copy_still_reports_the_delivery(tmp_path):
+    class BrokenAppend(PrivateEmailIMAP):
+        def append(self, *args):
+            raise OSError("connection reset")
+
+    tools = _tools(
+        _private_email_secrets(tmp_path), imap=BrokenAppend(), smtp=FakeSMTP()
+    )
+    result = tools["email_send"](to="ana@example.com", subject="Hi", body="Hello")
+    assert result["ok"]
+    assert result["sent_copy"].startswith("delivered, but filing a copy")
 
 
 def test_send_attachment_must_live_inside_roots(tmp_path):
