@@ -1,7 +1,4 @@
-Mimi is steadier and easier to read. Replies that start repeating themselves are now stopped, pictures no longer break a conversation when you change models, and Mimi checks facts before stating them.
+Email sent by Mimi now shows up in your Sent folder, so a message that went out no longer looks as if it failed.
 
-- **No more runaway replies**: a reply that loops (the same answer over and over, or a few short words repeated) is now caught early, including in Mimi's thinking. Mimi gets one chance to redo the step; if it loops again, the reply stops and you are told, instead of running until you press Stop.
-- **Pictures and model switches**: if a model cannot read the pictures earlier in a conversation, Mimi now leaves them out and carries on, instead of failing every message. Mimi Puppy can now read pictures you send.
-- **Facts are looked up**: rankings, figures, dates, citations and what a named person did must come from something Mimi opened in the conversation. Otherwise it says plainly that it has not checked.
-- **Clearer questions and replies**: when Mimi needs your preference, it offers a few choices with room to type your own, and the question card can be closed. Final replies are shorter, lead with the result and use no emoji.
-- **One permission card**: each request now shows once, instead of a second copy above the message box.
+- **Sent email is filed**: some mail hosts, such as Namecheap Private Email, iCloud and most cPanel hosts, do not keep a copy of messages sent from other apps. Mimi now files a copy in your Sent folder itself after the message is delivered. Gmail and Microsoft already do this, so they are left alone and you get no duplicate.
+- **No false failures**: before, Mimi could look in Sent, find nothing, and tell you the send had failed even though the recipient had the message. If filing the copy goes wrong, Mimi now says so, and the message still counts as sent, so it is never sent twice.
