@@ -191,6 +191,13 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         target_arg="to",
     ),
     ConnectorToolDef(
+        "email",
+        "email_save_draft",
+        "Save draft",
+        "write",
+        "Save an email in the Drafts folder without sending it (requires approval).",
+    ),
+    ConnectorToolDef(
         "gmail",
         "gmail_search_messages",
         "Search Gmail",

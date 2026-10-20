@@ -312,6 +312,7 @@ class PrivateEmailIMAP(FakeIMAP):
         return "OK", [
             b'(\\HasNoChildren) "/" "INBOX"',
             b'(\\HasNoChildren \\Sent) "/" "Sent"',
+            b'(\\HasNoChildren \\Drafts) "/" "Drafts"',
             b'(\\HasNoChildren \\Trash) "/" "Trash"',
         ]
 
@@ -363,6 +364,37 @@ def test_a_failed_sent_copy_still_reports_the_delivery(tmp_path):
     assert result["sent_copy"].startswith("delivered, but filing a copy")
 
 
+def test_a_draft_is_saved_in_drafts_and_nothing_is_sent(tmp_path):
+    imap, smtp = PrivateEmailIMAP(), FakeSMTP()
+    tools = _tools(_private_email_secrets(tmp_path), imap=imap, smtp=smtp)
+    result = tools["email_save_draft"](
+        to="ana@example.com", subject="Hi", body="Hello", bcc="boss@example.com"
+    )
+    assert result == {"ok": True, "folder": "Drafts", "subject": "Hi"}
+    assert ("append", '"Drafts"', "(\\Draft \\Seen)") in imap.commands
+    assert b"To: ana@example.com" in imap.appended
+    assert b"Bcc: boss@example.com" in imap.appended
+    assert not smtp.sent and smtp.logged_in is None
+
+
+def test_a_reply_draft_keeps_the_thread(tmp_path):
+    imap = PrivateEmailIMAP({"7": _multipart_message()})
+    tools = _tools(_private_email_secrets(tmp_path), imap=imap, smtp=FakeSMTP())
+    result = tools["email_save_draft"](
+        to="ana@example.com", subject="", body="re!", reply_to_uid="7"
+    )
+    assert result["ok"] and result["subject"] == "Re: Quarterly report"
+    assert b"In-Reply-To: <orig-123@example.com>" in imap.appended
+
+
+def test_a_mailbox_without_drafts_says_so_instead_of_saving_elsewhere(tmp_path):
+    imap = FakeIMAP()  # INBOX and Sent Mail only
+    tools = _tools(_connected_secrets(tmp_path), imap=imap, smtp=FakeSMTP())
+    result = tools["email_save_draft"](to="a@b.c", subject="s", body="b")
+    assert result == {"error": "the mailbox has no Drafts folder"}
+    assert not any(c[0] == "append" for c in imap.commands)
+
+
 def test_send_attachment_must_live_inside_roots(tmp_path):
     smtp = FakeSMTP()
     scratch = tmp_path / "scratch"
@@ -400,6 +432,7 @@ def test_approval_gating(tmp_path):
         "email_read": False,
         "email_download_attachment": True,
         "email_send": True,
+        "email_save_draft": True,
     }
 
 
@@ -415,6 +448,7 @@ def test_connector_registration():
         "email_read",
         "email_download_attachment",
         "email_send",
+        "email_save_draft",
     }
     assert connector_for_tool("email_send") == "email"
 

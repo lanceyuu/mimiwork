@@ -24,7 +24,7 @@ ABOUT: dict[str, str] = {
     "slack": "Bring your coworker into Slack: mention it in a channel or DM it, "
     "and replies land in-thread. Any number of workspaces can be connected, "
     "each with its own allow-list of who may talk to the agent.",
-    "email": "Read, search, and send mail on any IMAP account — Gmail, iCloud, "
+    "email": "Read, search, draft, and send mail on any IMAP account — Gmail, iCloud, "
     "Fastmail, or your own server — using an app password instead of your "
     "account password.",
     "gmail": "Search, summarize, and send over your Gmail. Multiple accounts "
@@ -84,7 +84,7 @@ ACCESS: dict[str, list[str]] = {
     ],
     "email": [
         "Reads and searches mail over IMAP.",
-        "Sends mail as your address, and saves attachments locally.",
+        "Sends mail as your address, saves drafts, and saves attachments locally.",
         "Signs in with an app password — never your account password.",
     ],
     "gmail": [

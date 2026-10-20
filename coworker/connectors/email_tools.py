@@ -4,12 +4,14 @@ One connector covers Gmail, iCloud, Fastmail, and custom IMAP servers: the user 
 an address + app password and servers are inferred from the address domain (advanced
 fields override). Credentials are read from the SecretStore at execution time and never
 enter prompts. All mailbox reads are non-destructive (read-only SELECT / PEEK fetches,
-so the user's unread flags never flip) and v1 ships no delete/move/flag tools. Sending
-and attachment download require approval. After SMTP accepts a message, a copy is
-filed in Sent with IMAP APPEND, because most hosts (Namecheap Private Email, iCloud,
-cPanel) do not do that themselves and an empty Sent folder read as a failed send. The
-copy is best-effort: once SMTP has accepted the message the result is "ok" whatever
-happens to the copy, so a filing error can never tempt a retry into double-sending.
+so the user's unread flags never flip) and v1 ships no delete/move/flag tools. Sending,
+saving a draft and attachment download require approval. A draft goes into Drafts with
+IMAP APPEND and never touches SMTP, so the user can review and send it from their own
+mail app. After SMTP accepts a message, a copy is filed in Sent the same way, because
+most hosts (Namecheap Private Email, iCloud, cPanel) do not do that themselves and an
+empty Sent folder read as a failed send. The copy is best-effort: once SMTP has
+accepted the message the result is "ok" whatever happens to the copy, so a filing
+error can never tempt a retry into double-sending.
 """
 
 from __future__ import annotations
@@ -99,6 +101,7 @@ def _is_gmail(servers: EmailServers) -> bool:
 # These file SMTP submissions into Sent on the server; a second copy would duplicate it.
 _SERVER_FILES_SENT = (".gmail.com", ".office365.com", ".outlook.com")
 _SENT_NAMES = ("Sent", "Sent Items", "Sent Messages", "INBOX.Sent", "Sent Mail")
+_DRAFTS_NAMES = ("Drafts", "INBOX.Drafts", "Draft")
 
 
 def _auth_hint(servers: EmailServers) -> str:
@@ -290,8 +293,10 @@ def _parse_list_line(line: bytes) -> Optional[str]:
         return name.decode("latin-1")
 
 
-def _find_sent_folder(imap: imaplib.IMAP4) -> Optional[str]:
-    """The folder flagged \\Sent (RFC 6154), else the first conventionally named one."""
+def _find_folder(
+    imap: imaplib.IMAP4, flag: bytes, conventional: tuple[str, ...]
+) -> Optional[str]:
+    """The folder carrying an RFC 6154 flag, else the first conventionally named one."""
     status, lines = imap.list()
     if status != "OK":
         return None
@@ -301,10 +306,10 @@ def _find_sent_folder(imap: imaplib.IMAP4) -> Optional[str]:
         name = _parse_list_line(line) if m else None
         if name is None:
             continue
-        if rb"\Sent" in m.group("flags"):
+        if flag in m.group("flags"):
             return name
         names.append(name)
-    return next((n for n in _SENT_NAMES if n in names), None)
+    return next((n for n in conventional if n in names), None)
 
 
 def _select_readonly(imap: imaplib.IMAP4, folder: str) -> Optional[str]:
@@ -594,23 +599,18 @@ def make_email_tools(
         finally:
             _logout(imap)
 
-    def email_send(
+    def _compose(
+        profile: dict[str, Any],
         to: str,
         subject: str,
         body: str,
-        cc: str = "",
-        bcc: str = "",
-        reply_to_uid: str = "",
-        reply_to_folder: str = "INBOX",
-        attachments: Optional[list[str]] = None,
-    ) -> dict[str, Any]:
-        profile = secrets.get("email:default") or {}
-        if not profile.get("address") or not profile.get("app_password"):
-            return {"error": "email is not connected; add it in Manage → Integrations"}
-        servers, res_err = resolve_servers(profile)
-        if servers is None:
-            return {"error": res_err}
-
+        cc: str,
+        bcc: str,
+        reply_to_uid: str,
+        reply_to_folder: str,
+        attachments: Optional[list[str]],
+    ) -> EmailMessage | dict[str, Any]:
+        """The finished message, or a tool-result error dict."""
         msg = EmailMessage()
         display = str(profile.get("display_name") or "").strip()
         msg["From"] = (
@@ -681,6 +681,41 @@ def make_email_tools(
                 subtype=subtype,
                 filename=path.name,
             )
+        return msg
+
+    def _profile():
+        """(profile, servers, error) — error is a tool-result dict."""
+        profile = secrets.get("email:default") or {}
+        if not profile.get("address") or not profile.get("app_password"):
+            return (
+                None,
+                None,
+                {"error": "email is not connected; add it in Manage → Integrations"},
+            )
+        servers, err = resolve_servers(profile)
+        if servers is None:
+            return None, None, {"error": err}
+        return profile, servers, None
+
+    def email_send(
+        to: str,
+        subject: str,
+        body: str,
+        cc: str = "",
+        bcc: str = "",
+        reply_to_uid: str = "",
+        reply_to_folder: str = "INBOX",
+        attachments: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        profile, servers, err = _profile()
+        if err:
+            return err
+        msg = _compose(
+            profile, to, subject, body, cc, bcc, reply_to_uid, reply_to_folder, attachments
+        )
+        if isinstance(msg, dict):
+            return msg
+        final_subject = msg["Subject"]
 
         try:
             smtp = _smtp_login(profile, servers, smtp_factory)
@@ -703,7 +738,7 @@ def make_email_tools(
             result["sent_copy"] = "delivered, but no copy was filed in Sent"
             return result
         try:
-            folder = _find_sent_folder(imap)
+            folder = _find_folder(imap, rb"\Sent", _SENT_NAMES)
             if folder is None:
                 result["sent_copy"] = "delivered, but the mailbox has no Sent folder"
             else:
@@ -723,6 +758,45 @@ def make_email_tools(
         finally:
             _logout(imap)
         return result
+
+    def email_save_draft(
+        to: str,
+        subject: str,
+        body: str,
+        cc: str = "",
+        bcc: str = "",
+        reply_to_uid: str = "",
+        reply_to_folder: str = "INBOX",
+        attachments: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        profile, _, err = _profile()
+        if err:
+            return err
+        msg = _compose(
+            profile, to, subject, body, cc, bcc, reply_to_uid, reply_to_folder, attachments
+        )
+        if isinstance(msg, dict):
+            return msg
+        imap, _, _, err = _connect_imap()
+        if err:
+            return err
+        try:
+            folder = _find_folder(imap, rb"\Drafts", _DRAFTS_NAMES)
+            if folder is None:
+                return {"error": "the mailbox has no Drafts folder"}
+            status, _ = imap.append(
+                _quote(folder),
+                r"(\Draft \Seen)",
+                imaplib.Time2Internaldate(time.time()),
+                msg.as_bytes(),
+            )
+        except Exception as exc:
+            return {"error": f"saving the draft failed: {exc}"}
+        finally:
+            _logout(imap)
+        if status != "OK":
+            return {"error": f"saving the draft in {folder} failed"}
+        return {"ok": True, "folder": folder, "subject": msg["Subject"]}
 
     return [
         _attach(
@@ -823,6 +897,41 @@ def make_email_tools(
                 "Send an email from the connected account. Requires user approval. To reply "
                 "to a message pass reply_to_uid (threading headers and Re: subject are set "
                 "automatically; leave subject empty to reuse the original).",
+                {
+                    "to": {
+                        "type": "string",
+                        "description": "Recipient address(es), comma-separated.",
+                    },
+                    "subject": {"type": "string"},
+                    "body": {"type": "string", "description": "Plain-text body."},
+                    "cc": {"type": "string"},
+                    "bcc": {"type": "string"},
+                    "reply_to_uid": {
+                        "type": "string",
+                        "description": "UID of the message being replied to.",
+                    },
+                    "reply_to_folder": {
+                        "type": "string",
+                        "description": "Folder of reply_to_uid, default INBOX.",
+                    },
+                    "attachments": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Paths within the session's directories to attach.",
+                    },
+                },
+                ["to", "subject", "body"],
+            ),
+            approval=True,
+            caps=["email", "write"],
+        ),
+        _attach(
+            email_save_draft,
+            _schema(
+                "email_save_draft",
+                "Save an email in the connected mailbox's Drafts folder without sending "
+                "it, so the user can review and send it from their own mail app. Same "
+                "fields as email_send, including reply_to_uid. Requires user approval.",
                 {
                     "to": {
                         "type": "string",
