@@ -130,6 +130,36 @@ _GEN_ACCOUNT_PROP = {
 }
 
 
+def _gmail_raw(to: str, subject: str, body: str, cc: str) -> str:
+    msg = EmailMessage()
+    msg["To"], msg["Subject"] = to, subject
+    if cc:
+        msg["Cc"] = cc
+    msg.set_content(body)
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")
+
+
+def _outlook_message(to: str, subject: str, body: str) -> dict[str, Any]:
+    return {
+        "subject": subject,
+        "body": {"contentType": "Text", "content": body},
+        "toRecipients": [{"emailAddress": {"address": to}}],
+    }
+
+
+def _draft_scope_hint(result: dict[str, Any], scope: str) -> dict[str, Any]:
+    """Tokens pasted before drafting existed carry only read and send scopes, so
+    the provider refuses with a bare 403 that reads like a bug. Say what to do."""
+    if result.get("error") == "HTTP 403":
+        return {
+            **result,
+            "error": "This account was connected without permission to create "
+            f"drafts. Reconnect it with a new access token that includes the "
+            f"{scope} scope.",
+        }
+    return result
+
+
 def _gmail_profile(
     secrets: SecretStore, account: str = ""
 ) -> tuple[str, Optional[dict[str, Any]], Optional[dict[str, str]]]:
@@ -1027,17 +1057,11 @@ def make_integration_tools(
         email, profile, err = _gmail_profile(secrets, account)
         if err:
             return err
-        msg = EmailMessage()
-        msg["To"], msg["Subject"] = to, subject
-        if cc:
-            msg["Cc"] = cc
-        msg.set_content(body)
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")
         result = _request(
             "POST",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
             headers=_google_headers(profile["access_token"]),
-            json={"raw": raw},
+            json={"raw": _gmail_raw(to, subject, body, cc)},
         )
         if result.get("ok"):
             result["account"] = email
@@ -1051,6 +1075,47 @@ def make_integration_tools(
                 "gmail_send_email",
                 "Send an email through Gmail. Requires user approval; the "
                 "`account` argument names the sending mailbox on the approval card.",
+                {
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "cc": {"type": "string"},
+                    "account": _ACCOUNT_PROP,
+                },
+                ["to", "subject", "body"],
+            ),
+            approval=True,
+            caps=["gmail", "write"],
+        )
+    )
+
+    def gmail_create_draft(
+        to: str, subject: str, body: str, cc: str = "", account: str = ""
+    ) -> dict[str, Any]:
+        email, profile, err = _gmail_profile(secrets, account)
+        if err:
+            return err
+        result = _draft_scope_hint(
+            _request(
+                "POST",
+                "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+                headers=_google_headers(profile["access_token"]),
+                json={"message": {"raw": _gmail_raw(to, subject, body, cc)}},
+            ),
+            "gmail.compose",
+        )
+        if result.get("ok"):
+            result["account"] = email
+        return result
+
+    gmail_create_draft.__name__ = "gmail_create_draft"
+    tools.append(
+        _attach(
+            gmail_create_draft,
+            _schema(
+                "gmail_create_draft",
+                "Save an email as a draft in Gmail without sending it. Requires "
+                "user approval; the user reviews and sends it from Gmail.",
                 {
                     "to": {"type": "string"},
                     "subject": {"type": "string"},
@@ -1370,20 +1435,13 @@ def make_integration_tools(
         )
         if err:
             return err
-        payload = {
-            "message": {
-                "subject": subject,
-                "body": {"contentType": "Text", "content": body},
-                "toRecipients": [{"emailAddress": {"address": to}}],
-            }
-        }
         return _acct_result(
             aid,
             _request(
                 "POST",
                 "https://graph.microsoft.com/v1.0/me/sendMail",
                 headers=_graph_headers(profile["access_token"]),
-                json=payload,
+                json={"message": _outlook_message(to, subject, body)},
             ),
         )
 
@@ -1394,6 +1452,49 @@ def make_integration_tools(
             _schema(
                 "outlook_send_mail",
                 "Send mail through Outlook/Microsoft Graph. Requires user approval.",
+                {
+                    "to": {"type": "string"},
+                    "subject": {"type": "string"},
+                    "body": {"type": "string"},
+                    "account": _GEN_ACCOUNT_PROP,
+                },
+                ["to", "subject", "body"],
+            ),
+            approval=True,
+            caps=["outlook", "write"],
+        )
+    )
+
+    def outlook_create_draft(
+        to: str, subject: str, body: str, account: str = ""
+    ) -> dict[str, Any]:
+        aid, profile, err = _account_profile(
+            secrets, "outlook", account, "access_token"
+        )
+        if err:
+            return err
+        # Graph files a message created at /me/messages in Drafts, unsent.
+        return _acct_result(
+            aid,
+            _draft_scope_hint(
+                _request(
+                    "POST",
+                    "https://graph.microsoft.com/v1.0/me/messages",
+                    headers=_graph_headers(profile["access_token"]),
+                    json=_outlook_message(to, subject, body),
+                ),
+                "Mail.ReadWrite",
+            ),
+        )
+
+    outlook_create_draft.__name__ = "outlook_create_draft"
+    tools.append(
+        _attach(
+            outlook_create_draft,
+            _schema(
+                "outlook_create_draft",
+                "Save an email as a draft in Outlook without sending it. Requires "
+                "user approval; the user reviews and sends it from Outlook.",
                 {
                     "to": {"type": "string"},
                     "subject": {"type": "string"},

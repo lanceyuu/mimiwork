@@ -27,7 +27,7 @@ ABOUT: dict[str, str] = {
     "email": "Read, search, draft, and send mail on any IMAP account — Gmail, iCloud, "
     "Fastmail, or your own server — using an app password instead of your "
     "account password.",
-    "gmail": "Search, summarize, and send over your Gmail. Multiple accounts "
+    "gmail": "Search, summarize, draft, and send over your Gmail. Multiple accounts "
     "connect side by side, and privacy filters can hide chosen senders or "
     "labels from agents entirely.",
     "google_calendar": "Check availability, summarize your week, and manage "
@@ -39,7 +39,7 @@ ABOUT: dict[str, str] = {
     "status. One click installs the MimiWork GitHub App on the repositories "
     "you pick; mention the agent on an issue or PR and it answers from your "
     "desktop.",
-    "outlook": "Search, summarize, and send Microsoft 365 mail, and run your "
+    "outlook": "Search, summarize, draft, and send Microsoft 365 mail, and run your "
     "calendar — create and move meetings, respond to invites. Multiple "
     "mailboxes connect side by side.",
     "hubspot": "Search and read your CRM; optionally log notes and tasks and "
@@ -89,7 +89,7 @@ ACCESS: dict[str, list[str]] = {
     ],
     "gmail": [
         "Reads and searches your mail.",
-        "Sends email as you.",
+        "Saves drafts and sends email as you.",
         "Never deletes mail or changes account settings.",
     ],
     "google_calendar": [
@@ -108,7 +108,7 @@ ACCESS: dict[str, list[str]] = {
     ],
     "outlook": [
         "Reads and searches your mail.",
-        "Sends mail as you.",
+        "Saves drafts and sends mail as you.",
         "Reads your calendar.",
         "Creates, changes, and cancels events; responds to invites as you.",
     ],

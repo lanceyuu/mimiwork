@@ -264,3 +264,61 @@ def test_sender_rule_matching():
 # --- managed refresh targets the account profile ------------------------------
 
 
+
+
+# --- drafts --------------------------------------------------------------------
+
+
+def _record_gmail(monkeypatch, response: dict) -> list[dict]:
+    from coworker.connectors import integration_tools
+
+    calls: list[dict] = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"method": method, "url": url, "json": json})
+        return response
+
+    monkeypatch.setattr(integration_tools, "_request", fake_request)
+    return calls
+
+
+def test_a_gmail_draft_is_filed_in_drafts_and_never_sent(secrets, monkeypatch):
+    import base64
+    from email import message_from_bytes
+
+    gmail_accounts.managed_connect_account(secrets, _account("me@x.com"))
+    calls = _record_gmail(monkeypatch, {"ok": True, "data": {"id": "r1"}})
+
+    out = _tool(secrets, "gmail_create_draft")(
+        "ana@example.com", "Hi", "Hello there", cc="bo@example.com"
+    )
+
+    assert out["ok"] and out["account"] == "me@x.com"
+    assert [(c["method"], c["url"]) for c in calls] == [
+        ("POST", "https://gmail.googleapis.com/gmail/v1/users/me/drafts")
+    ]
+    raw = calls[0]["json"]["message"]["raw"]
+    msg = message_from_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+    assert (msg["To"], msg["Cc"], msg["Subject"]) == (
+        "ana@example.com",
+        "bo@example.com",
+        "Hi",
+    )
+    assert msg.get_payload().strip() == "Hello there"
+
+
+def test_a_gmail_token_without_compose_asks_to_reconnect(secrets, monkeypatch):
+    gmail_accounts.managed_connect_account(secrets, _account("me@x.com"))
+    _record_gmail(monkeypatch, {"error": "HTTP 403", "details": {"error": {}}})
+
+    out = _tool(secrets, "gmail_create_draft")("ana@example.com", "Hi", "Hello")
+
+    assert "Reconnect" in out["error"] and "gmail.compose" in out["error"]
+
+
+def test_saving_a_gmail_draft_asks_for_approval(secrets):
+    from coworker.connectors.tool_defs import connector_for_tool
+
+    fn = _tool(secrets, "gmail_create_draft")
+    assert fn.__aisuite_tool_metadata__.requires_approval is True
+    assert connector_for_tool("gmail_create_draft") == "gmail"

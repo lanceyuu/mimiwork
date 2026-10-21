@@ -16,7 +16,7 @@ test("available row opens the pre-connect detail page", async ({ page }) => {
   await page.getByTestId("connector-gmail").click();
 
   const detail = page.getByTestId("available-detail");
-  await expect(detail).toContainText("Search, summarize, and send over your Gmail.");
+  await expect(detail).toContainText("Search, summarize, draft, and send over your Gmail.");
   await expect(page.getByTestId("available-access")).toContainText("Reads and searches your mail.");
   await expect(detail).toContainText("Keys and tokens are stored only on this computer");
 
