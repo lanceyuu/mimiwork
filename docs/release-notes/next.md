@@ -1,4 +1,4 @@
-Email sent by Mimi now shows up in your Sent folder, so a message that went out no longer looks as if it failed.
+Mimi can now save an email as a draft instead of sending it, so you can review and send it from your own mail app.
 
-- **Sent email is filed**: some mail hosts, such as Namecheap Private Email, iCloud and most cPanel hosts, do not keep a copy of messages sent from other apps. Mimi now files a copy in your Sent folder itself after the message is delivered. Gmail and Microsoft already do this, so they are left alone and you get no duplicate.
-- **No false failures**: before, Mimi could look in Sent, find nothing, and tell you the send had failed even though the recipient had the message. If filing the copy goes wrong, Mimi now says so, and the message still counts as sent, so it is never sent twice.
+- **Drafts in every mail connector**: ask Mimi to draft a message and it lands in your Drafts folder, unsent. This works for the Email (IMAP) connector, Gmail and Outlook. Saving a draft asks for your approval, the same as sending.
+- **Gmail and Outlook need a new permission**: saving drafts needs a permission that earlier tokens did not include (gmail.compose for Gmail, Mail.ReadWrite for Outlook). If you connected either one before this version, reconnect it with a new access token before drafting; Mimi tells you so plainly instead of showing a raw error. Email (IMAP) accounts need nothing.
