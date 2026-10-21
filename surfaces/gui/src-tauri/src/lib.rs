@@ -92,19 +92,78 @@ fn server_bin() -> PathBuf {
 
 /// Mirror of `coworker.secrets.state_dir()` so the shell and server agree on `desktop.json`.
 /// Windows: `%APPDATA%\coworker`; POSIX: `~/.config/coworker`. `COWORKER_STATE_DIR` overrides.
+/// If `~/.config/coworker` can't be used (a sudo install left `~/.config` root-owned and the
+/// sidecar died before logging — field report 2026-10-21), fall back to the native per-user
+/// dir (macOS `~/Library/Application Support/coworker`, Linux `$XDG_STATE_HOME/coworker` or
+/// `~/.local/state/coworker`). Resolved once; the pick is passed to the sidecar as
+/// `COWORKER_STATE_DIR`, so the Python rule only matters for a hand-run server.
 fn state_dir() -> PathBuf {
+    resolved_state_dir().clone().unwrap_or_else(|(default, _)| default)
+}
+
+/// Ok(dir), or Err((default dir, user-facing reason)) when no candidate is writable.
+fn resolved_state_dir() -> &'static Result<PathBuf, (PathBuf, String)> {
+    static DIR: std::sync::OnceLock<Result<PathBuf, (PathBuf, String)>> =
+        std::sync::OnceLock::new();
+    DIR.get_or_init(resolve_state_dir)
+}
+
+fn resolve_state_dir() -> Result<PathBuf, (PathBuf, String)> {
     if let Ok(d) = std::env::var("COWORKER_STATE_DIR") {
-        return PathBuf::from(d);
+        if !d.is_empty() {
+            return Ok(PathBuf::from(d));
+        }
     }
     #[cfg(windows)]
     {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            return PathBuf::from(appdata).join("coworker");
+            return Ok(PathBuf::from(appdata).join("coworker"));
         }
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join(".config").join("coworker")
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()));
+    let default = home.join(".config").join("coworker");
+    let fallback = if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support").join("coworker")
+    } else {
+        std::env::var("XDG_STATE_HOME")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local").join("state"))
+            .join("coworker")
+    };
+    // Writable = we can create a file in it (probe, then remove).
+    let writable = |d: &PathBuf| {
+        let probe = d.join(".write-test");
+        let ok = std::fs::write(&probe, b"").is_ok();
+        let _ = std::fs::remove_file(&probe);
+        ok
+    };
+    // An existing usable dir wins (never strand data), then the first we can create.
+    for d in [&default, &fallback] {
+        if d.is_dir() && writable(d) {
+            return Ok(d.clone());
+        }
+    }
+    for d in [&default, &fallback] {
+        if std::fs::create_dir_all(d).is_ok() && writable(d) {
+            return Ok(d.clone());
+        }
+    }
+    let parent = default.parent().unwrap_or(&home).display().to_string();
+    Err((
+        default.clone(),
+        format!(
+            "MimiWork can't create its settings folder {} (nor {}). {parent} is probably owned by another user — fix it in Terminal with: sudo chown -R $(whoami) {parent}",
+            default.display(),
+            fallback.display()
+        ),
+    ))
 }
+
+/// Why the sidecar couldn't start, if it couldn't — prepended to the diagnostic log so a dead
+/// server reads as a reason instead of "(log is empty)".
+static STARTUP_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
 fn desktop_prefs_path() -> PathBuf {
     state_dir().join("desktop.json")
@@ -263,7 +322,12 @@ async fn pick_folder(app: tauri::AppHandle) -> Option<String> {
 fn read_server_log() -> String {
     const MAX: usize = 48 * 1024;
     let dir = state_dir().join("logs");
-    let mut out = String::new();
+    let mut out = STARTUP_ERROR
+        .lock()
+        .ok()
+        .and_then(|e| e.clone())
+        .map(|e| format!("===== startup error =====\n{e}\n"))
+        .unwrap_or_default();
     for name in ["openworker-server.log.old", "openworker-server.log"] {
         if let Ok(text) = std::fs::read_to_string(dir.join(name)) {
             out.push_str(&format!("===== {name} =====\n{text}\n"));
@@ -1180,6 +1244,8 @@ pub fn run() {
                 .env("COWORKER_EXIT_WITH_PARENT", "1")
                 .env("COWORKER_PARENT_PID", std::process::id().to_string())
                 .env("COWORKER_API_TOKEN", &api_token)
+                // One resolved state dir for shell + sidecar (incl. the ~/.config fallback).
+                .env("COWORKER_STATE_DIR", state_dir())
                 // This GUI app has no console, so a console-subsystem child would inherit
                 // invalid std handles and crash a few seconds in when uvicorn writes its logs
                 // (the "Starting coworker…" freeze on Windows). Hand it real handles: the
@@ -1212,9 +1278,18 @@ pub fn run() {
                 Ok(child) => Some(child),
                 Err(e) => {
                     eprintln!("[coworker] failed to start server sidecar: {e}");
+                    if let Ok(mut slot) = STARTUP_ERROR.lock() {
+                        *slot = Some(format!("Failed to start the MimiWork server: {e}"));
+                    }
                     None
                 }
             };
+            if let Err((_, reason)) = resolved_state_dir() {
+                eprintln!("[coworker] {reason}");
+                if let Ok(mut slot) = STARTUP_ERROR.lock() {
+                    *slot = Some(reason.clone());
+                }
+            }
             app.manage(ServerProcess(Mutex::new(child)));
 
             // Restore keep-awake from the last session.

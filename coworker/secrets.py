@@ -31,7 +31,14 @@ def state_dir() -> Path:
     1. `$COWORKER_STATE_DIR` — explicit override on any OS (used by tests/sidecars).
     2. Windows: `%APPDATA%\\coworker` (e.g. `C:\\Users\\You\\AppData\\Roaming\\coworker`),
        the native per-user app-data location.
-    3. macOS / Linux: `~/.config/coworker` (XDG-style, unchanged from prior behavior).
+    3. macOS / Linux: `~/.config/coworker` (XDG-style, unchanged from prior behavior) —
+       unless it can't be used (e.g. a sudo install left `~/.config` owned by root, so the
+       sidecar died before writing a log; field report 2026-10-21). Then the native per-user
+       dir: macOS `~/Library/Application Support/coworker`, Linux `$XDG_STATE_HOME/coworker`
+       or `~/.local/state/coworker`. Once the fallback holds data it stays chosen.
+
+    The desktop shell (`surfaces/gui/src-tauri/src/lib.rs` `state_dir`) applies the same rule
+    and passes its pick to the sidecar as `COWORKER_STATE_DIR`, so both always agree.
     """
     base = os.environ.get("COWORKER_STATE_DIR")
     if base:
@@ -40,7 +47,27 @@ def state_dir() -> Path:
         appdata = os.environ.get("APPDATA")
         if appdata:
             return Path(appdata) / "coworker"
-    return Path.home() / ".config" / "coworker"
+    home = Path.home()
+    default = home / ".config" / "coworker"
+    if sys.platform == "darwin":
+        fallback = home / "Library" / "Application Support" / "coworker"
+    else:
+        fallback = Path(os.environ.get("XDG_STATE_HOME") or home / ".local" / "state") / "coworker"
+    for d in (default, fallback):  # an existing usable dir wins (never strand data)
+        if d.is_dir() and os.access(d, os.W_OK | os.X_OK):
+            return d
+    for d in (default, fallback):
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        if os.access(d, os.W_OK | os.X_OK):
+            return d
+    raise PermissionError(
+        f"MimiWork can't create its settings folder {default} (nor {fallback}). "
+        f"{default.parent} is probably owned by another user — fix it in Terminal with: "
+        f"sudo chown -R $(whoami) {default.parent}"
+    )
 
 
 def _load_dotenv(path: Path) -> dict[str, str]:
