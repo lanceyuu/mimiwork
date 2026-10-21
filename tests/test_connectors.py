@@ -1329,6 +1329,60 @@ def test_outlook_calendar_tools_hit_the_right_graph_endpoints(tmp_path, monkeypa
     assert calls[-1]["params"]["$orderby"] == "start/dateTime"
 
 
+def _outlook_tools(tmp_path, monkeypatch, response: dict):
+    import coworker.connectors.integration_tools as it
+
+    secrets = SecretStore(tmp_path / "secrets.json")
+    secrets.put(
+        "outlook:account:rohit@openworker.com",
+        {"access_token": "tok", "account": "rohit@openworker.com", "managed": True},
+    )
+    secrets.put(
+        "outlook:default",
+        {"default_account": "rohit@openworker.com", "enabled": True},
+    )
+    calls = []
+
+    def fake_request(method, url, *, headers=None, params=None, json=None, auth=None):
+        calls.append({"method": method, "url": url, "json": json})
+        return response
+
+    monkeypatch.setattr(it, "_request", fake_request)
+    return {t.__name__: t for t in it.make_integration_tools(secrets)}, calls
+
+
+def test_an_outlook_draft_is_created_as_a_message_and_never_sent(
+    tmp_path, monkeypatch
+):
+    tools, calls = _outlook_tools(tmp_path, monkeypatch, {"ok": True, "data": {}})
+
+    out = tools["outlook_create_draft"]("ana@example.com", "Hi", "Hello there")
+
+    assert out["ok"] and out["account"] == "rohit@openworker.com"
+    # POST /me/messages files the message in Drafts; sendMail would deliver it.
+    assert [(c["method"], c["url"]) for c in calls] == [
+        ("POST", "https://graph.microsoft.com/v1.0/me/messages")
+    ]
+    assert calls[0]["json"] == {
+        "subject": "Hi",
+        "body": {"contentType": "Text", "content": "Hello there"},
+        "toRecipients": [{"emailAddress": {"address": "ana@example.com"}}],
+    }
+    assert tools["outlook_create_draft"].__aisuite_tool_metadata__.requires_approval
+
+
+def test_an_outlook_token_without_mail_readwrite_asks_to_reconnect(
+    tmp_path, monkeypatch
+):
+    tools, _ = _outlook_tools(
+        tmp_path, monkeypatch, {"error": "HTTP 403", "details": {"error": {}}}
+    )
+
+    out = tools["outlook_create_draft"]("ana@example.com", "Hi", "Hello")
+
+    assert "Reconnect" in out["error"] and "Mail.ReadWrite" in out["error"]
+
+
 def test_batch2_account_param_picks_the_profile(tmp_path, monkeypatch):
     """Two PostHog projects connected → the account param routes the call; the
     default pointer serves bare calls; unknown accounts fail closed."""

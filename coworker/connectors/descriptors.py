@@ -580,7 +580,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Use a Google OAuth access token with Gmail readonly and send scopes.",
+            "Use a Google OAuth access token with the gmail.readonly, gmail.send, "
+            "and gmail.compose scopes (gmail.compose lets it save drafts).",
             "Paste the access token below.",
         ],
         available=True,
@@ -676,7 +677,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Paste a Microsoft Graph access token with Mail and Calendar scopes.",
+            "Paste a Microsoft Graph access token with the Mail.ReadWrite, Mail.Send, "
+            "and Calendars.ReadWrite scopes (Mail.ReadWrite lets it save drafts).",
         ],
         validate=_validate_outlook,
         available=True,
