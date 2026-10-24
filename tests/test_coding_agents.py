@@ -602,6 +602,10 @@ def test_gemini_is_ready_once_it_has_a_sign_in_method_and_names_the_google_accou
     status = delegate.agent_status("gemini")
     assert (status["signed_in"], status["account"]) == (True, "me@gmail.com")
 
+    # A key chosen with /auth is kept by Gemini CLI itself; only its settings say so.
+    (folder / "settings.json").write_text(json.dumps({"security": {"auth": {"selectedType": "gemini-api-key"}}}))
+    assert delegate.agent_status("gemini")["account"] == "API key"
+
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     (folder / "settings.json").unlink()
     assert delegate.agent_status("gemini")["account"] == "API key"

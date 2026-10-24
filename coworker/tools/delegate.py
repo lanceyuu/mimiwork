@@ -520,7 +520,8 @@ def _gemini_sign_in() -> tuple[Optional[bool], str]:
             return True, str(json.loads((folder / "google_accounts.json").read_text(encoding="utf-8")).get("active") or "")
         except (OSError, ValueError, AttributeError):
             return True, ""
-    return True, str(auth)
+    # The page shows this as the account; Gemini CLI's own names for its methods are not words.
+    return True, {"gemini-api-key": "API key", "vertex-ai": "Vertex AI"}.get(auth, str(auth))
 
 
 def agent_status(key: str) -> dict[str, Any]:
