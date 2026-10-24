@@ -67,10 +67,11 @@ test("composer: picking a PDF shows an attachment chip and arms send", async ({ 
   await expect(send).not.toHaveClass(/bg-accent/);
 });
 
-// Token-savings threshold (owner ask, 2026-07-17): a PDF over the user's page limit is
-// REJECTED with a visible notice — no chip, send stays disarmed. Fixture limit: 2 pages;
-// the mock inspect endpoint reads the page count from a "%%pages=N" marker in the body.
-test("composer: PDF over the page threshold is rejected with a notice", async ({ page }) => {
+// Token-savings threshold (owner ask, 2026-07-17; reworked 2026-10-24): a PDF over the
+// user's page limit is not sent whole — it attaches as a file the server saves to the chat's
+// folder, with a notice saying so. Rejecting it left long papers with no way in. Fixture
+// limit: 2 pages; the mock inspect endpoint reads the count from a "%%pages=N" marker.
+test("composer: a PDF over the page threshold attaches as a saved file, not inline", async ({ page }) => {
   await page.goto("/");
   await page.getByText("Draft the launch note").first().click();
 
@@ -81,20 +82,25 @@ test("composer: PDF over the page threshold is rejected with a notice", async ({
   });
 
   const notice = page.getByTestId("attach-notice");
-  await expect(notice).toContainText("big-report.pdf skipped");
-  await expect(notice).toContainText("34 pages is over your 2-page limit");
-  await expect(page.locator(".attach-chip")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Send" })).not.toHaveClass(/bg-accent/);
+  await expect(notice).toContainText("big-report.pdf is over your PDF limit");
+  await expect(notice).toContainText("save a copy in this chat's folder");
+  await expect(page.locator(".attach-chip")).toContainText("big-report.pdf");
+  await expect(page.getByRole("button", { name: "Send" })).toHaveClass(/bg-accent/);
 
   // The ✕ dismisses the notice.
   await notice.getByRole("button").click();
   await expect(page.getByTestId("attach-notice")).toHaveCount(0);
 
-  // A small PDF (1 page per the mock) still attaches fine after a rejection.
+  // A small PDF (1 page per the mock) attaches inline with no notice.
   await page.locator('input[type="file"]').setInputFiles({
     name: "small.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4\n%%pages=1\ntrailer\n<<>>\n%%EOF"),
   });
-  await expect(page.locator(".attach-chip")).toContainText("small.pdf");
+  await expect(page.locator(".attach-chip")).toHaveCount(2);
+  await expect(page.getByTestId("attach-notice")).toHaveCount(0);
+
+  // Over the wire: the long one goes as kind "file", the short one stays "pdf".
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("[attachments=big-report.pdf:file,small.pdf:pdf]")).toBeVisible();
 });

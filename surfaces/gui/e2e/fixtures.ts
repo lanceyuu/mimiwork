@@ -916,7 +916,10 @@ export async function mockApi(page: import("@playwright/test").Page) {
         // `usage` mirrors the real engine's assistant_message sidecar (OPE-42): fixed
         // counts per turn so the usage-chip specs can assert exact accumulation.
         send("assistant_message", {
-          text: `Echo: ${msg.text} [model=${msg.model || "none"}]${msg.skill ? ` [skill=${msg.skill}]` : ""}`,
+          text: `Echo: ${msg.text} [model=${msg.model || "none"}]${msg.skill ? ` [skill=${msg.skill}]` : ""}${
+            // Attachment kinds ride the echo so a spec can see what crossed the wire.
+            msg.attachments?.length ? ` [attachments=${msg.attachments.map((a: { name: string; kind: string }) => `${a.name}:${a.kind}`).join(",")}]` : ""
+          }`,
           usage: {
             model: msg.model || "anthropic:claude-opus-4-8",
             input: 1_000,

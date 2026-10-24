@@ -479,9 +479,11 @@ export function Composer(props: Props) {
   const voiceReady = !!dictation?.supported && !!dictation?.model_verified && !!dictation?.test_passed;
   const recordingTime = `${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`;
 
-  // Attach-time PDF thresholds (Settings → Token savings): a PDF over the user's page or
-  // size limit is REJECTED with a visible notice — never attached, never silently dropped.
-  // The rationale is token cost: a big PDF re-rides every turn of the conversation.
+  // Attach-time PDF thresholds (Settings → Token savings): a big PDF must not ride whole in
+  // every turn of the conversation, so one over the user's page or size limit goes in as a
+  // file instead — saved to the chat's folder and read on demand with read_pdf, the same as
+  // a Word file. Rejecting it (the old rule) left a drop of long papers with no way in
+  // (owner hit it 2026-10-24: "I thought it just links the path").
   const addFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
     let maxPages = 20;
@@ -495,45 +497,41 @@ export function Composer(props: Props) {
         /* offline settings fetch — fall back to defaults */
       }
     }
-    const accepted: File[] = [];
-    for (const file of list) {
-      if (isPdfFile(file) && file.size > maxMb * 1024 * 1024) {
-        showAttachNotice(
-          `${file.name} skipped — ${(file.size / 1024 / 1024).toFixed(1)} MB is over your ${maxMb} MB limit (Settings → Token savings)`,
-        );
-        continue;
-      }
-      accepted.push(file);
-    }
-    const readAll = await Promise.all(accepted.map(readFile));
+    const readAll = await Promise.all(list.map(readFile));
     // A silently vanishing drop reads as a bug (owner hit it with a .docx before
     // Office files were supported) — name the file and say why it was skipped.
     readAll.forEach((r, i) => {
       if (r === null)
         showAttachNotice(
-          `${accepted[i].name} is outside the folders this chat can read — add its ` +
+          `${list[i].name} is outside the folders this chat can read — add its ` +
             `folder under Access to work on it in place, or drop an image, PDF or text file ` +
             `to attach a copy.`,
         );
     });
-    const read = readAll.filter(Boolean) as Attachment[];
     const next: Attachment[] = [];
-    for (const a of read) {
+    const saved: string[] = [];
+    for (const [i, a] of readAll.entries()) {
+      if (!a) continue;
       if (a.kind === "pdf" && a.data_url) {
         const info = await inspectPdf(a.data_url).catch(() => null);
-        if (info?.ok && (info.pages ?? 0) > maxPages) {
-          showAttachNotice(
-            `${a.name} skipped — ${info.pages} pages is over your ${maxPages}-page limit (Settings → Token savings)`,
-          );
-          continue;
-        }
         if (info && !info.ok) {
           showAttachNotice(`${a.name} skipped — ${info.error || "could not read PDF"}`);
+          continue;
+        }
+        if ((info?.pages ?? 0) > maxPages || list[i].size > maxMb * 1024 * 1024) {
+          next.push({ ...a, kind: "file" });
+          saved.push(a.name);
           continue;
         }
       }
       next.push(a);
     }
+    if (saved.length)
+      showAttachNotice(
+        `${saved.join(", ")} ${saved.length > 1 ? "are" : "is"} over your PDF limit ` +
+          `(Settings → Token savings), so Mimi will save a copy in this chat's folder and ` +
+          `read it from there instead of sending it whole.`,
+      );
     if (next.length) setAttachments((a) => mergeAttachments(a, next));
   };
 

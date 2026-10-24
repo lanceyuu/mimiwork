@@ -121,7 +121,7 @@ def build_user_content(
                         "type": "text",
                         "text": (
                             f"[Attached file: {saved.name} — saved to {saved}]\n"
-                            "Open it with the appropriate reading tool (Word/Excel/"
+                            "Open it with the appropriate reading tool (PDF/Word/Excel/"
                             "PowerPoint readers, or the file tools) before answering."
                         ),
                     }
