@@ -1,4 +1,5 @@
-"""Hand-offs to Claude Code / Codex / opencode — driven by fake agents that print the CLIs' real JSON lines."""
+"""Hand-offs to Claude Code / Codex / opencode / Cursor / Gemini CLI — driven by fake agents that
+print the CLIs' real JSON lines."""
 
 from __future__ import annotations
 
@@ -69,6 +70,38 @@ OPENCODE_UNKNOWN_MODEL = [
         "message": "Unexpected server error. Check server logs for details.", "ref": "err_8578b641"}}},
 ]
 
+# Shapes read from the CLIs' own emitters on 2026-10-24 (Cursor 2026.01.28, Gemini CLI 0.65.0);
+# neither account was signed in, so no live run recorded them.
+CURSOR_OK = [
+    {"type": "system", "subtype": "init", "apiKeySource": "login", "cwd": "/w", "session_id": "c-1",
+     "model": "GPT-6 Luna", "permissionMode": "default"},
+    {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "fix the bug"}]}, "session_id": "c-1"},
+    {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Running the tests."}]}, "session_id": "c-1"},
+    {"type": "tool_call", "subtype": "started", "call_id": "1", "session_id": "c-1",
+     "tool_call": {"tool": {"case": "shellToolCall", "value": {"args": {"command": "pytest -q"}}}}},
+    {"type": "tool_call", "subtype": "completed", "call_id": "1", "session_id": "c-1",
+     "tool_call": {"tool": {"case": "shellToolCall", "value": {"args": {"command": "pytest -q"}, "result": {}}}}},
+    {"type": "tool_call", "subtype": "started", "call_id": "2", "session_id": "c-1",
+     "tool_call": {"editToolCall": {"args": {"path": "app.py"}}}},
+    {"type": "result", "subtype": "success", "is_error": False, "duration_ms": 9, "result": "Fixed app.py; tests pass.", "session_id": "c-1"},
+]
+GEMINI_OK = [
+    {"type": "init", "timestamp": "t", "session_id": "g-1", "model": "gemini-3-pro"},
+    {"type": "message", "timestamp": "t", "role": "user", "content": "fix the bug"},
+    {"type": "message", "timestamp": "t", "role": "assistant", "content": "Let me ", "delta": True},
+    {"type": "message", "timestamp": "t", "role": "assistant", "content": "look.", "delta": True},
+    {"type": "tool_use", "timestamp": "t", "tool_name": "run_shell_command", "tool_id": "1", "parameters": {"command": "pytest -q"}},
+    {"type": "tool_result", "timestamp": "t", "tool_id": "1", "status": "success", "output": "1 passed"},
+    {"type": "message", "timestamp": "t", "role": "assistant", "content": "Fixed app.py; ", "delta": True},
+    {"type": "message", "timestamp": "t", "role": "assistant", "content": "tests pass.", "delta": True},
+    {"type": "result", "timestamp": "t", "status": "success", "stats": {}},
+]
+GEMINI_QUOTA = [
+    {"type": "init", "timestamp": "t", "session_id": "g-2", "model": "gemini-3-pro"},
+    {"type": "result", "timestamp": "t", "status": "error",
+     "error": {"type": "QuotaError", "message": "You have exhausted your daily quota."}, "stats": {}},
+]
+
 
 def _fake_agent(tmp_path, events, *, write=None, sleep=0.0, exit_code=0):
     """argv for a stand-in agent: reads the task from stdin, optionally writes a file, prints events."""
@@ -111,6 +144,21 @@ def test_opencode_runs_unattended_with_json_events_and_without_approving_what_it
     assert "--auto" not in full
 
 
+def test_cursor_runs_headless_with_force_so_it_can_edit_and_resumes_its_chat():
+    assert delegate.agent_command("cursor", "cursor-agent") == [
+        "cursor-agent", "-p", "--output-format", "stream-json", "--force"]
+    full = delegate.agent_command("cursor", "cursor-agent", "c-1", model="gpt-6-luna", effort="high")
+    assert full[full.index("--resume") + 1] == "c-1" and full[full.index("--model") + 1] == "gpt-6-luna"
+    assert "high" not in full  # Cursor has no effort setting
+
+
+def test_gemini_runs_headless_reading_the_task_from_stdin_without_stopping_to_ask():
+    cmd = delegate.agent_command("gemini", "gemini", "g-1", model="pro")
+    assert cmd[1:3] == ["-p", ""]  # empty prompt: the task comes in on stdin
+    assert cmd[cmd.index("--approval-mode") + 1] == "yolo" and "--skip-trust" in cmd
+    assert cmd[cmd.index("--resume") + 1] == "g-1" and cmd[cmd.index("-m") + 1] == "pro"
+
+
 def test_a_follow_up_resumes_the_same_agent_session_in_both_clis():
     claude = delegate.agent_command("claude_code", "claude", "sess-9")
     assert claude[claude.index("--resume") + 1] == "sess-9"
@@ -142,6 +190,34 @@ def test_an_opencode_handoff_reports_its_tool_steps_and_final_text(tmp_path):
     assert result["session_id"] == "ses_9"  # what a follow-up continues
 
 
+def test_a_cursor_handoff_reports_its_tool_steps_in_either_shape_and_its_result(tmp_path):
+    result, lines = _run(tmp_path, "cursor", CURSOR_OK)
+    assert result["status"] == "completed" and result["summary"] == "Fixed app.py; tests pass."
+    assert lines == ["Running the tests.", "shell: pytest -q", "edit: app.py"]
+    assert result["session_id"] == "c-1" and result["model"] == "GPT-6 Luna"
+
+
+def test_a_gemini_handoff_joins_its_streamed_text_and_keeps_only_what_it_said_last(tmp_path):
+    result, lines = _run(tmp_path, "gemini", GEMINI_OK)
+    assert result["status"] == "completed" and result["summary"] == "Fixed app.py; tests pass."
+    assert lines == ["Let me", "Let me look.", "run_shell_command: pytest -q", "Fixed app.py;", "Fixed app.py; tests pass."]
+    assert result["session_id"] == "g-1" and result["model"] == "gemini-3-pro"
+
+
+def test_a_gemini_error_result_fails_the_run_with_its_sentence(tmp_path):
+    result, _ = _run(tmp_path, "gemini", GEMINI_QUOTA)
+    assert result["error"] == "Gemini CLI did not finish: You have exhausted your daily quota."
+
+
+def test_a_signed_out_cursor_or_gemini_fails_with_the_words_it_printed(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    script = tmp_path / "signed_out.py"
+    script.write_text("import sys\nprint(\"Error: Authentication required. Please run 'agent login' first.\")\nsys.exit(1)\n")
+    result = delegate.run_agent("cursor", "unused", "t", work, argv=[sys.executable, str(script)])
+    assert result["error"] == "Cursor did not finish: Error: Authentication required. Please run 'agent login' first."
+
+
 def test_an_opencode_answer_split_into_several_parts_comes_back_whole(tmp_path):
     split = [
         OPENCODE_OK[4],  # a step_start
@@ -165,6 +241,43 @@ def test_an_agent_is_told_its_own_folder_even_through_pwd_which_opencode_follows
 def test_an_opencode_error_fails_the_run_even_though_opencode_exits_cleanly(tmp_path):
     result, _ = _run(tmp_path, "opencode", OPENCODE_UNKNOWN_MODEL, model="nope/nothing")
     assert result["error"] == "opencode did not finish: Unexpected server error. Check server logs for details."
+
+
+def test_a_model_opencodes_service_has_retired_is_replaced_by_the_one_it_names_and_the_round_runs_again(tmp_path):
+    # Recorded 2026-10-24: Latest picked a free model opencode still listed but had retired.
+    retired = {"type": "error", "sessionID": "ses_7", "error": {"name": "APIError", "data": {
+        "message": "Model minimax-m3.1-flash-free has been deprecated. Use deepseek-v4.1-flash-free instead.",
+        "statusCode": 410, "isRetryable": False}}}
+    work = tmp_path / "work"
+    work.mkdir()
+    script = tmp_path / "retiring.py"
+    script.write_text(
+        "import json, sys\n"
+        "sys.stdin.read()\n"
+        "args = sys.argv[1:]\n"
+        "open('models.txt', 'a').write(args[args.index('-m') + 1] + '\\n')\n"
+        f"events = {[retired]!r} if 'minimax' in args[args.index('-m') + 1] else {OPENCODE_OK!r}\n"
+        "for e in events: print(json.dumps(e), flush=True)\n",
+        encoding="utf-8",
+    )
+    delegate._catalogs["opencode"].update(at=time.monotonic(), models=[{"id": "opencode/minimax-m3.1-flash-free"}])
+    lines: list[str] = []
+
+    real = delegate.agent_command
+
+    def argv_for(*a, **kw):
+        return [sys.executable, str(script), *real("opencode", "x", model=kw["model"])[1:]]
+
+    delegate.agent_command = argv_for
+    try:
+        result = delegate.run_agent("opencode", "x", "t", work, report=lines.append, model="opencode/minimax-m3.1-flash-free")
+    finally:
+        delegate.agent_command = real
+
+    assert result["status"] == "completed" and result["model"] == "opencode/deepseek-v4.1-flash-free"
+    assert (work / "models.txt").read_text().split() == ["opencode/minimax-m3.1-flash-free", "opencode/deepseek-v4.1-flash-free"]
+    assert lines[0] == "minimax-m3.1-flash-free has been retired; using opencode/deepseek-v4.1-flash-free instead"
+    assert delegate._catalogs["opencode"]["models"] == []  # Latest stops offering it
 
 
 def test_an_opencode_run_cut_off_between_steps_is_not_reported_as_finished(tmp_path):
@@ -487,7 +600,7 @@ def test_an_agent_that_is_not_connected_is_refused_with_the_reason(tmp_path, mon
     monkeypatch.setattr(delegate, "connection_problem", lambda key: "Claude Code is not installed." if key == "claude_code" else "")
     t = delegate.agent_team_tools(workspace=tmp_path, session_id="x")
     assert t[0](agent="claude_code", task="t")["error"] == "Claude Code is not installed."
-    assert "not a coding agent" in t[0](agent="gemini", task="t")["error"]
+    assert "not a coding agent" in t[0](agent="antigravity", task="t")["error"]
 
 
 def test_each_round_uses_the_model_and_effort_chosen_on_the_coding_agents_page(tmp_path, monkeypatch):

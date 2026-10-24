@@ -1,4 +1,4 @@
-/** Coding agents page: Claude Code, Codex and opencode connected like any other tool. */
+/** Coding agents page: Claude Code, Codex, opencode, Cursor and Gemini CLI connected like any other tool. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { CodingAgentsSection } from "./CodingAgentsSection";
@@ -90,6 +90,46 @@ const OPENCODE = {
     { id: "opencode/big-pickle", label: "Big Pickle · opencode", description: "opencode/big-pickle", efforts: [] },
   ],
   models_listed: true,
+  latest: "",
+};
+
+const CURSOR = {
+  ...CLAUDE,
+  key: "cursor",
+  label: "Cursor",
+  billing: "your own Cursor account",
+  path: "/Users/me/.local/bin/cursor-agent",
+  version: "2026.01.28-fd13201",
+  install_command: "curl https://cursor.com/install -fsS | bash",
+  sign_in_command: "cursor-agent login",
+  efforts: [],
+  defaults: { model: "", effort: "" },
+  models: [
+    { id: "auto", label: "Auto", description: "auto", efforts: [], default: true },
+    { id: "gpt-6-luna", label: "GPT-6 Luna", description: "gpt-6-luna", efforts: [] },
+  ],
+  models_listed: true,
+  latest: "auto",
+};
+
+const GEMINI = {
+  ...CLAUDE,
+  key: "gemini",
+  label: "Gemini CLI",
+  billing: "your own Google account or Gemini API key",
+  path: "/opt/homebrew/bin/gemini",
+  version: "0.65.0",
+  signed_in: false,
+  account: "",
+  install_command: "npm install -g @google/gemini-cli",
+  sign_in_command: "gemini",
+  efforts: [],
+  defaults: { model: "", effort: "" },
+  models: [
+    { id: "pro", label: "Latest Pro", resolved: "gemini-3-pro" },
+    { id: "flash", label: "Latest Flash", resolved: "" },
+  ],
+  models_listed: false,
   latest: "",
 };
 
@@ -209,12 +249,12 @@ describe("Coding agents", () => {
     expect(Array.from(effort.options).map((o) => o.value)).toEqual(["", "low", "medium"]);
   });
 
-  it("the page says Claude Code, Codex and opencode can work together on one job", async () => {
+  it("the page says the coding agents can work together on one job", async () => {
     stubFetch([{ match: "/v1/coding-agents", json: { agents: [CLAUDE, CODEX, OPENCODE] } }]);
     render(<CodingAgentsSection />);
 
     const note = await waitFor(() => screen.getByTestId("coding-agents-together"));
-    expect(note.textContent).toContain("Claude Code, Codex and opencode can work together");
+    expect(note.textContent).toContain("Your coding agents can work together");
     expect(note.textContent).toContain("can have one review another's branch");
   });
 
@@ -353,5 +393,28 @@ describe("Coding agents", () => {
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/claude_code/settings"))).toBe(true));
     expect(calls.find((c) => c.url.endsWith("/claude_code/settings"))!.body).toEqual({ model: "", effort: "", keep_hooks: true });
     expect(card("codex").queryByTestId("coding-agent-hooks")).toBeNull();
+  });
+
+  it("Cursor runs on the account's default model, has no effort setting and says it works without asking", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [CURSOR] } }]);
+    render(<CodingAgentsSection />);
+
+    const cursor = await waitFor(() => card("cursor"));
+    const select = cursor.getByTestId("coding-agent-model-select") as HTMLSelectElement;
+    expect(select.selectedOptions[0].textContent).toBe("Default: auto");
+    expect(cursor.queryByTestId("coding-agent-effort")).toBeNull();
+    expect(cursor.getByTestId("coding-agent-unattended").textContent).toContain("Cursor does not stop to ask");
+    expect(cursor.getByText("Runs on your own Cursor account, not QualiTaTi credits.")).toBeTruthy();
+  });
+
+  it("Gemini CLI shows the command to sign in on its first run instead of a button that cannot work", async () => {
+    stubFetch([{ match: "/v1/coding-agents", json: { agents: [GEMINI] } }]);
+    render(<CodingAgentsSection />);
+
+    const gemini = await waitFor(() => card("gemini"));
+    expect(gemini.getByTestId("coding-agent-first-run").textContent).toContain("choose Sign in with Google");
+    expect(gemini.queryByTestId("coding-agent-sign-in")).toBeNull();
+    const options = Array.from((gemini.getByTestId("coding-agent-model-select") as HTMLSelectElement).options);
+    expect(options.map((o) => o.textContent)).toEqual(["Default", "Latest Pro (gemini-3-pro)", "Latest Flash", "Custom…"]);
   });
 });

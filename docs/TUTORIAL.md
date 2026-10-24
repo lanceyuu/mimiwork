@@ -135,18 +135,20 @@ QualiTaTi research data (projects, interviews, surveys — each retrieval asks f
 signs in with one click: Mimi can search, generate, edit, comment on and export your designs.
 Anything else speaks [MCP](https://modelcontextprotocol.io/).
 
-**Coding agents.** If you have Claude Code, Codex or opencode, open **Connectors ▸ Coding
-agents**: it shows whether each is installed and signed in, signs it in, tests it, and sets
+**Coding agents.** If you have Claude Code, Codex, opencode, Cursor or Gemini CLI, open
+**Connectors ▸ Coding agents**: it shows whether each is installed and signed in, signs it in, tests it, and sets
 its model (the latest unless you choose another). opencode needs no account to start: its
 free models work as installed, and it uses the newest of them unless you pick another. You
-can also add your own providers. Then ask Mimi to use
-several on one job:
+can also add your own providers. Gemini CLI signs in on its first run: run `gemini` once in a
+terminal and choose Sign in with Google. Then ask Mimi to use several on one job:
 
 > Have Codex build the CSV export, Claude Code write its tests and opencode update the docs,
 > then have each review another's branch.
 
 Each agent works on its own branch, Mimi passes what one found back to the others until the
 work is right, and merging into your branch goes through the same approval as any other command.
+While they work, the chat's side panel lists each agent with its model; a change there applies
+from that agent's next round.
 
 ## 7 · Make it run while you don't
 

@@ -16,13 +16,17 @@ import { clockTime } from "../time";
 import { useT } from "../i18n";
 import { AccessSection } from "./AccessSection";
 import { FoldersSection } from "./FoldersSection";
+import { AgentTeamPanel } from "./connectors/AgentTeamPanel";
 import { Icon } from "./Icon";
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
 import type { Attachment } from "../types";
 import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
 
-type Panel = "progress" | "artifacts" | "recovery";
+type Panel = "progress" | "artifacts" | "recovery" | "agents";
+// The conversation is coordinating coding agents once Mimi has proposed a hand-off; the
+// start_agent card appears before approval, so the panel is there to pick models first.
+const AGENT_TOOLS = new Set(["start_agent", "wait_for_agents", "message_agent", "stop_agent"]);
 
 // Quiet file-type icons for the artifact list (the colored kind pills read as noisy).
 function kindIcon(kind: string): "file" | "fileCode" | "image" | "table" {
@@ -108,6 +112,7 @@ export function RightRail({
     progress: true,
     artifacts: true,
     recovery: true,
+    agents: true,
   });
   const [artifacts, setArtifacts] = useState<ArtifactInfo[]>([]);
   const [recoveryPoints, setRecoveryPoints] = useState<RecoveryPoint[]>([]);
@@ -394,6 +399,12 @@ export function RightRail({
           <RailSection title="Progress" open={open.progress} onToggle={() => setOpen({ ...open, progress: !open.progress })}>
             <ProgressSummary running={running} toolNames={toolNames} todo={todo} />
           </RailSection>
+
+          {toolNames.some((n) => AGENT_TOOLS.has(n)) && (
+            <RailSection title={t("Coding agents")} open={open.agents} onToggle={() => setOpen({ ...open, agents: !open.agents })}>
+              <AgentTeamPanel onOpenSettings={onOpenIntegrations} />
+            </RailSection>
+          )}
 
           {showArtifacts && (
           <RailSection

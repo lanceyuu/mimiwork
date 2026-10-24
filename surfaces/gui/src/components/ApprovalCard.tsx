@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ApprovalDecision, Item } from "../types";
-import { humanizeApprovalTitle, type HumanLine } from "../humanize";
+import { AGENT_NAMES, humanizeApprovalTitle, type HumanLine } from "../humanize";
 import { Icon } from "./Icon";
 
 // The settled card is the consent record, so it says what the user decided.
@@ -174,14 +174,18 @@ function MessagePreview({ text, label }: { text: string; label?: string }) {
 }
 
 export function DelegatePreview({ args }: { args: any }) {
-  const agent =
-    ({ claude_code: "Claude Code", codex: "Codex", opencode: "opencode" } as Record<string, string>)[args?.agent] ||
-    "The agent";
-  // opencode's unattended mode does not stop to ask, so the card says so before the user approves.
+  const agent = AGENT_NAMES[args?.agent] || "The agent";
+  // opencode, Cursor and Gemini CLI run unattended without stopping to ask, so the card says so
+  // before the user approves.
   const pays =
-    args?.agent === "opencode"
-      ? "opencode does not stop to ask before it edits files or runs commands there. It uses the model providers you set up in opencode, or its free models, not QualiTaTi credits."
-      : `It uses your own ${args?.agent === "codex" ? "OpenAI" : "Claude"} account, not QualiTaTi credits.`;
+    {
+      opencode:
+        "opencode does not stop to ask before it edits files or runs commands there. It uses the model providers you set up in opencode, or its free models, not QualiTaTi credits.",
+      cursor:
+        "Cursor does not stop to ask before it edits files or runs commands there. It uses your own Cursor account, not QualiTaTi credits.",
+      gemini:
+        "Gemini CLI does not stop to ask before it edits files or runs commands there. It uses your own Google account or Gemini API key, not QualiTaTi credits.",
+    }[String(args?.agent)] ?? `It uses your own ${args?.agent === "codex" ? "OpenAI" : "Claude"} account, not QualiTaTi credits.`;
   const folder = String(args?.folder || "").trim();
   return (
     <>

@@ -566,8 +566,9 @@ export async function getConnectors(): Promise<Connector[]> {
   return (await res.json()).connectors ?? [];
 }
 
-// Coding agents (Connectors > Coding agents): Claude Code, Codex and opencode as connectable tools.
-export type CodingAgentKey = "claude_code" | "codex" | "opencode";
+// Coding agents (Connectors > Coding agents): Claude Code, Codex, opencode, Cursor and Gemini CLI
+// as connectable tools.
+export type CodingAgentKey = "claude_code" | "codex" | "opencode" | "cursor" | "gemini";
 
 export interface CodingAgent {
   key: CodingAgentKey;
@@ -583,11 +584,21 @@ export interface CodingAgent {
   sign_in_command: string;
   efforts: string[];
   defaults: { model: string; effort: string };
-  /** Codex and opencode: their own lists, newest first. Claude Code: its family aliases. */
-  models: { id: string; label: string; description?: string; resolved?: string; efforts?: string[]; free?: boolean }[];
-  /** True when the CLI listed its models itself (Codex, opencode); false for aliases or a failed list. */
+  /** Codex and opencode: their own lists, newest first. Cursor: the account's list, its default
+   *  marked. Claude Code and Gemini CLI: their aliases. */
+  models: {
+    id: string;
+    label: string;
+    description?: string;
+    resolved?: string;
+    efforts?: string[];
+    free?: boolean;
+    default?: boolean;
+  }[];
+  /** True when the CLI listed its models itself (Codex, opencode, Cursor); false for aliases or a failed list. */
   models_listed: boolean;
-  /** The model "Latest" runs as, when known ("" until Claude Code has run once; opencode's newest free model). */
+  /** The model "Latest" runs as, when known ("" until Claude Code has run once; opencode's newest
+   *  free model; Cursor's account default). */
   latest: string;
   model: string;
   effort: string;

@@ -1,15 +1,17 @@
-"""A small team of coding agents — Mimi hands work to Claude Code, Codex and opencode and reviews it.
+"""A small team of coding agents — Mimi hands work to Claude Code, Codex, opencode, Cursor
+and Gemini CLI and reviews it.
 
 Mimi splits a project into tasks, starts an agent on each (`start_agent`), watches them all
 (`wait_for_agents`), reviews what comes back, and sends feedback into the same agent session
 (`message_agent`) until the work is right. In a git project every agent gets its own worktree
 and branch, so parallel agents never collide and nothing reaches the user's branch until a
 merge — which goes through the shell and so asks the user. Each agent runs headless
-(`claude -p` / `codex exec` / `opencode run`) under its own safety model — `roots.py` cannot
-confine another program — so starting one is approval-gated and the card says so. It also
-bills the user's own Claude, OpenAI or opencode provider account, not QualiTaTi credits.
+(`claude -p` / `codex exec` / `opencode run` / `cursor-agent -p` / `gemini -p`) under its own
+safety model — `roots.py` cannot confine another program — so starting one is approval-gated
+and the card says so. It also bills the user's own account with that agent's maker, not
+QualiTaTi credits.
 
-All three CLIs stream JSON lines. Each line that means something to a person (a command, an edit,
+Every CLI streams JSON lines. Each line that means something to a person (a command, an edit,
 a sentence of narration) becomes a progress line on the running step via `tool_progress`;
 the rest is ignored, so a format change degrades to a quieter card, never a crash.
 """
@@ -44,6 +46,10 @@ AGENTS: dict[str, tuple[str, str, str]] = {
     "claude_code": ("Claude Code", "claude", "your own Claude account"),
     "codex": ("Codex", "codex", "your own OpenAI account"),
     "opencode": ("opencode", "opencode", "the model provider you set up in opencode"),
+    "cursor": ("Cursor", "cursor-agent", "your own Cursor account"),
+    # Antigravity was the ask (2026-10-24), but it has no command line to hand work to — only
+    # the editor's internal server. Gemini CLI is Google's headless agent on the same models.
+    "gemini": ("Gemini CLI", "gemini", "your own Google account or Gemini API key"),
 }
 
 # An app opened from Finder inherits launchd's PATH (/usr/bin:/bin:…), which holds none of
@@ -70,7 +76,7 @@ _MAX_CHANGED = 200
 # Snapshotting a huge folder to find changed files would cost more than the run; skip it.
 _MAX_SNAPSHOT = 50_000
 # Where the agents' own tools keep logs and settings — never the project's work.
-_AGENT_DIRS = (".claude", ".codex", ".opencode")
+_AGENT_DIRS = (".claude", ".codex", ".opencode", ".cursor", ".gemini")
 _SKIP_DIRS = {".git", ".mimiwork", *_AGENT_DIRS, "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache"}
 
 
@@ -119,6 +125,23 @@ def agent_command(
             *(["--variant", effort] if effort else []),
             *(["--session", resume_id] if resume_id else []),
         ]
+    if key == "cursor":
+        # Without --force, a headless Cursor run only proposes edits and never runs a command
+        # (2026.01); the user's own Cursor deny rules still hold. It has no effort setting.
+        return [
+            executable, "-p", "--output-format", "stream-json", "--force",
+            *(["--model", model] if model else []),
+            *(["--resume", resume_id] if resume_id else []),
+        ]
+    if key == "gemini":
+        # `-p ""` is headless mode with the task read from stdin (Gemini CLI 0.65). Its default
+        # mode stops to ask, which nobody can answer here, and an untrusted folder turns yolo
+        # back off, hence --skip-trust. Sessions resume by id within the project folder.
+        return [
+            executable, "-p", "", "--output-format", "stream-json", "--approval-mode", "yolo", "--skip-trust",
+            *(["-m", model] if model else []),
+            *(["--resume", resume_id] if resume_id else []),
+        ]
     # `exec resume` takes no --sandbox flag; the config key sets the same policy for both.
     flags = ["-c", 'sandbox_mode="workspace-write"']
     if model:
@@ -137,6 +160,9 @@ EFFORTS: dict[str, list[str]] = {
     "claude_code": ["low", "medium", "high", "xhigh", "max"],
     "codex": ["low", "medium", "high", "xhigh", "max"],
     "opencode": ["low", "medium", "high", "xhigh", "max"],
+    # Neither takes an effort level; Cursor folds thinking into the model name.
+    "cursor": [],
+    "gemini": [],
 }
 # An empty model means Latest. Claude Code cannot list models, but takes aliases that follow
 # the newest model of each family as the installed CLI knows it (2.1.270 resolves `opus` to
@@ -151,13 +177,22 @@ _CLAUDE_LATEST = "default"
 # what an agent may do.
 _NO_HOOKS = '{"disableAllHooks": true}'
 _CLAUDE_ALIASES = [("fable", "Latest Fable"), ("opus", "Latest Opus"), ("sonnet", "Latest Sonnet"), ("haiku", "Latest Haiku")]
+# Gemini CLI cannot list models either; its aliases follow the newest of each tier (0.65).
+# Empty is its own default, `auto`, which picks per request.
+_GEMINI_ALIASES = [("pro", "Latest Pro"), ("flash", "Latest Flash"), ("flash-lite", "Latest Flash-Lite")]
 # opencode needs no sign-in: its own free models work as installed. Adding a provider is an
 # interactive picker, so the page shows the command instead of driving it.
-_SIGN_IN_ARGS = {"claude_code": ["auth", "login"], "codex": ["login"], "opencode": ["auth", "login"]}
+# Gemini CLI has no sign-in command: its first interactive run asks how to authenticate, so
+# the page shows that command and has no button.
+_SIGN_IN_ARGS = {
+    "claude_code": ["auth", "login"], "codex": ["login"], "opencode": ["auth", "login"], "cursor": ["login"], "gemini": [],
+}
 _INSTALL = {
     "claude_code": "irm https://claude.ai/install.ps1 | iex" if _IS_WINDOWS else "curl -fsSL https://claude.ai/install.sh | bash",
     "codex": "npm install -g @openai/codex",
     "opencode": "npm install -g opencode-ai" if _IS_WINDOWS else "curl -fsSL https://opencode.ai/install | bash",
+    "cursor": "irm 'https://cursor.com/install?win32=true' | iex" if _IS_WINDOWS else "curl https://cursor.com/install -fsS | bash",
+    "gemini": "npm install -g @google/gemini-cli",
 }
 # A model name goes into argv and, for Codex, into a TOML value: names only, nothing that
 # could close the quote or read as a flag.
@@ -217,7 +252,7 @@ def save_settings(key: str, model: str = "", effort: str = "", keep_hooks: Optio
 
 _CATALOG_TTL = 60 * 60
 # ponytail: one cached catalog per agent per process; each CLI refreshes its own list.
-_catalogs: dict[str, dict[str, Any]] = {k: {"at": 0.0, "models": []} for k in ("codex", "opencode")}
+_catalogs: dict[str, dict[str, Any]] = {k: {"at": 0.0, "models": []} for k in ("codex", "opencode", "cursor")}
 
 
 def _cached(key: str, read: Callable[[], list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -310,11 +345,41 @@ def opencode_latest() -> str:
     return free[0]["id"] if free else ""
 
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# "gpt-6-luna - GPT-6 Luna  (current, default)", one per line (Cursor 2026.01 `models`).
+_CURSOR_MODEL = re.compile(r"^\s*(\S+) - (.+?)\s*(?:\(([a-z, ]+)\))?\s*$")
+
+
+def cursor_models(executable: str) -> list[dict[str, Any]]:
+    """The models the signed-in Cursor account offers, in Cursor's order; [] when it cannot say.
+    The account's default is marked, because that is what a run with no model uses."""
+    if not executable:
+        return []
+
+    def read() -> list[dict[str, Any]]:
+        code, out = _probe([executable, "models"], timeout=60)
+        if code != 0:
+            return []
+        found = []
+        for line in _ANSI.sub("", out).splitlines():
+            m = _CURSOR_MODEL.match(line)
+            if m and _MODEL_NAME.match(m.group(1)):
+                found.append({
+                    "id": m.group(1), "label": m.group(2), "description": m.group(1), "efforts": [],
+                    "default": "default" in (m.group(3) or ""),
+                })
+        return found
+
+    return _cached("cursor", read)
+
+
 def _catalog_for(key: str) -> list[dict[str, Any]]:
     if key == "codex":
         return codex_models(find_agent(key))
     if key == "opencode":
         return opencode_models(find_agent(key))
+    if key == "cursor":
+        return cursor_models(find_agent(key))
     return []
 
 
@@ -376,6 +441,12 @@ def _own_defaults(key: str) -> dict[str, str]:
                     m = re.search(r'"model"\s*:\s*"([^"]+)"', (folder / name).read_text(encoding="utf-8"))
                     return {"model": m.group(1) if m else "", "effort": ""}
             return {"model": "", "effort": ""}
+        if key == "cursor":
+            return {"model": "", "effort": ""}  # the page names the account's default from its list
+        if key == "gemini":
+            data = json.loads((Path.home() / ".gemini" / "settings.json").read_text(encoding="utf-8"))
+            model = data.get("model")  # {"name": …} since settings v2; a bare string before
+            return {"model": str((model.get("name") if isinstance(model, dict) else model) or ""), "effort": ""}
         text = (Path.home() / ".codex" / "config.toml").read_text(encoding="utf-8")
     except (OSError, ValueError, AttributeError):
         return {"model": "", "effort": ""}
@@ -406,11 +477,50 @@ def _sign_in_state(key: str, executable: str) -> tuple[Optional[bool], str]:
         if code is None:
             return None, out
         return True, ", ".join(m.group(1) for m in re.finditer(r"●\s+(.+?)\s*(?:\x1b|$)", out, re.M))
+    if key == "cursor":
+        if os.environ.get("CURSOR_API_KEY"):
+            return True, "API key"
+        # Exit code 0 either way (2026.01); only the words differ.
+        code, out = _probe([executable, "status"])
+        text = _ANSI.sub("", out)
+        if code is None:
+            return None, out
+        if "Not logged in" in text:
+            return False, ""
+        m = re.search(r"Logged in as (?:user id )?(\S+)", text)
+        return (True, m.group(1)) if m else (None, text.strip())
+    if key == "gemini":
+        return _gemini_sign_in()
     code, out = _probe([executable, "login", "status"])
     if code is None:
         return None, out
     # "Logged in using ChatGPT" / "Not logged in" (Codex CLI 0.162)
     return (True, out.splitlines()[0].removeprefix("Logged in using ") if out else "") if code == 0 else (False, "")
+
+
+def _gemini_sign_in() -> tuple[Optional[bool], str]:
+    """Gemini CLI has no status command; it is ready when it would not ask how to sign in:
+    an API key or cloud flag in the environment, or a method chosen in its settings."""
+    for var, what in (("GEMINI_API_KEY", "API key"), ("GOOGLE_API_KEY", "API key"),
+                      ("GOOGLE_GENAI_USE_VERTEXAI", "Vertex AI"), ("GOOGLE_GENAI_USE_GCA", "Google sign-in")):
+        if os.environ.get(var):
+            return True, what
+    folder = Path.home() / ".gemini"
+    try:
+        data = json.loads((folder / "settings.json").read_text(encoding="utf-8"))
+        auth = data.get("security", {}).get("auth", {}).get("selectedType") or data.get("selectedAuthType") or ""
+    except (OSError, ValueError, AttributeError):
+        auth = ""
+    if not auth:
+        return False, ""
+    if auth == "oauth-personal":
+        if not (folder / "oauth_creds.json").is_file():
+            return False, ""
+        try:
+            return True, str(json.loads((folder / "google_accounts.json").read_text(encoding="utf-8")).get("active") or "")
+        except (OSError, ValueError, AttributeError):
+            return True, ""
+    return True, str(auth)
 
 
 def agent_status(key: str) -> dict[str, Any]:
@@ -431,6 +541,8 @@ def agent_status(key: str) -> dict[str, Any]:
     if key == "claude_code":
         out["models"] = [{"id": a, "label": lbl, "resolved": resolved.get(a, "")} for a, lbl in _CLAUDE_ALIASES]
         out["latest"] = resolved.get(_CLAUDE_LATEST, "")
+    if key == "gemini":
+        out["models"] = [{"id": a, "label": lbl, "resolved": resolved.get(a, "")} for a, lbl in _GEMINI_ALIASES]
     if not path:
         return out
     code, version = _probe([path, "--version"])
@@ -452,6 +564,10 @@ def agent_status(key: str) -> dict[str, Any]:
         out["models"], out["models_listed"] = models, bool(models)
         out["latest"] = opencode_latest()
         out["efforts"] = _efforts(key)
+    if key == "cursor" and out["signed_in"]:
+        models = cursor_models(path)
+        out["models"], out["models_listed"] = models, bool(models)
+        out["latest"] = next((m["id"] for m in models if m["default"]), "")
     return out
 
 
@@ -500,6 +616,8 @@ def sign_in(key: str) -> dict[str, Any]:
     path = find_agent(key)
     if not path:
         return {"started": False, "error": f"{label} is not installed on this computer."}
+    if not _SIGN_IN_ARGS[key]:
+        return {"started": False, "error": f"{label} signs in from its first run: run {AGENTS[key][1]} in a terminal once and choose how."}
     old = _LOGINS.pop(key, None)
     if old is not None:
         _kill(old)
@@ -649,6 +767,56 @@ class _Run:
             self.error = str((err.get("data") or {}).get("message") or err.get("name") or "opencode stopped with an error")
         return []
 
+    def cursor(self, event: dict) -> list[str]:
+        # Cursor 2026.01 `-p --output-format stream-json` copies Claude Code's init / assistant
+        # / result lines, and adds tool_call lines of its own.
+        if event.get("type") != "tool_call":
+            return self.claude(event)
+        if event.get("subtype") != "started":
+            return []
+        call = event.get("tool_call") or {}
+        # It prints the call's protobuf oneof ({"tool": {"case", "value"}}); Cursor's docs show
+        # {"shellToolCall": {...}} instead. Either way: one tool name, one body with args.
+        if isinstance(call.get("tool"), dict):
+            name, body = call["tool"].get("case"), call["tool"].get("value")
+        else:
+            name, body = next(iter(call.items()), ("", {}))
+        args = (body or {}).get("args") or {} if isinstance(body, dict) else {}
+        target = args.get("command") or args.get("path") or args.get("pattern") or args.get("globPattern") or ""
+        tool = str(name or "tool").removesuffix("ToolCall")
+        return [_short(f"{tool}: {target}" if target else tool)]
+
+    def gemini(self, event: dict) -> list[str]:
+        # Gemini CLI 0.65 `--output-format stream-json`: init / message (assistant text in
+        # small deltas) / tool_use / tool_result / error / result.
+        kind = event.get("type")
+        if kind == "init":
+            self.session_id = str(event.get("session_id") or self.session_id)
+            self.model = str(event.get("model") or "")
+        if kind == "message" and event.get("role") == "assistant":
+            self._said = getattr(self, "_said", "") + str(event.get("content") or "")
+            if self._said.strip():
+                self.summary = self._said
+                return [_short(self._said)]
+        if kind == "tool_use":
+            self._said = ""  # the answer is what it says after its last tool
+            args = event.get("parameters") or {}
+            target = (
+                args.get("command") or args.get("file_path") or args.get("absolute_path")
+                or args.get("dir_path") or args.get("pattern") or ""
+            )
+            tool = str(event.get("tool_name") or "tool")
+            return [_short(f"{tool}: {target}" if target else tool)]
+        if kind == "error" and event.get("severity") == "error":
+            self.error = str(event.get("message") or "")
+        if kind == "result":
+            self.finished = True
+            if event.get("status") == "success":
+                self.error = ""
+            else:
+                self.error = str((event.get("error") or {}).get("message") or self.error or "Gemini CLI stopped with an error")
+        return []
+
 
 def _snapshot(folder: Path) -> Optional[dict[str, tuple[int, int]]]:
     seen: dict[str, tuple[int, int]] = {}
@@ -705,6 +873,7 @@ def run_agent(
     model: str = "",
     effort: str = "",
     skip_hooks: bool = False,
+    retry_retired: bool = True,
 ) -> dict[str, Any]:
     """Run one headless hand-off to completion, streaming progress through `report`."""
     label = AGENTS[key][0]
@@ -749,7 +918,9 @@ def run_agent(
     threading.Thread(target=_read, args=(proc.stdout,), daemon=True).start()
 
     run = _Run()
-    parse = {"claude_code": run.claude, "codex": run.codex, "opencode": run.opencode}[key]
+    parse = {
+        "claude_code": run.claude, "codex": run.codex, "opencode": run.opencode, "cursor": run.cursor, "gemini": run.gemini,
+    }[key]
     plain: list[str] = []  # non-JSON output (startup errors, stack traces)
     deadline = time.monotonic() + timeout
     heard = time.monotonic()
@@ -815,10 +986,30 @@ def run_agent(
         )}
     if outcome == "timed out":
         return {**result, "error": f"{label} was still working at its {_minutes(timeout)} limit and was stopped."}
+    retired = _RETIRED.search(run.error) if key == "opencode" and retry_retired else None
+    if retired:
+        # opencode's own model list can still offer a model its service has retired: Latest
+        # picked minimax-m3.1-flash-free and two hand-offs died with 410 "Use deepseek-v4.1-
+        # flash-free instead" (2026-10-24). Take the service's word, forget the stale list so
+        # Latest moves on, and run the round again on the replacement, once.
+        _catalogs["opencode"].update(at=0.0, models=[])
+        replacement = f"{model.split('/')[0] if '/' in model else 'opencode'}/{retired.group(2)}"
+        try:
+            report(f"{retired.group(1)} has been retired; using {replacement} instead")
+        except RuntimeError:
+            pass
+        again = run_agent(
+            key, executable, task, folder, report=report, stop=stop, timeout=timeout, argv=argv,
+            resume_id=resume_id, silence=silence, model=replacement, effort=effort, retry_retired=False,
+        )
+        return {"model": replacement, **again}
     if run.error or (code not in (0, None) and not run.summary) or not run.finished:
         why = run.error or _short(" ".join(plain[-5:]), 600) or f"exited with code {code}"
         return {**result, "error": f"{label} did not finish: {why}"}
     return {**result, "status": "completed"}
+
+
+_RETIRED = re.compile(r"Model (\S+) has been deprecated\. Use (\S+?) instead")
 
 
 def _opencode_model(executable: str, session_id: str) -> str:
@@ -999,15 +1190,21 @@ class Job:
 def resume_command(key: str, workdir: str | Path, session_id: str) -> str:
     """The command that opens an agent's own conversation in its CLI, in the agent's copy of
     the project. Claude Code and Codex find a session by id from any folder (checked with
-    Claude Code 2.1.270 and Codex 0.162); opencode files sessions by project, so the folder
-    matters there too, and it always decides which files a resumed agent works on. A
+    Claude Code 2.1.270 and Codex 0.162); opencode and Gemini CLI file sessions by project, so
+    the folder matters there too, and it always decides which files a resumed agent works on. A
     hand-off's history otherwise hides: Claude Code files it under the agent's worktree,
     and Codex's resume list leaves out non-interactive runs."""
-    exe = AGENTS[key][1]
+    # The full path where MimiWork found it: installers put these CLIs in folders a
+    # terminal's PATH may lack (opencode's ~/.opencode/bin was missing on the owner's Mac, so
+    # the listed command failed, 2026-10-24). PowerShell would need `&` before a quoted path.
+    found = find_agent(key)
+    exe = shlex.quote(found) if found and not _IS_WINDOWS else AGENTS[key][1]
     run = {
         "claude_code": f"{exe} --resume {session_id}",
         "codex": f"{exe} resume {session_id}",
         "opencode": f"{exe} --session {session_id}",
+        "cursor": f"{exe} --resume {session_id}",
+        "gemini": f"{exe} --resume {session_id}",
     }[key]
     if not workdir or not Path(workdir).is_dir():
         return run  # the worktree is gone (usually removed after a merge); the history is still there
@@ -1084,6 +1281,7 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     "ask Codex to…" gets a plain answer instead of a model that has never heard of agents."""
     installed = available_agents()
     ws = Path(workspace).resolve()
+    names = ", ".join(label for label, _, _ in AGENTS.values())
     session = session_id or str(ws)
     choices = ", ".join(f"'{k}' ({AGENTS[k][0]})" for k in AGENTS)
 
@@ -1181,7 +1379,7 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     start_agent.__doc__ = f"""Start a coding agent installed on this computer on one task. It
         works on its own, in the background, while you start others and watch them with
         `wait_for_agents`. Use agents for substantial software work (building, fixing,
-        refactoring, testing) or when the user asks for Claude Code, Codex or opencode. Do the
+        refactoring, testing) or when the user asks for one of them ({names}). Do the
         writing, analysis and documents yourself.
 
         Running a project with several agents:
@@ -1234,13 +1432,13 @@ def agent_team_tools(*, workspace: str | Path, roots: Optional[list] = None, ses
     # it asks. Feedback stays inside a job the user already approved (owner's choice,
     # 2026-10-15); merging into the user's branch goes through the shell and asks there.
     if not installed:
-        start_agent.__doc__ = """Hand software work to Claude Code, Codex or opencode. None is
+        start_agent.__doc__ = f"""Hand software work to a coding agent ({names}). None is
         installed on this computer yet, so this only returns how the user can connect one.
-        Call it when the user asks for Claude Code, Codex, opencode or a team of coding
-        agents, and pass the answer on.
+        Call it when the user asks for one of them or for a team of coding agents, and pass
+        the answer on.
 
         Args:
-            agent (str): 'claude_code', 'codex' or 'opencode'.
+            agent (str): Which agent: {choices}.
             task (str): What the user wanted done.
             name (str): Unused.
             folder (str): Unused.

@@ -1,4 +1,4 @@
-// Claude Code, Codex and opencode on the Connectors page, connected like any other tool: where each is
+// Claude Code, Codex, opencode, Cursor and Gemini CLI on the Connectors page, connected like any other tool: where each is
 // installed, who it is signed in as, a real test call, and the model and effort it will use.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
@@ -10,7 +10,7 @@ async function openCodingAgents(page) {
   await page.getByTestId("connectors-tab-agents").click();
 }
 
-test("shows all three agents with their install place, sign-in and settings", async ({ page }) => {
+test("shows every agent with their install place, sign-in and settings", async ({ page }) => {
   await openCodingAgents(page);
   const claude = page.getByTestId("coding-agent-claude_code");
   const codex = page.getByTestId("coding-agent-codex");
@@ -22,8 +22,8 @@ test("shows all three agents with their install place, sign-in and settings", as
   await expect(claude).toContainText("me@example.com");
   await expect(codex.getByTestId("coding-agent-status")).toHaveText("Not signed in");
   await expect(codex).toContainText("codex login");
-  // The page scrolls inside its own pane, so a tall window is what fits all three in one picture.
-  await page.setViewportSize({ width: 1280, height: 2700 });
+  // The page scrolls inside its own pane, so a tall window is what fits them all in one picture.
+  await page.setViewportSize({ width: 1280, height: 4200 });
   await page.screenshot({ path: "test-results/coding-agents.png", fullPage: true });
 });
 
@@ -100,4 +100,21 @@ test("opencode offers its newest free model first, its own models, its providers
   await expect(opencode.getByTestId("coding-agent-test-result")).toContainText("It answered in");
   await expect(opencode.getByTestId("coding-agent-hooks")).toHaveCount(0);
   await opencode.screenshot({ path: "test-results/coding-agents-opencode.png" });
+});
+
+test("Cursor runs on its account's default and Gemini CLI shows how to sign in on its first run", async ({ page }) => {
+  await openCodingAgents(page);
+  const cursor = page.getByTestId("coding-agent-cursor");
+  await expect(cursor.getByTestId("coding-agent-status")).toHaveText("Connected");
+  await expect(cursor.getByTestId("coding-agent-model-select").locator("option").first()).toHaveText("Default: auto");
+  await expect(cursor.getByTestId("coding-agent-effort")).toHaveCount(0);
+  await expect(cursor.getByTestId("coding-agent-unattended")).toContainText("Cursor does not stop to ask");
+  const gemini = page.getByTestId("coding-agent-gemini");
+  await expect(gemini.getByTestId("coding-agent-status")).toHaveText("Not signed in");
+  await expect(gemini.getByTestId("coding-agent-first-run")).toContainText("choose Sign in with Google");
+  await expect(gemini.getByTestId("coding-agent-sign-in")).toHaveCount(0);
+  await cursor.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/coding-agents-cursor.png" });
+  await gemini.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/coding-agents-gemini.png" });
 });

@@ -620,6 +620,30 @@ export async function mockApi(page: import("@playwright/test").Page) {
       ],
       models_listed: true, latest: "opencode/nemotron-3.5-super-vl-free",
     }),
+    codingAgent({
+      key: "cursor", label: "Cursor", billing: "your own Cursor account",
+      path: "/Users/me/.local/bin/cursor-agent", version: "2026.01.28-fd13201", account: "me@example.com",
+      install_command: "curl https://cursor.com/install -fsS | bash", sign_in_command: "cursor-agent login",
+      efforts: [], defaults: { model: "", effort: "" },
+      models: [
+        { id: "auto", label: "Auto", description: "auto", efforts: [], default: true },
+        { id: "gpt-6-luna", label: "GPT-6 Luna", description: "gpt-6-luna", efforts: [] },
+        { id: "sonnet-5-thinking", label: "Claude Sonnet 5 Thinking", description: "sonnet-5-thinking", efforts: [] },
+      ],
+      models_listed: true, latest: "auto",
+    }),
+    codingAgent({
+      key: "gemini", label: "Gemini CLI", billing: "your own Google account or Gemini API key",
+      path: "/opt/homebrew/bin/gemini", version: "0.65.0", signed_in: false, account: "",
+      install_command: "npm install -g @google/gemini-cli", sign_in_command: "gemini",
+      efforts: [], defaults: { model: "", effort: "" },
+      models: [
+        { id: "pro", label: "Latest Pro", resolved: "" },
+        { id: "flash", label: "Latest Flash", resolved: "" },
+        { id: "flash-lite", label: "Latest Flash-Lite", resolved: "" },
+      ],
+      models_listed: false, latest: "",
+    }),
   ];
   let codexSignInStarted = false;
   const automationRuns: any[] = AUTOMATION_RUNS.map((r) => ({ ...r }));

@@ -1,4 +1,5 @@
-"""Connecting Claude Code, Codex and opencode like any other tool — driven by fake CLIs on a bare PATH."""
+"""Connecting Claude Code, Codex, opencode, Cursor and Gemini CLI like any other tool — driven by
+fake CLIs on a bare PATH."""
 
 from __future__ import annotations
 
@@ -86,6 +87,44 @@ elif args[:1] == ["run"]:
     for e in [{"type": "step_start", "sessionID": "ses_1", "part": {"type": "step-start"}},
               {"type": "text", "sessionID": "ses_1", "part": {"type": "text", "text": "OK"}},
               {"type": "step_finish", "sessionID": "ses_1", "part": {"type": "step-finish", "reason": "stop"}}]:
+        print(json.dumps(e), flush=True)
+"""
+
+# What Cursor 2026.01.28 prints, read from its own code on 2026-10-24 (Ink output, colours on).
+CURSOR = """
+import json, os, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("2026.01.28-fd13201")
+elif args == ["status"]:
+    print("\\x1b[2K\\x1b[G")
+    print(" \\x1b[32m✓\\x1b[39m Logged in as me@example.com" if SIGNED_IN else " Not logged in")
+elif args == ["models"]:
+    print("Loading models…\\x1b[2K\\x1b[1A")
+    print("Available models\\n")
+    print("\\x1b[36mauto\\x1b[39m - Auto \\x1b[2m(current, default)\\x1b[22m")
+    print("\\x1b[36mgpt-6-luna\\x1b[39m - GPT-6 Luna")
+    print("\\x1b[36msonnet-5-thinking\\x1b[39m - Claude Sonnet 5 Thinking")
+    print("\\nTip: use --model <id> (or /model <id> in interactive mode) to switch.")
+elif args[:1] == ["-p"]:
+    open(LOG, "w").write(json.dumps(args))
+    sys.stdin.read()
+    for e in [{"type": "system", "subtype": "init", "session_id": "c1", "model": "Auto"},
+              {"type": "result", "subtype": "success", "is_error": False, "result": "OK", "session_id": "c1"}]:
+        print(json.dumps(e), flush=True)
+"""
+
+GEMINI = """
+import json, sys
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("0.65.0")
+elif args[:1] == ["-p"]:
+    open(LOG, "w").write(json.dumps(args))
+    sys.stdin.read()
+    for e in [{"type": "init", "session_id": "g1", "model": "gemini-3-pro-preview"},
+              {"type": "message", "role": "assistant", "content": "OK", "delta": True},
+              {"type": "result", "status": "success", "stats": {}}]:
         print(json.dumps(e), flush=True)
 """
 
@@ -277,7 +316,7 @@ def test_a_sign_in_that_cannot_start_says_why(home):
     assert not result["started"] and "port 1455 is already in use" in result["error"]
 
 
-def test_the_coding_agents_routes_answer_for_all_three_agents_and_refuse_any_other_name(home, tmp_path, monkeypatch):
+def test_the_coding_agents_routes_answer_for_every_agent_and_refuse_any_other_name(home, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     from coworker.providers import ModelCapabilities, ProviderClient
@@ -295,11 +334,11 @@ def test_the_coding_agents_routes_answer_for_all_three_agents_and_refuse_any_oth
     client = TestClient(create_app(SessionManager(workspace=tmp_path, provider=_Provider())))
 
     agents = client.get("/v1/coding-agents").json()["agents"]
-    assert [a["key"] for a in agents] == ["claude_code", "codex", "opencode"]
+    assert [a["key"] for a in agents] == ["claude_code", "codex", "opencode", "cursor", "gemini"]
     assert client.post("/v1/coding-agents/codex/settings", json={"effort": "high"}).json()["ok"]
     assert client.get("/v1/coding-agents").json()["agents"][1]["effort"] == "high"
     assert client.post("/v1/coding-agents/rm -rf/test").status_code == 404
-    assert client.post("/v1/coding-agents/gemini/sign-in").status_code == 404
+    assert client.post("/v1/coding-agents/antigravity/sign-in").status_code == 404
 
 
 CATALOG = [
@@ -361,7 +400,7 @@ def test_when_codex_cannot_list_its_models_the_page_falls_back_to_a_typed_name_a
     assert "-m" not in json.loads(log.read_text())
 
 
-def test_a_hand_off_is_listed_with_a_command_that_reopens_it_in_its_own_cli_from_its_folder(tmp_path):
+def test_a_hand_off_is_listed_with_a_command_that_reopens_it_in_its_own_cli_from_its_folder(home, tmp_path):
     delegate.load_settings(tmp_path / "coding-agents.json")
     work = tmp_path / "my project" / ".mimiwork" / "agents" / "csv"
     work.mkdir(parents=True)
@@ -377,7 +416,7 @@ def test_a_hand_off_is_listed_with_a_command_that_reopens_it_in_its_own_cli_from
     assert (tmp_path / "coding-agent-runs.json").exists()  # survives a restart
 
 
-def test_codex_hand_offs_resume_with_codex_resume_and_a_removed_folder_still_gives_the_id(tmp_path):
+def test_codex_hand_offs_resume_with_codex_resume_and_a_removed_folder_still_gives_the_id(home, tmp_path):
     delegate.load_settings(tmp_path / "coding-agents.json")
     job = delegate.Job("s", "codex", "codex", "review", tmp_path / "gone", "mimi/review")
     job.resume_id, job.status = "thread-9", "failed"
@@ -508,7 +547,7 @@ def test_a_chosen_opencode_model_and_effort_reach_its_command_line(home, tmp_pat
     assert argv[argv.index("--variant") + 1] == "high"
 
 
-def test_opencode_hand_offs_reopen_with_opencode_session_in_their_folder(tmp_path):
+def test_opencode_hand_offs_reopen_with_opencode_session_in_their_folder(home, tmp_path):
     delegate.load_settings(tmp_path / "coding-agents.json")
     work = tmp_path / "proj"
     work.mkdir()
@@ -519,3 +558,84 @@ def test_opencode_hand_offs_reopen_with_opencode_session_in_their_folder(tmp_pat
 
     run = delegate.recent_runs()[0]
     assert (run["agent"], run["resume_command"]) == ("opencode", f"cd {work} && opencode --session ses_abc")
+
+
+def test_cursor_names_its_account_and_lists_its_models_with_the_accounts_default_as_latest(home):
+    _install(home, "cursor-agent", CURSOR, SIGNED_IN=True, LOG="")
+    status = delegate.agent_status("cursor")
+
+    assert (status["installed"], status["signed_in"], status["account"]) == (True, True, "me@example.com")
+    assert [m["id"] for m in status["models"]] == ["auto", "gpt-6-luna", "sonnet-5-thinking"]
+    assert status["models"][1]["label"] == "GPT-6 Luna" and status["models_listed"]
+    assert status["latest"] == "auto"
+    assert status["efforts"] == [] and status["sign_in_command"] == "cursor-agent login"
+
+
+def test_a_signed_out_cursor_is_not_ready_even_though_its_status_check_exits_cleanly(home):
+    _install(home, "cursor-agent", CURSOR, SIGNED_IN=False, LOG="")
+    status = delegate.agent_status("cursor")
+    assert (status["signed_in"], status["error"]) == (False, "")
+    assert "Cursor is installed but not signed in" in delegate.connection_problem("cursor")
+
+
+def test_cursor_with_no_model_chosen_runs_on_the_accounts_default_and_the_test_names_it(home, tmp_path):
+    log = tmp_path / "ran.json"
+    _install(home, "cursor-agent", CURSOR, SIGNED_IN=True, LOG=str(log))
+    out = delegate.try_agent("cursor")
+    assert out["ok"] and out["reply"] == "OK" and out["model"] == "Auto"
+    assert "--model" not in json.loads(log.read_text())
+
+
+def test_gemini_is_ready_once_it_has_a_sign_in_method_and_names_the_google_account(home, monkeypatch):
+    for var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_GCA"):
+        monkeypatch.delenv(var, raising=False)
+    _install(home, "gemini", GEMINI, LOG="")
+    assert delegate.agent_status("gemini")["signed_in"] is False
+    assert "Gemini CLI is installed but not signed in" in delegate.connection_problem("gemini")
+
+    folder = home / ".gemini"
+    folder.mkdir()
+    (folder / "settings.json").write_text(json.dumps({"security": {"auth": {"selectedType": "oauth-personal"}}}))
+    assert delegate.agent_status("gemini")["signed_in"] is False  # chosen, but never finished
+    (folder / "oauth_creds.json").write_text("{}")
+    (folder / "google_accounts.json").write_text(json.dumps({"active": "me@gmail.com"}))
+    status = delegate.agent_status("gemini")
+    assert (status["signed_in"], status["account"]) == (True, "me@gmail.com")
+
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    (folder / "settings.json").unlink()
+    assert delegate.agent_status("gemini")["account"] == "API key"
+
+
+def test_gemini_offers_its_tier_aliases_and_signs_in_from_its_own_first_run_not_a_button(home):
+    _install(home, "gemini", GEMINI, LOG="")
+    status = delegate.agent_status("gemini")
+    assert [m["id"] for m in status["models"]] == ["pro", "flash", "flash-lite"]
+    assert status["sign_in_command"] == "gemini" and status["efforts"] == []
+    out = delegate.sign_in("gemini")
+    assert not out["started"] and "run gemini in a terminal" in out["error"]
+
+
+def test_a_chosen_gemini_alias_reaches_its_command_line_and_the_page_learns_what_it_ran_as(home, tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "k")
+    log = tmp_path / "ran.json"
+    _install(home, "gemini", GEMINI, LOG=str(log))
+    assert delegate.save_settings("gemini", model="pro")["ok"]
+    assert not delegate.save_settings("gemini", effort="high")["ok"]  # Gemini CLI takes no effort
+
+    out = delegate.try_agent("gemini")
+
+    argv = json.loads(log.read_text())
+    assert out["ok"] and argv[argv.index("-m") + 1] == "pro"
+    pro = next(m for m in delegate.agent_status("gemini")["models"] if m["id"] == "pro")
+    assert pro["resolved"] == "gemini-3-pro-preview"
+
+
+def test_cursor_and_gemini_hand_offs_reopen_with_resume_in_their_folder(home, tmp_path):
+    assert delegate.resume_command("cursor", tmp_path, "c1") == f"cd {tmp_path} && cursor-agent --resume c1"
+    assert delegate.resume_command("gemini", tmp_path, "g1") == f"cd {tmp_path} && gemini --resume g1"
+
+
+def test_the_reopen_command_names_the_agent_by_its_full_path_because_a_terminal_may_not_find_it(home, tmp_path):
+    exe = _install(home, "opencode", OPENCODE, PROVIDERS=[], CATALOG=[], LOG="")
+    assert delegate.resume_command("opencode", tmp_path, "ses_1") == f"cd {tmp_path} && {exe} --session ses_1"

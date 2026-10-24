@@ -30,6 +30,32 @@ test("Mimi starts two agents, watches both, and sends one back with feedback", a
   await page.screenshot({ path: "test-results/team-done.png", fullPage: false });
 });
 
+// Coordinating agents from a chat: once Mimi proposes a hand-off, the side panel lists the
+// connected agents with their models, so a model can change before the approval (owner ask
+// 2026-10-24) and the change saves to the same settings as the Coding agents page.
+test("the chat's side panel sets each agent's model while Mimi coordinates them", async ({ page }) => {
+  await page.goto("/");
+  await page.getByPlaceholder(/Ask Mimi/).fill("please run the team");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByTestId("delegate-note")).toContainText("Codex works on its own");
+
+  const team = page.getByTestId("agent-team");
+  await expect(team.getByTestId("agent-team-claude_code")).toBeVisible();
+  await expect(team.getByTestId("agent-team-cursor")).toBeVisible();
+  await expect(team.getByTestId("agent-team-gemini")).toHaveCount(0); // not signed in
+  await expect(team.getByTestId("agent-team-codex")).toHaveCount(0); // not signed in
+  const opencode = team.getByTestId("agent-team-opencode");
+  await opencode.getByTestId("agent-team-model").selectOption("opencode/big-pickle");
+  await expect(opencode).toContainText("Saved");
+  await team.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "test-results/team-panel.png" });
+
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Connectors", exact: true }).click();
+  await page.getByTestId("connectors-tab-agents").click();
+  await expect(page.getByTestId("coding-agent-opencode").getByTestId("coding-agent-model-select")).toHaveValue("opencode/big-pickle");
+});
+
 // Every attended approval is also a pending item in the session's Inbox (visibility
 // "inline"). The composer docked that item as a second card, so each request showed
 // twice (owner report 2026-10-18). Only the live card may show.

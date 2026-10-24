@@ -13,7 +13,7 @@ import { openExternal } from "../../tauri";
 import { Toggle } from "../Toggle";
 import { CHIP_OFF, CHIP_OK, CHIP_WARN, FOOT, GRP, PILL_ACCENT, PILL_LINE, ROW } from "./ui";
 
-// Claude Code, Codex and opencode, connected like any other tool: installed where, signed in as whom,
+// Claude Code, Codex, opencode, Cursor and Gemini CLI, connected like any other tool: installed where, signed in as whom,
 // a real test call, and the model and effort Mimi's hand-offs will use. Delegation reads the
 // same status, so what this page says is what start_agent will find.
 
@@ -71,7 +71,7 @@ export function CodingAgentsSection() {
       {/* What start_agent / wait_for_agents / message_agent do together today; Mimi relays
           between the agents, they never talk to each other directly. */}
       <div className="rounded-xl2 border border-line bg-panel px-4 py-3 text-[12.5px]" data-testid="coding-agents-together">
-        <div className="font-semibold text-[13px] mb-1">{t("Claude Code, Codex and opencode can work together")}</div>
+        <div className="font-semibold text-[13px] mb-1">{t("Your coding agents can work together")}</div>
         <p className="text-muted">
           {t(
             "Ask Mimi to use more than one on a job. Mimi splits the work and gives each agent its own part on its own branch, can have one review another's branch, and passes what one found back to the others as feedback until the work is right. You see each agent's progress while they work.",
@@ -98,6 +98,12 @@ export function CodingAgentsSection() {
 }
 
 function modelHint(a: CodingAgent): string {
+  if (a.key === "cursor")
+    return a.models_listed
+      ? "From your Cursor account's own list. Default is the model your account uses when none is chosen."
+      : "Cursor did not share its model list. Type a model name, or leave it empty for your account's default.";
+  if (a.key === "gemini")
+    return "Gemini CLI cannot list its models. Default lets Gemini choose the model for each request, and each tier follows its newest model as your installed Gemini CLI knows it.";
   if (a.key === "claude_code")
     return "Claude Code cannot list its models. Latest is the model Claude Code recommends for your account, and each family follows its newest model as your installed Claude Code knows it. Updating Claude Code moves them forward.";
   if (a.key === "opencode")
@@ -109,11 +115,41 @@ function modelHint(a: CodingAgent): string {
 }
 
 // Codex and opencode say which effort levels each model takes; the chosen (or latest) model decides.
-function effortsFor(a: CodingAgent): string[] {
+// Cursor and Gemini CLI take none, so their cards have no Effort row.
+export function effortsFor(a: CodingAgent): string[] {
   const id = a.model || a.latest;
   const m = a.models.find((x) => x.id === id);
   return m?.efforts?.length ? m.efforts : a.efforts;
 }
+
+/** The model dropdown's first option: what a run with no model chosen uses. */
+export function firstModelOption(a: CodingAgent, t: (s: string) => string): string {
+  if (a.key === "opencode")
+    return a.latest ? t("Latest free model (currently {model})").replace("{model}", a.latest) : t("opencode's choice");
+  // Cursor runs on the account's default and Gemini CLI on its own per-request choice.
+  if (a.key === "cursor" || a.key === "gemini")
+    return a.latest ? t("Default: {model}").replace("{model}", a.latest) : t("Default");
+  return a.latest ? t("Latest (currently {model})").replace("{model}", a.latest) : t("Latest");
+}
+
+// What each agent does in a hand-off without asking; Claude Code and Codex use their own
+// approval modes, which their cards do not need to explain.
+const UNATTENDED: Partial<Record<CodingAgent["key"], string>> = {
+  opencode:
+    "In a hand-off, opencode does not stop to ask: it edits files and runs commands in its folder on its own. Anything your opencode settings mark to ask about, like reading outside that folder, is refused. Mimi still asks you before every hand-off, and in a git project opencode works on its own branch.",
+  cursor:
+    "In a hand-off, Cursor does not stop to ask: it edits files and runs commands in its folder on its own. Commands your Cursor settings deny stay denied. Mimi still asks you before every hand-off, and in a git project Cursor works on its own branch.",
+  gemini:
+    "In a hand-off, Gemini CLI does not stop to ask: it edits files and runs commands on its own. Mimi still asks you before every hand-off, and in a git project Gemini CLI works on its own branch.",
+};
+
+const PAYS: Record<CodingAgent["key"], string> = {
+  claude_code: "Runs on your own Claude account, not QualiTaTi credits.",
+  codex: "Runs on your own OpenAI account, not QualiTaTi credits.",
+  opencode: "Runs on the providers you set up in opencode, or its free models, not QualiTaTi credits.",
+  cursor: "Runs on your own Cursor account, not QualiTaTi credits.",
+  gemini: "Runs on your own Google account or Gemini API key, not QualiTaTi credits.",
+};
 
 function statusOf(a: CodingAgent): { label: string; chip: string } {
   if (!a.installed) return { label: "Not installed", chip: CHIP_OFF };
@@ -179,15 +215,8 @@ function AgentCard({
 
   const connected = a.installed && a.signed_in && !a.error;
   const opencode = a.key === "opencode";
-  // opencode's Latest is its newest free model, so the option says so; with none listed,
-  // opencode picks for itself.
-  const firstOption = opencode
-    ? a.latest
-      ? t("Latest free model (currently {model})").replace("{model}", a.latest)
-      : t("opencode's choice")
-    : a.latest
-      ? t("Latest (currently {model})").replace("{model}", a.latest)
-      : t("Latest");
+  const firstOption = firstModelOption(a, t);
+  const efforts = effortsFor(a);
 
   return (
     <section data-testid={`coding-agent-${a.key}`}>
@@ -246,6 +275,15 @@ function AgentCard({
               </div>
             ) : a.signed_in ? (
               <span data-no-translate>{a.account || t("Signed in")}</span>
+            ) : a.key === "gemini" ? (
+              // Gemini CLI has no sign-in command: its first interactive run asks how.
+              <div className="space-y-0.5" data-testid="coding-agent-first-run">
+                <div>{t("Not signed in")}</div>
+                <div className="text-faint">
+                  {t("To sign in, run this in a terminal once, choose Sign in with Google, then check again:")}{" "}
+                  <Command text={a.sign_in_command} />
+                </div>
+              </div>
             ) : (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-3">
@@ -321,6 +359,7 @@ function AgentCard({
           </div>
         </div>
 
+        {efforts.length > 0 && (
         <div className={ROW}>
           <label className="w-24 shrink-0 text-[13px] text-muted" htmlFor={`effort-${a.key}`}>
             {t("Effort")}
@@ -335,7 +374,7 @@ function AgentCard({
             <option value="">
               {a.defaults.effort ? t("Default: {model}").replace("{model}", a.defaults.effort) : t("Default")}
             </option>
-            {effortsFor(a).map((e) => (
+            {efforts.map((e) => (
               <option key={e} value={e}>
                 {e}
               </option>
@@ -344,6 +383,13 @@ function AgentCard({
           {saved && <span className="text-[12px] text-ok">{t("Saved")}</span>}
           {saveError && <span className="text-[12px] text-danger">{saveError}</span>}
         </div>
+        )}
+        {efforts.length === 0 && (saved || saveError) && (
+          <div className={ROW}>
+            {saved && <span className="text-[12px] text-ok">{t("Saved")}</span>}
+            {saveError && <span className="text-[12px] text-danger">{saveError}</span>}
+          </div>
+        )}
 
         {a.key === "claude_code" && (
           <div className={ROW} data-testid="coding-agent-hooks">
@@ -366,14 +412,10 @@ function AgentCard({
           </div>
         )}
 
-        {opencode && (
+        {UNATTENDED[a.key] && (
           <div className={ROW} data-testid="coding-agent-unattended">
             <span className="w-24 shrink-0 text-[13px] text-muted">{t("Approvals")}</span>
-            <p className="min-w-0 flex-1 text-[12.5px]">
-              {t(
-                "In a hand-off, opencode does not stop to ask: it edits files and runs commands in its folder on its own. Anything your opencode settings mark to ask about, like reading outside that folder, is refused. Mimi still asks you before every hand-off, and in a git project opencode works on its own branch.",
-              )}
-            </p>
+            <p className="min-w-0 flex-1 text-[12.5px]">{t(UNATTENDED[a.key]!)}</p>
           </div>
         )}
 
@@ -405,13 +447,7 @@ function AgentCard({
           </div>
         </div>
       </div>
-      <p className={FOOT}>
-        {a.key === "claude_code"
-          ? t("Runs on your own Claude account, not QualiTaTi credits.")
-          : opencode
-            ? t("Runs on the providers you set up in opencode, or its free models, not QualiTaTi credits.")
-            : t("Runs on your own OpenAI account, not QualiTaTi credits.")}
-      </p>
+      <p className={FOOT}>{t(PAYS[a.key])}</p>
     </section>
   );
 }
@@ -432,11 +468,11 @@ function RecentRuns({ runs }: { runs: CodingAgentRun[] }) {
     <section data-testid="coding-agent-runs">
       <h3 className="text-[14px] font-semibold px-1 mb-0.5">{t("Recent hand-offs")}</h3>
       <p className="text-[12px] text-muted px-1 mb-2">
-        {t("Each hand-off is a conversation in Claude Code, Codex or opencode itself. Run its command in a terminal to read it or carry on yourself.")}
+        {t("Each hand-off is a conversation in the coding agent itself. Run its command in a terminal to read it or carry on yourself.")}
       </p>
       {runs.length === 0 ? (
         <div className="text-[12.5px] text-faint px-1">
-          {t("No hand-offs yet. When Mimi gives work to Claude Code, Codex or opencode, it appears here.")}
+          {t("No hand-offs yet. When Mimi gives work to a coding agent, it appears here.")}
         </div>
       ) : (
         <div className={GRP}>

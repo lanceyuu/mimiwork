@@ -77,7 +77,7 @@ anything reachable over [MCP](https://modelcontextprotocol.io/). Tag it in a Sla
 and the finished work comes back as a thread reply. Canva signs in with one click and Mimi
 can search, generate, edit, comment on and export your designs there.
 
-**It can run a team of coding agents.** With Claude Code, Codex or opencode installed, Mimi
+**It can run a team of coding agents.** With Claude Code, Codex, opencode, Cursor or Gemini CLI installed, Mimi
 hands software work to them, and can put several on one job: each agent gets its own part on
 its own git branch, one can review another's branch, and Mimi passes what one found back to
 the others as feedback until the work is right. Merging a branch into yours goes through the
@@ -85,9 +85,11 @@ same approval as any other command. **Connectors ▸ Coding agents** shows wheth
 installed and signed in, tests it with one small call, and picks its model: the latest by
 default, or one from the agent's own list. Claude Code and Codex run on your own Claude or
 OpenAI account; opencode runs on its newest free model unless you pick one from the
-providers you set up in it. None of them uses QualiTaTi credits. opencode does not stop to
-ask before it edits files or runs commands in its folder, so Mimi still asks you before
-every hand-off.
+providers you set up in it; Cursor and Gemini CLI run on your own Cursor or Google account.
+None of them uses QualiTaTi credits. opencode, Cursor and Gemini CLI do not stop to ask
+before they edit files or run commands in their folder, so Mimi still asks you before every
+hand-off. While Mimi coordinates agents in a chat, the side panel lists each one with its
+model, so you can change a model without leaving the conversation.
 
 **Including where your data lives.** Connect **Qualtrics** and ask for the December wave:
 it reads the questionnaire so `Q4_1` arrives as *"How satisfied were you with — speed of
