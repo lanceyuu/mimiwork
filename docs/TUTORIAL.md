@@ -139,8 +139,9 @@ Anything else speaks [MCP](https://modelcontextprotocol.io/).
 **Connectors ▸ Coding agents**: it shows whether each is installed and signed in, signs it in, tests it, and sets
 its model (the latest unless you choose another). opencode needs no account to start: its
 free models work as installed, and it uses the newest of them unless you pick another. You
-can also add your own providers. Gemini CLI signs in on its first run: run `gemini` once in a
-terminal and choose Sign in with Google. Then ask Mimi to use several on one job:
+can also add your own providers. Gemini CLI needs a Gemini API key: run `gemini` once in a
+terminal, choose Use Gemini API Key and paste a key from Google AI Studio. Google no longer lets
+Gemini CLI run on a personal Google sign-in. Then ask Mimi to use several on one job:
 
 > Have Codex build the CSV export, Claude Code write its tests and opencode update the docs,
 > then have each review another's branch.

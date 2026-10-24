@@ -280,7 +280,9 @@ function AgentCard({
               <div className="space-y-0.5" data-testid="coding-agent-first-run">
                 <div>{t("Not signed in")}</div>
                 <div className="text-faint">
-                  {t("To sign in, run this in a terminal once, choose Sign in with Google, then check again:")}{" "}
+                  {t(
+                    "To sign in, run this in a terminal once, choose Use Gemini API Key and paste a key from Google AI Studio, then check again. A personal Google sign-in no longer works for Gemini CLI.",
+                  )}{" "}
                   <Command text={a.sign_in_command} />
                 </div>
               </div>

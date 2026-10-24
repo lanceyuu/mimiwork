@@ -412,7 +412,7 @@ describe("Coding agents", () => {
     render(<CodingAgentsSection />);
 
     const gemini = await waitFor(() => card("gemini"));
-    expect(gemini.getByTestId("coding-agent-first-run").textContent).toContain("choose Sign in with Google");
+    expect(gemini.getByTestId("coding-agent-first-run").textContent).toContain("choose Use Gemini API Key");
     expect(gemini.queryByTestId("coding-agent-sign-in")).toBeNull();
     const options = Array.from((gemini.getByTestId("coding-agent-model-select") as HTMLSelectElement).options);
     expect(options.map((o) => o.textContent)).toEqual(["Default", "Latest Pro (gemini-3-pro)", "Latest Flash", "Custom…"]);

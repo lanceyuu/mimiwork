@@ -83,7 +83,10 @@ CURSOR_OK = [
      "tool_call": {"tool": {"case": "shellToolCall", "value": {"args": {"command": "pytest -q"}, "result": {}}}}},
     {"type": "tool_call", "subtype": "started", "call_id": "2", "session_id": "c-1",
      "tool_call": {"editToolCall": {"args": {"path": "app.py"}}}},
-    {"type": "result", "subtype": "success", "is_error": False, "duration_ms": 9, "result": "Fixed app.py; tests pass.", "session_id": "c-1"},
+    {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Fixed app.py; tests pass."}]}, "session_id": "c-1"},
+    # Recorded live 2026-10-24: `result` glues every message of the turn together.
+    {"type": "result", "subtype": "success", "is_error": False, "duration_ms": 9,
+     "result": "Running the tests.Fixed app.py; tests pass.", "session_id": "c-1"},
 ]
 GEMINI_OK = [
     {"type": "init", "timestamp": "t", "session_id": "g-1", "model": "gemini-3-pro"},
@@ -190,10 +193,10 @@ def test_an_opencode_handoff_reports_its_tool_steps_and_final_text(tmp_path):
     assert result["session_id"] == "ses_9"  # what a follow-up continues
 
 
-def test_a_cursor_handoff_reports_its_tool_steps_in_either_shape_and_its_result(tmp_path):
+def test_a_cursor_handoff_reports_its_tool_steps_in_either_shape_and_only_its_last_message_as_the_answer(tmp_path):
     result, lines = _run(tmp_path, "cursor", CURSOR_OK)
     assert result["status"] == "completed" and result["summary"] == "Fixed app.py; tests pass."
-    assert lines == ["Running the tests.", "shell: pytest -q", "edit: app.py"]
+    assert lines == ["Running the tests.", "shell: pytest -q", "edit: app.py", "Fixed app.py; tests pass."]
     assert result["session_id"] == "c-1" and result["model"] == "GPT-6 Luna"
 
 
@@ -207,6 +210,25 @@ def test_a_gemini_handoff_joins_its_streamed_text_and_keeps_only_what_it_said_la
 def test_a_gemini_error_result_fails_the_run_with_its_sentence(tmp_path):
     result, _ = _run(tmp_path, "gemini", GEMINI_QUOTA)
     assert result["error"] == "Gemini CLI did not finish: You have exhausted your daily quota."
+
+
+def test_gemini_on_a_retired_personal_google_sign_in_says_to_use_an_api_key_not_a_stack_trace(tmp_path):
+    work = tmp_path / "work"
+    work.mkdir()
+    script = tmp_path / "ineligible.py"
+    # Recorded live 2026-10-24 (Gemini CLI 0.65.0, signed in with a personal Google account).
+    script.write_text(
+        "import sys\n"
+        "print('Skill \"skill-creator\" from \"/u/.agents/skills/skill-creator/SKILL.md\" is overriding the built-in skill.')\n"
+        "print('An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini "
+        "Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite of products')\n"
+        "print('    at throwIneligibleOrProjectIdError (file:///opt/homebrew/x.js:1:1)')\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    result = delegate.run_agent("gemini", "unused", "t", work, argv=[sys.executable, str(script)])
+    assert result["error"].startswith("Gemini CLI did not finish: Google no longer lets Gemini CLI run on a personal")
+    assert "/auth" in result["error"] and "throwIneligible" not in result["error"]
 
 
 def test_a_signed_out_cursor_or_gemini_fails_with_the_words_it_printed(tmp_path):

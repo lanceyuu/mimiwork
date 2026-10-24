@@ -770,6 +770,16 @@ class _Run:
     def cursor(self, event: dict) -> list[str]:
         # Cursor 2026.01 `-p --output-format stream-json` copies Claude Code's init / assistant
         # / result lines, and adds tool_call lines of its own.
+        if event.get("type") == "assistant":
+            said = "".join(b.get("text", "") for b in (event.get("message") or {}).get("content") or [] if b.get("type") == "text")
+            self._said = said.strip() or getattr(self, "_said", "")
+        if event.get("type") == "result":
+            # Its `result` is every message of the turn glued together with no space ("Checking
+            # files.There are 2 files.", live run 2026-10-24); the answer is the last message.
+            out = self.claude(event)
+            if self.summary and getattr(self, "_said", ""):
+                self.summary = self._said
+            return out
         if event.get("type") != "tool_call":
             return self.claude(event)
         if event.get("subtype") != "started":
@@ -1005,10 +1015,19 @@ def run_agent(
         return {"model": replacement, **again}
     if run.error or (code not in (0, None) and not run.summary) or not run.finished:
         why = run.error or _short(" ".join(plain[-5:]), 600) or f"exited with code {code}"
+        if key == "gemini" and "IneligibleTierError" in " ".join(plain):
+            # Google turned off Gemini CLI for personal Google sign-ins ("migrate to the
+            # Antigravity suite", live run 2026-10-24); an API key still works.
+            why = _GEMINI_PERSONAL_RETIRED
         return {**result, "error": f"{label} did not finish: {why}"}
     return {**result, "status": "completed"}
 
 
+_GEMINI_PERSONAL_RETIRED = (
+    "Google no longer lets Gemini CLI run on a personal Google sign-in. Use a Gemini API key "
+    "instead: run gemini in a terminal, type /auth, choose Use Gemini API Key and paste a key "
+    "from https://aistudio.google.com/app/apikey."
+)
 _RETIRED = re.compile(r"Model (\S+) has been deprecated\. Use (\S+?) instead")
 
 

@@ -111,7 +111,7 @@ test("Cursor runs on its account's default and Gemini CLI shows how to sign in o
   await expect(cursor.getByTestId("coding-agent-unattended")).toContainText("Cursor does not stop to ask");
   const gemini = page.getByTestId("coding-agent-gemini");
   await expect(gemini.getByTestId("coding-agent-status")).toHaveText("Not signed in");
-  await expect(gemini.getByTestId("coding-agent-first-run")).toContainText("choose Sign in with Google");
+  await expect(gemini.getByTestId("coding-agent-first-run")).toContainText("choose Use Gemini API Key");
   await expect(gemini.getByTestId("coding-agent-sign-in")).toHaveCount(0);
   await cursor.scrollIntoViewIfNeeded();
   await page.screenshot({ path: "test-results/coding-agents-cursor.png" });
