@@ -9,6 +9,7 @@ request handlers touch it from different threads.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -51,11 +52,27 @@ def _tz(name: str):
     """Resolve a schedule timezone. 'local'/empty → the machine's local zone (right for a
     local-first tool: when you say '8:05 PM' you mean *your* clock, not UTC)."""
     if not name or name.lower() == "local":
-        return datetime.now().astimezone().tzinfo
+        return _local_zone()
     try:
         return ZoneInfo(name)
     except Exception:
-        return datetime.now().astimezone().tzinfo
+        return _local_zone()
+
+
+def _local_zone():
+    """The machine's zone by name. `astimezone()` gives only today's offset, which carries
+    summer time into winter: when Europe's clocks went back on 2026-10-25, a daily 7:10 PM
+    task came due at 6:10 PM. A named zone keeps 7:10 PM on the clock across the change."""
+    link = os.path.realpath("/etc/localtime")  # macOS and Linux: …/zoneinfo/Europe/Oslo
+    for name in (os.environ.get("TZ", "").lstrip(":"), link.split("zoneinfo/", 1)[1] if "zoneinfo/" in link else ""):
+        if name:
+            try:
+                return ZoneInfo(name)
+            except Exception:
+                continue
+    # ponytail: Windows has neither, so its fixed offset still drifts an hour at a clock
+    # change; read the Windows zone (tzlocal) if Windows users report it.
+    return datetime.now().astimezone().tzinfo
 
 
 def _epoch_now() -> float:

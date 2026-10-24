@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from helpers import wait_until
@@ -63,6 +64,16 @@ def test_compute_next_run_defaults_to_local_time():
     local = datetime.fromtimestamp(nxt).astimezone()
     assert (local.hour, local.minute) == (19, 10)
 
+
+
+def test_a_daily_local_schedule_keeps_its_clock_time_across_the_end_of_summer_time(monkeypatch):
+    # Europe's clocks went back on 2026-10-25; a fixed +02:00 offset made 19:10 fire at 18:10.
+    monkeypatch.setenv("TZ", "Europe/Paris")
+    t = _task()
+    paris = ZoneInfo("Europe/Paris")
+    before = datetime(2026, 10, 24, 20, 0, tzinfo=paris).timestamp()
+    nxt = datetime.fromtimestamp(compute_next_run(t, after=before), tz=paris)
+    assert (nxt.day, nxt.hour, nxt.minute) == (25, 19, 10)
 
 def test_compute_next_run_once_in_past_is_none():
     past = "2020-01-01T00:00:00+00:00"
