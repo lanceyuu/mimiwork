@@ -151,6 +151,54 @@ def test_html_to_text_strips_scripts_and_tags():
     assert "bad()" not in text and "x{}" not in text
 
 
+def _serve(monkeypatch, response):
+    import coworker.web.fetch as fetch
+
+    monkeypatch.setattr(fetch, "get_checked", lambda client, url: response)
+
+
+def _text_pdf(line: str) -> bytes:
+    """A one-page PDF whose text layer is `line` — built by hand, no PDF library needed."""
+    stream = f"BT /F1 12 Tf 72 720 Td ({line}) Tj ET".encode()
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        b"/Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % i + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    return bytes(out)
+
+
+def test_web_fetch_reads_the_text_of_a_pdf_not_its_bytes(monkeypatch):
+    import httpx
+
+    pdf = _text_pdf("Registered Report Guidance for the Journal of Consumer Research")
+    response = httpx.Response(200, headers={"content-type": "application/pdf"}, content=pdf)
+    response.request = httpx.Request("GET", "https://example.org/guide.pdf")
+    _serve(monkeypatch, response)
+    out = make_web_fetch_tool()("https://example.org/guide.pdf")
+    assert "Registered Report Guidance" in out["text"]
+    assert "%PDF" not in out["text"]
+
+
+def test_web_fetch_says_plainly_when_a_site_refuses_to_be_read(monkeypatch):
+    import httpx
+
+    _serve(monkeypatch, httpx.Response(403, content=b"Just a moment..."))
+    out = make_web_fetch_tool()("https://publisher.example/forauthors.html")
+    assert "NOT seen this page" in out["error"]
+
+
 # -- Code agent wiring ---------------------------------------------------------
 def test_code_agent_has_grep_and_git_log_not_search_files(tmp_path):
     from coworker.agents.base import AgentContext

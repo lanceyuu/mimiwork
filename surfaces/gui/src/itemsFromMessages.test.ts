@@ -141,4 +141,18 @@ describe("itemsFromMessages engine prompts", () => {
       kind: "notice", tone: "info", text: "Mimi linked a file it hadn't saved — asked it to save it.",
     });
   });
+
+  it("never shows the loop guard or fact check as something the user typed", () => {
+    const items = itemsFromMessages([
+      { role: "user", content: "which journals take registered reports?" },
+      { role: "assistant", content: "JMR has since 2023." },
+      { role: "user", content: "Your answer states specifics…", steering: "unsourced_facts" },
+      { role: "user", content: "Your last few responses are near-duplicates…", steering: "repetition" },
+    ] as any);
+    expect(items.filter((i) => i.kind === "user")).toHaveLength(1);
+    expect(items.slice(-2).map((i: any) => i.text)).toEqual([
+      "Mimi stated facts without checking a source — asked it to verify.",
+      "Mimi seems to be looping — nudging it to change course.",
+    ]);
+  });
 });

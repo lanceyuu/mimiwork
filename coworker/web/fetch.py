@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from html.parser import HTMLParser
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import aisuite as ai
 
@@ -75,6 +75,16 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(parser.parts))
 
 
+def _pdf_text(raw: bytes) -> Optional[str]:
+    import base64
+
+    from .. import pdf_support
+
+    return pdf_support.extract_text(
+        "data:application/pdf;base64," + base64.b64encode(raw).decode("ascii")
+    )
+
+
 def make_web_fetch_tool() -> Callable[..., Any]:
     def web_fetch(url: str, max_chars: int = _MAX) -> dict[str, Any]:
         if not isinstance(url, str) or not url.lower().startswith(
@@ -94,8 +104,20 @@ def make_web_fetch_tool() -> Callable[..., Any]:
                 headers={"User-Agent": "coworker/0.1 (+desktop)"},
             ) as client:
                 resp = get_checked(client, url)
+                if resp.status_code in (401, 403):
+                    # Publisher sites (Wiley, OUP) refuse automated readers whatever the
+                    # user agent. Say so in words the model can't mistake for "I have
+                    # enough": after a raw 403 it once guessed the journal's policy.
+                    return {
+                        "error": (
+                            f"{resp.status_code}: this site blocks automated reading. You "
+                            "have NOT seen this page. Quote only what a search snippet "
+                            "actually shows, or tell the user you could not open it."
+                        )
+                    }
                 resp.raise_for_status()
                 ctype = resp.headers.get("content-type", "")
+                raw = resp.content
                 body = resp.text
                 # resp.url names the pinned address; the guard stashes the logical URL.
                 final_url = resp.extensions.get("logical_url", url)
@@ -103,7 +125,16 @@ def make_web_fetch_tool() -> Callable[..., Any]:
             return {"error": str(exc)}
         except Exception as exc:  # network / HTTP / TLS
             return {"error": f"fetch failed: {exc}"}
-        text = _html_to_text(body) if "html" in ctype.lower() else body
+        if "pdf" in ctype.lower() or raw.startswith(b"%PDF"):
+            # Raw PDF bytes read as gibberish, and the model then guessed what the
+            # guidelines said instead of reading them (JCR's RR guidance, 2026-10-25).
+            text = _pdf_text(raw)
+            if text is None:
+                return {"error": "this PDF could not be read; you have NOT seen its contents."}
+            if not text.strip():
+                return {"error": "this PDF has no embedded text (a scan); you have NOT seen its contents."}
+        else:
+            text = _html_to_text(body) if "html" in ctype.lower() else body
         return {
             "url": final_url,
             "content_type": ctype,

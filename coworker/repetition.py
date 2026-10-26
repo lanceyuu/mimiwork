@@ -81,6 +81,22 @@ class RepetitionGuard:
         self._history: deque[set[str]] = deque(maxlen=window)
         self._streak = 0
         self._hinted = False
+        self._last_results: str | None = None
+
+    def results(self, digest: str) -> bool:
+        """Record what the lap's tools returned; True when it differs from the last lap.
+
+        The same request with a new answer is progress, not a loop: waiting on coding
+        agents repeats one call while a different agent finishes each time. Judging only
+        the request told Mimi "no new result" there, so it abandoned the agents, did the
+        work itself and credited it to them (owner-hit 2026-10-25).
+        """
+        changed = self._last_results is not None and digest != self._last_results
+        self._last_results = digest
+        if changed:
+            self._streak = 0
+            self._hinted = False
+        return changed
 
     def observe(self, signature: str) -> str | None:
         text = _WHITESPACE.sub(" ", signature.strip().lower())

@@ -46,6 +46,26 @@ def test_near_identical_wording_still_matches():
     assert verdicts[-1] == "hint"
 
 
+def test_the_same_request_with_a_new_answer_each_time_is_progress_not_a_loop():
+    guard = RepetitionGuard()
+    sig = "wait_for_agents {\"timeout_minutes\": 20}"
+    verdicts = []
+    for i in range(8):
+        verdicts.append(guard.observe(sig))
+        guard.results(f"agent {i} finished")
+    assert verdicts == [None] * 8
+
+
+def test_the_same_request_with_the_same_answer_is_still_a_loop():
+    guard = RepetitionGuard()
+    sig = "searching the workspace for the quarterly report using the same query again"
+    verdicts = []
+    for _ in range(3):
+        verdicts.append(guard.observe(sig))
+        guard.results("no match")
+    assert verdicts[-1] == "hint"
+
+
 def test_short_acknowledgements_are_ignored():
     guard = RepetitionGuard()
     for _ in range(10):
@@ -86,6 +106,25 @@ def test_a_model_that_takes_the_hint_recovers(tmp_path):
     assert end.data["status"] == "completed"
     kinds = [e.data.get("kind") for e in events if e.type == EventType.NOTICE]
     assert kinds.count("repetition") == 1  # hinted once, never stopped
+
+
+def test_waiting_on_agents_that_finish_one_by_one_is_never_called_a_loop(tmp_path):
+    import aisuite as ai
+
+    finished = iter(["Codex", "Cursor", "Gemini", "Claude Code", "opencode", "none left"])
+
+    def wait_for_agents(timeout_minutes: int = 20) -> dict:
+        return {"finished": next(finished)}
+
+    turns = [_tool_turn("wait_for_agents", {"timeout_minutes": 20}, call_id=f"w{i}") for i in range(6)]
+    engine, _ = _engine(tmp_path, turns + [_text_turn("All five agents reported.")], max_iterations=20)
+    engine.registry.register(
+        wait_for_agents, metadata=ai.ToolMetadata(category="x", risk_level="low")
+    )
+    events = _collect(engine, "coordinate the agents")
+    assert not any(e.type == EventType.NOTICE and e.data.get("kind") == "repetition" for e in events)
+    assert not any(m.get("steering") == "repetition" for m in engine.messages)
+    assert events[-1].data["status"] == "completed"
 
 
 def _assert_every_tool_call_is_answered_before_anything_else(messages):

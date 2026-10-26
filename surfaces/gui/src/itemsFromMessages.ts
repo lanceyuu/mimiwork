@@ -8,6 +8,17 @@
 import type { ConversationMessage } from "./api";
 import type { Attachment, Item } from "./types";
 
+const STEERING_NOTICES: Record<string, string> = {
+  wrap_up: "Almost out of steps — asked Mimi to wrap up.",
+  missing_link: "Mimi linked a file it hadn't saved — asked it to save it.",
+  failed_check: "Mimi called a file ready that still has gaps — asked it to fix or say so.",
+  unsourced_facts: "Mimi stated facts without checking a source — asked it to verify.",
+  repetition: "Mimi seems to be looping — nudging it to change course.",
+  checkpoint: "Asked Mimi whether the work is already done.",
+  degenerate: "Mimi's reply broke down — asked it to redo the step.",
+  tool_failures: "Mimi's last three tool calls failed — pointing it at the tools it has.",
+};
+
 export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
   const items: Item[] = [];
   // Index tool results by tool_call_id so replayed tool rows can show their output
@@ -28,14 +39,12 @@ export function itemsFromMessages(messages: ConversationMessage[]): Item[] {
     if (m.role === "user") {
       // Connector message → structured card; the framed `content` stays for the model, but display
       // renders from the source sidecar.
-      if (m.steering === "wrap_up") {
-        // Engine-injected steering (not the user's words): shown as the quiet line the
-        // live view rendered, never as a user bubble.
-        items.push({ kind: "notice", tone: "info", text: "Almost out of steps — asked Mimi to wrap up." });
-        continue;
-      }
-      if (m.steering === "missing_link") {
-        items.push({ kind: "notice", tone: "info", text: "Mimi linked a file it hadn't saved — asked it to save it." });
+      // Engine-injected steering (not the user's words): shown as the quiet line the
+      // live view rendered, never as a user bubble — a reloaded chat once showed the
+      // loop guard's nudge as if the owner had typed it.
+      const notice = m.steering ? STEERING_NOTICES[m.steering] : undefined;
+      if (notice) {
+        items.push({ kind: "notice", tone: "info", text: notice });
         continue;
       }
       // Charts handed back to Mimi to check; the user already has them in the artifacts panel.

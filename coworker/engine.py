@@ -80,6 +80,37 @@ _MISSING_LINK_TEXT = (
     "saved. Do not link a file that does not exist."
 )
 
+_FAILED_CHECK_TEXT = (
+    "Your answer presents {paths} as ready, but reopening it found: {issues}. Fix the file, "
+    "or tell the user plainly what is still unfinished in it. Renaming a placeholder does "
+    "not finish it."
+)
+
+# Outside-world specifics a model recites from memory: links, author-year citations,
+# DOIs, journal metrics, "since <year>" policy claims. Percentages are left out on purpose:
+# they mostly come from the user's own files.
+_OUTSIDE_FACT = re.compile(
+    r"https?://[^\s)>\]\"']+"
+    r"|\b[A-Z][\w'’-]+(?: et al\.?| (?:&|and) [A-Z][\w'’-]+),? \(?(?:19|20)\d{2}[a-z]?\b\)?"
+    r"|\b10\.\d{4,9}/\S+"
+    r"|\bimpact factor\b|\bacceptance rate\b"
+    r"|\bsince (?:19|20)\d{2}\b",
+    re.IGNORECASE,
+)
+# Tools that only write or keep books — a turn that used nothing else opened no source.
+_NOT_A_SOURCE = re.compile(
+    r"^(?:write|edit|replace|delete|create|save|move|copy|todo)_"
+    r"|^(?:ask_user|propose_plan|request_directory|remember)$"
+)
+_UNSOURCED_TEXT = (
+    "Your answer states specifics about the outside world ({examples}) but you opened no "
+    "source in this turn. Before sending it, look each one up (web_search, web_fetch, "
+    "kb_search) and keep only what a page you opened says, or tell the user plainly which "
+    "claims you have not verified. Never call a claim verified or confirmed unless you can "
+    "name the page you opened for it. If they all came from sources opened earlier in this "
+    "conversation, say which."
+)
+
 _WRAP_UP_TEXT = (
     "You are almost out of tool steps for this turn. Finish now: write the deliverable "
     "with what you already have, then reply with a short summary of what is done and what "
@@ -202,6 +233,8 @@ class TurnEngine:
         self.retry_delays: tuple[float, ...] = (1.0, 3.0, 8.0, 15.0, 30.0, 30.0)
         self._wrap_up_sent = False
         self._links_checked = False
+        self._checks_nudged = False
+        self._facts_nudged = False
         # Models that refused an image at runtime despite claiming vision; images go to
         # them as placeholders for the rest of the session.
         self._images_refused: set[str] = set()
@@ -878,6 +911,45 @@ class TurnEngine:
                         "text": "Mimi linked a file it hadn't saved — asked it to save it.",
                     })
                     continue
+                failing = {} if self._checks_nudged else self._failing_artifact_links(turn.text or "")
+                if failing and iterations < self.max_iterations:
+                    # "ALL CONFLICTS FIXED" went out over a file still full of TBDs, after
+                    # the model renamed them to dodge the write-time check (2026-10-25).
+                    self._checks_nudged = True
+                    self.messages.append({
+                        "role": "user",
+                        "content": _FAILED_CHECK_TEXT.format(
+                            paths=", ".join(f"`{p}`" for p in failing),
+                            issues="; ".join(i for issues in failing.values() for i in issues),
+                        ),
+                        "ts": time.time(),
+                        "steering": "failed_check",
+                    })
+                    yield Event(EventType.NOTICE, {
+                        "kind": "failed_check",
+                        "text": "Mimi called a file ready that still has gaps — asked it to fix or say so.",
+                    })
+                    continue
+                unsourced = [] if self._facts_nudged else self._unsourced_facts(turn.text or "")
+                if unsourced and iterations < self.max_iterations:
+                    # The system prompt already forbids facts nobody looked up; Werewolf
+                    # recited journal policies and odds anyway with zero searches, and its
+                    # apology claimed a source it never opened (2026-10-25). A prompt rule
+                    # alone does not hold, so the loop asks once.
+                    self._facts_nudged = True
+                    self.messages.append({
+                        "role": "user",
+                        "content": _UNSOURCED_TEXT.format(
+                            examples=", ".join(f"“{u}”" for u in unsourced)
+                        ),
+                        "ts": time.time(),
+                        "steering": "unsourced_facts",
+                    })
+                    yield Event(EventType.NOTICE, {
+                        "kind": "unsourced_facts",
+                        "text": "Mimi stated facts without checking a source — asked it to verify.",
+                    })
+                    continue
                 yield Event(
                     EventType.TURN_END,
                     {**{"status": "completed", "iterations": iterations}, "time_saved": self._close_turn()},
@@ -916,11 +988,18 @@ class TurnEngine:
                     {**{"status": "repetition_stop", "iterations": iterations}, "time_saved": self._close_turn()},
                 )
                 return
+            lap_start = len(self.messages)
             async for event in self._handle_tool_calls(turn.tool_calls):
                 yield event
+            progressed = rep_guard.results(
+                json.dumps(
+                    [m.get("content") for m in self.messages[lap_start:] if m.get("role") == "tool"],
+                    default=str,
+                )
+            )
             # The hint goes after the batch's results: a user message between an
             # assistant's tool_calls and their results breaks the pairing providers require.
-            if verdict == "hint":
+            if verdict == "hint" and not progressed:
                 self.messages.append(
                     {
                         "role": "user",
@@ -1885,24 +1964,55 @@ class TurnEngine:
             return ""
         return ""
 
-    def _missing_artifact_links(self, text: str) -> list[str]:
-        """Linked deliverables that exist in none of the session's folders."""
+    def _artifact_links(self, text: str) -> dict[str, Optional[Path]]:
+        """Each linked deliverable → the file it names in the session's folders, or None."""
         if "artifact:" not in text:
-            return []
+            return {}
         from urllib.parse import unquote
 
         roots = [root for root, _writable in self.permissions._resolved_roots()]
-        missing: list[str] = []
+        links: dict[str, Optional[Path]] = {}
         for raw in _ARTIFACT_LINK.findall(text):
             link = unquote(raw.strip())
             path = Path(link).expanduser()
             candidates = [path] if path.is_absolute() else [root / path for root in roots]
-            if not any(c.exists() for c in candidates) and link not in missing:
-                missing.append(link)
-        return missing
+            links[link] = next((c for c in candidates if c.exists()), None)
+        return links
+
+    def _missing_artifact_links(self, text: str) -> list[str]:
+        """Linked deliverables that exist in none of the session's folders."""
+        return [link for link, path in self._artifact_links(text).items() if path is None]
+
+    def _failing_artifact_links(self, text: str) -> dict[str, list[str]]:
+        """Linked deliverables that fail the reopen-and-check, with what is wrong."""
+        from . import deliverable_check
+
+        failing: dict[str, list[str]] = {}
+        for link, path in self._artifact_links(text).items():
+            if path is None or path.suffix.lower() not in deliverable_check.CHECKED_SUFFIXES:
+                continue
+            report = deliverable_check.check(path)
+            if not report["ok"]:
+                failing[link] = report["issues"]
+        return failing
+
+    def _unsourced_facts(self, text: str) -> list[str]:
+        """Outside-world specifics in a reply from a turn that opened no source."""
+        # ponytail: a turn that read only the user's own file still counts as sourced; a
+        # claim-by-claim check would need a model call per reply.
+        if any(not _NOT_A_SOURCE.search(name) for name in self._turn_tools):
+            return []
+        found: list[str] = []
+        for match in _OUTSIDE_FACT.finditer(text):
+            fact = match.group(0).rstrip(".,;:")
+            if fact.lower() not in (f.lower() for f in found):
+                found.append(fact)
+        return found[:3]
 
     def _begin_turn(self) -> None:
         self._links_checked = False
+        self._checks_nudged = False
+        self._facts_nudged = False
         self._turn_started = time.monotonic()
         self._turn_approvals = 0
         self._turn_tools = set()

@@ -22,6 +22,14 @@ def test_placeholders_in_text_deliverables(tmp_path):
     assert "TODO" in issue and "[Insert figure 2 here]" in issue and "Lorem ipsum" in issue
 
 
+def test_a_renamed_placeholder_is_still_a_placeholder(tmp_path):
+    # Mimi once turned "TBD" into "[TO BE SPECIFIED]" to get past this check.
+    f = tmp_path / "protocol.md"
+    f.write_text("Cell 6 wording: [TO BE SPECIFIED]. Partner: TBC.", encoding="utf-8")
+    issues = dc.check(f)["issues"]
+    assert issues and "[TO BE SPECIFIED]" in issues[0] and "TBC" in issues[0]
+
+
 def test_clean_text_passes(tmp_path):
     f = tmp_path / "memo.md"
     f.write_text("# Memo\n\nAll findings are final. The todo-list app shipped.\n")

@@ -17,13 +17,13 @@ from typing import Any, Optional
 
 # Placeholder tokens a model leaves behind when it "finishes" a draft it didn't finish.
 _PLACEHOLDERS = re.compile(
-    r"\[(?:insert|add|your|placeholder|tbd|todo)[^\]]{0,60}\]"
+    r"\[(?:insert|add|your|placeholder|tbd|tbc|todo|to be )[^\]]{0,60}\]"
     r"|\blorem ipsum\b"
     r"|<<[^>]{1,60}>>",
     re.IGNORECASE,
 )
 # Bare markers only count in SHOUTING case — "todo-list app" is prose, "TODO" is a stub.
-_MARKERS = re.compile(r"\bTODO\b|\bTBD\b|\bXXX\b")
+_MARKERS = re.compile(r"\bTODO\b|\bTBD\b|\bTBC\b|\bXXX\b")
 TEXT_SUFFIXES = {".md", ".txt", ".html", ".htm", ".csv", ".json", ".rst"}
 CHECKED_SUFFIXES = TEXT_SUFFIXES | {".docx", ".pptx", ".xlsx"}
 

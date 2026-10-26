@@ -452,8 +452,8 @@ def test_a_link_to_a_file_never_saved_gets_one_nudge_and_then_the_file_is_writte
 
 def test_a_link_to_a_file_that_exists_ends_the_turn_untouched(tmp_path):
     (tmp_path / "out").mkdir()
-    (tmp_path / "out" / "summary.docx").write_text("x")
-    engine, _ = _engine(tmp_path, [_text_turn("Here: [Summary](artifact:out/summary.docx)")])
+    (tmp_path / "out" / "summary.md").write_text("# Summary\n\nRevenue grew.")
+    engine, _ = _engine(tmp_path, [_text_turn("Here: [Summary](artifact:out/summary.md)")])
     events = _collect(engine, "summarise")
     assert not any(e.type == EventType.NOTICE for e in events)
     assert not any(m.get("steering") for m in engine.messages)
@@ -468,3 +468,67 @@ def test_a_model_that_keeps_linking_a_missing_file_is_nudged_only_once(tmp_path)
     events = _collect(engine, "go")
     assert sum(e.type == EventType.NOTICE for e in events) == 1
     assert events[-1].type == EventType.TURN_END
+
+
+# -- a final answer must not call an unfinished file ready ----------------------------------
+
+
+def test_a_file_called_ready_while_it_still_has_placeholders_gets_one_nudge(tmp_path):
+    (tmp_path / "protocol.md").write_text("Freeze date: [TO BE SPECIFIED]", encoding="utf-8")
+    turns = [
+        _text_turn("All conflicts fixed: [Protocol](artifact:protocol.md)"),
+        _text_turn("The freeze date is still open in [Protocol](artifact:protocol.md)."),
+    ]
+    engine, _ = _engine(tmp_path, turns)
+    events = _collect(engine, "fix the conflicts")
+    kinds = [e.data.get("kind") for e in events if e.type == EventType.NOTICE]
+    assert kinds == ["failed_check"]
+    nudge = next(m for m in engine.messages if m.get("steering") == "failed_check")
+    assert "`protocol.md`" in nudge["content"] and "TO BE SPECIFIED" in nudge["content"]
+    assert events[-1].data["status"] == "completed"
+
+
+# -- outside facts need a source opened in the same turn ------------------------------------
+
+
+def test_journal_policy_recited_without_any_lookup_gets_one_nudge(tmp_path):
+    turns = [
+        _text_turn("JMR has accepted Registered Reports since 2023; see https://www.ama.org/jmr."),
+        _text_turn("I have not verified whether JMR accepts Registered Reports."),
+    ]
+    engine, _ = _engine(tmp_path, turns)
+    events = _collect(engine, "which journals take registered reports?")
+    kinds = [e.data.get("kind") for e in events if e.type == EventType.NOTICE]
+    assert kinds == ["unsourced_facts"]
+    nudge = next(m for m in engine.messages if m.get("steering") == "unsourced_facts")
+    assert "since 2023" in nudge["content"]
+    assert events[-1].data["status"] == "completed"
+
+
+def test_citations_after_reading_a_file_are_left_alone(tmp_path):
+    (tmp_path / "review.md").write_text("Weaver et al. (2007) showed it.", encoding="utf-8")
+    turns = [
+        _tool_turn("read_file", {"path": "review.md"}),
+        _text_turn("The reviewers point to Weaver et al. (2007)."),
+    ]
+    engine, _ = _engine(tmp_path, turns)
+    events = _collect(engine, "what did the reviewers cite?")
+    assert not any(e.type == EventType.NOTICE for e in events)
+
+
+def test_a_reply_with_no_outside_specifics_is_left_alone(tmp_path):
+    engine, _ = _engine(tmp_path, [_text_turn("Sure, I can help with that draft.")])
+    events = _collect(engine, "hi")
+    assert not any(e.type == EventType.NOTICE for e in events)
+
+
+def test_writing_a_file_does_not_count_as_opening_a_source(tmp_path):
+    turns = [
+        _tool_turn("write_file", {"path": "journals.md", "content": "# Journals"}),
+        _text_turn("JCP has run Registered Reports since 2020 (acceptance rate 35%)."),
+        _text_turn("I have not verified JCP's policy."),
+    ]
+    engine, _ = _engine(tmp_path, turns, approver=_approve_all)
+    events = _collect(engine, "list journals")
+    kinds = [e.data.get("kind") for e in events if e.type == EventType.NOTICE]
+    assert "unsourced_facts" in kinds
