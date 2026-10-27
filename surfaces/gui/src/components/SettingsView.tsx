@@ -45,7 +45,8 @@ import {
   type DictationStatus,
   verifyDictationModel,
 } from "../tauri";
-import { useThemePref } from "../theme";
+import { BACKGROUNDS, FONTS, setLook, useLook, useThemePref, type TextSize } from "../theme";
+import { alertUser, useAlertPrefs, type AlertPrefs } from "../alerts";
 import { useCompanionStyle } from "../companionStyle";
 import classicMimiPreview from "../assets/mimi-pet/mimi-static.png";
 import tealMimiPreview from "../assets/mimi-teal/preview.png";
@@ -497,6 +498,10 @@ function AppearanceSection() {
         <div className={FIELD_HELP}>Auto follows your Mac&rsquo;s appearance.</div>
       </div>
 
+      <LookCard />
+
+      <AlertsCard />
+
       <SidebarCard />
 
       <div className={CARD + " p-4 mb-4"} data-testid="companion-style-card">
@@ -612,6 +617,85 @@ function AppearanceSection() {
         <div className={FIELD_HELP}>{tr("Replay the first-run setup, or the five-step tour of the interface.")}</div>
       </div>
     </section>
+  );
+}
+
+const SIZE_LABELS: Record<TextSize, string> = { small: "Small", default: "Default", large: "Large", larger: "Larger" };
+const FONT_LABELS: Record<(typeof FONTS)[number], string> = { default: "Default", rounded: "Rounded", serif: "Serif" };
+const BG_LABELS: Record<(typeof BACKGROUNDS)[number], string> = { plain: "Plain", warm: "Warm", cool: "Cool", mint: "Mint" };
+// The light-theme tints from styles.css, shown as swatches so the choice reads before it is made.
+const BG_SWATCH: Record<(typeof BACKGROUNDS)[number], string> = { plain: "#fafafa", warm: "#f6f2ea", cool: "#f1f4f8", mint: "#edf6f4" };
+
+function LookCard() {
+  const tr = useT();
+  const look = useLook();
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="look-card">
+      {/* A browser tab already has its own zoom (Cmd-plus); this drives the desktop webview's. */}
+      {isTauri() && (
+        <>
+          <div className={FIELD_LABEL + " mb-2.5"}>{tr("Text size")}</div>
+          <div className="seg mb-4" role="radiogroup" aria-label={tr("Text size")}>
+            {(Object.keys(SIZE_LABELS) as TextSize[]).map((v) => (
+              <button key={v} role="radio" aria-checked={look.size === v} className={look.size === v ? "active" : ""} onClick={() => setLook("size", v)}>
+                {tr(SIZE_LABELS[v])}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className={FIELD_LABEL}>{tr("Font")}</div>
+      <div className="seg mt-2.5" role="radiogroup" aria-label={tr("Font")}>
+        {FONTS.map((v) => (
+          <button key={v} role="radio" aria-checked={look.font === v} className={look.font === v ? "active" : ""} data-font-preview={v} onClick={() => setLook("font", v)}>
+            {tr(FONT_LABELS[v])}
+          </button>
+        ))}
+      </div>
+
+      <div className={FIELD_LABEL + " mt-4"}>{tr("Background")}</div>
+      <div className="seg mt-2.5" role="radiogroup" aria-label={tr("Background")}>
+        {BACKGROUNDS.map((v) => (
+          <button key={v} role="radio" aria-checked={look.bg === v} className={look.bg === v ? "active" : ""} onClick={() => setLook("bg", v)}>
+            <span className="inline-block w-3 h-3 rounded-full border border-lineStrong mr-1.5 align-[-1px]" style={{ background: BG_SWATCH[v] }} />
+            {tr(BG_LABELS[v])}
+          </button>
+        ))}
+      </div>
+      <div className={FIELD_HELP}>{tr("Applies to this computer only. The tint is softer in dark mode.")}</div>
+    </div>
+  );
+}
+
+function AlertsCard() {
+  const tr = useT();
+  const [prefs, setPrefs] = useAlertPrefs();
+  const row = (key: keyof AlertPrefs, title: string, help: string) => (
+    <label className="flex items-start gap-3 py-2">
+      <input type="checkbox" className="mt-0.5" checked={prefs[key]} data-testid={`alert-${key}`} onChange={(e) => setPrefs({ ...prefs, [key]: e.target.checked })} />
+      <span>
+        <span className="block text-[13px] text-ink">{tr(title)}</span>
+        <span className="block text-[12px] text-muted">{tr(help)}</span>
+      </span>
+    </label>
+  );
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="alerts-card">
+      <div className={FIELD_LABEL + " mb-1"}>{tr("Notifications and sounds")}</div>
+      {row("notify", "Show notifications", "A system notification when MimiWork is in the background.")}
+      {row("sound", "Play a sound", "A short chime, even when the window is in front.")}
+      <div className="border-t border-line my-2" />
+      {row("done", "When a task finishes", "Mimi has finished working and the result is ready.")}
+      {row("attention", "When Mimi needs you", "An approval, a question or a folder request is waiting.")}
+      <button
+        className={BTN_BORDERED + " mt-2"}
+        data-testid="alert-test"
+        onClick={() => alertUser("done", "Mimi finished", "This is how a finished task will look and sound.", true)}
+      >
+        {tr("Try it")}
+      </button>
+    </div>
   );
 }
 

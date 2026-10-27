@@ -12,7 +12,11 @@
       "core:window:allow-unminimize",
       "dialog:default",
       "opener:default",
-      "autostart:default"
+      "autostart:default",
+      "notification:allow-notify",
+      "notification:allow-is-permission-granted",
+      "notification:allow-request-permission",
+      "core:webview:allow-set-webview-zoom"
     ]
   },
   {

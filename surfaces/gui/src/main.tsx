@@ -4,7 +4,7 @@ import { App } from "./App";
 import { MimiCompanion } from "./components/MimiCompanion";
 import { MimiGallery } from "./components/MimiScenes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { initTheme } from "./theme";
+import { applyLook, initTheme } from "./theme";
 import { platformOS } from "./tauri";
 import { installDomTranslations } from "./i18n";
 import "./tailwind.css";
@@ -28,6 +28,8 @@ const companionMode =
   Boolean((globalThis as any).__MIMI_COMPANION__) || window.location.hash === "#companion";
 // #companion-gallery: every pet animation looping side by side (browser dev build only).
 const galleryMode = window.location.hash === "#companion-gallery";
+// The companion is a fixed-size pet window: a larger text size would crop it.
+if (!companionMode && !galleryMode) applyLook();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

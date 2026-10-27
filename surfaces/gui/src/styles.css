@@ -109,6 +109,24 @@ html[data-theme="dark"] {
   --check-b: #1c1e22;
 }
 
+/* Settings ▸ General: font and background tint (html data-font / data-bg, see src/theme.ts).
+   Only the page ground is tinted; panels and cards stay white so text contrast is unchanged. */
+:root {
+  --font-rounded: ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", -apple-system, system-ui, sans-serif;
+  --font-serif: ui-serif, "New York", Charter, Georgia, "Songti SC", serif;
+}
+html[data-font="rounded"] { --sans: var(--font-rounded); }
+html[data-font="serif"] { --sans: var(--font-serif); }
+/* Each font choice is drawn in its own face, so the picker previews itself. */
+.seg button[data-font-preview="rounded"] { font-family: var(--font-rounded); }
+.seg button[data-font-preview="serif"] { font-family: var(--font-serif); }
+html[data-bg="warm"] { --paper: #f6f2ea; }
+html[data-bg="cool"] { --paper: #f1f4f8; }
+html[data-bg="mint"] { --paper: #edf6f4; }
+html[data-theme="dark"][data-bg="warm"] { --paper: #191712; }
+html[data-theme="dark"][data-bg="cool"] { --paper: #10151c; }
+html[data-theme="dark"][data-bg="mint"] { --paper: #0e1918; }
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {

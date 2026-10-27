@@ -39,7 +39,7 @@ export default {
         onSolid: tok("--on-solid"),
       },
       fontFamily: {
-        sans: ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Inter", "system-ui", "sans-serif"],
+        sans: ["var(--sans)"], // follows Settings ▸ General ▸ Font
         mono: ["SF Mono", "JetBrains Mono", "Menlo", "monospace"],
       },
       borderRadius: { xl2: "14px" },

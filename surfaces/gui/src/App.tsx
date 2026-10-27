@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
+import { alertUser } from "./alerts";
 import {
   qualitatiStatus,
   siteOfModel,
@@ -1034,6 +1035,7 @@ export function App() {
           ]);
           break;
         case "turn_done":
+          if (wasRunning) alertUser("done", "Mimi finished", "Your task is done. Open MimiWork to see the result.");
           wasRunning = false;
           setRunning(false);
           setStopping(false);
@@ -1353,9 +1355,18 @@ export function App() {
     kind: "started" | "finished"; title: string; sessionId: string; workspace: string; agent: string; time: string;
   } | null>(null);
   useEffect(() => {
+    let waitingOnUser = false;
     const stop = connectEvents((msg) => {
       const d = (msg.data ?? {}) as Record<string, string>;
+      if (msg.type === "activity") {
+        // Frames arrive when busy OR needs-you flips, so ring only on the needs-you edge.
+        const waiting = Number((msg.data as { pending_input?: number } | undefined)?.pending_input) > 0;
+        if (waiting && !waitingOnUser) alertUser("attention", "Mimi needs you", "An approval or a question is waiting for your answer.");
+        waitingOnUser = waiting;
+        return;
+      }
       if (msg.type === "session_finished") {
+        alertUser("done", "Mimi finished", d.title || "A task is done.");
         // The bell (owner ask 2026-09-17): a conversation finished while another was on
         // screen. The sidebar dot stays until it is opened; the toast is the nudge.
         refreshSessions();

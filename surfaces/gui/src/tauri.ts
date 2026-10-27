@@ -69,6 +69,16 @@ export async function chooseFolder(): Promise<string | null> {
 export const readServerLog = () => invoke<string>("read_server_log");
 export const revealServerLog = () => invoke<void>("reveal_server_log");
 
+/** A system notification (Notification Center on macOS). Returns false when the shell is
+ * absent or the user has turned MimiWork's notifications off in system settings. */
+export async function showNotification(title: string, body: string): Promise<boolean> {
+  let granted = await invoke<boolean | null>("plugin:notification|is_permission_granted");
+  if (granted == null) granted = (await invoke<string>("plugin:notification|request_permission")) === "granted";
+  if (!granted) return false;
+  await invoke("plugin:notification|notify", { options: { title, body } });
+  return true;
+}
+
 /** Open-at-login (macOS LaunchAgent). */
 export const getAutostart = () => invoke<boolean>("get_autostart");
 export const setAutostart = (enabled: boolean) => invoke<boolean>("set_autostart", { enabled });

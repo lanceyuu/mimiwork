@@ -12,6 +12,9 @@
         var t = localStorage.getItem("openwork-theme");
         var dark = t === "dark" || (t !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        // Font and background tint, same keys as src/theme.ts (text size needs the webview API).
+        document.documentElement.dataset.font = localStorage.getItem("openwork-font") || "default";
+        document.documentElement.dataset.bg = localStorage.getItem("openwork-background") || "plain";
       } catch (e) {}
     </script>
   </head>
