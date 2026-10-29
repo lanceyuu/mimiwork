@@ -1188,7 +1188,8 @@ class TurnEngine:
         thread + queue, so text deltas surface live without blocking the event loop."""
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
-        tools = self.registry.schemas() or None
+        schemas, tool_catalog = self.registry.model_tools()
+        tools = schemas or None
         model, messages, settings = (
             self.model,
             self._outbound_messages(),
@@ -1202,6 +1203,8 @@ class TurnEngine:
             messages[0]["content"] = f"{messages[0].get('content', '')}\n\n{CONTENT_INSTRUCTION}"
         else:
             messages.insert(0, {"role": "system", "content": CONTENT_INSTRUCTION})
+        if tool_catalog:
+            messages[0]["content"] += "\n\n" + tool_catalog
         cancel = self._cancel
         steer = self._steer_signal
         # Set when the consumer walks away early (a degenerate stream): the producer

@@ -60,6 +60,35 @@ class ToolSpec:
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, ToolSpec] = {}
+        self._selected: list[str] = []
+
+    def model_tools(self) -> tuple[list[dict[str, Any]], str]:
+        """Keep every tool discoverable within providers' 128-schema limit."""
+        if len(self._tools) <= 128:
+            return self.schemas(), ""
+
+        def discover_available_tools(names: list[str]) -> dict[str, Any]:
+            if len(names) > 32 or any(name not in self._tools for name in names):
+                return {"error": "Choose up to 32 exact names from the available tool catalog."}
+            self._selected = list(dict.fromkeys(names))
+            return {"tools": [self._tools[name].schema for name in self._selected]}
+
+        self.register(discover_available_tools, schema={
+            "type": "function", "function": {
+                "name": "discover_available_tools",
+                "description": "Load tools from the available tool catalog before calling them. Choose up to 32 exact tool names.",
+                "parameters": {"type": "object", "properties": {
+                    "names": {"type": "array", "items": {"type": "string"}, "maxItems": 32},
+                }, "required": ["names"]},
+            },
+        })
+        selected = ["discover_available_tools", *[n for n in self._selected if n in self._tools and n != "discover_available_tools"]]
+        names = selected + [name for name in self._tools if name not in selected]
+        catalog = "Available tool catalog. Use discover_available_tools to load any tool absent from the current tool schemas. Tool permissions still apply.\n" + "\n".join(
+            f"{name}: {spec.schema['function'].get('description', '')[:160]}"
+            for name, spec in self._tools.items()
+        )
+        return [self._tools[name].schema for name in names[:128]], catalog
 
     def register(
         self,
