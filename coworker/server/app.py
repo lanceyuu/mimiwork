@@ -999,6 +999,7 @@ def create_app(manager: SessionManager) -> FastAPI:
         from ..mcp import oauth as mcp_oauth
 
         if error:
+            mcp_oauth.deliver_error(state or None)
             return HTMLResponse(
                 _browser_page(
                     "Sign-in failed",
@@ -1930,15 +1931,11 @@ def create_app(manager: SessionManager) -> FastAPI:
 
         workspace = ws.query_params.get("workspace")
         try:
-            mcp_tools = await manager.prepare_mcp_tools(
-                session_id, workspace=workspace, agent=agent
-            )
             engine = manager.get_engine(
                 session_id,
                 workspace=workspace,
                 agent=agent,
                 approver=approver,
-                extra_tools=mcp_tools,
                 directory_requester=directory_requester,
                 plan_approver=plan_approver,
                 question_asker=question_asker,

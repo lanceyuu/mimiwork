@@ -89,7 +89,7 @@ def test_mcp_connect_seeds_pinned_config_and_profile(tmp_path, monkeypatch):
     assert manager.secrets.get("monday:default")["mode"] == "mcp"
 
     # A connector without an MCP path fails closed.
-    out = asyncio.run(manager.mcp_connect_connector("notion"))
+    out = asyncio.run(manager.mcp_connect_connector("attio"))
     assert not out["ok"]
 
 

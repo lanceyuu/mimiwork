@@ -391,7 +391,7 @@ export async function reloadMcp() {
 
 /** Connect one MCP server now. For OAuth servers this opens the system browser;
  * poll getMcpServers() for the status flip (authorizing → connected / needs_auth). */
-export async function connectMcp(name: string): Promise<{ ok: boolean; started?: boolean }> {
+export async function connectMcp(name: string): Promise<{ ok: boolean; started?: boolean; error?: string }> {
   const res = await fetch(`${httpBase()}/v1/mcp/${encodeURIComponent(name)}/connect`, {
     method: "POST",
   });
@@ -519,6 +519,9 @@ export interface Connector {
   logo: string; // stable logo id keyed into the frontend registry (empty → fallback glyph)
   aliases?: string[]; // extra typeahead terms ("calendar" surfaces Outlook)
   mcp?: boolean; // MCP-backed one-click (vendor-hosted MCP + local OAuth — no cloud sign-in)
+  mcp_server?: string;
+  mcp_status?: string;
+  mcp_error?: string | null;
   allowed_users: string[]; // the allow-list (managed inline in the Connectors tab)
   allowed_user_names?: Record<string, string | null>; // id → display name (people directory)
   approval_owner_ids?: string[]; // Manual Slack: humans allowed to resolve approvals

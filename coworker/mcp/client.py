@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from typing import Any, Optional
 
 from mcp import ClientSession, StdioServerParameters
@@ -24,9 +25,10 @@ from .config import MCPServerDef
 
 
 class _Conn:
-    def __init__(self, session: ClientSession, tools: list[Any]) -> None:
+    def __init__(self, session: ClientSession, tools: list[Any], server: MCPServerDef) -> None:
         self.session = session
         self.tools = tools  # list[mcp.types.Tool]
+        self.server = deepcopy(server)
         self.shutdown = asyncio.Event()
 
 
@@ -36,7 +38,8 @@ class MCPManager:
     def __init__(self, secrets: Any = None) -> None:
         self._conns: dict[str, _Conn] = {}
         self._tasks: dict[str, asyncio.Task] = {}
-        self._lock = asyncio.Lock()
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._oauth_lock = asyncio.Lock()
         # SecretStore for OAuth servers' token persistence (mcp/oauth.py); lazy default
         # so library/CLI construction without secrets keeps working.
         self._secrets = secrets
@@ -49,15 +52,31 @@ class MCPManager:
         refresh still work, but a server that insists on re-authorization raises
         InteractiveAuthRequired instead of hijacking the user's browser.
         """
-        async with self._lock:
+        async with AsyncExitStack() as stack:
+            # OAuth callbacks share one pending slot; unrelated connections stay usable.
+            if interactive:
+                await stack.enter_async_context(self._oauth_lock)
+            await stack.enter_async_context(self._locks.setdefault(server.name, asyncio.Lock()))
             existing = self._conns.get(server.name)
             if existing is not None:
-                return existing
+                if not existing.shutdown.is_set() and all(
+                    getattr(existing.server, key) == getattr(server, key)
+                    for key in ("transport", "command", "args", "env", "cwd", "url", "headers", "auth")
+                ):
+                    return existing
+                await self._close(server.name)
             ready: asyncio.Future = asyncio.get_running_loop().create_future()
             self._tasks[server.name] = asyncio.create_task(
                 self._serve(server, ready, interactive=interactive)
             )
-            conn = await ready  # propagates connection errors
+            try:
+                conn = await ready  # propagates connection errors
+            except asyncio.CancelledError:
+                task = self._tasks.get(server.name)
+                if task is not None:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                raise
             self._conns[server.name] = conn
             return conn
 
@@ -73,16 +92,27 @@ class MCPManager:
         result = await conn.session.call_tool(tool, arguments or {})
         return _result_payload(result)
 
-    async def aclose(self) -> None:
-        for conn in self._conns.values():
+    async def close(self, name: str) -> None:
+        async with self._locks.setdefault(name, asyncio.Lock()):
+            await self._close(name)
+
+    async def _close(self, name: str) -> None:
+        conn = self._conns.get(name)
+        if conn is not None:
             conn.shutdown.set()
-        for task in list(self._tasks.values()):
+        task = self._tasks.get(name)
+        if task is not None:
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=5)
             except (asyncio.TimeoutError, Exception):
                 task.cancel()
-        self._conns.clear()
-        self._tasks.clear()
+                await asyncio.gather(task, return_exceptions=True)
+        self._conns.pop(name, None)
+        self._tasks.pop(name, None)
+
+    async def aclose(self) -> None:
+        for name in list(self._tasks):
+            await self.close(name)
 
     # -- per-server lifecycle (one task owns enter+exit) ------------------------
     async def _serve(
@@ -128,7 +158,15 @@ class MCPManager:
                 session = await stack.enter_async_context(ClientSession(read, write))
                 await session.initialize()
                 listed = await session.list_tools()
-                conn = _Conn(session, list(listed.tools))
+                tools = list(listed.tools)
+                cursors: set[str] = set()
+                while listed.nextCursor:
+                    if listed.nextCursor in cursors:
+                        raise RuntimeError("MCP server repeated its tool-list cursor")
+                    cursors.add(listed.nextCursor)
+                    listed = await session.list_tools(cursor=listed.nextCursor)
+                    tools.extend(listed.tools)
+                conn = _Conn(session, tools, server)
                 if not ready.done():
                     ready.set_result(conn)
                 await conn.shutdown.wait()
@@ -136,6 +174,8 @@ class MCPManager:
             if not ready.done():
                 ready.set_exception(exc)
         finally:
+            if not ready.done():
+                ready.cancel()
             self._conns.pop(server.name, None)
             self._tasks.pop(server.name, None)
 

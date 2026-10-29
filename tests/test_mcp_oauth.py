@@ -108,6 +108,23 @@ def test_state_from_url():
     assert mcp_oauth._state_from_url("https://idp.example/authorize?client_id=x") is None
 
 
+def test_denied_browser_sign_in_stops_waiting_only_for_the_matching_state():
+    async def run():
+        task = asyncio.create_task(mcp_oauth._wait_for_callback())
+        await asyncio.sleep(0)
+        mcp_oauth._expected_state = "expected-state"
+        assert not mcp_oauth.deliver_error("other-state")
+        assert not mcp_oauth.deliver_error(None)
+        assert not task.done()
+        assert mcp_oauth.deliver_error("expected-state")
+        with pytest.raises(RuntimeError, match="cancelled or denied"):
+            await task
+        assert mcp_oauth._pending is None
+        assert mcp_oauth._expected_state is None
+
+    asyncio.run(run())
+
+
 def test_deliver_rejects_mismatched_state_without_consuming_flow():
     # A stray/forged loopback hit with the wrong state must NOT resolve or consume the
     # pending future — the genuine redirect (correct state) still gets through.

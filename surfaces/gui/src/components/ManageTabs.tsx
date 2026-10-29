@@ -4,7 +4,6 @@ import {
   addMcpServer,
   allowUser,
   connectConnector,
-  connectMcpBacked,
   connectMcp,
   deleteMcpServer,
   disallowUser,
@@ -29,6 +28,7 @@ import {
 import { ModelChecklist } from "./ModelChecklist";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
+import { McpOneClick } from "./connectors/McpOneClick";
 
 // "2h ago"-style label for the providers' Last-used line (null when never used).
 const relTime = (epoch?: number | null): string | null => {
@@ -306,13 +306,12 @@ export function McpTab() {
   return (
     <div className="space-y-3">
       <p className="text-[12.5px] text-muted leading-relaxed">
-        External tool servers (stdio or HTTP), shared across all agents. Enabled servers' tools are
-        permission-gated. Changes apply to new sessions —{" "}
+        Enabled servers' tools load with your next message and follow your permissions.{" "}
         <button
           className="text-accent font-medium hover:underline"
           onClick={() => reloadMcp().then(refresh)}
         >
-          reload now
+          Refresh connections
         </button>
         .
       </p>
@@ -399,8 +398,17 @@ function McpRow({
   const isOauth = server.auth === "oauth";
   const authorizing = server.status === "authorizing";
   const signIn = async () => {
-    await connectMcp(server.name); // browser opens; the tab's poll flips the status
-    onRefresh();
+    setBusy(true);
+    setToolErr(null);
+    try {
+      const result = await connectMcp(server.name);
+      if (!result.ok) setToolErr(result.error || "Could not start sign-in. Try again.");
+      onRefresh();
+    } catch {
+      setToolErr("Could not start sign-in. Try again.");
+    } finally {
+      setBusy(false);
+    }
   };
   const signOut = async () => {
     await signoutMcp(server.name);
@@ -427,16 +435,16 @@ function McpRow({
         <div className="flex-1 min-w-0">
           <div className="text-[14px] font-medium">{server.name}</div>
           <div className="text-[11.5px] text-faint">
-            {server.transport} · {authorizing ? "signing in…" : server.status.replace("_", " ")}
-            {server.tool_count != null ? ` · ${server.tool_count} tools` : ""}
-            {server.requires_approval ? " · asks" : ""}
-            {isOauth ? " · oauth" : ""}
+            {server.transport}, {authorizing ? "signing in…" : server.status.replace("_", " ")}
+            {server.tool_count != null ? `, ${server.tool_count} tools` : ""}
+            {server.requires_approval ? ", asks" : ""}
+            {isOauth ? ", oauth" : ""}
           </div>
         </div>
         {isOauth &&
-          (server.status === "needs_auth" ? (
-            <button className={BTN_ACCENT} onClick={signIn} data-testid={`mcp-signin-${server.name}`}>
-              Sign in
+          (server.enabled && !authorizing && server.status !== "connected" ? (
+            <button className={BTN_ACCENT} onClick={signIn} disabled={busy} data-testid={`mcp-signin-${server.name}`}>
+              {server.status === "needs_auth" ? "Sign in" : "Connect"}
             </button>
           ) : authorizing ? (
             <span className="text-[12px] text-muted shrink-0">waiting for browser…</span>
@@ -809,7 +817,6 @@ export function ConnectSetup({
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  const [waiting, setWaiting] = useState(false); // managed flow: browser is open
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -821,28 +828,9 @@ export function ConnectSetup({
     else setError(res.error || "could not connect");
   };
 
-  const mcpOneClick = async () => {
-    setError(null);
-    const res = await connectMcpBacked(c.name);
-    // Completion likewise arrives via the poll — the sidecar flips the connector
-    // to connected once the local OAuth flow lands.
-    if (res.ok) setWaiting(true);
-    else setError(res.error || "could not start the connect");
-  };
-
   return (
     <div className="border-t border-line px-3.5 py-3 space-y-3">
-      {c.mcp && !manualOnly && (
-        /* MCP-backed one-click needs no cloud sign-in — the OAuth flow is local. */
-        <div className="space-y-2" data-testid="mcp-connect">
-          <button className={BTN_ACCENT} onClick={mcpOneClick} disabled={waiting}>
-            {waiting ? "Check your browser…" : `Connect ${c.title} with one click`}
-          </button>
-          {c.fields.length > 0 && (
-            <div className="text-[11.5px] text-faint">or connect manually:</div>
-          )}
-        </div>
-      )}
+      {c.mcp && !manualOnly && <McpOneClick c={c} onConnected={onConnected} />}
       {c.instructions.length > 0 && (
         <ol className="list-decimal pl-4 text-[12.5px] text-muted leading-relaxed space-y-1">
           {c.instructions.map((step, i) => (

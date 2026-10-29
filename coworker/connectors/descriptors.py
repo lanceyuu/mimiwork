@@ -10,7 +10,11 @@ data model — only the connect action differs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
+
+if TYPE_CHECKING:
+    from ..mcp.config import MCPServerDef
+    from ..secrets import SecretStore
 
 
 @dataclass
@@ -67,8 +71,8 @@ class ConnectorDescriptor:
     aliases: tuple = ()
     # Vendor-hosted MCP server URL → this connector is MCP-BACKED: one-click connect
     # runs the local MCP OAuth flow (DCR, tokens on this computer — no broker), and the
-    # tool surface is the PINNED subset in tool_defs (names `mcp__<name>__<tool>`),
-    # never the vendor's full catalog (drift can only shrink capability, not grow it).
+    # tool surface is the PINNED subset in tool_defs (names `mcp__<name>__<tool>`).
+    # Notion keeps its live catalog, with unknown tools requiring approval.
     # A connector may carry BOTH mcp_url and manual fields (jira): the profile's
     # mode decides which tool set is live.
     mcp_url: str = ""
@@ -1271,9 +1275,10 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
         name="notion",
         title="Notion",
         icon="◰",
-        blurb="Search pages, read content, query databases, create pages.",
+        blurb="Search, read, and update your Notion pages and databases.",
         auth="oauth",
         two_way=False,
+        mcp_url="https://mcp.notion.com/mcp",
         fields=[
             Field(
                 "access_token",
@@ -1285,8 +1290,8 @@ DESCRIPTORS: list[ConnectorDescriptor] = [
             ),
         ],
         instructions=[
-            "Create an internal integration at notion.so/my-integrations,",
-            "copy its secret, and share the relevant pages with the integration.",
+            "Connect with Notion sign-in in your browser.",
+            "Manual: use an internal integration secret and share the relevant pages with it.",
         ],
         validate=_validate_notion,
         brand_color="#1f2328",
@@ -1536,3 +1541,39 @@ def list_descriptors() -> list[ConnectorDescriptor]:
 
 def get_descriptor(name: str) -> Optional[ConnectorDescriptor]:
     return _BY_NAME.get(name)
+
+
+def mcp_connector_for_server(name: str, url: Optional[str]) -> Optional[str]:
+    """Recognize vendor endpoints even when users give their server a custom name."""
+    endpoint = url.rstrip("/") if isinstance(url, str) else ""
+    for descriptor in DESCRIPTORS:
+        if descriptor.mcp_url and endpoint == descriptor.mcp_url.rstrip("/"):
+            return descriptor.name
+    # Existing curated connectors also support their configured transports.
+    descriptor = get_descriptor(name)
+    if descriptor and descriptor.mcp_url and name != "notion":
+        return name
+    return None
+
+
+def configured_mcp_server(
+    connector: str, secrets: "SecretStore"
+) -> Optional["MCPServerDef"]:
+    """Find a saved vendor connection without rewriting its name or settings."""
+    from ..mcp.config import load_mcp_servers
+    from ..mcp.oauth import has_tokens
+
+    matches = [
+        server
+        for server in load_mcp_servers(secrets=secrets)
+        if mcp_connector_for_server(server.name, server.url) == connector
+    ]
+    return min(
+        matches,
+        key=lambda server: (
+            not server.enabled,
+            server.auth == "oauth" and not has_tokens(server.name, secrets),
+            server.name != connector,
+        ),
+        default=None,
+    )

@@ -1,7 +1,6 @@
 // The generic multi-account detail page (AccountsDetail), exercised via Notion —
 // the pattern all batch-2 connectors share (accounts.py layer: AccountRow shape,
-// Default badge, per-account ×). Connects are manual-token only since the managed
-// broker went with the the hosted relay's removal.
+// Default badge, per-account ×). Manual integration tokens remain available alongside MCP sign-in.
 import { expect } from "@playwright/test";
 import { test } from "./fixtures";
 
@@ -18,6 +17,7 @@ async function connectFirstWorkspace(page) {
     .getByTestId("connector-notion")
     .getByRole("button", { name: "Connect", exact: true })
     .click();
+  await page.getByTestId("modal-pane-manual").click();
   await page.getByPlaceholder("ntn_…").fill("ntn_token");
   await page.getByRole("button", { name: "Connect", exact: true }).last().click();
   await expect(page.getByTestId("connector-notion")).toContainText("Rohit's Workspace", {
@@ -65,7 +65,7 @@ test("Make default moves the badge; disconnecting the default repoints it", asyn
   await expect(page.getByTestId("account-ws-1")).toContainText("Default");
 });
 
-test("the connect modal is the manual token form — no sign-in gate anywhere", async ({
+test("Notion defaults to browser sign-in and retains the manual token option", async ({
   page,
 }) => {
   await openConnectors(page);
@@ -73,6 +73,9 @@ test("the connect modal is the manual token form — no sign-in gate anywhere", 
     .getByTestId("connector-notion")
     .getByRole("button", { name: "Connect", exact: true })
     .click();
+  await expect(page.getByTestId("modal-mcp-one-click")).toBeVisible();
+  await expect(page.getByPlaceholder("ntn_…")).toHaveCount(0);
+  await page.getByTestId("modal-pane-manual").click();
   await expect(page.getByPlaceholder("ntn_…")).toBeVisible();
   await expect(page.getByTestId("inline-cloud-sign-in")).toHaveCount(0);
 });

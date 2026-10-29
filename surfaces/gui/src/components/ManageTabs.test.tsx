@@ -3,11 +3,30 @@
 // sat on the spinner text for good).
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ModelsTab } from "./ManageTabs";
+import { McpTab, ModelsTab } from "./ManageTabs";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("MCP browser connections", () => {
+  it("offers Connect for a configured OAuth server with saved credentials", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      requests.push(String(url));
+      return { ok: true, json: async () => String(url).endsWith("/connect") ? { ok: true, started: true } : {
+        servers: [{ name: "notion", auth: "oauth", status: "configured", enabled: true,
+          transport: "http", requires_approval: true, tool_count: null, config: {} }],
+      } } as Response;
+    }));
+    render(<McpTab />);
+    const connect = await screen.findByTestId("mcp-signin-notion");
+    expect(connect.textContent).toBe("Connect");
+    fireEvent.click(connect);
+    await waitFor(() => expect(requests.some((url) => url.endsWith("/v1/mcp/notion/connect"))).toBe(true));
+    expect(screen.getByText(/tools load with your next message/)).toBeTruthy();
+  });
 });
 
 describe("ModelsTab load failure", () => {

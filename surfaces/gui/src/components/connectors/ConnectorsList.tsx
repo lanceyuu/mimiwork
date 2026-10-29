@@ -122,6 +122,10 @@ export function ConnectorsList({
 }
 
 function statusLine(c: Connector): string {
+  if (c.mcp_status === "authorizing") return "Signing in…";
+  if (c.mode === "mcp") {
+    return c.mcp_error ? "Connection needs attention" : !c.enabled ? "Disabled" : "Connected through MCP";
+  }
   if (c.name === "slack" && c.mode === "relay") {
     const n = c.workspaces?.length ?? 0;
     return `${n} workspace${n === 1 ? "" : "s"} · relay`;
@@ -133,6 +137,9 @@ function statusLine(c: Connector): string {
 }
 
 function healthChip(c: Connector, slack: SlackStatus | null) {
+  if (c.mcp_status === "authorizing") return <span className={CHIP_WARN}>Signing in…</span>;
+  if (c.mcp_error) return <span className={CHIP_WARN}>Reconnect</span>;
+  if (c.mode === "mcp" && !c.enabled) return <span className={CHIP_OFF}>Disabled</span>;
   // Slack relay gets a LIVE chip from /v1/connectors/slack/status — problems
   // surface in the list, never one click deep. Named honestly per layer; we
   // never claim "Slack↔cloud down" (the desktop can't see that leg).

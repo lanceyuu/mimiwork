@@ -71,3 +71,16 @@ test("monday detail page shows the pinned tool subset with approval badges", asy
   await expect(page.getByText("Read board", { exact: true })).toBeVisible();
   await expect(page.getByText("Create item", { exact: true })).toBeVisible();
 });
+
+test("Notion browser sign-in becomes a connected MCP page without an empty accounts list", async ({ page }) => {
+  await openConnectors(page);
+  await page.getByTestId("connector-notion").getByRole("button", { name: "Connect", exact: true }).click();
+  const modal = page.getByTestId("add-connection-modal");
+  await expect(modal.getByPlaceholder("ntn_…")).toHaveCount(0);
+  await modal.getByTestId("modal-mcp-one-click").click();
+  await expect(modal).toHaveCount(0, { timeout: 10_000 });
+  await page.getByTestId("connector-notion").click();
+  await expect(page.getByText("Connected through MCP", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("accounts-detail")).toHaveCount(0);
+  await expect(page.getByPlaceholder("ntn_…")).toHaveCount(0);
+});

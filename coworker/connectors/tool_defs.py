@@ -818,6 +818,28 @@ TOOL_DEFS: tuple[ConnectorToolDef, ...] = (
         "write",
         "Create a page under a parent page.",
     ),
+    # Official Notion MCP names, https://developers.notion.com/docs/mcp-supported-tools.
+    # The server's remaining tools stay available with approval required.
+    ConnectorToolDef("notion", "mcp__notion__notion-search", "Search", "read", "Search Notion pages and databases."),
+    ConnectorToolDef("notion", "mcp__notion__notion-connector-search", "Search connected sources", "read", "Search sources connected to Notion."),
+    ConnectorToolDef("notion", "mcp__notion__notion-fetch", "Read page or database", "read", "Read content and database schemas."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-self", "Connection details", "read", "Read the connected workspace and user."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-tool-access", "Available tools", "read", "Check tool availability and parameter restrictions."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-enabled-skills", "Enabled skills", "read", "Read the Notion skills enabled for MCP clients."),
+    ConnectorToolDef("notion", "mcp__notion__notion-download-skill", "Read skill files", "read", "Get a Notion skill and its supporting files."),
+    ConnectorToolDef("notion", "mcp__notion__notion-query-data-sources", "Query data sources", "read", "Read database rows or saved views."),
+    ConnectorToolDef("notion", "mcp__notion__notion-query-multiple-data-sources", "Query across databases", "read", "Run a read-only query across data sources."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-comments", "Read comments", "read", "Read comments on a page."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-users", "Read users", "read", "Find users in the workspace."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-async-task", "Check operation", "read", "Read the status of a page operation."),
+    ConnectorToolDef("notion", "mcp__notion__notion-get-file-download-urls", "Read file links", "read", "Get download links for files in Notion."),
+    ConnectorToolDef("notion", "mcp__notion__notion-create-pages", "Create pages", "write", "Create pages with properties and content."),
+    ConnectorToolDef("notion", "mcp__notion__notion-update-page", "Update page", "write", "Update a page's properties or content."),
+    ConnectorToolDef("notion", "mcp__notion__notion-create-database", "Create database", "write", "Create a Notion database."),
+    ConnectorToolDef("notion", "mcp__notion__notion-update-data-source", "Update database", "write", "Change a data source's schema or properties."),
+    ConnectorToolDef("notion", "mcp__notion__notion-create-comment", "Create comment", "write", "Add a comment to a page."),
+    ConnectorToolDef("notion", "mcp__notion__notion-move-pages", "Move pages", "write", "Move pages to a different parent."),
+    ConnectorToolDef("notion", "mcp__notion__notion-duplicate-page", "Duplicate page", "write", "Create a copy of a page."),
     ConnectorToolDef(
         "attio",
         "attio_list_objects",
@@ -1271,6 +1293,15 @@ def active_tool_defs(secrets: SecretStore, connector: str) -> list[ConnectorTool
     if not mcp or not api:
         return defs
     profile = secrets.get(f"{connector}:default") or {}
+    if connector == "notion":
+        from ..mcp.oauth import has_tokens
+        from .descriptors import configured_mcp_server
+
+        server = configured_mcp_server(connector, secrets)
+        if server is None:
+            return api
+        if server and server.enabled and has_tokens(server.name, secrets):
+            return mcp
     return mcp if profile.get("mode") == "mcp" else api
 
 

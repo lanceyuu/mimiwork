@@ -109,5 +109,6 @@ def build_callables(
             requires_approval=server.requires_approval,
         )
         _invoke.__coworker_schema__ = _openai_schema(name, mcp_tool)
+        _invoke.__coworker_remote_name__ = remote
         callables.append(_invoke)
     return callables

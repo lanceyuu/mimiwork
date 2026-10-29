@@ -445,6 +445,12 @@ const D: Record<string, string[]> = {
   "Conversations": ["对话", "Samtaler", "Conversations", "Conversaciones", "会話", "المحادثات", "Unterhaltungen", "Conversas"],
   // ── connectors ──
   "MCP servers": ["MCP 服务器", "MCP-servere", "Serveurs MCP", "Servidores MCP", "MCPサーバー", "خوادم MCP", "MCP-Server", "Servidores MCP"],
+  "Connected through MCP": ["已通过 MCP 连接", "Tilkoblet via MCP", "Connecté via MCP", "Conectado mediante MCP", "MCP経由で接続済み", "متصل عبر MCP", "Über MCP verbunden", "Conectado via MCP"],
+  "Refresh connections": ["刷新连接", "Oppdater tilkoblinger", "Actualiser les connexions", "Actualizar conexiones", "接続を更新", "تحديث الاتصالات", "Verbindungen aktualisieren", "Atualizar conexões"],
+  "Reconnect": ["重新连接", "Koble til igjen", "Reconnecter", "Reconectar", "再接続", "إعادة الاتصال", "Erneut verbinden", "Reconectar"],
+  "Connection needs attention": ["连接需要处理", "Tilkoblingen trenger oppmerksomhet", "La connexion nécessite votre attention", "La conexión requiere atención", "接続の確認が必要です", "الاتصال يحتاج إلى متابعة", "Verbindung erfordert Aufmerksamkeit", "A conexão precisa de atenção"],
+  "Disabled": ["已停用", "Deaktivert", "Désactivé", "Desactivado", "無効", "معطّل", "Deaktiviert", "Desativado"],
+  "Signing in…": ["正在登录…", "Logger inn…", "Connexion en cours…", "Iniciando sesión…", "サインイン中…", "جارٍ تسجيل الدخول…", "Anmeldung läuft…", "Entrando…"],
   // ── Coding agents (Connectors > Coding agents) ──
   "Coding agents": ["编程智能体", "Kodeagenter", "Agents de code", "Agentes de código", "コーディングエージェント", "وكلاء البرمجة", "Coding-Agenten", "Agentes de código"],
   "Could not load the coding agents. Try again.": ["无法加载编程智能体，请重试。", "Kunne ikke laste kodeagentene. Prøv igjen.", "Impossible de charger les agents de code. Réessayez.", "No se pudieron cargar los agentes de código. Inténtalo de nuevo.", "コーディングエージェントを読み込めませんでした。もう一度お試しください。", "تعذر تحميل وكلاء البرمجة. حاول مرة أخرى.", "Coding-Agenten konnten nicht geladen werden. Versuche es erneut.", "Não foi possível carregar os agentes de código. Tente novamente."],

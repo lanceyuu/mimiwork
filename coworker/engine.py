@@ -299,6 +299,8 @@ class TurnEngine:
         self.file_recovery: Optional[Any] = None
         self.session_id = ""
         self.checkpoint: Optional[Callable[[], None]] = None
+        self.prepare_turn: Optional[Callable[[], Awaitable[None]]] = None
+        self.mcp_context = ""
         self._resuming = False
         self._resume_prepared_call_ids: set[str] = set()
 
@@ -416,6 +418,8 @@ class TurnEngine:
             data["display"] = display
         self._begin_turn()
         yield Event(EventType.TURN_START, data)
+        if self.prepare_turn is not None:
+            await self.prepare_turn()
         async for event in self._loop():
             yield event
 
@@ -492,6 +496,8 @@ class TurnEngine:
         self._reset_controls()
         self._begin_turn()
         yield Event(EventType.TURN_START, {"input": ""})
+        if self.prepare_turn is not None:
+            await self.prepare_turn()
         async for event in self._loop():
             yield event
 
@@ -507,6 +513,8 @@ class TurnEngine:
         self._reset_controls()
         self._begin_turn()
         yield Event(EventType.TURN_START, {"input": "(resumed)"})
+        if self.prepare_turn is not None:
+            await self.prepare_turn()
         self._resuming = True
         try:
             async for event in self._handle_tool_calls(pending):

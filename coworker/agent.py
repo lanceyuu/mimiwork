@@ -575,6 +575,8 @@ def build_engine(
         # recomputed fresh each turn (re-enable → the note disappears; never persisted).
         eng = _engine_box[0] if _engine_box else None
         if eng is not None:
+            if eng.mcp_context:
+                parts.append(eng.mcp_context)
             available = set(skill_loader.names()) if allowed is None else set(allowed)
             for name in sorted(_loaded_skill_names(eng.messages) - available):
                 parts.append(

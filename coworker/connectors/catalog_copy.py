@@ -45,9 +45,9 @@ ABOUT: dict[str, str] = {
     "hubspot": "Search and read your CRM; optionally log notes and tasks and "
     "update records. Read-only vs read & write is chosen at consent time, and "
     "chosen properties can be hidden from agents entirely.",
-    "notion": "Search and read the pages and databases you share with the "
-    "connection, and create new pages. You choose exactly which pages it can "
-    "see.",
+    "notion": "Connect with Notion sign-in in your browser to search, read, and "
+    "update pages and databases. An existing Notion MCP connection is reused; "
+    "integration secrets remain available for manual connections.",
     "attio": "Read your Attio CRM — objects, records, and lists — to prep "
     "meetings and answer pipeline questions, and log notes as you work.",
     "google_drive": "Search, browse, and read files across your Drive. "
@@ -192,8 +192,9 @@ ACCESS: dict[str, list[str]] = {
         "Creates leads, updates opportunities, and logs notes as you.",
     ],
     "notion": [
-        "Reads only the pages and databases shared with the connection.",
-        "Creates pages — never edits or deletes existing ones.",
+        "Reads content available to your Notion connection.",
+        "Creates and updates pages and databases, with approval for changes.",
+        "Sign-in tokens stay on this computer.",
     ],
     "attio": [
         "Reads objects, records, lists, and notes.",

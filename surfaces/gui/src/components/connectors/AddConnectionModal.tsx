@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   connectConnector,
-  connectMcpBacked,
-  getConnectors,
   type Connector,
 } from "../../api";
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { ConnectSetup } from "../ManageTabs";
-import { PILL_ACCENT, PILL_LINE, TAG_ACCENT } from "./ui";
+import { PILL_LINE } from "./ui";
+import { McpOneClick } from "./McpOneClick";
 
 // The ONE place a connection gets added (UX-DECISIONS §21): the detail page's header
 // button (or the list's Connect pill) opens this sheet. Connectors with two connect
@@ -106,55 +105,6 @@ export function AddConnectionModal({
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// One-click pane for MCP-BACKED connectors (monday, asana, jira — §42): the sidecar
-// runs a fully LOCAL OAuth flow against the vendor's hosted MCP server (DCR — no
-// client secret, no broker, no MimiWork sign-in required). Poll until the card
-// flips to connected, then close.
-function McpOneClick({ c, onConnected }: { c: Connector; onConnected: () => void }) {
-  const [waiting, setWaiting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!waiting) return;
-    const t = setInterval(async () => {
-      try {
-        const list = await getConnectors();
-        if (list.find((x) => x.name === c.name)?.connected) onConnected();
-      } catch {
-        /* keep polling */
-      }
-    }, 2000);
-    return () => clearInterval(t);
-  }, [waiting, c.name, onConnected]);
-  const go = async () => {
-    setError(null);
-    const res = await connectMcpBacked(c.name);
-    if (res.ok) setWaiting(true);
-    else setError(res.error || "could not start the connect");
-  };
-  return (
-    <div className="px-5 py-4 space-y-3">
-      <p className="text-[13px] text-muted">
-        Opens {c.title} in your browser — sign in and approve access there. No tokens
-        typed, and no MimiWork account needed: the sign-in runs entirely on this
-        computer.
-      </p>
-      <button
-        className={PILL_ACCENT + " w-full !py-2"}
-        data-testid="modal-mcp-one-click"
-        onClick={go}
-        disabled={waiting}
-      >
-        {waiting ? "Check your browser…" : `Connect ${c.title}`}
-      </button>
-      {error && <div className="text-[12.5px] text-danger">{error}</div>}
-      <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
-        <span className={TAG_ACCENT}>Recommended</span> agents get a curated set of{" "}
-        {c.title} tools · tokens stay on this computer
-      </p>
     </div>
   );
 }

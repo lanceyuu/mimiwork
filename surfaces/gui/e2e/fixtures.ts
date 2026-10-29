@@ -158,7 +158,7 @@ const CONNECTORS = {
     // Two-mode connector: one-click with access radios (read | write) OR a private-app token.
     { name: "hubspot", title: "HubSpot", icon: "⊚", blurb: "Search CRM records; log notes and tasks, update records. No deletes.", auth: "token", two_way: false, channels: false, available: true, brand_color: "#ff7a59", logo: "hubspot", fields: [{ key: "token", label: "Private app token", secret: true, required: true, help: "", placeholder: "pat-…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Generic multi-account connector (accounts.py layer): one-click OR integration token.
-    { name: "notion", title: "Notion", icon: "◰", blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
+    { name: "notion", title: "Notion", icon: "◰", mcp: true, blurb: "Search pages, read content, query databases, create pages.", auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#1f2328", logo: "", fields: [{ key: "access_token", label: "Integration secret", secret: true, required: true, help: "", placeholder: "ntn_…" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Managed email-keyed multi-account connector (outlook) — drives the onboarding tools gallery.
     { name: "outlook", title: "Outlook", icon: "◎", blurb: "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.", aliases: ["calendar", "email", "mail", "microsoft", "office"], auth: "oauth", two_way: false, channels: false, available: true, brand_color: "#0078d4", logo: "outlook", fields: [{ key: "access_token", label: "OAuth access token", secret: true, required: true, help: "", placeholder: "" }], instructions: [], connected: false, account: null, enabled: false, allowed_users: [], tools: [], managed: true, managed_profile: false },
     // Sixth active card in the onboarding gallery (promoted 2026-07-19 to even the grid).
@@ -462,6 +462,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
   };
   // Notion — PER-TEST generic multi-account state (accounts.py layer: AccountRow shape).
   const notionState = {
+    mcp: false,
     accounts: [] as { account_id: string; name: string; default: boolean; managed: boolean }[],
   };
   const NOTION_NEXT = [
@@ -472,10 +473,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
     const base = CONNECTORS.connectors.find((c: any) => c.name === "notion");
     return {
       ...base,
-      connected: notionState.accounts.length > 0,
-      enabled: notionState.accounts.length > 0,
+      connected: notionState.mcp || notionState.accounts.length > 0,
+      enabled: notionState.mcp || notionState.accounts.length > 0,
+      mode: notionState.mcp ? "mcp" : "",
+      mcp_status: notionState.mcp ? "connected" : "needs_auth",
       account: notionState.accounts.find((a) => a.default)?.name ?? null,
-      accounts: notionState.accounts.map((a) => ({ ...a })),
+      accounts: notionState.mcp ? undefined : notionState.accounts.map((a) => ({ ...a })),
     };
   };
   // Outlook — email-keyed managed accounts (mirrors outlook:account:<email> profiles).
@@ -1594,6 +1597,10 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const name = p.match(/\/v1\/connectors\/([^/]+)\/mcp-connect$/)?.[1] as
         | "monday"
         | "jira";
+      if (p.includes("/connectors/notion/")) {
+        notionState.mcp = true;
+        return json({ ok: true, started: true });
+      }
       if (name in mcpState) {
         mcpState[name] = true;
         return json({ ok: true, started: true });

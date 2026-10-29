@@ -11,7 +11,12 @@ from typing import Any
 
 from ..secrets import SecretStore
 from .catalog_copy import about_for, access_for
-from .descriptors import get_descriptor, list_descriptors
+from .descriptors import (
+    configured_mcp_server,
+    get_descriptor,
+    list_descriptors,
+    mcp_connector_for_server,
+)
 from .tool_defs import patch_tool_settings, tool_dicts
 
 _EXPERIMENTAL_KEY = "experimental:settings"
@@ -60,10 +65,21 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
         if d.experimental and not show_experimental:
             continue
         profile = secrets.get(f"{d.name}:default") or {}
-        if d.mcp_url and profile.get("mode") == "mcp":
+        mcp_server = configured_mcp_server(d.name, secrets) if d.name == "notion" else None
+        mcp_name = mcp_server.name if mcp_server else profile.get("mcp_server", d.name)
+        mcp_connected = (
+            bool(d.mcp_url)
+            and (d.name != "notion" or mcp_server is not None)
+            and _mcp_tokens_present(secrets, mcp_name)
+        )
+        mcp_mode = bool(d.mcp_url) and (
+            (profile.get("mode") == "mcp" and (d.name != "notion" or mcp_server is not None))
+            or bool(mcp_server and mcp_server.enabled and mcp_connected)
+        )
+        if mcp_mode:
             # MCP-backed connect: the profile is just a marker — connected-ness
             # lives with the OAuth tokens (mcp-oauth:<name> in the SecretStore).
-            connected = _mcp_tokens_present(secrets, d.name)
+            connected = mcp_connected
         else:
             connected = _profile_connected(d, profile)
         entry = {
@@ -88,8 +104,10 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             "fields": [f.to_dict() for f in d.fields],
             "instructions": d.instructions,
             "connected": connected,
-            "account": profile.get("account"),
-            "enabled": bool(profile.get("enabled", True)) and connected,
+            "account": None if mcp_mode else profile.get("account"),
+            "enabled": bool(profile.get("enabled", True))
+            and connected
+            and (not mcp_mode or mcp_server is None or mcp_server.enabled),
             # The actual allow-list (the GUI manages it inline); was a bare count.
             "allowed_users": list(profile.get("allowed_users") or []),
             # Manual Socket Mode only: explicitly selected humans who may resolve
@@ -103,8 +121,18 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             # Whether THIS profile came from managed OAuth (vs manual paste).
             "managed_profile": bool(profile.get("managed")),
             # "relay" for the managed cloud path; empty for manual/token connect.
-            "mode": profile.get("mode") or "",
+            "mode": "mcp" if mcp_mode else (
+                "" if d.name == "notion" and profile.get("mode") == "mcp"
+                else profile.get("mode") or ""
+            ),
         }
+        if d.mcp_url:
+            entry["mcp_server"] = mcp_name
+            entry["mcp_status"] = (
+                "disabled"
+                if mcp_server and not mcp_server.enabled
+                else "configured" if mcp_connected else "needs_auth"
+            )
         if d.name == "slack":
             # Managed relay is multi-workspace: each `slack:team:*` profile is one
             # connected workspace with its OWN allow-list (ids are workspace-scoped).
@@ -150,7 +178,7 @@ def connector_list(secrets: SecretStore) -> list[dict[str, Any]]:
             if entry["installations"] and profile.get("mode") == "relay":
                 first = entry["installations"][0]
                 entry["account"] = entry["account"] or first["account_login"]
-        if d.account_field:
+        if d.account_field and not mcp_mode:
             # Generic multi-account (batch-2 connectors): each
             # `<name>:account:*` profile is one account; :default is pointer-only.
             from . import accounts as _accounts
@@ -348,6 +376,18 @@ def connect_connector(
         result = _accounts.add_account(secrets, name, account_id, profile)
         if not result.get("ok"):
             return result
+        if name == "notion":
+            from ..mcp.config import load_mcp_servers, patch_global_server
+
+            # Choosing manual access pauses MCP without discarding browser sign-ins.
+            for server in load_mcp_servers(secrets=secrets):
+                if server.enabled and mcp_connector_for_server(server.name, server.url) == name:
+                    patch_global_server(server.name, {"enabled": False})
+            pointer = secrets.get(f"{name}:default") or {}
+            pointer.pop("mode", None)
+            pointer.pop("mcp_server", None)
+            pointer["enabled"] = True
+            secrets.put(f"{name}:default", pointer)
         return {"ok": True, "account": identity or account_id, "account_id": account_id}
     secrets.put(f"{name}:default", profile)
     return {"ok": True, "account": identity}
@@ -358,6 +398,26 @@ def connect_connector(
 
 
 def disconnect_connector(secrets: SecretStore, name: str) -> dict[str, Any]:
+    if name == "notion":
+        from ..mcp.config import patch_global_server
+        from ..mcp.oauth import has_tokens, sign_out
+
+        server = configured_mcp_server(name, secrets)
+        profile = secrets.get(f"{name}:default") or {}
+        if server and (
+            profile.get("mode") == "mcp"
+            or (server.enabled and has_tokens(server.name, secrets))
+        ):
+            # Disconnecting MCP preserves manual accounts and custom server settings.
+            sign_out(server.name, secrets)
+            patch_global_server(server.name, {"enabled": False})
+            profile.pop("mode", None)
+            profile.pop("mcp_server", None)
+            if profile:
+                secrets.put(f"{name}:default", profile)
+            else:
+                secrets.delete(f"{name}:default")
+            return {"ok": True}
     dropped_accounts = False
     from . import accounts as _accounts
 

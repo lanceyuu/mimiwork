@@ -96,6 +96,9 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._tools)
 
+    def unregister(self, name: str) -> None:
+        self._tools.pop(name, None)
+
     def get(self, name: str) -> Optional[ToolSpec]:
         return self._tools.get(name)
 

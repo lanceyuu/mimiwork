@@ -156,6 +156,22 @@ def deliver_callback(code: str, state: Optional[str]) -> bool:
     return True
 
 
+def deliver_error(state: Optional[str]) -> bool:
+    """Only the matching browser flow may end a pending sign-in early."""
+    global _pending
+    if (
+        _pending is None
+        or _pending.done()
+        or _expected_state is None
+        or state is None
+        or not secrets.compare_digest(state, _expected_state)
+    ):
+        return False
+    pending, _pending = _pending, None
+    pending.set_exception(RuntimeError("Sign-in was cancelled or denied. Try again."))
+    return True
+
+
 async def _open_browser(url: str) -> None:
     global last_authorize_url, _expected_state
     last_authorize_url = url

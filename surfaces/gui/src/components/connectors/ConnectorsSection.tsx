@@ -9,6 +9,7 @@ import {
 import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { AllowlistBlock, ConnectorTools, ListeningSessionsBlock, UnauthorizedBlock } from "../ManageTabs";
 import { AccountsDetail } from "./AccountsDetail";
+import { AddConnectionModal } from "./AddConnectionModal";
 import { AvailableDetail } from "./AvailableDetail";
 import { CalendarDetail } from "./CalendarDetail";
 import { ConnectorsList } from "./ConnectorsList";
@@ -30,7 +31,7 @@ export interface DetailProps {
 }
 
 // Bespoke pages register here; everything else gets GenericDetail below.
-const DETAIL_PAGES: Record<string, (p: DetailProps) => JSX.Element> = {
+const DETAIL_PAGES: Partial<Record<string, (p: DetailProps) => JSX.Element>> = {
   slack: (p) => <SlackDetail {...p} />,
   gmail: (p) => <GmailDetail {...p} />,
   google_calendar: (p) => <CalendarDetail {...p} />,
@@ -81,7 +82,7 @@ export function ConnectorsSection() {
           /* Pre-connect page (§38). When a connect completes, the poll flips
              c.connected and this same route re-renders as the connected page. */
           <AvailableDetail c={c} onChanged={refresh} />
-        ) : Page ? (
+        ) : Page && c.mode !== "mcp" ? (
           <Page c={c} slack={slack} onChanged={refresh} />
         ) : (
           <GenericDetail
@@ -116,6 +117,7 @@ function GenericDetail({
   onChanged,
   onGone,
 }: DetailProps & { onGone: () => void }) {
+  const [connecting, setConnecting] = useState(false);
   return (
     <div>
       <div className="flex items-center gap-3.5 mb-5">
@@ -123,10 +125,17 @@ function GenericDetail({
         <div className="min-w-0 flex-1">
           <h2 className="text-[20px] font-semibold tracking-tight leading-tight">{c.title}</h2>
           <div className="text-[12.5px] text-muted flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-ok" />
-            {c.account || (c.auth === "none" ? "Built in" : "Connected")}
+            <span className={"w-2 h-2 rounded-full " + (c.mcp_status === "authorizing" || c.mcp_error || !c.enabled ? "bg-warnInk" : "bg-ok")} />
+            {c.mcp_status === "authorizing" ? "Signing in…" : c.mode === "mcp"
+                ? c.mcp_error ? "Connection needs attention" : !c.enabled ? "Disabled" : "Connected through MCP"
+                : c.account || (c.auth === "none" ? "Built in" : "Connected")}
           </div>
         </div>
+        {c.mode === "mcp" && (
+          <button className="text-[12.5px] text-accent shrink-0" onClick={() => setConnecting(true)}>
+            Reconnect
+          </button>
+        )}
         {c.auth !== "none" && (
           <button
             className="text-[12.5px] text-danger/80 hover:text-danger shrink-0"
@@ -141,9 +150,16 @@ function GenericDetail({
         )}
       </div>
 
-      <div className={GRP}>
-        <ConnectorTools c={c} onChanged={onChanged} />
-      </div>
+      {c.mcp_error && <div className="text-[12.5px] text-danger mb-3">{c.mcp_error}</div>}
+      {connecting && <AddConnectionModal c={c} onChanged={onChanged} onClose={() => setConnecting(false)} />}
+
+      {c.mode === "mcp" && !c.tools.length ? (
+        <p className="text-[13px] text-muted">This server's tools load automatically with your next message.</p>
+      ) : (
+        <div className={GRP}>
+          <ConnectorTools c={c} onChanged={onChanged} />
+        </div>
+      )}
 
       {c.two_way && (
         <div className={GRP + " mt-4"}>

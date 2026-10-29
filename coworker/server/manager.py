@@ -99,6 +99,7 @@ from ..workspace_trust import WorkspaceTrustStore
 _SCOPES = {s.value for s in Scope}
 
 logger = logging.getLogger("coworker.manager")
+_MCP_CONNECT_TIMEOUT = 15.0
 
 
 def _grants_of(engine) -> dict[str, Any]:
@@ -1330,6 +1331,7 @@ class SessionManager:
 
     def _wire_tool_recovery(self, engine: TurnEngine, session_id: str) -> None:
         """Install the shared durability boundary on every persistent engine path."""
+        engine.prepare_turn = lambda: self._refresh_mcp_tools(session_id, engine)
         engine.tool_journal = self.session_store
         engine.session_id = session_id
         engine.checkpoint = lambda eng=engine: self.save(session_id, eng)
@@ -1726,34 +1728,53 @@ class SessionManager:
             self.mark_idle(item.session_id)
 
     # -- MCP --------------------------------------------------------------------
+    async def _refresh_mcp_tools(self, session_id: str, engine: TurnEngine) -> None:
+        tools = await self.prepare_mcp_tools(
+            session_id,
+            workspace=engine.audit_context.get("workspace") or None,
+            agent=engine.agent_name,
+        )
+        # Keep the live chat, shell and approvals while replacing its MCP snapshot.
+        for name in engine.registry.names():
+            spec = engine.registry.get(name)
+            if getattr(spec.metadata, "category", None) == "mcp":
+                engine.registry.unregister(name)
+        engine.registry.register_all(tools)
+
     async def prepare_mcp_tools(
         self, session_id: str, *, workspace: Optional[str] = None, agent: str = "cowork"
     ) -> list[Any]:
         """Connect enabled MCP servers (global + workspace) and return their tool callables.
 
-        Called from the async WS handler before `get_engine`; no-op if the engine is already
-        built (its MCP tools are attached). Servers that fail to connect are skipped.
+        Refreshed before each turn, including background and resumed conversations.
+        Servers that fail to connect are reported in context and skipped.
         """
-        if session_id in self._engines:
-            return []
-        from ..connectors.descriptors import get_descriptor
+        from ..connectors.descriptors import get_descriptor, mcp_connector_for_server
         from ..connectors.tool_defs import (
             approval_for_tool,
+            load_tool_settings,
             mcp_tool_defs,
             tool_enabled,
         )
         from ..mcp import oauth as mcp_oauth
+        from ..mcp.tools import tool_name
 
         ws = self.engine_workspace(session_id, workspace=workspace, agent=agent)
         loop = asyncio.get_running_loop()
         effective: Optional[set[str]] = None  # computed lazily, once
         out: list[Any] = []
+        statuses: list[str] = []
         for server in load_mcp_servers(
             ws,
             secrets=self.secrets,
             workspace_trusted=self._mcp_workspace_trusted(ws),
         ):
+            label = json.dumps(server.name, ensure_ascii=False)
             if not server.enabled:
+                statuses.append(f"- {label}: disabled.")
+                continue
+            if server.name in self._mcp_authorizing:
+                statuses.append(f"- {label}: sign-in in progress; finish the browser sign-in.")
                 continue
             if server.auth == "oauth" and not mcp_oauth.has_tokens(
                 server.name, self.secrets
@@ -1763,8 +1784,10 @@ class SessionManager:
                 # full flow timeout (owner-hit 2026-07-20 — a failed one-click's
                 # leftover config froze all new sessions). Flows start only from an
                 # explicit connect in Settings/Connectors.
+                statuses.append(f"- {label}: sign-in required in Connectors.")
                 continue
-            descriptor = get_descriptor(server.name)
+            connector = mcp_connector_for_server(server.name, server.url)
+            descriptor = get_descriptor(connector) if connector else None
             backed = descriptor is not None and bool(descriptor.mcp_url)
             if backed:
                 # Connector-backed server: obey the same gates as connector tools —
@@ -1773,16 +1796,30 @@ class SessionManager:
                 # file says (drift can only ever shrink the surface).
                 if effective is None:
                     effective = self.effective_connectors(session_id, agent)
-                if server.name not in effective:
+                enabled = connector in effective
+                if connector == "notion" and server.name not in read_global():
+                    # A trusted workspace's MCP connection has no global connector row.
+                    enabled = bool(effective_connections(
+                        connected={connector},
+                        persona_defaults=self.persona_connections.get(
+                            self._persona_of(session_id, agent)
+                        ),
+                        session_overrides=self.session_connections.get(session_id),
+                    ))
+                if not enabled or not (self.secrets.get(f"{connector}:default") or {}).get("enabled", True):
+                    statuses.append(f"- {label}: disabled for this conversation.")
                     continue
-                prefix = f"mcp__{server.name}__"
-                server.include_tools = [
-                    t.name.removeprefix(prefix)
-                    for t in mcp_tool_defs(server.name)
-                    if tool_enabled(self.secrets, server.name, t.name)
-                ]
+                if connector != "notion":
+                    prefix = f"mcp__{connector}__"
+                    server.include_tools = [
+                        t.name.removeprefix(prefix)
+                        for t in mcp_tool_defs(connector)
+                        if tool_enabled(self.secrets, connector, t.name)
+                    ]
             try:
-                conn = await self.mcp.ensure(server)
+                conn = await asyncio.wait_for(
+                    self.mcp.ensure(server), timeout=_MCP_CONNECT_TIMEOUT
+                )
             except Exception as exc:
                 if mcp_oauth.is_auth_required(exc):
                     # Stored tokens no longer refresh (vendor rotated/expired
@@ -1795,11 +1832,27 @@ class SessionManager:
                     logger.info(
                         "mcp %s needs re-auth; skipped for this session", server.name
                     )
+                    statuses.append(f"- {label}: sign-in required in Connectors.")
+                else:
+                    statuses.append(f"- {label}: connection failed; check this server in Connectors.")
                 # else: bad command / unreachable url — skip, don't break the session
                 continue
+            self._mcp_errors.pop(server.name, None)
+            remote_tools = conn.tools
+            if backed and connector == "notion":
+                known = {t.name for t in mcp_tool_defs(connector)}
+                toggles = load_tool_settings(self.secrets, connector)
+                remote_tools = [
+                    t for t in remote_tools
+                    if (
+                        tool_enabled(self.secrets, connector, tool_name(connector, t.name))
+                        if tool_name(connector, t.name) in known
+                        else toggles.get(tool_name(connector, t.name), True)
+                    )
+                ]
             callables = build_callables(
                 server,
-                conn.tools,
+                remote_tools,
                 lambda tool, args, name=server.name: self.mcp.call(name, tool, args),
                 loop,
             )
@@ -1808,10 +1861,27 @@ class SessionManager:
                 # (server-level requires_approval is off for backed servers);
                 # anything unclassified stays approval-gated — fail closed.
                 for fn in callables:
-                    fn.__aisuite_tool_metadata__.requires_approval = approval_for_tool(
-                        fn.__aisuite_tool_metadata__.name, default=True
+                    remote_name = fn.__coworker_remote_name__
+                    fn.__aisuite_tool_metadata__.requires_approval = (
+                        (connector == "notion" and server.requires_approval)
+                        or approval_for_tool(tool_name(connector, remote_name), default=True)
                     )
+            statuses.append(
+                f"- {label}: available, {len(callables)} tools."
+                if callables else f"- {label}: connected, no tools enabled for this conversation."
+            )
             out.extend(callables)
+        engine = self._engines.get(session_id)
+        if engine is not None:
+            engine.mcp_context = (
+                "Current MCP connections for this conversation:\n"
+                + ("\n".join(statuses) or "No MCP servers are configured for this conversation.")
+                + "\nUse available MCP tools directly for their services. A separate token "
+                "connector can be disconnected while its MCP connection is available. "
+                "This current status supersedes earlier connection claims in the chat. "
+                "If sign-in is required, direct the user to Connectors for browser sign-in. "
+                "Tool permissions still apply."
+            )
         return out
 
     def list_mcp(self) -> list[dict[str, Any]]:
@@ -1822,18 +1892,18 @@ class SessionManager:
         out = []
         for name, raw in read_global().items():
             d = get_descriptor(name)
-            if d is not None and d.mcp_url:
+            if d is not None and d.mcp_url and d.name != "notion":
                 # Connector-backed server: surfaced on the Connectors page (its
                 # connect/disconnect lifecycle lives there), not in the MCP tab.
                 continue
             connected = name in self.mcp._conns
             is_oauth = str(raw.get("auth", "")).lower() == "oauth"
-            if connected:
-                status = "connected"
-            elif not raw.get("enabled", True):
+            if not raw.get("enabled", True):
                 status = "disabled"
             elif name in self._mcp_authorizing:
                 status = "authorizing"
+            elif connected:
+                status = "connected"
             elif is_oauth and not mcp_oauth.has_tokens(name, self.secrets):
                 status = "needs_auth"
             else:
@@ -1891,15 +1961,24 @@ class SessionManager:
         """One-click connect for an MCP-BACKED connector (descriptor.mcp_url): seed
         the global server entry pinned to the curated allowlist, run the browser
         OAuth flow, and mark the connector profile `mode: "mcp"` on success."""
-        from ..connectors.descriptors import get_descriptor
+        from ..connectors.descriptors import configured_mcp_server, get_descriptor
         from ..connectors.tool_defs import mcp_pinned_tools
 
         d = get_descriptor(name)
         if d is None or not d.mcp_url:
             return {"ok": False, "error": f"{name} has no MCP connect path"}
-        put_global_server(
-            name,
-            {
+        existing = configured_mcp_server(name, self.secrets)
+        server_name = existing.name if existing else name
+        if existing is None and name in read_global():
+            self._mcp_errors[name] = (
+                "A server with this name already exists. Connect it from MCP servers."
+            )
+            return {
+                "ok": False,
+                "error": self._mcp_errors[name],
+            }
+        if existing is None:
+            config = {
                 "url": d.mcp_url,
                 "auth": "oauth",
                 # Server-level approval off: writes gate per-tool via the pinned
@@ -1908,29 +1987,34 @@ class SessionManager:
                 "requires_approval": False,
                 "include_tools": mcp_pinned_tools(name),
                 "enabled": True,
-            },
-        )
-        result = await self.connect_mcp(name)
+            }
+            if name == "notion":
+                # Notion exposes workspace skills as tools, so keep its live catalog.
+                config.pop("include_tools")
+            put_global_server(server_name, config)
+        result = await self.connect_mcp(server_name)
         if result.get("ok"):
+            patch_global_server(server_name, {"enabled": True})
             profile = self.secrets.get(f"{name}:default") or {}
             self.secrets.put(
-                f"{name}:default", {**profile, "mode": "mcp", "enabled": True}
+                f"{name}:default",
+                {**profile, "mode": "mcp", "mcp_server": server_name, "enabled": True},
             )
         else:
+            self._mcp_errors[server_name] = result.get("error") or "Connection failed. Try again."
+        if not result.get("ok") and existing is None and name != "notion":
             # A failed connect must take its seeded config with it: an enabled
             # oauth entry with no tokens lingers forever (nothing owns it once
             # the descriptor's mcp_url is gone) and re-arms at every session
             # start — the owner-hit asana leftover, 2026-07-20.
-            delete_global_server(name)
+            delete_global_server(server_name)
         return result
 
     async def signout_mcp(self, name: str) -> dict[str, Any]:
         """Drop the live connection (if any) and forget the stored OAuth tokens."""
         from ..mcp import oauth as mcp_oauth
 
-        conn = self.mcp._conns.get(name)
-        if conn is not None:
-            conn.shutdown.set()
+        await self.mcp.close(name)
         self._mcp_errors.pop(name, None)
         removed = mcp_oauth.sign_out(name, self.secrets)
         return {"ok": True, "had_tokens": removed}
@@ -1970,7 +2054,7 @@ class SessionManager:
         return {"name": name, "ok": False, "error": "unknown server", "tools": []}
 
     async def reload_mcp(self) -> dict[str, Any]:
-        """Drop live MCP connections so new sessions reconnect with fresh config."""
+        """Drop live MCP connections so the next turn reconnects with fresh config."""
         await self.mcp.aclose()
         return {"ok": True}
 
@@ -1980,6 +2064,13 @@ class SessionManager:
         # tab can manage the allow-list inline (each recent sender flagged authorized or not).
         connectors = connector_list(self.secrets)
         for c in connectors:
+            if c.get("mcp"):
+                server_name = c.get("mcp_server") or c["name"]
+                if server_name in self._mcp_authorizing:
+                    c["mcp_status"] = "authorizing"
+                elif c.get("enabled") and server_name in self.mcp._conns:
+                    c["mcp_status"] = "connected"
+                c["mcp_error"] = self._mcp_errors.get(server_name)
             if not (c.get("two_way") and c.get("connected")):
                 continue
             allowed = set(c.get("allowed_users") or [])
@@ -2025,14 +2116,25 @@ class SessionManager:
         self, name: str, fields: dict[str, Any], *, acknowledged: bool = False
     ) -> dict[str, Any]:
         # validates the token by a live API call (sync httpx) — run off the event loop
-        return connect_connector(self.secrets, name, fields, acknowledged=acknowledged)
+        from ..connectors.descriptors import configured_mcp_server
+
+        server = configured_mcp_server(name, self.secrets) if name == "notion" else None
+        result = connect_connector(self.secrets, name, fields, acknowledged=acknowledged)
+        if result.get("ok"):
+            self._mcp_errors.pop(name, None)
+            if server is not None:
+                self._mcp_errors.pop(server.name, None)
+        return result
 
     def set_experimental_connectors(self, value: bool) -> dict[str, Any]:
         return set_experimental_enabled(self.secrets, value)
 
     def disconnect_connector(self, name: str) -> dict[str, Any]:
         # MCP-backed profile: drop the live server connection before the tokens go.
-        conn = self.mcp._conns.get(name)
+        from ..connectors.descriptors import configured_mcp_server
+
+        server = configured_mcp_server(name, self.secrets)
+        conn = self.mcp._conns.get(server.name if server else name)
         if conn is not None:
             conn.shutdown.set()
         return disconnect_connector(self.secrets, name)
