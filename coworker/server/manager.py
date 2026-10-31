@@ -2183,6 +2183,7 @@ class SessionManager:
             "combine_images",
             "edit_image",
             "generate_image",
+            "save_slide_photo",
             "run_python",  # charts land in figures/
             "run_r",
             "qualitati_export_survey",

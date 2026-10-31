@@ -36,6 +36,7 @@ _DIRECT_TARGETS: dict[str, tuple[str, ...]] = {
     "annotate_image": ("output",),
     "combine_images": ("output",),
     "generate_image": ("output",),
+    "save_slide_photo": ("output",),
 }
 _PATCH_LINE = re.compile(r"^\*\*\* (?:Add|Delete|Update) File:\s*(.+?)\s*$", re.MULTILINE)
 _MOVE_LINE = re.compile(r"^\*\*\* Move to:\s*(.+?)\s*$", re.MULTILINE)

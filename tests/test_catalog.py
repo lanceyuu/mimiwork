@@ -64,6 +64,8 @@ COWORK_TOOLS = {
     "write_presentation",
     "read_pdf",
     "read_image_info",
+    "search_slide_photos",
+    "save_slide_photo",
     "edit_image",
     "annotate_image",
     "combine_images",

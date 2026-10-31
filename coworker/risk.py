@@ -41,6 +41,7 @@ WRITE_PATH_ARGUMENTS = {
     "annotate_image": "output",
     "combine_images": "output",
     "generate_image": "output",
+    "save_slide_photo": "output",
 }
 
 _BASE: dict[str, RiskClass] = {

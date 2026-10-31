@@ -22,6 +22,7 @@ from typing import Any, Optional
 
 from ._common import decorate, guard, require
 from .paths import context_roots, display_path, resolve_read, resolve_write
+from .slide_photos import slide_photo_tools
 
 # Bound the output of a single operation: a resize to 40000px would exhaust memory, and
 # Pillow's own decompression-bomb guard only covers what it reads, not what we ask it to make.
@@ -517,6 +518,7 @@ def image_tools(context: Any) -> list:
         }
 
     return [
+        *slide_photo_tools(context),
         decorate(read_image_info, name="read_image_info", schema=_INFO_SCHEMA),
         decorate(
             edit_image,
