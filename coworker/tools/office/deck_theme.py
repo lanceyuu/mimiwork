@@ -1,27 +1,9 @@
-"""The look of a MimiWork deck: one design system, applied to every slide.
-
-Before this module, `write_presentation` handed python-pptx's stock `default.pptx` back to
-the user: a **4:3** canvas, Calibri, and the Office 2007 accent palette (that blue, that
-brick red, that olive). Every deck arrived letterboxed on a modern screen and looked a
-decade old before a word of content landed. Nothing here is decoration — it is the
-difference between a file someone presents and a file someone apologises for.
-
-Three decisions worth knowing:
-
-* **16:9, always.** A 4:3 deck is the single loudest "this is old" signal a slide can send.
-* **Fonts that are actually installed.** In HTML you can load any face you like; in a
-  `.pptx` an unavailable font is silently substituted on the recipient's machine, which
-  looks worse than a plain one. Georgia and Arial ship with Windows, macOS and Office, so
-  the deck looks the same on the reviewer's laptop as it did here. The character comes from
-  scale, colour and space instead — the parts that travel.
-* **Their template wins.** When the user passes their organisation's `.potx`, `read_theme`
-  pulls the fonts and colours out of it and this system defers: our geometry, their brand.
-"""
+"""The QualiTaTi palette and type scale for new decks, with template inheritance."""
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 # 16:9 at PowerPoint's own widescreen size (13.333in x 7.5in), in EMU.
@@ -37,25 +19,22 @@ _THEME_REL = (
 class Theme:
     """Fonts, colours and the type scale, in one place so every layout agrees."""
 
-    heading: str = "Georgia"
+    heading: str = "Instrument Serif"
+    # PowerPoint may silently render the variable DM Sans face as Calibri.
     body: str = "Arial"
 
     # Colours as RRGGBB ints — python-pptx's RGBColor takes the same.
-    ink: int = 0x111827  # near-black with a hint of blue; pure #000 reads harsh
-    body_ink: int = 0x374151
-    muted: int = 0x6B7280
-    accent: int = 0x0F766E  # deep teal: professional, and nobody's default
-    accent_soft: int = 0xE6F4F1
-    rule: int = 0xD8DEE6
-    bg: int = 0xFFFFFF
+    ink: int = 0x111C1B
+    body_ink: int = 0x111C1B
+    muted: int = 0x65706B
+    accent: int = 0x0B7C72
+    bg: int = 0xFAFAF7
 
     # Type scale (points). One ratio, applied everywhere.
-    size_deck_title: int = 40
+    size_deck_title: int = 48
     size_section: int = 34
-    size_slide_title: int = 28
+    size_slide_title: int = 34
     size_statement: int = 32
-    size_stat: int = 66
-    size_stat_label: int = 14
     size_body: int = 18
     size_body_sub: int = 15
     size_quote: int = 28
@@ -63,6 +42,7 @@ class Theme:
     size_footer: int = 10
 
     # Geometry (inches). Generous margins are most of what "designed" means.
+    canvas_width: float = 13.333
     margin_x: float = 0.85
     title_top: float = 0.52
     content_top: float = 1.62
@@ -70,10 +50,30 @@ class Theme:
 
     @property
     def content_width(self) -> float:
-        return 13.333 - (2 * self.margin_x)
+        return self.canvas_width - (2 * self.margin_x)
 
 
-NEUTRAL_MODERN = Theme()
+QUALITATI = Theme()
+
+
+def custom_theme(style: dict) -> Theme:
+    """Apply an explicit brief to a fresh deck. Hex colours are stored in its theme too."""
+    settings = {}
+    for key in ("heading", "body"):
+        if key in style:
+            name = style[key]
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError(f"style.{key} must be a font name")
+            settings[key] = name.strip()
+    for key in ("ink", "bg", "accent"):
+        if key in style:
+            value = style[key]
+            if not isinstance(value, str) or not re.fullmatch("#?[0-9A-Fa-f]{6}", value):
+                raise ValueError(f"style.{key} must be a six-digit hex colour")
+            settings[key] = int(value.lstrip("#"), 16)
+    if "ink" in settings or "bg" in settings:
+        settings["body_ink"] = settings["muted"] = settings.get("ink", QUALITATI.ink)
+    return replace(QUALITATI, **settings)
 
 
 def bullet_size(theme: Theme, level: int) -> int:
@@ -87,39 +87,39 @@ def read_theme(deck: Any) -> Theme:
     A house template is the one thing that outranks our design system: the whole point of
     passing `template=` is that the deck comes out in the organisation's brand.
     """
+    from lxml import etree
+    from pptx.oxml.ns import qn
+
     try:
         part = deck.slide_masters[0].part.part_related_by(_THEME_REL)
-        xml = part.blob.decode("utf-8", "ignore")
-    except Exception:
-        return NEUTRAL_MODERN
+        root = etree.fromstring(part.blob)
+    except (IndexError, KeyError, etree.XMLSyntaxError):
+        return QUALITATI
 
     def _font(tag: str) -> Optional[str]:
-        block = re.search(rf"<a:{tag}>(.*?)</a:{tag}>", xml, re.S)
-        if not block:
-            return None
-        face = re.search(r'<a:latin[^>]*typeface="([^"]*)"', block.group(1))
-        name = (face.group(1) if face else "").strip()
-        # "+mj-lt" and friends are references, not faces; an empty typeface means "inherit".
+        latin = root.find(f".//{qn('a:' + tag)}/{qn('a:latin')}")
+        name = latin.get("typeface", "").strip() if latin is not None else ""
         return name if name and not name.startswith("+") else None
 
-    def _color(tag: str) -> Optional[int]:
-        block = re.search(rf"<a:{tag}>(.*?)</a:{tag}>", xml, re.S)
-        if not block:
-            return None
-        value = re.search(r'val="([0-9A-Fa-f]{6})"', block.group(1))
-        return int(value.group(1), 16) if value else None
+    def _color(tag: str, fallback: int) -> int:
+        color = root.find(f".//{qn('a:clrScheme')}/{qn('a:' + tag)}/*")
+        if color is not None:
+            value = color.get("lastClr") or color.get("val", "")
+            if re.fullmatch("[0-9A-Fa-f]{6}", value):
+                return int(value, 16)
+        return fallback
 
-    base = NEUTRAL_MODERN
+    base = QUALITATI
+    ink = _color("dk1", base.ink)
+    bg = _color("lt1", base.bg)
     return Theme(
         heading=_font("majorFont") or base.heading,
         body=_font("minorFont") or base.body,
-        ink=_color("dk1") or base.ink,
-        body_ink=_color("dk1") or base.body_ink,
-        accent=_color("accent1") or base.accent,
-        muted=base.muted,
-        accent_soft=base.accent_soft,
-        rule=base.rule,
-        bg=_color("lt1") or base.bg,
+        ink=ink,
+        body_ink=ink,
+        accent=_color("accent1", base.accent),
+        muted=base.muted if (bg, ink) == (base.bg, base.ink) else ink,
+        bg=bg,
     )
 
 
@@ -138,30 +138,18 @@ def apply_slide_size(deck: Any) -> bool:
     return True
 
 
-def apply_theme_fonts(deck: Any, theme: Theme) -> None:
-    """Rewrite the deck's theme fonts so anything the USER adds later matches the deck.
+def apply_theme(deck: Any, theme: Theme) -> None:
+    """Save the selected typefaces and palette for slides and future PowerPoint edits."""
+    from lxml import etree
+    from pptx.oxml.ns import qn
 
-    Text this module writes carries explicit fonts already; this is for the text box a
-    person adds in PowerPoint afterwards, which inherits from the theme.
-    """
-    try:
-        part = deck.slide_masters[0].part.part_related_by(_THEME_REL)
-        xml = part.blob.decode("utf-8")
-    except Exception:
-        return
-
-    def _swap(tag: str, face: str, source: str) -> str:
-        block = re.search(rf"(<a:{tag}>)(.*?)(</a:{tag}>)", source, re.S)
-        if not block:
-            return source
-        inner = re.sub(
-            r'(<a:latin[^>]*typeface=")[^"]*(")', rf"\g<1>{face}\g<2>", block.group(2)
-        )
-        return source[: block.start()] + block.group(1) + inner + block.group(3) + source[block.end() :]
-
-    xml = _swap("majorFont", theme.heading, xml)
-    xml = _swap("minorFont", theme.body, xml)
-    try:
-        part._blob = xml.encode("utf-8")
-    except Exception:
-        return
+    part = deck.slide_masters[0].part.part_related_by(_THEME_REL)
+    root = etree.fromstring(part.blob)
+    for tag, face in (("majorFont", theme.heading), ("minorFont", theme.body)):
+        latin = root.find(f".//{qn('a:' + tag)}/{qn('a:latin')}")
+        latin.set("typeface", face)
+    for tag, color in (("dk1", theme.ink), ("lt1", theme.bg), ("accent1", theme.accent)):
+        slot = root.find(f".//{qn('a:clrScheme')}/{qn('a:' + tag)}")
+        slot.clear()
+        etree.SubElement(slot, qn("a:srgbClr"), val=f"{color:06X}")
+    part._blob = etree.tostring(root, encoding="utf-8", xml_declaration=True)

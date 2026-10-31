@@ -152,16 +152,17 @@ def test_a_new_deck_is_widescreen_not_the_4_3_default(tools):
     assert round(deck.slide_width / deck.slide_height, 3) == round(16 / 9, 3)
 
 
-def test_the_deck_theme_is_not_office_2007(tools):
+def test_new_decks_carry_the_qualitati_theme(tools):
     import pptx
 
-    from coworker.tools.office.deck_theme import NEUTRAL_MODERN, read_theme
+    from coworker.tools.office.deck_theme import read_theme
 
     write, ws = tools[0]["write_presentation"], tools[1]
     write("deck.pptx", [{"layout": "bullets", "title": "T", "bullets": ["a"]}])
     theme = read_theme(pptx.Presentation(str(ws / "deck.pptx")))
-    assert theme.heading == NEUTRAL_MODERN.heading != "Calibri"
-    assert theme.body == NEUTRAL_MODERN.body
+    assert theme.heading == "Instrument Serif"
+    assert theme.body == "Arial"
+    assert (theme.ink, theme.bg, theme.accent) == (0x111C1B, 0xFAFAF7, 0x0B7C72)
 
 
 def test_bullets_are_real_bullet_formatting_not_glued_to_the_text(tools):
@@ -236,7 +237,9 @@ def test_a_house_template_outranks_the_built_in_theme(tools, tmp_path):
     house = pptx.Presentation()
     house.save(str(ws / "house.pptx"))  # stock template = Calibri, the brand here
     write("deck.pptx", [{"layout": "bullets", "title": "T", "bullets": ["a"]}], template="house.pptx")
-    assert read_theme(pptx.Presentation(str(ws / "deck.pptx"))).heading == "Calibri"
+    deck = pptx.Presentation(str(ws / "deck.pptx"))
+    assert read_theme(deck).heading == "Calibri"
+    assert deck.slide_width == house.slide_width
 
 
 def test_appending_never_reflows_someone_elses_deck(tools):
@@ -280,8 +283,8 @@ def test_a_long_title_shrinks_instead_of_walking_out_of_its_frame(tools):
     for slide in deck.slides:
         run = slide.shapes.title.text_frame.paragraphs[0].runs[0]
         sizes.append(run.font.size)
-    assert sizes[0] == Pt(28)  # short keeps the scale
-    assert sizes[1] < Pt(28)  # long yields to the box
+    assert sizes[0] == Pt(34)  # short keeps the scale
+    assert sizes[1] < sizes[0]  # long yields to the box
 
 
 def test_a_reasonable_deck_carries_no_layout_warnings(tools):
@@ -360,3 +363,55 @@ def test_the_fit_estimator_is_monotonic_and_floored():
     assert short == 28
     assert 18 <= long < 28
     assert absurd == 18  # never below the floor — past that it's a writing problem
+
+
+def test_editorial_split_keeps_photo_text_and_credit_editable(tools):
+    import pptx
+    from PIL import Image
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    write, read, ws = tools[0]["write_presentation"], tools[0]["read_presentation"], tools[1]
+    Image.new("RGB", (600, 300)).save(ws / "scene.jpg")
+    write("deck.pptx", [{"layout": "photo_split", "title": "A new setting",
+                         "subtitle": "The group meets in the field.", "image": "scene.jpg", "photo_focus": 0.25,
+                         "notes": "Photo credit: Field team"}])
+    deck = pptx.Presentation(ws / "deck.pptx")
+    picture = next(s for s in deck.slides[0].shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+    assert picture.width * 2 == deck.slide_width and picture.height == deck.slide_height
+    assert 0 < picture.crop_left < picture.crop_right < 0.5
+    assert read("deck.pptx")["slides"][0] == {
+        "index": 0, "title": "A new setting", "bullets": ["The group meets in the field."],
+        "notes": "Photo credit: Field team",
+    }
+
+
+def test_title_blocks_start_with_the_title_and_statistics_keep_their_context(tools):
+    import pptx
+
+    write, read, ws = tools[0]["write_presentation"], tools[0]["read_presentation"], tools[1]
+    write("deck.pptx", [{"layout": kind, "title": "A finding"} for kind in
+                        ("title", "section", "statement")] + [
+        {"layout": "stat", "title": "Most teams finished", "stats": [
+            {"value": "68%", "label": "finished the survey"}]},
+    ])
+    deck = pptx.Presentation(ws / "deck.pptx")
+    for slide in deck.slides:
+        assert all(shape.top >= slide.shapes.title.top for shape in slide.shapes)
+        assert not slide.shapes.title.text_frame.paragraphs[0].runs[0].font.bold
+    assert read("deck.pptx")["slides"][-1]["bullets"] == ["68% finished the survey"]
+
+
+def test_a_requested_palette_and_typefaces_survive_appending(tools):
+    import pptx
+
+    from coworker.tools.office.deck_theme import read_theme
+
+    write, ws = tools[0]["write_presentation"], tools[1]
+    style = {"heading": "Georgia", "body": "Arial", "ink": "#FFFFFF", "bg": "#000000"}
+    write("deck.pptx", [{"layout": "title", "title": "An evening briefing"}], style=style)
+    write("deck.pptx", [{"layout": "section", "title": "The outcome"}], append=True)
+    deck = pptx.Presentation(ws / "deck.pptx")
+    theme = read_theme(deck)
+    assert (theme.heading, theme.body, theme.bg, theme.ink) == ("Georgia", "Arial", 0, 0xFFFFFF)
+    for slide in deck.slides:
+        assert slide.shapes.title.text_frame.paragraphs[0].runs[0].font.name == "Georgia"

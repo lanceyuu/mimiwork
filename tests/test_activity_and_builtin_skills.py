@@ -23,6 +23,7 @@ BUILTIN = {
     "consumer-paper-writing",
     "theory-building",
     "slide-design",
+    "qualitati-style",
     # curated third-party (ComposioHQ/awesome-claude-skills, addyosmani/agent-skills,
     # sickn33/agentic-awesome-skills) — small, work-relevant, safety-scanned
     "file-organizer",
@@ -94,6 +95,12 @@ def test_seeding_installs_the_builtin_catalog(tmp_path):
     assert (tmp_path / "skills" / "theory-building" / "SKILL.md").is_file()
     # The slide skill carries its resources, not just the manifest.
     assert (tmp_path / "skills" / "slide-design" / "STYLE_PRESETS.md").is_file()
+    from coworker.skills.base import SkillLoader, skill_catalog_text
+
+    loader = SkillLoader([tmp_path / "skills"])
+    assert "load qualitati-style by default" in skill_catalog_text(loader)
+    assert "qualitati-style" not in skill_catalog_text(loader, allowed={"slide-design"})
+    assert (tmp_path / "skills/qualitati-style/assets/fonts/InstrumentSerif-Regular.ttf").is_file()
     # The brand skill carries its ASSETS — a style guide without the icons it
     # names would send every deliverable hunting for missing files.
     assert (tmp_path / "skills" / "mimi-style" / "assets" / "tiles" / "tile-survey.png").is_file()

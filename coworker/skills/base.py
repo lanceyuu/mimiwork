@@ -115,6 +115,11 @@ def skill_catalog_text(
     if not catalog:
         return ""
     lines = [f"- {c['name']}: {c['description']}" for c in catalog]
+    if any(skill["name"] == "qualitati-style" for skill in catalog):
+        lines.append(
+            "For slide creation or restyling, load qualitati-style by default. "
+            "An explicitly chosen skill, style or template takes precedence."
+        )
     return (
         "Available skills — call load_skill(name) to load one's full instructions when "
         "it's relevant to the task:\n" + "\n".join(lines)

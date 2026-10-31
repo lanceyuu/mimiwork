@@ -27,6 +27,7 @@ LAYOUTS = (
     "comparison",
     "quote",
     "image",
+    "photo_split",
     "blank",
 )
 
@@ -185,51 +186,6 @@ def _bullet_marker(para: Any, char: str, face: str, color: int, indent: float) -
         pPr.append(element)
 
 
-def _no_shadow(shape: Any) -> None:
-    """No shadow, no theme fill, no inherited effects — the shape is exactly what we set.
-
-    Two steps, because one isn't enough: an empty `<a:effectLst/>` states "no effects",
-    and dropping the `<p:style>` element removes the reference to the theme's effect
-    style that some renderers apply anyway. Without the second step the panels keep a
-    faint drop shadow that says "Office autoshape" more loudly than anything else here.
-    """
-    from pptx.oxml.ns import qn
-
-    spPr = shape._element.spPr
-    spPr.append(spPr.makeelement(qn("a:effectLst"), {}))
-    style = shape._element.find(qn("p:style"))
-    if style is not None:
-        shape._element.remove(style)
-
-
-def _rule(slide: Any, x: float, y: float, w: float, color: int, height: float = 0.045):
-    from pptx.enum.shapes import MSO_SHAPE
-    from pptx.util import Inches
-
-    bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(height))
-    bar.fill.solid()
-    bar.fill.fore_color.rgb = _rgb(color)
-    bar.line.fill.background()
-    _no_shadow(bar)
-    return bar
-
-
-def _panel(slide: Any, x: float, y: float, w: float, h: float, color: int):
-    from pptx.enum.shapes import MSO_SHAPE
-    from pptx.util import Inches
-
-    panel = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(x), Inches(y), Inches(w), Inches(h))
-    panel.fill.solid()
-    panel.fill.fore_color.rgb = _rgb(color)
-    panel.line.fill.background()
-    _no_shadow(panel)
-    try:  # a softer corner than PowerPoint's default 16%
-        panel.adjustments[0] = 0.04
-    except (IndexError, AttributeError):
-        pass
-    return panel
-
-
 def _place_title(
     slide: Any,
     text: str,
@@ -261,7 +217,7 @@ def _place_title(
         frame.word_wrap = True
         frame.clear()
     size = fitted_size(
-        text, w, h, size, min_size=min_size, bold=True, line_spacing=line_spacing or 1.12
+        text, w, h, size, min_size=min_size, bold=False, line_spacing=line_spacing or 1.12
     )
     _write(
         frame,
@@ -269,7 +225,6 @@ def _place_title(
         font=theme.heading,
         size=size,
         color=theme.ink,
-        bold=True,
         first=True,
         line_spacing=line_spacing,
     )
@@ -286,13 +241,12 @@ def _slide_title(slide: Any, text: str, theme: Theme) -> None:
         h=0.9,
         size=theme.size_slide_title,
     )
-    _rule(slide, theme.margin_x, theme.title_top + 0.95, 1.15, theme.accent)
 
 
 def _footer(slide: Any, theme: Theme, number: int) -> None:
     from pptx.enum.text import PP_ALIGN
 
-    frame = _box(slide, 13.333 - theme.margin_x - 1.2, 6.95, 1.2, 0.3)
+    frame = _box(slide, theme.canvas_width - theme.margin_x - 1.2, 6.95, 1.2, 0.3)
     # Named so `read_presentation` can skip it: a page number is chrome, and returning it
     # as a bullet would feed it back into the next revision as content.
     frame._parent.name = FOOTER_SHAPE_NAME
@@ -306,7 +260,6 @@ def _footer(slide: Any, theme: Theme, number: int) -> None:
 
 
 def _paint_title(slide: Any, entry: dict, theme: Theme) -> None:
-    _rule(slide, theme.margin_x, 2.35, 1.6, theme.accent, height=0.06)
     _place_title(
         slide,
         str(entry.get("title") or ""),
@@ -325,8 +278,7 @@ def _paint_title(slide: Any, entry: dict, theme: Theme) -> None:
         _write(sub, subtitle, font=theme.body, size=fitted_size(subtitle, theme.content_width - 1.2, 0.9, theme.size_body, min_size=13), color=theme.muted, first=True)
 
 
-def _paint_section(slide: Any, entry: dict, theme: Theme, number: int) -> None:
-    _panel(slide, 0, 2.55, 0.28, 1.9, theme.accent)
+def _paint_section(slide: Any, entry: dict, theme: Theme) -> None:
     _place_title(
         slide,
         str(entry.get("title") or ""),
@@ -393,7 +345,6 @@ def _paint_bullets(slide: Any, entry: dict, theme: Theme, bullets: list, warning
 
 
 def _paint_statement(slide: Any, entry: dict, theme: Theme) -> None:
-    _rule(slide, theme.margin_x, 2.05, 1.6, theme.accent, height=0.06)
     _place_title(
         slide,
         str(entry.get("statement") or entry.get("title") or ""),
@@ -419,101 +370,51 @@ def _paint_statement(slide: Any, entry: dict, theme: Theme) -> None:
         )
 
 
-def _paint_stat(slide: Any, entry: dict, theme: Theme, stats: list) -> None:
-    from pptx.enum.text import MSO_ANCHOR
-
-    count = max(1, min(len(stats), 3))
-    gap = 0.45
-    width = (theme.content_width - gap * (count - 1)) / count
-    # The block is ~2.9in tall; centre it in the content region so the slide doesn't
-    # read as top-heavy with a pool of white underneath.
-    top = theme.content_top + max(0.0, ((theme.content_bottom - theme.content_top) - 2.9) / 2)
-    for i, item in enumerate(stats[:count]):
-        x = theme.margin_x + i * (width + gap)
-        value = _box(slide, x, top, width, 1.3)
-        value.vertical_anchor = MSO_ANCHOR.BOTTOM
-        value_text = str(item.get("value") or "")
-        # One line, always: a wrapped "-23pts" is worse than a smaller one.
-        value_size = theme.size_stat
-        while value_size > 32 and len(value_text) * _CHAR_FACTOR_BOLD * value_size / 72.0 > width:
-            value_size -= 2
-        _write(
-            value,
-            value_text,
-            # Deliberately the BODY face, not the heading one: Georgia sets old-style
-            # figures, so at 66pt "0pts" reads as the word "opts" and "-23pts" wobbles.
-            # A stat slide exists to make one number unmistakable.
-            font=theme.body,
-            size=value_size,
-            color=theme.accent,
-            bold=True,
-            first=True,
-        )
-        _rule(slide, x, top + 1.45, min(width, 1.0), theme.rule, height=0.02)
-        label = _box(slide, x, top + 1.62, width, 1.3)
-        _write(
-            label,
-            str(item.get("label") or ""),
-            font=theme.body,
-            size=theme.size_stat_label,
-            color=theme.muted,
-            first=True,
-            line_spacing=1.3,
-        )
+def _paint_stat(slide: Any, theme: Theme, stats: list, warnings: list) -> None:
+    # Keeping the unit beside its label makes the values meaningful in reading order.
+    rows = [
+        " ".join(str(item.get(key) or "").strip() for key in ("value", "label")).strip()
+        for item in stats
+    ]
+    height = theme.content_bottom - theme.content_top
+    size, fits = _fit_bullets([(row, 0) for row in rows], theme.content_width, height, theme.size_body)
+    if not fits:
+        warnings.append("statistic labels exceed the available space. Split this slide.")
+    frame = _box(slide, theme.margin_x, theme.content_top, theme.content_width, height)
+    for i, row in enumerate(rows):
+        _write(frame, row, font=theme.body, size=size, color=theme.ink, first=i == 0, space_after=14)
 
 
-def _paint_columns(
-    slide: Any, entry: dict, theme: Theme, columns: list, warnings: list, *, carded: bool
-) -> None:
+def _paint_columns(slide: Any, theme: Theme, columns: list, warnings: list) -> None:
     gap = 0.5
-    count = max(1, min(len(columns), 2))
-    width = (theme.content_width - gap * (count - 1)) / count
+    width = (theme.content_width - gap) / 2
     top = theme.content_top
-    available = theme.content_bottom - top
-    pad_est = 0.32 if carded else 0.0
-    heads = any(str(c.get("heading") or "") for c in columns[:count])
-    text_room = available - 2 * pad_est - (0.62 if heads else 0)
-    base = theme.size_body + (1 if carded else 0)
-    fit = base
-    for column in columns[:count]:
+    height = theme.content_bottom - top
+    heads = any(str(c.get("heading") or "") for c in columns[:2])
+    fit = theme.size_body
+    for column in columns[:2]:
         pairs = _bullet_pairs(column.get("bullets") or [])
-        size, fits = _fit_bullets(pairs, width - 2 * pad_est, text_room, base)
+        size, fits = _fit_bullets(pairs, width, height - (0.62 if heads else 0), theme.size_body)
         fit = min(fit, size)
         if not fits:
-            warnings.append(
-                f"column '{column.get('heading') or '?'}' overflows even at minimum "
-                "size — fewer or shorter bullets, or split the slide."
-            )
-    height = available
-    if carded:
-        # Size the cards to what's in them. A card that always runs to the bottom of the
-        # slide leaves a pool of empty tint under three bullets and reads as unfinished.
-        tallest = max(
-            _bullets_height(_bullet_pairs(c.get("bullets") or []), width - 2 * pad_est, fit)
-            for c in columns[:count]
-        )
-        height = min(available, 2 * pad_est + (0.62 if heads else 0) + tallest + 0.1)
-        top += max(0.0, (available - height) / 2)
-    for i, column in enumerate(columns[:count]):
+            warnings.append(f"column '{column.get('heading') or '?'}' overflows. Split this slide.")
+    for i, column in enumerate(columns[:2]):
         x = theme.margin_x + i * (width + gap)
-        pad = 0.32 if carded else 0.0
-        if carded:
-            _panel(slide, x, top, width, height, theme.accent_soft if i == 0 else 0xF3F4F6)
         heading = str(column.get("heading") or "")
-        y = top + pad
+        y = top
         if heading:
-            head = _box(slide, x + pad, y, width - 2 * pad, 0.5)
+            head = _box(slide, x, y, width, 0.5)
             _write(
                 head,
                 heading,
-                font=theme.heading,
+                font=theme.body,
                 size=theme.size_body + 2,
-                color=theme.accent if not carded else theme.ink,
+                color=theme.accent,
                 bold=True,
                 first=True,
             )
             y += 0.62
-        frame = _box(slide, x + pad, y, width - 2 * pad, height - (y - top) - pad)
+        frame = _box(slide, x, y, width, height - (y - top))
         for j, (text, level) in enumerate(_bullet_pairs(column.get("bullets") or [])):
             para = _write(
                 frame,
@@ -533,10 +434,7 @@ def _paint_quote(slide: Any, entry: dict, theme: Theme) -> None:
     words = str(entry.get("quote") or entry.get("title") or "")
     width = theme.content_width - 1.2
     size = fitted_size(words, width, 3.4, theme.size_quote, min_size=18, line_spacing=1.3)
-    # The accent bar marks the quote, so it should be as tall as the quote is — a fixed
-    # bar looms over a one-line quote and gets swamped by a four-line one.
     height = min(3.6, 0.15 + block_height(words, width, size, line_spacing=1.3))
-    _panel(slide, theme.margin_x, 2.15, 0.09, height, theme.accent)
     frame = _box(slide, theme.margin_x + 0.45, 2.15, theme.content_width - 1.2, height + 0.1)
     _write(
         frame,
@@ -552,6 +450,35 @@ def _paint_quote(slide: Any, entry: dict, theme: Theme) -> None:
     if who:
         sub = _box(slide, theme.margin_x + 0.45, 2.15 + height + 0.25, theme.content_width - 1.2, 0.6)
         _write(sub, "— " + who, font=theme.body, size=theme.size_caption + 1, color=theme.muted, first=True)
+
+
+def _paint_photo_split(slide: Any, entry: dict, theme: Theme, picture_path: str, height: int) -> None:
+    from pptx.util import Inches
+
+    # Crop the photo to fill the right half. PowerPoint retains the full source image.
+    left = Inches(theme.canvas_width / 2)
+    picture = slide.shapes.add_picture(picture_path, left, 0)
+    source_ratio = picture.width / picture.height
+    frame_ratio = left / height
+    focus = float(entry.get("photo_focus", 0.5))
+    if not 0 <= focus <= 1:
+        raise ValueError("photo_focus must be between 0 and 1")
+    if source_ratio > frame_ratio:
+        excess = 1 - frame_ratio / source_ratio
+        picture.crop_left, picture.crop_right = excess * focus, excess * (1 - focus)
+    else:
+        excess = 1 - source_ratio / frame_ratio
+        picture.crop_top, picture.crop_bottom = excess * focus, excess * (1 - focus)
+    picture.width, picture.height = left, height
+
+    width = theme.canvas_width / 2 - 2 * theme.margin_x
+    _place_title(slide, str(entry.get("title") or ""), theme, x=theme.margin_x, y=1.65,
+                 w=width, h=2.05, size=theme.size_deck_title)
+    support = str(entry.get("subtitle") or "")
+    if support:
+        frame = _box(slide, theme.margin_x, 3.95, width, 1.75)
+        size = fitted_size(support, width, 1.75, theme.size_body, min_size=13)
+        _write(frame, support, font=theme.body, size=size, color=theme.muted, first=True)
 
 
 def _paint_image(slide: Any, entry: dict, theme: Theme, picture_path: str) -> None:
@@ -609,7 +536,7 @@ def paint(
     # 'statement' puts its claim in the title placeholder, so it counts as titled even
     # when the words arrived in `statement` rather than `title`.
     titled = kind != "blank" and bool(title or (kind == "statement" and entry.get("statement")))
-    chrome = kind not in ("title", "blank", "section")
+    chrome = kind not in ("title", "blank", "section", "photo_split")
     slide = (
         deck.slides.add_slide(_pick_layout(deck, "Title Only", "Title and Content"))
         if titled
@@ -622,7 +549,7 @@ def paint(
     if kind == "title":
         _paint_title(slide, entry, theme)
     elif kind == "section":
-        _paint_section(slide, entry, theme, number)
+        _paint_section(slide, entry, theme)
     elif kind == "bullets":
         _paint_bullets(slide, entry, theme, _bullet_pairs(entry.get("bullets")), warnings)
     elif kind == "statement":
@@ -631,21 +558,25 @@ def paint(
         stats = [s for s in (entry.get("stats") or []) if isinstance(s, dict)]
         if not stats:
             raise ValueError("a 'stat' slide needs stats: [{value, label}, …]")
-        _paint_stat(slide, entry, theme, stats)
+        _paint_stat(slide, theme, stats, warnings)
     elif kind in ("two_column", "comparison"):
         columns = [c for c in (entry.get("columns") or []) if isinstance(c, dict)]
         if len(columns) < 2:
             raise ValueError(
                 f"a '{kind}' slide needs columns: [{{heading, bullets}}, {{heading, bullets}}]"
             )
-        _paint_columns(slide, entry, theme, columns, warnings, carded=(kind == "comparison"))
+        _paint_columns(slide, theme, columns, warnings)
     elif kind == "quote":
         _paint_quote(slide, entry, theme)
-    elif kind == "image":
+    elif kind in ("image", "photo_split"):
         image = str(entry.get("image") or "")
         if not image:
-            raise ValueError("an 'image' slide needs image: <path to a png/jpg>")
-        _paint_image(slide, entry, theme, resolve_image(image))
+            raise ValueError(f"a '{kind}' slide needs image: <path to a png/jpg>")
+        path = resolve_image(image)
+        if kind == "photo_split":
+            _paint_photo_split(slide, entry, theme, path, deck.slide_height)
+        else:
+            _paint_image(slide, entry, theme, path)
 
     if chrome:
         _footer(slide, theme, number)

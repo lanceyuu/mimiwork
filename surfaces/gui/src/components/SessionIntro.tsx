@@ -24,7 +24,7 @@ const DELIVERABLES = [
   {
     id: "slides", title: "Turn notes into slides", format: "PowerPoint",
     description: "Build an editable presentation with a clear story",
-    prompt: "Turn the notes or document I provide into an editable PowerPoint presentation (.pptx). Ask me to attach the source material if it is not available yet, and ask who the audience is and how long the presentation should be. Use a clear narrative, concise slides, and speaker notes. Preserve source facts and do not invent figures or citations. Save the deck in this task's folder, check for overflowing text and missing content, and link the finished file with a summary of what you checked.",
+    prompt: "Turn the notes or document I provide into an editable PowerPoint presentation (.pptx). Read the source first, or ask me to attach it if it is missing. Ask for any missing details about the audience, the intended outcome, the time available, and any required evidence or visual style before drafting. Use a clear narrative, concise slides, and speaker notes. Preserve source facts and do not invent figures or citations. Save the deck in this task's folder, check for overflowing text and missing content, and link the finished file with a summary of what you checked.",
   },
 ];
 

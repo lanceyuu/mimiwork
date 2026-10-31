@@ -6,10 +6,7 @@ bullets — ``statement``, ``stat``, ``quote``, ``two_column``, ``comparison`` �
 deck made only of bullet lists is a deck nobody wants to sit through, and a tool that can
 only emit bullet lists guarantees one.
 
-The look lives in ``deck_theme`` / ``deck_render``: 16:9, a real type scale, and fonts that
-are installed on the recipient's machine. Until 2026-08-25 this wrote python-pptx's stock
-4:3 template in Calibri and the Office 2007 palette — the reason decks came out looking a
-decade old whatever the content said. A user-supplied ``template`` still wins outright.
+New decks use the QualiTaTi editorial theme. Existing decks and templates carry their own theme.
 
 Speaker notes are a first-class field, not an afterthought. A deck handed over without notes
 is not a finished deliverable — the person presenting it has to reconstruct the argument from
@@ -21,6 +18,7 @@ revised rather than regenerated from scratch.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from ... import deliverable_check
@@ -35,23 +33,19 @@ _SLIDE_SHAPE = {
             "type": "string",
             "enum": list(deck_render.LAYOUTS),
             "description": (
-                "Slide kind. 'title' (deck opener) · 'section' (divider) · 'bullets' "
-                "(title + up to ~6 bullets) · 'statement' (ONE claim, large, no bullets — "
-                "use for the argument's turning points) · 'stat' (1-3 big numbers with "
-                "labels) · 'two_column' (two side-by-side lists) · 'comparison' (two "
-                "tinted cards, e.g. before/after) · 'quote' (someone's own words) · "
-                "'image' (a chart or picture, full width) · 'blank'. Vary them: a deck of "
-                "nothing but 'bullets' is the one thing every audience dreads."
+                "Use title or section for an opening, statement for a claim, stat for values "
+                "with their labels, two_column or comparison for alternatives, quote for a "
+                "speaker's words, image for a complete figure, photo_split for a cropped "
+                "photograph beside a title and subtitle, bullets for a list, or blank."
             ),
         },
         "title": {
             "type": "string",
             "description": (
-                "Slide title. Make it the TAKEAWAY, not the topic: 'Churn is concentrated "
-                "in month two', not 'Churn analysis'."
+                "State the idea in the title, e.g. 'Churn is concentrated in month two'."
             ),
         },
-        "subtitle": {"type": "string", "description": "Supporting line (title/section/statement)."},
+        "subtitle": {"type": "string", "description": "Supporting line for title, section, statement or photo_split."},
         "bullets": {
             "type": "array",
             "description": "Body bullets. Use {'text': ..., 'level': 1} for sub-bullets.",
@@ -90,7 +84,11 @@ _SLIDE_SHAPE = {
         "attribution": {"type": "string", "description": "For 'quote': who said it."},
         "image": {
             "type": "string",
-            "description": "Path to a PNG/JPG to place on the slide (image layout).",
+            "description": "PNG/JPG in a granted folder for image or photo_split.",
+        },
+        "photo_focus": {
+            "type": "number", "minimum": 0, "maximum": 1,
+            "description": "For photo_split, place the crop toward the start (0), center (0.5) or end (1) of the cropped axis.",
         },
         "caption": {
             "type": "string",
@@ -108,15 +106,11 @@ _WRITE_SCHEMA = {
     "function": {
         "name": "write_presentation",
         "description": (
-            "Create or overwrite a PowerPoint (.pptx) deck from structured slides. Text is "
-            "auto-fitted to its frame; if the result carries layout_warnings, those slides "
-            "hold more than fits — rewrite or split them and call again. Produces a "
-            "designed 16:9 deck — vary the slide layouts (statement / stat / quote / "
-            "two_column / comparison / image), do not make every slide a bullet list, and "
-            "write titles that state the takeaway rather than name the topic. Always include "
-            "speaker notes — a deck without notes is not a finished deliverable. Use this for "
-            "any slide deliverable; do NOT write a script to do it. Pass append=true to add "
-            "slides to an existing deck."
+            "Write an editable PowerPoint (.pptx) from structured slides. A new deck uses "
+            "the QualiTaTi theme. Use the audience, purpose and constraints from the brief "
+            "to choose the sequence and layouts. Include useful speaker notes. Resolve "
+            "layout_warnings by reflowing or splitting slides. Pass a supplied template to "
+            "inherit its theme or append=true to add slides to an existing deck."
         ),
         "parameters": {
             "type": "object",
@@ -130,6 +124,18 @@ _WRITE_SCHEMA = {
                 "append": {
                     "type": "boolean",
                     "description": "Append to an existing deck (default false = overwrite).",
+                },
+                "style": {
+                    "type": "object",
+                    "description": "Explicit typefaces or palette for a new deck. A template or existing deck takes precedence.",
+                    "properties": {
+                        "heading": {"type": "string", "description": "Title font family."},
+                        "body": {"type": "string", "description": "Body font family."},
+                        "ink": {"type": "string", "description": "Text colour, e.g. #111C1B."},
+                        "bg": {"type": "string", "description": "Paper colour, e.g. #FAFAF7."},
+                        "accent": {"type": "string", "description": "Accent colour, e.g. #0B7C72."},
+                    },
+                    "additionalProperties": False,
                 },
                 "template": {
                     "type": "string",
@@ -181,7 +187,8 @@ def pptx_tools(context: Any) -> list:
 
     @guard
     def write_presentation(
-        path: str, slides: list, append: bool = False, template: str = ""
+        path: str, slides: list, append: bool = False, template: str = "",
+        style: dict | None = None,
     ) -> dict[str, Any]:
         pptx = require("pptx", "python-pptx")
 
@@ -189,20 +196,21 @@ def pptx_tools(context: Any) -> list:
         if not isinstance(slides, list):
             raise ValueError("'slides' must be a list of slide objects")
 
-        if append and target.is_file():
+        extending = append and target.is_file()
+        if extending:
             deck = pptx.Presentation(str(target))
         elif template:
             deck = pptx.Presentation(str(resolve_read(template, roots)))
         else:
             deck = pptx.Presentation()
 
-        # A house template carries the brand; ours only applies when there isn't one.
-        # Appending never restyles what is already there — someone else's deck is not
-        # ours to reflow.
-        theme = deck_theme.read_theme(deck) if template else deck_theme.NEUTRAL_MODERN
-        widened = deck_theme.apply_slide_size(deck)
-        if not template and not append:
-            deck_theme.apply_theme_fonts(deck, theme)
+        if extending or template:
+            theme = deck_theme.read_theme(deck)
+        else:
+            theme = deck_theme.custom_theme(style or {})
+            deck_theme.apply_slide_size(deck)
+            deck_theme.apply_theme(deck, theme)
+        theme = replace(theme, canvas_width=deck.slide_width.inches)
 
         existing = len(deck.slides)
         layout_warnings: list[str] = []
@@ -234,9 +242,11 @@ def pptx_tools(context: Any) -> list:
             "slides_written": len(slides),
             "total_slides": len(list(deck.slides)),
             "appended": bool(append),
-            "widescreen": widened or deck.slide_width == deck_theme.SLIDE_WIDTH_EMU,
+            "widescreen": deck.slide_width * 9 == deck.slide_height * 16,
             "bytes": target.stat().st_size,
         }
+        if not (extending or template or (style and "body" in style)):
+            result["font_note"] = "The PowerPoint deck uses Arial, the portable body-font fallback for DM Sans."
         if layout_warnings:
             # The deck IS saved — text was shrunk to its floor — but these slides hold
             # more than fits. There is no renderer here to screenshot-and-verify with,
