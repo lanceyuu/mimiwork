@@ -1186,6 +1186,14 @@ class TurnEngine:
     async def _astream(self):
         """Bridge the provider's blocking stream generator to the async loop via a
         thread + queue, so text deltas surface live without blocking the event loop."""
+        if self.question_asker is not None and self.registry.get("ask_user"):
+            from .providers.base import StreamChunk
+            from .skills.slide_brief import pending_slide_brief
+
+            brief = pending_slide_brief(self.messages)
+            if brief is not None:
+                yield StreamChunk(turn=AssistantTurn(tool_calls=[brief]))
+                return
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue = asyncio.Queue()
         schemas, tool_catalog = self.registry.model_tools()

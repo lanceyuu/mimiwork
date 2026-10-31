@@ -118,7 +118,9 @@ def skill_catalog_text(
     if any(skill["name"] == "qualitati-style" for skill in catalog):
         lines.append(
             "For slide creation or restyling, load qualitati-style by default. "
-            "An explicitly chosen skill, style or template takes precedence."
+            "An explicitly chosen skill, style or template takes precedence. "
+            "When loading it, quote the supplied brief or delegated choice in slide_brief; "
+            "otherwise use slide_question for a focused question in the user's language."
         )
     return (
         "Available skills — call load_skill(name) to load one's full instructions when "
@@ -138,9 +140,12 @@ def skill_tools(loader: SkillLoader, allowed: AllowedSkills = None) -> list:
     def _allowed_now() -> Optional[set]:
         return allowed() if callable(allowed) else allowed
 
-    def load_skill(name: str) -> dict:
+    def load_skill(name: str, slide_brief: str = "", slide_question: str = "") -> dict:
         """Load a skill's full instructions + resources path by name. Call this when a
-        skill from the catalog is relevant to the current task."""
+        skill from the catalog is relevant to the current task. For qualitati-style, pass
+        slide_brief only to quote a supplied audience and purpose, an explicit delegation,
+        a narrow edit, or a request to inspect the skill itself. Otherwise, use slide_question
+        to ask about missing requirements in the user's language. Omit both for other skills."""
         skill = loader.get(name)
         if skill is None:
             loader.rescan()  # created after this session started? pick it up now

@@ -123,7 +123,7 @@ def slide_photo_tools(context):
             im.verify()
         with path.open("xb") as f:
             f.write(raw)
-        return {**photo, "path": str(path)}
+        return {**photo, "path": str(path), "_images": [str(path)]}
 
     def register(fn, properties, **kwargs):
         schema = {
