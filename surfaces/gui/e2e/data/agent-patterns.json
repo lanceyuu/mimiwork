@@ -1,0 +1,638 @@
+[
+ {
+  "pattern": "sequence",
+  "group": "Flow",
+  "title": "Sequence",
+  "summary": "Pass each result to the next step.",
+  "when": "Consecutive steps depend on each other.",
+  "system": {
+   "title": "Sequence",
+   "description": "Pass each result to the next step.",
+   "pattern": "sequence",
+   "nodes": [
+    {
+     "id": "extract",
+     "kind": "agent",
+     "name": "Extract the request",
+     "instructions": "The input is a guest email to a small hotel's front desk. List exactly what the guest is asking for, one line each.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "policy",
+     "kind": "agent",
+     "name": "Check policy",
+     "instructions": "For each request, say what hotel policy allows. Flag anything you cannot confirm.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    },
+    {
+     "id": "draft",
+     "kind": "agent",
+     "name": "Draft the reply",
+     "instructions": "Write a short, warm reply in the guest's language that answers each request within policy.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 520,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "extract",
+     "to": "policy",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "policy",
+     "to": "draft",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    }
+   ],
+   "entry": "extract"
+  }
+ },
+ {
+  "pattern": "routing",
+  "group": "Flow",
+  "title": "Routing",
+  "summary": "Choose a path for each request.",
+  "when": "Different kinds of request need different handling.",
+  "system": {
+   "title": "Routing",
+   "description": "Choose a path for each request.",
+   "pattern": "routing",
+   "nodes": [
+    {
+     "id": "triage",
+     "kind": "router",
+     "name": "Sort the request",
+     "instructions": "The input is a guest email to a small hotel's front desk. Decide which kind of request it is.",
+     "tools": [],
+     "effort": "low",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "info",
+     "kind": "agent",
+     "name": "Answer a question",
+     "instructions": "Answer the guest's question about the hotel briefly and accurately.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": -140
+     }
+    },
+    {
+     "id": "late",
+     "kind": "agent",
+     "name": "Arrange late arrival",
+     "instructions": "Explain how late check-in works and what the guest needs to do.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    },
+    {
+     "id": "owner",
+     "kind": "agent",
+     "name": "Prepare for the owner",
+     "instructions": "Summarise the exception the guest asks for and what deciding it needs.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 140
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "triage",
+     "to": "info",
+     "label": "question",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "triage",
+     "to": "late",
+     "label": "late arrival",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "triage",
+     "to": "owner",
+     "label": "exception",
+     "kind": "flow",
+     "max_rounds": null
+    }
+   ],
+   "entry": "triage"
+  }
+ },
+ {
+  "pattern": "parallel",
+  "group": "Flow",
+  "title": "Parallel work",
+  "summary": "Split independent tasks, then combine the results.",
+  "when": "Subtasks can be done at the same time.",
+  "system": {
+   "title": "Parallel work",
+   "description": "Split independent tasks, then combine the results.",
+   "pattern": "parallel",
+   "nodes": [
+    {
+     "id": "brief",
+     "kind": "agent",
+     "name": "Read the brief",
+     "instructions": "The input is a guest email to a small hotel's front desk. Restate what a good answer must cover.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "needs",
+     "kind": "agent",
+     "name": "Check needs",
+     "instructions": "List what the guest needs and why.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": -140
+     }
+    },
+    {
+     "id": "rules",
+     "kind": "agent",
+     "name": "Check policy",
+     "instructions": "List the policies that apply and any limits.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    },
+    {
+     "id": "cost",
+     "kind": "agent",
+     "name": "Check cost",
+     "instructions": "Estimate any extra cost to the guest or the hotel.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 140
+     }
+    },
+    {
+     "id": "combine",
+     "kind": "agent",
+     "name": "Combine the findings",
+     "instructions": "Reconcile the three findings, resolve conflicts, and write one reply.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 520,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "brief",
+     "to": "needs",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "brief",
+     "to": "rules",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "brief",
+     "to": "cost",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "needs",
+     "to": "combine",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "rules",
+     "to": "combine",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "cost",
+     "to": "combine",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    }
+   ],
+   "entry": "brief"
+  }
+ },
+ {
+  "pattern": "reflection",
+  "group": "Loops",
+  "title": "Reflection",
+  "summary": "Draft, check against the facts, revise until it passes.",
+  "when": "Quality matters and a checker can say what is wrong.",
+  "system": {
+   "title": "Reflection",
+   "description": "Draft, check against the facts, revise until it passes.",
+   "pattern": "reflection",
+   "nodes": [
+    {
+     "id": "draft",
+     "kind": "agent",
+     "name": "Draft the reply",
+     "instructions": "The input is a guest email to a small hotel's front desk. Write a reply. If you get feedback, revise the draft to address all of it.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "check",
+     "kind": "agent",
+     "name": "Check the draft",
+     "instructions": "Check the draft for wrong facts, missing answers and tone. List what to fix.",
+     "tools": [],
+     "effort": "high",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "draft",
+     "to": "check",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "check",
+     "to": "draft",
+     "label": "revise",
+     "kind": "flow",
+     "max_rounds": 3
+    }
+   ],
+   "entry": "draft"
+  }
+ },
+ {
+  "pattern": "react",
+  "group": "Loops",
+  "title": "ReAct",
+  "summary": "Reason, act, observe the result, repeat.",
+  "when": "The next step depends on what the last action found.",
+  "system": {
+   "title": "ReAct",
+   "description": "Reason, act, observe the result, repeat.",
+   "pattern": "react",
+   "nodes": [
+    {
+     "id": "agent",
+     "kind": "agent",
+     "name": "Front-desk agent",
+     "instructions": "The input is a guest email to a small hotel's front desk. Work step by step: think about what you need, look it up with your tools, read what you found, and repeat until you can answer. Then write the reply.",
+     "tools": [
+      "knowledge_base",
+      "files"
+     ],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [],
+   "entry": "agent"
+  }
+ },
+ {
+  "pattern": "planning",
+  "group": "Loops",
+  "title": "Planning",
+  "summary": "Break a combined request into a plan, then carry it out.",
+  "when": "One request hides several tasks.",
+  "system": {
+   "title": "Planning",
+   "description": "Break a combined request into a plan, then carry it out.",
+   "pattern": "planning",
+   "nodes": [
+    {
+     "id": "planner",
+     "kind": "orchestrator",
+     "name": "Plan and assign",
+     "instructions": "The input is a guest email to a small hotel's front desk. Write a numbered plan of the separate tasks it contains. Give each task to the right helper, check what comes back, revise the plan if needed, then write the final reply.",
+     "tools": [],
+     "effort": "high",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "facts",
+     "kind": "agent",
+     "name": "Look up facts",
+     "instructions": "Answer the factual question you are given from hotel information.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": -70.0
+     }
+    },
+    {
+     "id": "writer",
+     "kind": "agent",
+     "name": "Write a section",
+     "instructions": "Write the reply section you are asked for, in the guest's language.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 70.0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "planner",
+     "to": "facts",
+     "label": "",
+     "kind": "assign",
+     "max_rounds": null
+    },
+    {
+     "from": "planner",
+     "to": "writer",
+     "label": "",
+     "kind": "assign",
+     "max_rounds": null
+    }
+   ],
+   "entry": "planner"
+  }
+ },
+ {
+  "pattern": "tool_use",
+  "group": "Capabilities",
+  "title": "Tool use",
+  "summary": "Retrieve a fact with a tool, then apply it.",
+  "when": "The answer depends on information outside the model.",
+  "system": {
+   "title": "Tool use",
+   "description": "Retrieve a fact with a tool, then apply it.",
+   "pattern": "tool_use",
+   "nodes": [
+    {
+     "id": "lookup",
+     "kind": "agent",
+     "name": "Look it up",
+     "instructions": "The input is a guest email to a small hotel's front desk. Use your tools to find the facts the reply needs. Quote where each came from.",
+     "tools": [
+      "knowledge_base",
+      "files"
+     ],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "reply",
+     "kind": "agent",
+     "name": "Write a grounded reply",
+     "instructions": "Write the reply using only the facts found. Say plainly if one is missing.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "lookup",
+     "to": "reply",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    }
+   ],
+   "entry": "lookup"
+  }
+ },
+ {
+  "pattern": "multi_agent",
+  "group": "Collaboration",
+  "title": "Multi-agent",
+  "summary": "A lead agent assigns work to specialists and integrates their results.",
+  "when": "Different parts need different expertise or models.",
+  "system": {
+   "title": "Multi-agent",
+   "description": "A lead agent assigns work to specialists and integrates their results.",
+   "pattern": "multi_agent",
+   "nodes": [
+    {
+     "id": "lead",
+     "kind": "orchestrator",
+     "name": "Lead agent",
+     "instructions": "The input is a guest email to a small hotel's front desk. Give each part of the work to the specialist best suited to it, compare what they report, and write the final answer.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "booking",
+     "kind": "agent",
+     "name": "Booking specialist",
+     "instructions": "Handle questions about rooms, dates and check-in.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": -140
+     }
+    },
+    {
+     "id": "billing",
+     "kind": "agent",
+     "name": "Billing specialist",
+     "instructions": "Handle questions about prices, refunds and invoices.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    },
+    {
+     "id": "local",
+     "kind": "agent",
+     "name": "Local guide",
+     "instructions": "Handle questions about the area, transport and parking.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 140
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "lead",
+     "to": "booking",
+     "label": "",
+     "kind": "assign",
+     "max_rounds": null
+    },
+    {
+     "from": "lead",
+     "to": "billing",
+     "label": "",
+     "kind": "assign",
+     "max_rounds": null
+    },
+    {
+     "from": "lead",
+     "to": "local",
+     "label": "",
+     "kind": "assign",
+     "max_rounds": null
+    }
+   ],
+   "entry": "lead"
+  }
+ },
+ {
+  "pattern": "human_review",
+  "group": "Collaboration",
+  "title": "Human review",
+  "summary": "A person approves before anything is committed.",
+  "when": "The output makes a commitment, an exception or a consequential judgment.",
+  "system": {
+   "title": "Human review",
+   "description": "A person approves before anything is committed.",
+   "pattern": "human_review",
+   "nodes": [
+    {
+     "id": "draft",
+     "kind": "agent",
+     "name": "Draft the refund reply",
+     "instructions": "The input is a guest email to a small hotel's front desk. Draft a reply proposing a refund amount and terms. Show the evidence. If you get reviewer comments, revise to address them.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 0,
+      "y": 0
+     }
+    },
+    {
+     "id": "review",
+     "kind": "review",
+     "name": "Owner reviews",
+     "instructions": "",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 260,
+      "y": 0
+     }
+    },
+    {
+     "id": "final",
+     "kind": "agent",
+     "name": "Prepare the final reply",
+     "instructions": "Turn the approved draft into the final reply, unchanged in substance.",
+     "tools": [],
+     "effort": "",
+     "position": {
+      "x": 520,
+      "y": 0
+     }
+    }
+   ],
+   "edges": [
+    {
+     "from": "draft",
+     "to": "review",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "review",
+     "to": "final",
+     "label": "",
+     "kind": "flow",
+     "max_rounds": null
+    },
+    {
+     "from": "review",
+     "to": "draft",
+     "label": "revise",
+     "kind": "flow",
+     "max_rounds": 3
+    }
+   ],
+   "entry": "draft"
+  }
+ }
+]

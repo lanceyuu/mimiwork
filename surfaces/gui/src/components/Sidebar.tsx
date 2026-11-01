@@ -3,7 +3,7 @@ import { useT, tutorialUrl } from "../i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { formatSaved, worthShowing, type TimeSaved } from "../timesaved";
 import { QUALITATI_SITE_TITLE, QUALITATI_SITE_URL, QualitatiStatus, type QualitatiSite, qualitatiLogout, qualitatiStatus } from "../api";
-import { APPS_CHANGED, getApps, type MimiApp } from "../api";
+import { AGENT_SYSTEMS_CHANGED, APPS_CHANGED, getAgentSystems, getApps, type AgentSystem, type MimiApp } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import { openExternal } from "../tauri";
 import {
@@ -131,6 +131,10 @@ interface Props {
   onOpenApps: () => void;
   onOpenApp: (id: string) => void;
   appsActive: boolean;
+  // Agents (agent systems): the section and one system's page.
+  onOpenAgents: () => void;
+  onOpenAgentSystem: (id: string) => void;
+  agentsActive: boolean;
   onOpenIntegrations: () => void;
   onOpenAudit: () => void;
   onOpenInbox: () => void;
@@ -209,6 +213,18 @@ export function Sidebar(props: Props) {
     return () => {
       clearInterval(t);
       window.removeEventListener(APPS_CHANGED, load);
+    };
+  }, []);
+  // Agents band: same poll-plus-announce pattern.
+  const [agentSystems, setAgentSystems] = useState<AgentSystem[]>([]);
+  useEffect(() => {
+    const load = () => getAgentSystems().then(setAgentSystems).catch(() => {});
+    load();
+    const t = setInterval(load, 15_000);
+    window.addEventListener(AGENT_SYSTEMS_CHANGED, load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener(AGENT_SYSTEMS_CHANGED, load);
     };
   }, []);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -708,6 +724,38 @@ export function Sidebar(props: Props) {
                 {a.icon}
               </span>
               <div className="text-[13px] text-ink truncate flex-1">{a.title}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+  const agentsBand = () =>
+    agentSystems.length > 0 ? (
+      <div data-testid="agents-band">
+        <div className="px-1.5 text-[10.5px] text-faint font-semibold mb-1 flex items-center">
+          <span className="flex-1">Agents</span>
+          <button
+            className="text-faint hover:text-ink normal-case tracking-normal"
+            aria-label="Design a new agent system"
+            title="Design a new agent system"
+            data-testid="agents-band-new"
+            onClick={props.onOpenAgents}
+          >
+            <Icon name="plus" size={13} />
+          </button>
+        </div>
+        <div className="space-y-0.5">
+          {agentSystems.map((s) => (
+            <button
+              key={s.id}
+              className="w-full flex items-center gap-2 px-1.5 py-1 rounded-lg text-left hover:bg-paper"
+              data-testid={`agent-system-row-${s.id}`}
+              title={s.description || s.title}
+              onClick={() => props.onOpenAgentSystem(s.id)}
+            >
+              <Icon name="branch" size={13} className="w-5 shrink-0 text-faint" />
+              <div className="text-[13px] text-ink truncate flex-1">{s.title}</div>
             </button>
           ))}
         </div>
@@ -1300,6 +1348,17 @@ export function Sidebar(props: Props) {
           <Icon name="sparkle" size={15} className="shrink-0" />
           <span className="flex-1">Apps</span>
         </button>
+        <button
+          className={
+            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-left hover:bg-paper hover:text-ink " +
+            (props.agentsActive ? "text-ink bg-paper" : "text-muted")
+          }
+          data-testid="nav-agents"
+          onClick={props.onOpenAgents}
+        >
+          <Icon name="branch" size={15} className="shrink-0" />
+          <span className="flex-1">Agents</span>
+        </button>
       </div>
 
       {/* Scroll area: Pinned band + the RECENT header (with group/filter control), then the body —
@@ -1315,6 +1374,7 @@ export function Sidebar(props: Props) {
           {pinnedBand()}
           {scheduledBand()}
           {appsBand()}
+          {agentsBand()}
           <div>
             {recentHeader()}
             {layout === "grouped" ? (

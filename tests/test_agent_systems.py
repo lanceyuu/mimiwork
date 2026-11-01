@@ -231,3 +231,18 @@ def test_a_systems_runs_list_newest_first_so_the_canvas_can_find_one_started_fro
         os.utime(path, (1000 + i, 1000 + i))
     assert [r["run_id"] for r in store.list_runs(sid)] == ["run-00000002", "run-00000001"]
     assert store.list_runs("sys-00000000") == [] and store.list_runs("../x") == []
+
+
+def test_export_writes_a_design_file_another_install_can_create_from(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("COWORKER_STATE_DIR", str(tmp_path / "state"))
+    m = SessionManager(data_dir=tmp_path / "data", provider=CapturingProvider())
+    monkeypatch.setattr(m, "_free_download_path", lambda slug, ext: tmp_path / f"{slug}{ext}")
+    sid = m.create_agent_system(_system().public())["system"]["id"]
+    out = m.export_agent_system(sid)
+    data = json.loads(open(out["path"], encoding="utf-8").read())
+    assert out["path"].endswith("desk.mimiagents.json") and "builder_session" not in data
+    again = m.create_agent_system(data)
+    assert again["problems"] == [] and again["system"]["id"] != sid
+    assert m.export_agent_system("sys-00000000")["ok"] is False

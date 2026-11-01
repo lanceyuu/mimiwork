@@ -68,7 +68,10 @@ produce the work, and send, publish or pay only after the user has seen it.
    `update_agent_system` before you go on.
 2. Show the returned Mermaid diagram in a ```mermaid block, then one line: "You can
    drag, add and connect agents under Agents."
-3. Offer one test run on a real example. `run_agent_system` asks the user first. A
+3. Before running a system with coding agents, make sure each coding agent's folder is
+   open in this chat. If it is not, ask for it with `request_directory` (writable).
+   A folder outside this chat makes that agent fail.
+4. Offer one test run on a real example. `run_agent_system` asks the user first. A
    review step asks the user in the chat or Inbox and waits for the answer.
-4. Report the result and, if a step disappointed, propose one concrete change to
+5. Report the result and, if a step disappointed, propose one concrete change to
    that agent's instructions, model or effort.

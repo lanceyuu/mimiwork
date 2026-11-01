@@ -15,6 +15,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@xyflow/react": "^12.12.0",
     "html2canvas": "^1.4.1",
     "mermaid": "^11.17.2",
     "pdfjs-dist": "^4.10.38",

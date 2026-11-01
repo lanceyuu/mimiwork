@@ -79,6 +79,7 @@ import { emptyTimeSaved, type TimeSaved } from "./timesaved";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { ScheduledView } from "./components/ScheduledView";
 import { AppsView } from "./components/AppsView";
+import { AgentsView } from "./components/agents/AgentsView";
 import { RightRail } from "./components/RightRail";
 import { IntegrationsView } from "./components/IntegrationsView";
 import { SettingsView } from "./components/SettingsView";
@@ -181,6 +182,7 @@ type Surface =
   | "session"
   | "scheduled"
   | "apps"
+  | "agents"
   | "integrations"
   | "audit"
   | "inbox"
@@ -289,6 +291,8 @@ export function App() {
   const [scheduledOpenId, setScheduledOpenId] = useState<string | null>(null);
   // Which app the Apps surface opens on (sidebar row click); same lifetime rule as above.
   const [appsOpenId, setAppsOpenId] = useState<string | null>(null);
+  // Which agent system the Agents surface opens on; same lifetime rule as above.
+  const [agentsOpenId, setAgentsOpenId] = useState<string | null>(null);
   const [gateCreate, setGateCreate] = useState(false);
   // Which Settings section the full-page Settings surface opens on (§ Settings-as-page).
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("appearance");
@@ -333,6 +337,7 @@ export function App() {
   useEffect(() => {
     if (surface !== "scheduled") setScheduledOpenId(null);
     if (surface !== "apps") setAppsOpenId(null);
+    if (surface !== "agents") setAgentsOpenId(null);
   }, [surface]);
   // The persona whose detail page is showing (surface === "persona"); empty falls back to the
   // active session's persona. Phase 5 wires the grouped-nav gear + "Manage personas…" entry points.
@@ -1612,6 +1617,12 @@ export function App() {
     if (known) void selectSession(known.session_id, known.workspace || "", known.agent || "cowork");
     else startNewSession("cowork");
   };
+  // Agents: designing a system ("describe what you need") and running one both happen in
+  // a fresh conversation under the mimi-agents skill, which knows the agent-system tools.
+  const buildAgents = (text: string) => {
+    pendingPromptRef.current = { text, skill: "mimi-agents" };
+    startNewSession("cowork");
+  };
   const runTaskNow = async (taskId: string, title?: string) => {
     const r = await runAutomation(taskId);
     if (!r || !r.ok) return;
@@ -1883,6 +1894,12 @@ export function App() {
           setSurface("apps");
         }}
         appsActive={surface === "apps"}
+        onOpenAgents={() => setSurface("agents")}
+        onOpenAgentSystem={(id) => {
+          setAgentsOpenId(id);
+          setSurface("agents");
+        }}
+        agentsActive={surface === "agents"}
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
@@ -1901,6 +1918,7 @@ export function App() {
         session: "",
         scheduled: "Automations",
         apps: "Apps",
+        agents: "Agents",
         integrations: "Connectors",
         audit: "Activity",
         inbox: "Inbox",
@@ -1911,6 +1929,8 @@ export function App() {
       };
       const view = surface === "apps" ? (
         <AppsView onBuild={buildApp} initialOpenId={appsOpenId} />
+      ) : surface === "agents" ? (
+        <AgentsView onBuild={buildAgents} initialOpenId={agentsOpenId} />
       ) : surface === "scheduled" ? (
         <ScheduledView
           onOpenRun={openRunSession}

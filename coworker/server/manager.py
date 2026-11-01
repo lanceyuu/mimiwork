@@ -6210,6 +6210,26 @@ class SessionManager:
     def delete_agent_system(self, system_id: str) -> dict[str, Any]:
         return {"ok": self.agent_system_store.delete(system_id), "id": system_id}
 
+    def export_agent_system(self, system_id: str) -> dict[str, Any]:
+        """The design as one JSON file in ~/Downloads, like an app's export: the desktop
+        window cannot download files itself."""
+        import json as _json
+        import re as _re
+
+        system = self.agent_system_store.get(system_id)
+        if system is None:
+            return {"ok": False, "error": "not found"}
+        data = system.public()
+        for private in ("id", "builder_session", "created_at", "updated_at"):
+            data.pop(private, None)
+        slug = _re.sub(r"[^a-z0-9]+", "-", system.title.lower()).strip("-") or system.id
+        try:
+            path = self._free_download_path(slug, ".mimiagents.json")
+            path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+        except OSError as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
     def list_agent_system_runs(self, system_id: str) -> dict[str, Any]:
         return {"runs": self.agent_system_store.list_runs(system_id)}
 

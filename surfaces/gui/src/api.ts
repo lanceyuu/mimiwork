@@ -3081,3 +3081,169 @@ export async function exportApp(id: string): Promise<{ ok: boolean; path?: strin
   const res = await fetch(`${httpBase()}/v1/apps/${encodeURIComponent(id)}/export`, { method: "POST" });
   return res.json();
 }
+
+// -- agent systems (the Agents section; backend coworker/agent_systems) ---------
+// Called "agent systems" here because "agent" already means a persona in this codebase.
+export type AgentNodeKind = "agent" | "coding" | "router" | "orchestrator" | "review";
+export type AgentEffort = "" | "low" | "medium" | "high";
+
+export interface AgentNode {
+  id: string;
+  kind: AgentNodeKind;
+  name: string;
+  instructions: string;
+  /** "" = the model the chat that runs the system uses. */
+  model: string;
+  effort: AgentEffort;
+  /** Tool catalog ids (see AGENT_TOOLS). */
+  tools: string[];
+  /** Coding nodes: which coding agent does the work. */
+  agent: string;
+  /** Coding nodes: the project folder it works in. */
+  folder: string;
+  position: { x: number; y: number };
+}
+
+export interface AgentEdge {
+  from: string;
+  to: string;
+  /** "flow" = what runs next; "assign" = a lead agent hands work to a worker. */
+  kind: "flow" | "assign";
+  label: string;
+  /** Set on a connection that loops back: how many times it may repeat (1-5). */
+  max_rounds: number | null;
+}
+
+export interface AgentSystem {
+  mimiwork_agent_system?: number;
+  id: string;
+  title: string;
+  description: string;
+  pattern: string;
+  card?: { name: string; description: string; skills: { id: string; name: string }[] };
+  nodes: AgentNode[];
+  edges: AgentEdge[];
+  entry: string;
+  builder_session: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** Why a design cannot run yet. `node` is "" when the problem is the whole graph. */
+export interface AgentSystemProblem {
+  node: string;
+  message: string;
+}
+
+export interface AgentSystemReply {
+  ok: boolean;
+  error?: string;
+  system?: AgentSystem;
+  problems?: AgentSystemProblem[];
+  mermaid?: string;
+}
+
+export interface AgentSystemPattern {
+  pattern: string;
+  group: string;
+  title: string;
+  summary: string;
+  when: string;
+  /** Ready to POST as a new system. */
+  system: Pick<AgentSystem, "title" | "description" | "pattern" | "nodes" | "edges" | "entry">;
+}
+
+export type AgentNodeState = "queued" | "working" | "done" | "failed" | "waiting_for_person" | "skipped";
+
+export interface AgentSystemRun {
+  run_id: string;
+  system_id: string;
+  status: string;
+  node_states: Record<string, AgentNodeState>;
+  outputs?: Record<string, string>;
+  started_at?: number;
+  [key: string]: unknown;
+}
+
+/** The tool catalog ids an agent node can carry, with the names coworker/catalog.py gives them. */
+export const AGENT_TOOLS: { id: string; label: string }[] = [
+  { id: "files", label: "Files" },
+  { id: "search", label: "Search" },
+  { id: "documents", label: "Word documents" },
+  { id: "spreadsheets", label: "Excel workbooks" },
+  { id: "slides", label: "PowerPoint decks" },
+  { id: "pdf", label: "PDF documents" },
+  { id: "images", label: "Images" },
+  { id: "data_inspect", label: "Dataset inspection" },
+  { id: "python_analysis", label: "Python analysis" },
+  { id: "r_analysis", label: "R analysis" },
+  { id: "knowledge_base", label: "Research-methods knowledge base" },
+  { id: "qualitati", label: "QualiTaTi projects" },
+  { id: "todo", label: "Task list" },
+  { id: "code_files", label: "Code files" },
+  { id: "git", label: "Git" },
+  { id: "shell", label: "Shell" },
+];
+
+export const AGENT_SYSTEMS_CHANGED = "coworker:agent-systems-changed";
+export function announceAgentSystemsChanged() {
+  window.dispatchEvent(new CustomEvent(AGENT_SYSTEMS_CHANGED));
+}
+
+const agentSystemUrl = (id: string) => `${httpBase()}/v1/agent-systems/${encodeURIComponent(id)}`;
+
+export async function getAgentSystems(): Promise<AgentSystem[]> {
+  const res = await fetch(`${httpBase()}/v1/agent-systems`);
+  return (await res.json()).systems ?? [];
+}
+
+export async function getAgentSystemPatterns(): Promise<AgentSystemPattern[]> {
+  const res = await fetch(`${httpBase()}/v1/agent-systems/patterns`);
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function createAgentSystem(system: Partial<AgentSystem>): Promise<AgentSystemReply> {
+  const res = await fetch(`${httpBase()}/v1/agent-systems`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(system),
+  });
+  return res.json();
+}
+
+export async function getAgentSystem(id: string): Promise<AgentSystemReply> {
+  return (await fetch(agentSystemUrl(id))).json();
+}
+
+export async function updateAgentSystem(id: string, changes: Partial<AgentSystem>): Promise<AgentSystemReply> {
+  const res = await fetch(agentSystemUrl(id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  return res.json();
+}
+
+export async function deleteAgentSystem(id: string): Promise<{ ok: boolean; id: string }> {
+  return (await fetch(agentSystemUrl(id), { method: "DELETE" })).json();
+}
+
+/** A system's runs, newest first (at most 20), each the full saved run. Runs start from a
+ *  chat, so this is how the Agents page finds the one to show; an older backend without the
+ *  listing answers 404 and the canvas simply shows no run. */
+export async function getAgentSystemRuns(id: string): Promise<AgentSystemRun[]> {
+  const res = await fetch(`${agentSystemUrl(id)}/runs`);
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data?.runs) ? data.runs : [];
+}
+
+/** Ask the sidecar to write system.json into Downloads. null when the backend has no such
+ *  route yet, so the caller can fall back to a browser download. */
+export async function exportAgentSystem(id: string): Promise<{ ok: boolean; path?: string } | null> {
+  const res = await fetch(`${agentSystemUrl(id)}/export`, { method: "POST" });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.ok && data.path ? data : null;
+}

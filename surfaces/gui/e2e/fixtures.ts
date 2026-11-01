@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test as base, expect, type Page } from "@playwright/test";
+
+// The nine starting patterns, exported from the real backend (coworker/agent_systems/patterns.py).
+const AGENT_PATTERNS = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "data", "agent-patterns.json"), "utf8"));
 
 // The app-wide /ws/events socket each page opened (UX-026 toast et al.) — specs
 // push server events through it via sendAppEvent below.
@@ -576,6 +582,19 @@ export async function mockApi(page: import("@playwright/test").Page) {
   const automations: any[] = [{ ...AUTOMATION }, { ...AUTOMATION_CLEAN }];
   // Apps (spec 2026-09-03) — mutable so Add-starter / rename / delete round-trip.
   const apps: any[] = [];
+  // Agent systems (Agents section) — mutable so pattern → edit → save → run round-trips.
+  // A chat message asking Mimi to run one records a run, the way run_agent_system would.
+  const agentSystems: any[] = [];
+  const agentRuns: Record<string, any[]> = {};
+  const agentProblems = (s: any) => {
+    const out: { node: string; message: string }[] = [];
+    if (!s.nodes.length) out.push({ node: "", message: "Add at least one agent." });
+    else if (!s.nodes.some((n: any) => n.id === s.entry)) out.push({ node: "", message: "Choose which agent starts the work." });
+    for (const n of s.nodes)
+      if (!["review", "coding"].includes(n.kind) && !n.instructions) out.push({ node: n.id, message: "Tell this agent what to do." });
+    return out;
+  };
+  const agentReply = (s: any) => ({ ok: true, system: s, problems: agentProblems(s), mermaid: "flowchart LR" });
   const APP_HTML = "<!doctype html><html><head></head><body><h1>Hello</h1><script>Mimi.ask('x')</script></body></html>";
   // MCP servers (empty by default; the granola OAuth quick-add test populates it).
   const mcpServers: any[] = [];
@@ -723,6 +742,12 @@ export async function mockApi(page: import("@playwright/test").Page) {
           input: msg.text,
           ...(msg.skill ? { display: `/${msg.skill}${msg.text ? ` ${msg.text}` : ""}` } : {}),
         });
+        const ran = /run the agent system .*\(id ([^)]+)\)/i.exec(msg.text || "");
+        const sys = ran && agentSystems.find((a) => a.id === ran[1]);
+        if (sys) {
+          const states = Object.fromEntries(sys.nodes.map((n: any, i: number) => [n.id, i === 0 ? "done" : i === 1 ? "working" : "queued"]));
+          (agentRuns[sys.id] ||= []).unshift({ run_id: "run-0000beef", system_id: sys.id, status: "working", node_states: states, outputs: {} });
+        }
         if (/wait silently/i.test(msg.text)) return;
         if (/stalled connected service/i.test(msg.text)) {
           stuck = true;
@@ -1986,6 +2011,35 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const i = subscriptions.findIndex((s) => s.session_id === b.session_id && s.channel === b.channel);
       if (i >= 0) subscriptions.splice(i, 1);
       return json({ ok: true });
+    }
+
+    // agent systems
+    if (p.endsWith("/v1/agent-systems/patterns")) return json(AGENT_PATTERNS);
+    if (p.endsWith("/v1/agent-systems") && m === "GET") return json({ systems: agentSystems });
+    if (p.endsWith("/v1/agent-systems") && m === "POST") {
+      const b = req.postDataJSON();
+      const s = { mimiwork_agent_system: 1, description: "", pattern: "", builder_session: "", ...b,
+        id: `as-${(agentSystems.length + 1).toString(16).padStart(8, "0")}`, created_at: 1, updated_at: 1 };
+      agentSystems.push(s);
+      return json(agentReply(s));
+    }
+    {
+      const am = p.match(/\/v1\/agent-systems\/([^/]+)(\/runs)?$/);
+      if (am) {
+        // Like the backend: an unknown id lists no runs rather than failing.
+        if (am[2]) return json({ runs: agentRuns[am[1]] || [] });
+        const s = agentSystems.find((a) => a.id === am[1]);
+        if (!s) return json({ ok: false, error: "not found" });
+        if (m === "GET") return json(agentReply(s));
+        if (m === "PATCH") {
+          Object.assign(s, req.postDataJSON(), { updated_at: s.updated_at + 1 });
+          return json(agentReply(s));
+        }
+        if (m === "DELETE") {
+          agentSystems.splice(agentSystems.indexOf(s), 1);
+          return json({ ok: true, id: s.id });
+        }
+      }
     }
 
     // apps
