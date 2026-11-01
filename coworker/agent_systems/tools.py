@@ -229,6 +229,10 @@ def _coding_caller(session: str, ws: Path, roots, report):
 
     def call(node: dict[str, Any], prompt: str) -> str:
         key = node["agent"]
+        # The node's role leads: two coding agents handed the same task without one did
+        # the same job twice in the first live run (the builder also reviewed itself).
+        if node["instructions"]:
+            prompt = f"Your role in this team, as {node['name']}: {node['instructions']}\n\n{prompt}"
         problem = delegate.connection_problem(key)
         if problem:
             raise RuntimeError(problem)

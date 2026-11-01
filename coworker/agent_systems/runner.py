@@ -118,6 +118,10 @@ class Runner:
 
     # -- run --------------------------------------------------------------------------
     def run(self, task: str) -> dict[str, Any]:
+        # What each agent last received from upstream. A loop sends back only feedback;
+        # without this, a drafter re-run by its checker loses the facts it was drafting
+        # from and fills the reply with placeholders (live run, 2026-11-01).
+        self._kept: dict[str, list[tuple[str, str]]] = {}
         run: dict[str, Any] = {
             "run_id": f"run-{secrets.token_hex(4)}",
             "system_id": self.system.id,
@@ -185,9 +189,8 @@ class Runner:
     def _input(self, run: dict[str, Any], parts: list[tuple[str, str]]) -> str:
         if len(parts) == 1 and parts[0][0] == "":
             return parts[0][1]
-        body = "\n\n".join(
-            f"From {self.by_id[src]['name']}:\n{text}" if src else text for src, text in parts
-        )
+        # The run's own input is already in the header; only agents' work goes below it.
+        body = "\n\n".join(f"From {self.by_id[src]['name']}:\n{text}" for src, text in parts if src)
         return f"The task:\n{run['input']}\n\nWork handed to you:\n{body}"
 
     def _execute(self, run: dict[str, Any], nid: str, parts: list[tuple[str, str]]) -> tuple[str, list[tuple[str, str]]]:
@@ -195,12 +198,18 @@ class Runner:
         was handed over without the task header: what a checker or reviewer passes on."""
         node = self.by_id[nid]
         kind = node["kind"]
+        looped_in = {e["from"] for e in self.flow if e["to"] == nid and e["max_rounds"]}
+        fresh = [p for p in parts if p[0] not in looped_in]
+        if fresh:
+            self._kept[nid] = fresh
+        else:
+            parts = self._kept.get(nid, []) + parts
         prompt = self._input(run, parts)
-        work = "\n\n".join(text for _, text in parts)
+        work = "\n\n".join(text for src, text in parts if src not in looped_in) if fresh else parts[-1][1]
         if kind == "review":
             return self._review(run, node, work)
         if kind == "coding":
-            reply = self.call_coding(node, prompt)
+            reply = self.call_coding(node, prompt + role_note(self.system, node))
         else:
             workers = [(w, self._worker_fn(run, w)) for w in self.workers.get(nid, [])]
             reply = self.call_agent(node, prompt + role_note(self.system, node), workers)

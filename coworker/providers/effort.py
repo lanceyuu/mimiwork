@@ -31,8 +31,13 @@ def effort_settings(model: str, effort: str) -> dict[str, Any]:
     # call rejects reasoning effort, so a tool-using agent still gets a working turn.
     if prefix == "openai" and bare.startswith(("gpt-5", "o3", "o4")):
         return {"reasoning_effort": effort}
-    # ponytail: Mimi gateway tiers, Gemini and resellers get nothing until a live probe
-    # shows the setting is accepted end to end; add their spelling here when it does.
+    # The QualiTaTi gateway accepted reasoning_effort, with and without tools, on Puppy,
+    # Hound and Wolf (live probe 2026-11-01). Accepted is proven; how much each leg's
+    # model honours it is the gateway's business.
+    if prefix == "qualitati":
+        return {"reasoning_effort": effort}
+    # ponytail: qualitati_cn, Gemini and resellers get nothing until a live probe shows
+    # the setting is accepted; add their spelling here when it does.
     return {}
 
 

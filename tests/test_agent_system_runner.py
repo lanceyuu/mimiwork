@@ -97,6 +97,18 @@ def test_a_reflection_loop_revises_until_the_checker_passes_and_returns_the_draf
     assert run["result"] == "second draft" and run["rounds"] == {"check->draft": 1}
 
 
+def test_an_agent_sent_back_by_a_loop_still_sees_what_it_was_working_from():
+    system = from_dict({"nodes": [
+        {"id": "facts", "instructions": "x"}, {"id": "draft", "instructions": "x"},
+        {"id": "check", "instructions": "x"}],
+        "edges": [{"from": "facts", "to": "draft"}, {"from": "draft", "to": "check"},
+                  {"from": "check", "to": "draft", "max_rounds": 2}]})
+    s = Script({"facts": ["Breakfast 07:00-10:00"], "check": ["REVISE\nToo long.", "PASS"]})
+    s.runner(system).run("Breakfast?")
+    redraft = [p for nid, p in s.calls if nid == "draft"][1]
+    assert "Breakfast 07:00-10:00" in redraft and "Too long." in redraft
+
+
 def test_a_reflection_loop_stops_at_its_round_limit_and_says_so():
     s = Script({"check": ["REVISE\nstill wrong"] * 10})
     run = s.runner(_pattern("reflection")).run("x")
@@ -164,5 +176,7 @@ def test_effort_becomes_each_providers_own_setting_and_nothing_where_unverified(
     assert effort_settings("anthropic:claude-haiku-4-5", "high") == {}
     assert effort_settings("openai:gpt-5.6-sol", "low") == {"reasoning_effort": "low"}
     assert effort_settings("gpt-5.5", "medium") == {"reasoning_effort": "medium"}
-    assert effort_settings("qualitati:mimi-wolf", "high") == {}
+    assert effort_settings("qualitati:mimi-wolf", "high") == {"reasoning_effort": "high"}
+    assert effort_settings("qualitati_cn:mimi-wolf", "high") == {}
+    assert effort_settings("gemini:gemini-3.1-pro", "high") == {}
     assert effort_settings("anthropic:claude-opus-5-5", "") == {}
