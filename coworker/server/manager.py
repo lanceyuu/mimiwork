@@ -305,6 +305,10 @@ class SessionManager:
         from ..apps import AppStore
 
         self.app_store = AppStore(base / "apps", seed_builtin=True)
+        # Agents: user-designed agent systems, one folder each (Agents section).
+        from ..agent_systems import AgentSystemStore
+
+        self.agent_system_store = AgentSystemStore(base / "agent-systems")
         self.scheduler = Scheduler(
             self.task_store, self._run_scheduled_task, extra_tick=self.resume_due_wakes
         )
@@ -6160,6 +6164,52 @@ class SessionManager:
     # -- provider proxy ---------------------------------------------------------
     def provider_complete(self, model, messages, tools=None):
         return self.provider.complete(model=model, messages=messages, tools=tools)
+
+    # -- agent systems (Agents section) ------------------------------------------
+    def _agent_system_reply(self, system) -> dict[str, Any]:
+        from ..agent_systems import to_mermaid, validate
+
+        # A half-drawn design still saves; `problems` says what stops it from running,
+        # each pinned to its node so the canvas can show it in place.
+        return {"ok": True, "system": system.public(), "problems": validate(system),
+                "mermaid": to_mermaid(system)}
+
+    def list_agent_systems(self) -> dict[str, Any]:
+        return {"systems": [s.public() for s in self.agent_system_store.list()]}
+
+    def agent_system_patterns(self) -> list[dict[str, Any]]:
+        from ..agent_systems import patterns
+
+        return patterns()
+
+    def get_agent_system(self, system_id: str) -> dict[str, Any]:
+        system = self.agent_system_store.get(system_id)
+        if system is None:
+            return {"ok": False, "error": "not found"}
+        return self._agent_system_reply(system)
+
+    def create_agent_system(self, body: dict[str, Any]) -> dict[str, Any]:
+        try:
+            system = self.agent_system_store.create(body)
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return self._agent_system_reply(system)
+
+    def update_agent_system(self, system_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        try:
+            system = self.agent_system_store.update(system_id, changes)
+        except KeyError:
+            return {"ok": False, "error": "not found"}
+        except ValueError as e:
+            return {"ok": False, "error": str(e)}
+        return self._agent_system_reply(system)
+
+    def delete_agent_system(self, system_id: str) -> dict[str, Any]:
+        return {"ok": self.agent_system_store.delete(system_id), "id": system_id}
+
+    def get_agent_system_run(self, system_id: str, run_id: str) -> dict[str, Any]:
+        run = self.agent_system_store.get_run(system_id, run_id)
+        return {"ok": True, "run": run} if run else {"ok": False, "error": "not found"}
 
     # -- apps (Mimi-written HTML tools) -------------------------------------------
     def list_apps(self) -> dict[str, Any]:

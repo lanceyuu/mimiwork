@@ -1644,6 +1644,35 @@ def create_app(manager: SessionManager) -> FastAPI:
     def automation_delete(task_id: str) -> dict[str, Any]:
         return manager.delete_automation(task_id)
 
+    # -- agent systems (Agents section) ------------------------------------------
+    @app.get("/v1/agent-systems")
+    def agent_systems_list() -> dict[str, Any]:
+        return manager.list_agent_systems()
+
+    @app.get("/v1/agent-systems/patterns")
+    def agent_systems_patterns() -> list[dict[str, Any]]:
+        return manager.agent_system_patterns()
+
+    @app.post("/v1/agent-systems")
+    def agent_system_create(body: dict) -> dict[str, Any]:
+        return manager.create_agent_system(body or {})
+
+    @app.get("/v1/agent-systems/{system_id}")
+    def agent_system_get(system_id: str) -> dict[str, Any]:
+        return manager.get_agent_system(system_id)
+
+    @app.patch("/v1/agent-systems/{system_id}")
+    def agent_system_update(system_id: str, body: dict) -> dict[str, Any]:
+        return manager.update_agent_system(system_id, body or {})
+
+    @app.delete("/v1/agent-systems/{system_id}")
+    def agent_system_delete(system_id: str) -> dict[str, Any]:
+        return manager.delete_agent_system(system_id)
+
+    @app.get("/v1/agent-systems/{system_id}/runs/{run_id}")
+    def agent_system_run(system_id: str, run_id: str) -> dict[str, Any]:
+        return manager.get_agent_system_run(system_id, run_id)
+
     # -- apps (Mimi-written HTML tools) -------------------------------------------
     @app.get("/v1/apps")
     def apps_list() -> dict[str, Any]:
