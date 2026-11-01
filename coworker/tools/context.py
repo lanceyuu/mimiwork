@@ -2,7 +2,7 @@
 
 from contextvars import ContextVar
 from threading import Event
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 # The model answering the turn ("qualitati_cn:mimi-puppy"): the QualiTaTi data tools talk
 # to that model's site, so a conversation on 质见中国 reads and writes 质见中国 projects.
@@ -16,3 +16,7 @@ tool_progress: ContextVar[Optional[Callable[[str], None]]] = ContextVar("tool_pr
 # Set when the user sends a priority message while a long tool is waiting (wait_for_agents):
 # the tool returns early so the model reads the message, without stopping the work it watches.
 tool_yield: ContextVar[Optional[Event]] = ContextVar("tool_yield", default=None)
+
+# The event loop the turn runs on, for a serial tool that must await something living there
+# (the Inbox approver and question asker of the Agents runner). None outside a serial call.
+tool_loop: ContextVar[Optional[Any]] = ContextVar("tool_loop", default=None)

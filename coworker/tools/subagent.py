@@ -82,6 +82,24 @@ def build_explorer_engine(
     )
 
 
+def run_child(engine: TurnEngine, task: str) -> tuple[str, str]:
+    """Run a child engine for one turn: (its last message, how the turn ended). Called from
+    a tool's worker thread, where no loop is running, so asyncio.run is safe."""
+
+    async def _run() -> tuple[str, str]:
+        report, status = "", "unknown"
+        async for event in engine.run(task):
+            if event.type == EventType.ASSISTANT_MESSAGE and event.data.get("text"):
+                report = event.data["text"]
+            elif event.type == EventType.TURN_END:
+                status = event.data.get("status", "unknown")
+            elif event.type == EventType.ERROR:
+                return report, f"error: {event.data.get('error', '')}"
+        return report, status
+
+    return asyncio.run(_run())
+
+
 def explorer_tools(
     *,
     workspace: str | Path,
@@ -111,19 +129,7 @@ def explorer_tools(
             roots=roots,
         )
 
-        async def _run() -> tuple[str, str]:
-            report, status = "", "unknown"
-            async for event in engine.run(task):
-                if event.type == EventType.ASSISTANT_MESSAGE and event.data.get("text"):
-                    report = event.data["text"]
-                elif event.type == EventType.TURN_END:
-                    status = event.data.get("status", "unknown")
-                elif event.type == EventType.ERROR:
-                    return report, f"error: {event.data.get('error', '')}"
-            return report, status
-
-        # Tools execute in a worker thread (no running loop), so asyncio.run is safe.
-        report, status = asyncio.run(_run())
+        report, status = run_child(engine, task)
         if not report:
             return {"error": f"explorer produced no report (status: {status})"}
         result: dict[str, Any] = {"report": report}

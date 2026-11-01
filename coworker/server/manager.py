@@ -1270,6 +1270,9 @@ class SessionManager:
             # effect at once (owner-hit 2026-07-28 — a running session kept saving).
             memory_saving_enabled=lambda: self.memory_settings.enabled,
             app_store=self.app_store,
+            agent_system_store=self.agent_system_store,
+            child_approver=self.inbox_approver(session_id, agent),
+            child_asker=self.inbox_question_asker(session_id, agent),
             # Callable, not a snapshot: editing your instructions in Settings applies
             # to conversations already open (same reason as the saving switch).
             user_rules=lambda: self.memory_settings.user_rules,

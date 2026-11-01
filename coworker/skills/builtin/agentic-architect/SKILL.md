@@ -38,7 +38,7 @@ Choose the SIMPLEST pattern that fits, name it to the user, and say why:
 | **Planning** | Multi-step deliverables (report → charts → deck) | `todo_write` plan first; then execute steps in order; encode the sequence in the automation's instructions so every run follows it |
 | **Reflection** | Quality matters more than speed (client-facing text, analyses) | Add an explicit self-review step to the instructions: "draft → critique against the checklist below → revise once → deliver". Put the checklist IN the instructions so the critique has teeth |
 | **ReAct** | The environment varies run to run (files change, sources differ) | Instructions framed as observe-then-act: "First inspect what's new in the folder; decide which of the following branches applies; then act." Give the branches explicitly |
-| **Multi-agent** | Distinct specialisms or independent schedules | Several automations, each with ONE role and its own schedule, handing off through files in a shared folder (writer drops `draft.md`, the reviewer automation picks it up). For research-data work, delegate to QualiTaTi's server-side Mimi agent (`qualitati_mimi`) as the specialist |
+| **Multi-agent** | Distinct specialisms, or each part needs its own model | A saved agent system (`create_agent_system`, see the mimi-agents skill): a lead agent with specialist helpers, each on its own model and effort, reusable from chat, the Agents page or an automation. For research-data work, delegate to QualiTaTi's server-side Mimi agent (`qualitati_mimi`) as the specialist |
 
 Then assemble:
 - **Recurring** → `create_scheduled_task` with instructions that carry the pattern
@@ -46,6 +46,8 @@ Then assemble:
 - **Reusable procedure, on-demand** → `save_skill`: name, trigger description, and the
   step-by-step method, so every future session can run it.
 - **Both** is common: a skill holds the method; a scheduled task invokes it.
+- **Several agents with different jobs or models** → `create_agent_system` (mimi-agents
+  skill); a scheduled task can run it with `run_agent_system`.
 
 Rules for instructions you write into automations and skills:
 - Address the future agent directly; include the success metric and the failure to avoid.

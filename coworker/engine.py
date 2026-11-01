@@ -49,7 +49,7 @@ from .risk import SHELL_TOOL, classify, is_consequential
 from .timesaved import TimeSaved, looks_like_question
 from .tools import RecoveryPolicy, ToolRegistry
 from .tools.cancellation import tool_stop
-from .tools.context import tool_model, tool_progress, tool_yield
+from .tools.context import tool_loop, tool_model, tool_progress, tool_yield
 from .tools.registry import FAILED
 
 
@@ -1561,11 +1561,13 @@ class TurnEngine:
             yield_flag = threading.Event()
             token = tool_progress.set(lambda text, q=progress: loop.call_soon_threadsafe(q.put_nowait, text))
             yield_token = tool_yield.set(yield_flag)
+            loop_token = tool_loop.set(loop)
             try:
                 task = asyncio.ensure_future(self._execute_interruptibly(tool_call))
             finally:
                 tool_progress.reset(token)
                 tool_yield.reset(yield_token)
+                tool_loop.reset(loop_token)
             steer = asyncio.ensure_future(self._steer_signal.wait())
             try:
                 while not task.done():

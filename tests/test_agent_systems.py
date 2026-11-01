@@ -6,9 +6,16 @@ design from running, without refusing to save a half-drawn one.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
+import aisuite as ai
 from helpers import CapturingProvider
 
 from coworker.agent_systems import AgentSystemStore, from_dict, patterns, to_mermaid, validate
+from coworker.agent_systems.tools import _agent_caller, agent_system_tools
+from coworker.engine import ApprovalOutcome
+from coworker.providers.base import AssistantTurn, ToolCall
 from coworker.server.manager import SessionManager
 
 
@@ -122,3 +129,92 @@ def test_the_manager_saves_a_half_drawn_design_and_reports_what_blocks_it(tmp_pa
     assert fixed["problems"] == [] and fixed["system"]["title"] == "Draft"
     assert [s["id"] for s in m.list_agent_systems()["systems"]] == [sid]
     assert m.delete_agent_system(sid)["ok"] and m.get_agent_system(sid)["ok"] is False
+
+
+# -- the tools Mimi uses -------------------------------------------------------------
+
+
+class SettingsProvider(CapturingProvider):
+    def __init__(self, turns=()):
+        super().__init__(turns)
+        self.seen: list[tuple[str, dict]] = []
+
+    def complete(self, *, model, messages, tools=None, **settings):
+        self.seen.append((model, settings))
+        return super().complete(model=model, messages=messages, tools=tools, **settings)
+
+
+def _tools(tmp_path, provider, **kw):
+    store = AgentSystemStore(tmp_path / "systems")
+    tools = {t.__name__: t for t in agent_system_tools(
+        store, session_id="s1", workspace=tmp_path, provider=provider, default_model="openai:gpt-5.5", **kw)}
+    return store, tools
+
+
+def test_only_running_a_system_asks_first(tmp_path):
+    _, tools = _tools(tmp_path, CapturingProvider())
+    gated = {n for n, t in tools.items() if t.__aisuite_tool_metadata__.requires_approval}
+    assert gated == {"run_agent_system"}
+    assert set(tools) == {"create_agent_system", "update_agent_system", "list_agent_systems", "run_agent_system"}
+
+
+def test_mimi_saves_a_design_and_gets_back_a_diagram_and_its_problems(tmp_path):
+    store, tools = _tools(tmp_path, CapturingProvider())
+    out = tools["create_agent_system"]({"title": "Desk", "nodes": [{"id": "a"}]})
+    assert out["ok"] and out["mermaid"].startswith("flowchart LR") and out["problems"]
+    assert store.get(out["id"]).builder_session == "s1"
+    refused = tools["run_agent_system"](out["id"], "x")
+    assert refused["error"] == "This system cannot run yet."
+
+
+def test_each_agent_runs_on_its_own_model_and_effort(tmp_path):
+    provider = SettingsProvider([AssistantTurn(text="facts", finish_reason="stop"),
+                                 AssistantTurn(text="the reply", finish_reason="stop")])
+    store, tools = _tools(tmp_path, provider)
+    made = tools["create_agent_system"]({"title": "Two", "nodes": [
+        {"id": "a", "instructions": "Find facts.", "model": "anthropic:claude-opus-5-5", "effort": "high"},
+        {"id": "b", "instructions": "Write.", "effort": "low"},
+    ], "edges": [{"from": "a", "to": "b"}]})
+    out = tools["run_agent_system"]("Two", "Breakfast?")
+    assert out["status"] == "done" and out["result"] == "the reply"
+    assert provider.seen[0] == ("anthropic:claude-opus-5-5", {"output_config": {"effort": "high"}})
+    assert provider.seen[1] == ("openai:gpt-5.5", {"reasoning_effort": "low"})
+    assert store.get_run(made["id"], out["run_id"])["status"] == "done"
+
+
+def test_a_gated_tool_inside_a_subagent_still_asks_the_person(tmp_path, monkeypatch):
+    sent: list[str] = []
+
+    def send_note(text: str) -> str:
+        """Send a note outside the machine.
+
+        Args:
+            text (str): The note.
+        """
+        sent.append(text)
+        return "sent"
+
+    gated = ai.tool(send_note, metadata=ai.ToolMetadata(
+        category="messaging", risk_level="high", capabilities=["send"], requires_approval=True))
+    monkeypatch.setattr("coworker.catalog.expand", lambda ids, ctx: [gated] if ids else [])
+    asked: list[str] = []
+
+    async def approver(request):
+        asked.append(request.tool_name)
+        return ApprovalOutcome.DENY
+
+    # The turn's own loop, running elsewhere, as it does in the app.
+    main = asyncio.new_event_loop()
+    threading.Thread(target=main.run_forever, daemon=True).start()
+    provider = CapturingProvider([
+        AssistantTurn(tool_calls=[ToolCall(id="c1", name="send_note", arguments={"text": "hi"})],
+                      finish_reason="tool_calls"),
+        AssistantTurn(text="could not send", finish_reason="stop"),
+    ])
+    try:
+        call = _agent_caller("Sender", provider, "openai:gpt-5.5", tmp_path, None, approver, main)
+        reply = call({"id": "a", "name": "Sender", "instructions": "Send it.", "tools": ["x"],
+                      "model": "", "effort": ""}, "go", [])
+    finally:
+        main.call_soon_threadsafe(main.stop)
+    assert asked == ["send_note"] and sent == [] and reply == "could not send"

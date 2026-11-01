@@ -123,6 +123,8 @@ _SETTINGS_WHITELIST = {
     "stop_sequences",
     "metadata",
     "thinking",
+    # Thinking effort chosen per agent in the Agents section (providers/effort.py).
+    "output_config",
 }
 
 # Sampling knobs the API rejects alongside extended thinking (temperature must stay 1).

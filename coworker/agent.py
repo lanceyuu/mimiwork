@@ -269,6 +269,11 @@ def build_engine(
     secrets: Optional[SecretStore] = None,
     task_store: Optional[Any] = None,
     app_store: Optional[Any] = None,
+    # Agents section: the saved agent systems, and the Inbox approver / question asker its
+    # subagents and review steps reach the person through (see agent_systems/tools.py).
+    agent_system_store: Optional[Any] = None,
+    child_approver: Optional[Approver] = None,
+    child_asker: Optional[Any] = None,
     wake_store: Optional[Any] = None,
     session_id: Optional[str] = None,
     audit_sink: Optional[Any] = None,
@@ -400,6 +405,23 @@ def build_engine(
         from .apps import app_tools
 
         registry.register_all(app_tools(app_store, session_id=session_id or ""))
+    # Agents: the same surfaces design, save and run multi-agent systems. A run needs a
+    # folder (subagents and coding agents work in it), so no workspace means no tools.
+    if agent_system_store is not None and agent.family == "knowledge" and ws is not None:
+        from .agent_systems.tools import agent_system_tools
+
+        registry.register_all(
+            agent_system_tools(
+                agent_system_store,
+                session_id=session_id or "",
+                workspace=ws,
+                roots=root_list or None,
+                provider=provider,
+                default_model=model,
+                approver=child_approver,
+                asker=child_asker,
+            )
+        )
     # The signed-in QualiTaTi account's own research data (projects, interviews, surveys).
     # Registered only while signed in — an unusable tool in the catalog is a lie to the
     # model — and every one of them is approval-gated: pulling personal research data off

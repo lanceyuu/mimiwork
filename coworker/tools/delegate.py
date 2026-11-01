@@ -1162,6 +1162,9 @@ class Job:
         self.reported = True
         self.stop = threading.Event()
         self.thread: Optional[threading.Thread] = None
+        # Set by an Agents-section coding node: its own model and effort instead of the
+        # global choice on the Coding agents page. Empty values fall back to that choice.
+        self.overrides: dict[str, str] = {}
 
     def launch(self, message: str) -> None:
         self.status, self.last, self.reported = "running", "Starting…", False
@@ -1173,7 +1176,7 @@ class Job:
         def work() -> None:
             # Read at every round, so a model changed on the Coding agents page applies to
             # the next round without restarting anything.
-            chosen = run_settings(self.key)
+            chosen = {**run_settings(self.key), **{k: v for k, v in self.overrides.items() if v}}
             result = run_agent(
                 self.key, self.executable, message, self.workdir,
                 report=note, stop=self.stop, resume_id=self.resume_id, **chosen,
