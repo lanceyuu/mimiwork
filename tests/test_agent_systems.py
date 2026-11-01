@@ -218,3 +218,16 @@ def test_a_gated_tool_inside_a_subagent_still_asks_the_person(tmp_path, monkeypa
     finally:
         main.call_soon_threadsafe(main.stop)
     assert asked == ["send_note"] and sent == [] and reply == "could not send"
+
+
+def test_a_systems_runs_list_newest_first_so_the_canvas_can_find_one_started_from_chat(tmp_path):
+    import os
+
+    store = AgentSystemStore(tmp_path)
+    sid = store.create(_system().public()).id
+    for i, rid in enumerate(("run-00000001", "run-00000002")):
+        store.save_run({"run_id": rid, "system_id": sid, "status": "done"})
+        path = tmp_path / sid / "runs" / f"{rid}.json"
+        os.utime(path, (1000 + i, 1000 + i))
+    assert [r["run_id"] for r in store.list_runs(sid)] == ["run-00000002", "run-00000001"]
+    assert store.list_runs("sys-00000000") == [] and store.list_runs("../x") == []

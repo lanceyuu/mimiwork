@@ -1669,6 +1669,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     def agent_system_delete(system_id: str) -> dict[str, Any]:
         return manager.delete_agent_system(system_id)
 
+    @app.get("/v1/agent-systems/{system_id}/runs")
+    def agent_system_runs(system_id: str) -> dict[str, Any]:
+        return manager.list_agent_system_runs(system_id)
+
     @app.get("/v1/agent-systems/{system_id}/runs/{run_id}")
     def agent_system_run(system_id: str, run_id: str) -> dict[str, Any]:
         return manager.get_agent_system_run(system_id, run_id)

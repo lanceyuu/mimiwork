@@ -6210,6 +6210,9 @@ class SessionManager:
     def delete_agent_system(self, system_id: str) -> dict[str, Any]:
         return {"ok": self.agent_system_store.delete(system_id), "id": system_id}
 
+    def list_agent_system_runs(self, system_id: str) -> dict[str, Any]:
+        return {"runs": self.agent_system_store.list_runs(system_id)}
+
     def get_agent_system_run(self, system_id: str, run_id: str) -> dict[str, Any]:
         run = self.agent_system_store.get_run(system_id, run_id)
         return {"ok": True, "run": run} if run else {"ok": False, "error": "not found"}

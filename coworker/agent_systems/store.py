@@ -116,6 +116,21 @@ class AgentSystemStore:
         except (OSError, ValueError, KeyError):
             return None
 
+    def list_runs(self, system_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """This system's runs, newest first. Runs start from chat, so this is how the
+        Agents page finds the one to highlight on the canvas."""
+        try:
+            files = list((self._dir(system_id) / "runs").glob("run-*.json"))
+        except KeyError:
+            return []
+        runs = []
+        for f in sorted(files, key=lambda f: f.stat().st_mtime, reverse=True)[:limit]:
+            try:
+                runs.append(json.loads(f.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        return runs
+
     def find_run(self, run_id: str) -> Optional[dict[str, Any]]:
         for s in self.list():
             run = self.get_run(s.id, run_id)
