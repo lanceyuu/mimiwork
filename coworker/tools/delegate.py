@@ -107,9 +107,12 @@ def agent_command(
     if key == "claude_code":
         # Auto mode (owner's choice, 2026-10-15): Claude Code's own classifier approves safe
         # edits and commands, so a headless run can test its work instead of having every
-        # command denied for want of someone to ask.
+        # command denied for want of someone to ask. Haiku has no auto mode: Claude Code 2.1.270
+        # quietly starts it in default mode, which refuses every write headless (2026-11-01).
+        # acceptEdits lets it edit inside its folder; commands it cannot approve are refused.
+        mode = "acceptEdits" if "haiku" in model.lower() else "auto"
         return [
-            executable, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+            executable, "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", mode,
             *(["--model", model] if model else []),
             *(["--effort", effort] if effort else []),
             *(["--settings", _NO_HOOKS] if skip_hooks else []),
@@ -690,6 +693,7 @@ class _Run:
         self.finished = False
         self.session_id = ""  # what a follow-up resumes
         self.model = ""  # the model an alias resolved to, when the CLI says
+        self.denied: list[str] = []  # tools the agent was refused for want of someone to ask
 
     def claude(self, event: dict) -> list[str]:
         kind = event.get("type")
@@ -713,6 +717,7 @@ class _Run:
                 self.error = text or "Claude Code stopped with an error"
             else:
                 self.summary = text
+            self.denied = [str(d.get("tool_name") or "a tool") for d in event.get("permission_denials") or []]
         return []
 
     def codex(self, event: dict) -> list[str]:
@@ -869,6 +874,9 @@ def _kill(proc: subprocess.Popen) -> None:
         pass
 
 
+_EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
 def run_agent(
     key: str,
     executable: str,
@@ -1021,6 +1029,16 @@ def run_agent(
             # Antigravity suite", live run 2026-10-24); an API key still works.
             why = _GEMINI_PERSONAL_RETIRED
         return {**result, "error": f"{label} did not finish: {why}"}
+    refused = sorted(set(run.denied) & _EDIT_TOOLS)
+    if refused and changed == []:
+        # An agent refused its edits still ends "successfully", asking a question nobody here
+        # can answer; reported as completed, it looked like a finished run that did nothing.
+        # A refused command alone is not enough: a reviewer denied the tests still answers.
+        tools = ", ".join(refused)
+        return {**result, "error": (
+            f"{label} changed nothing: it was refused permission to use {tools} and stopped to ask. "
+            f"Try another model in {_PAGE}, or a task that needs no such step."
+        )}
     return {**result, "status": "completed"}
 
 

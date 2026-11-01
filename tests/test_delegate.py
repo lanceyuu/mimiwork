@@ -50,6 +50,15 @@ CLAUDE_OK = [
     {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Write", "input": {"file_path": "notes.md"}}]}},
     {"type": "result", "subtype": "success", "is_error": False, "result": "Wrote notes.md."},
 ]
+# Recorded from a real Haiku run on 2026-11-01 (Claude Code 2.1.270), trimmed: refused the
+# write, asked, and still ended as a success.
+CLAUDE_REFUSED = [
+    {"type": "system", "subtype": "init", "session_id": "s3", "permissionMode": "default"},
+    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Write", "input": {"file_path": "hello.txt"}}]}},
+    {"type": "result", "subtype": "success", "is_error": False,
+     "result": "I need your permission to create the file. Would you like me to proceed?",
+     "permission_denials": [{"tool_name": "Write", "tool_use_id": "t1", "tool_input": {}}]},
+]
 
 # Recorded from real runs on 2026-10-18 (opencode 1.19.3), trimmed.
 OPENCODE_OK = [
@@ -137,6 +146,33 @@ def test_claude_code_runs_headless_in_its_auto_permission_mode_and_codex_in_its_
     assert claude[claude.index("--permission-mode") + 1] == "auto"
     codex = delegate.agent_command("codex", "codex")
     assert 'sandbox_mode="workspace-write"' in codex
+
+
+def test_claude_code_on_haiku_runs_in_accept_edits_because_haiku_has_no_auto_mode():
+    for model in ("haiku", "claude-haiku-4-5"):
+        cmd = delegate.agent_command("claude_code", "claude", model=model)
+        assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+    sonnet = delegate.agent_command("claude_code", "claude", model="sonnet")
+    assert sonnet[sonnet.index("--permission-mode") + 1] == "auto"
+
+
+def test_a_claude_code_run_that_was_refused_permission_and_changed_nothing_is_a_failure_not_a_finished_run(tmp_path):
+    result, _ = _run(tmp_path, "claude_code", CLAUDE_REFUSED)
+    assert "status" not in result
+    assert result["error"].startswith("Claude Code changed nothing: it was refused permission to use Write")
+    assert result["summary"].startswith("I need your permission")  # its question is still shown
+
+
+def test_a_claude_code_run_refused_one_step_that_still_changed_files_counts_as_completed(tmp_path):
+    result, _ = _run(tmp_path, "claude_code", CLAUDE_REFUSED, write="hello.txt")
+    assert result["status"] == "completed" and result["changed_files"] == ["hello.txt"]
+
+
+def test_a_claude_code_reviewer_refused_only_a_command_still_completes_with_its_answer(tmp_path):
+    bash_only = [*CLAUDE_REFUSED[:2], {**CLAUDE_REFUSED[2], "result": "PASS",
+                                       "permission_denials": [{"tool_name": "Bash", "tool_use_id": "t2"}]}]
+    result, _ = _run(tmp_path, "claude_code", bash_only)
+    assert result["status"] == "completed" and result["summary"] == "PASS"
 
 
 def test_opencode_runs_unattended_with_json_events_and_without_approving_what_its_settings_ask_about():
