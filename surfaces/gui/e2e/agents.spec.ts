@@ -44,6 +44,21 @@ test("a pattern becomes an editable system that saves, runs in a chat and shows 
   await expect(page.getByTestId("node-inspector")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("agents-canvas-inspector.png") });
 
+  // Each choice has a "?" note; the effort one explains the levels, the toolbar one the steps.
+  await page.getByTestId("help-effort").click();
+  await expect(page.getByRole("note")).toContainText("Low for sorting");
+  await page.screenshot({ path: testInfo.outputPath("agents-help-effort.png") });
+  await page.keyboard.press("Escape");
+  await page.getByTestId("help-guide").click();
+  await expect(page.getByRole("note")).toContainText("How to build a team");
+  await page.screenshot({ path: testInfo.outputPath("agents-help-guide.png") });
+  await page.keyboard.press("Escape");
+  await page.getByTestId("help-kinds").click();
+  await expect(page.getByRole("note")).toContainText("Lead agent.");
+  await page.screenshot({ path: testInfo.outputPath("agents-help-kinds.png") });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("note")).toHaveCount(0);
+
   // The saved design is what the canvas shows (autosave waits for a pause, so poll).
   const stored = () => page.evaluate(async () => (await (await fetch("/v1/agent-systems")).json()).systems[0]);
   await expect

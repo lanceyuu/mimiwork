@@ -7,6 +7,7 @@ import { AGENT_TOOLS, type AgentEdge, type AgentEffort, type AgentNode, type Cod
 import { chooseFolder } from "../../tauri";
 import { Icon } from "../Icon";
 import { CODING_LABELS, KIND_LABELS, modelShort } from "./AgentCanvas";
+import { FieldTip, KIND_HELP } from "./HelpTip";
 
 const EFFORTS: { value: AgentEffort; label: string }[] = [
   { value: "", label: "Default" },
@@ -68,7 +69,9 @@ export function NodeInspector({
   return (
     <aside className="ag-inspector" data-testid="node-inspector" aria-label={`Settings for ${node.name}`}>
       <div className="ag-inspector-head">
-        <span className="ag-inspector-kind">{KIND_LABELS[node.kind]}</span>
+        <span className="ag-inspector-kind" title={KIND_HELP[node.kind]}>
+          {KIND_LABELS[node.kind]}
+        </span>
         <button className="artifact-icon-btn" onClick={onClose} aria-label="Close settings" title="Close">
           <Icon name="x" size={14} />
         </button>
@@ -83,7 +86,9 @@ export function NodeInspector({
       )}
 
       <label className="ag-field">
-        <span>Name</span>
+        <span className="ag-field-head">
+          Name <FieldTip field="name" />
+        </span>
         <input
           className="tmpl-input"
           data-testid="node-name"
@@ -94,7 +99,10 @@ export function NodeInspector({
       </label>
 
       <label className="ag-field">
-        <span>{node.kind === "review" ? "What should the person check?" : "What should it do?"}</span>
+        <span className="ag-field-head">
+          {node.kind === "review" ? "What should the person check?" : "What should it do?"}{" "}
+          <FieldTip field={node.kind === "review" ? "review" : "instructions"} />
+        </span>
         <textarea
           className="tmpl-input tmpl-textarea"
           data-testid="node-instructions"
@@ -116,7 +124,9 @@ export function NodeInspector({
       {thinks && (
         <>
           <label className="ag-field">
-            <span>Model</span>
+            <span className="ag-field-head">
+              Model <FieldTip field="model" />
+            </span>
             <select
               className="tmpl-input tmpl-select"
               data-testid="node-model"
@@ -135,7 +145,9 @@ export function NodeInspector({
           </label>
           <EffortField value={node.effort} onChange={(effort) => onChange({ effort })} />
           <fieldset className="ag-field ag-tools" data-testid="node-tools">
-            <legend>Tools it may use</legend>
+            <legend className="ag-field-head">
+              Tools it may use <FieldTip field="tools" />
+            </legend>
             {AGENT_TOOLS.map((t) => (
               <label key={t.id} className="ag-tool">
                 <input
@@ -157,7 +169,9 @@ export function NodeInspector({
       {coding && (
         <>
           <label className="ag-field">
-            <span>Coding agent</span>
+            <span className="ag-field-head">
+              Coding agent <FieldTip field="coding" />
+            </span>
             <select
               className="tmpl-input tmpl-select"
               data-testid="node-agent"
@@ -174,7 +188,9 @@ export function NodeInspector({
             </select>
           </label>
           <label className="ag-field">
-            <span>Its model</span>
+            <span className="ag-field-head">
+              Its model <FieldTip field="codingModel" />
+            </span>
             <select
               className="tmpl-input tmpl-select"
               data-testid="node-coding-model"
@@ -192,7 +208,9 @@ export function NodeInspector({
           </label>
           <EffortField value={node.effort} onChange={(effort) => onChange({ effort })} />
           <div className="ag-field">
-            <span>Project folder</span>
+            <span className="ag-field-head">
+              Project folder <FieldTip field="folder" />
+            </span>
             <div className="ag-folder">
               <input
                 className="tmpl-input"
@@ -216,7 +234,12 @@ export function NodeInspector({
       )}
 
       <div className="ag-field" data-testid="node-connections">
-        <span>{node.kind === "orchestrator" ? "Assigns work to" : "Sends its work to"}</span>
+        <span className="ag-field-head">
+          {node.kind === "orchestrator" ? "Assigns work to" : node.kind === "router" ? "Choices" : "Sends its work to"}{" "}
+          <FieldTip
+            field={node.kind === "orchestrator" ? "helpers" : node.kind === "router" ? "routerConnections" : "connections"}
+          />
+        </span>
         {out.length === 0 && <div className="dim ag-small">Nothing yet. The last agent's answer is the result.</div>}
         {out.map((e) => (
           <div className="ag-conn" key={e.to} data-testid={`node-conn-${e.to}`}>
@@ -293,7 +316,9 @@ export function NodeInspector({
 function EffortField({ value, onChange }: { value: AgentEffort; onChange: (v: AgentEffort) => void }) {
   return (
     <label className="ag-field">
-      <span>Thinking effort</span>
+      <span className="ag-field-head">
+        Thinking effort <FieldTip field="effort" />
+      </span>
       <select
         className="tmpl-input tmpl-select"
         data-testid="node-effort"

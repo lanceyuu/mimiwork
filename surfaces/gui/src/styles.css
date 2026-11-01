@@ -2219,7 +2219,7 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
 .ag-stage { flex: 1; min-height: 0; display: flex; padding: 12px 16px 16px; }
 
 .ag-canvas { flex: 1; min-width: 0; min-height: 460px; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
-.ag-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.ag-palette { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); }
 .ag-palette-label { font-size: 11.5px; font-weight: 600; color: var(--faint); margin-right: 2px; }
 .ag-palette-btn::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--k); margin-right: 6px; vertical-align: 1px; }
 .ag-palette-hint { margin-left: auto; font-size: 11.5px; color: var(--faint); }
@@ -2298,3 +2298,20 @@ button.credits-name:hover { color: var(--accent); text-decoration: underline; }
   .ag-canvas-body { flex-direction: column; }
   .ag-inspector { width: auto; max-height: 50%; border-left: 0; border-top: 1px solid var(--line); }
 }
+
+/* Agents: "?" notes beside each choice. The note spans its positioned parent (a field head,
+   the toolbar) so it never runs off the narrow settings panel. */
+.ag-field-head { position: relative; display: flex; align-items: center; gap: 5px; }
+.help-tip-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 16px; height: 16px; padding: 0; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--faint); font-size: 10.5px; font-weight: 700; line-height: 1; cursor: pointer; }
+.help-tip-btn:hover, .help-tip-btn.open { color: var(--accent); border-color: var(--accent); }
+.help-tip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.help-tip-pop { position: absolute; top: calc(100% + 6px); left: 0; right: 0; max-width: 460px; z-index: 40; display: block; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12); font-size: 12.5px; font-weight: 400; line-height: 1.45; text-align: left; white-space: normal; text-transform: none; letter-spacing: normal; }
+.help-tip-title { display: block; font-weight: 600; margin-bottom: 4px; }
+.help-tip-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+.help-tip-list li { list-style: inherit; }
+ol.help-tip-list { list-style: decimal; }
+ul.help-tip-list { list-style: disc; }
+.help-tip-foot { display: block; margin-top: 6px; color: var(--muted); }
+.ag-palette .help-tip-pop { left: 8px; right: auto; width: min(460px, calc(100% - 16px)); }
+.ag-palette-hint .help-tip-pop { left: auto; right: 8px; }
+.ag-palette-label, .ag-palette-hint { display: inline-flex; align-items: center; gap: 5px; }

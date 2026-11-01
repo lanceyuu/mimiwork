@@ -35,6 +35,7 @@ import type {
   AgentSystemProblem,
   CodingAgent,
 } from "../../api";
+import { BuildGuideTip, KIND_HELP, KindsTip } from "./HelpTip";
 import { NodeInspector } from "./NodeInspector";
 
 /** What each kind is called in the palette — plain words, no "orchestrator". */
@@ -374,13 +375,23 @@ export function AgentCanvas({
   return (
     <div className="ag-canvas" data-testid="agent-canvas">
       <div className="ag-palette" data-testid="agent-palette">
-        <span className="ag-palette-label">Add</span>
+        <span className="ag-palette-label">
+          Add <KindsTip />
+        </span>
         {KINDS.map((k) => (
-          <button key={k} className={`btn sm ag-palette-btn kind-${k}`} data-testid={`agent-add-${k}`} onClick={() => add(k)}>
+          <button
+            key={k}
+            className={`btn sm ag-palette-btn kind-${k}`}
+            data-testid={`agent-add-${k}`}
+            title={KIND_HELP[k]}
+            onClick={() => add(k)}
+          >
             {KIND_LABELS[k]}
           </button>
         ))}
-        <span className="ag-palette-hint">Drag from a node's right edge to another node to connect them.</span>
+        <span className="ag-palette-hint">
+          Drag from a node's right edge to another node to connect them. <BuildGuideTip />
+        </span>
       </div>
       {whole.length > 0 && (
         <div className="ag-problems" data-testid="agent-problems" role="status">

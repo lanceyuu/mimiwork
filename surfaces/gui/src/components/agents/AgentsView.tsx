@@ -29,6 +29,7 @@ import { Icon } from "../Icon";
 import { InlineNotice } from "../InlineNotice";
 import { PanelHead } from "../IntegrationsView";
 import { AgentCanvas } from "./AgentCanvas";
+import { HelpTip } from "./HelpTip";
 
 const CARD = "rounded-xl2 border border-line bg-panel";
 const GROUPS = ["Flow", "Loops", "Capabilities", "Collaboration"];
@@ -105,7 +106,21 @@ export function AgentsView({ onBuild, initialOpenId }: Props) {
       />
 
       <div className={CARD + " p-4 mb-5"} data-testid="agents-describe">
-        <div className="text-[13px] font-medium mb-1">Describe what you need</div>
+        <div className="text-[13px] font-medium mb-1 ag-field-head">
+          Describe what you need{" "}
+          <HelpTip title="What makes a good description" testId="help-describe">
+            <ul className="help-tip-list">
+              <li>What comes in: an email, a folder of transcripts, a code change.</li>
+              <li>What should come out: a reply, a report, a reviewed branch.</li>
+              <li>What must be checked, and against what: your policies, the facts, the tests.</li>
+              <li>Where you want to decide yourself before anything is sent, paid or merged.</li>
+            </ul>
+            <span className="help-tip-foot">
+              Mimi asks only what is missing, picks a pattern and shows you the team. You can change everything
+              afterwards on this page.
+            </span>
+          </HelpTip>
+        </div>
         <div className="text-[12px] text-faint mb-2">
           Say what comes in, what should come out, what has to be checked, and where a person should decide. Mimi
           asks a few questions, picks a pattern and draws the team below.
@@ -165,7 +180,24 @@ export function AgentsView({ onBuild, initialOpenId }: Props) {
 
       {patterns.length > 0 && (
         <div className="ag-gallery" data-testid="agents-gallery">
-          <div className="sa-sub">Start from a pattern</div>
+          <div className="sa-sub ag-field-head">
+            Start from a pattern{" "}
+            <HelpTip title="Which pattern?" testId="help-patterns">
+              <ul className="help-tip-list">
+                <li>Steps that depend on each other: Sequence.</li>
+                <li>Different kinds of request need different handling: Routing.</li>
+                <li>Parts can be done at the same time: Parallel work.</li>
+                <li>Quality matters and can be checked: Reflection.</li>
+                <li>The next step depends on what was just found: ReAct or Tool use.</li>
+                <li>One request hides several tasks: Planning or Multi-agent.</li>
+                <li>Money, promises or exceptions: add Human review.</li>
+              </ul>
+              <span className="help-tip-foot">
+                Each card is a working example. Add one, then change the agents to fit your work. Not sure? Describe
+                what you need above and Mimi chooses.
+              </span>
+            </HelpTip>
+          </div>
           <div className="dim" style={{ marginBottom: 10, fontSize: 12.5 }}>
             Each one is a working example built on a hotel front desk. Pick one, then change it to fit your work.
           </div>
