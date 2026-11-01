@@ -1,6 +1,8 @@
-Slides start from a short brief and come out in a calmer editorial style, with real photographs you are free to use.
+A new Agents section lets you build your own team of AI agents once and reuse it for work you do again and again.
 
-- **A brief before the first draft**: when you ask for slides, Mimi first asks who the audience is, what they should take away, and the length or design you need. Choose "Use your judgment" to skip it. A complete request, or a change to an existing deck, goes straight to work.
-- **QualiTaTi style by default**: new decks use serif titles, warm paper, and teal accents. A template or style you name still comes first.
-- **Free-to-use photographs**: Mimi searches Wikimedia Commons for high-resolution public-domain photographs, shows you the one it picked, and records the photographer and source in the speaker notes.
-- **Decks tailored to the audience**: titles, examples, and speaker notes follow the brief, and source figures and notes are kept when a deck is revised.
+- **Start from a pattern or describe what you need**: pick one of nine patterns (sequence, routing, parallel work, reflection, ReAct, planning, tool use, multi-agent, human review), each a working example, or tell Mimi the job and it designs the team with you.
+- **See and shape the team**: a diagram you can drag, extend and connect. Each agent gets its own job, model, thinking effort and tools, and a ? beside every choice explains what it does.
+- **Coding agents in the team**: Claude Code, Codex, Cursor, Gemini CLI or opencode can build and review each other's work on one branch of your project.
+- **You stay in charge**: running a team asks you first. A human review step waits for your approval, and anything that leaves your computer waits for you in the Inbox.
+- **Watch it work**: run a team from the Agents page or any chat, and see each agent light up as it works.
+- **Fixed**: Claude Code on Haiku now makes the changes you hand it. Before, it reported success and changed nothing.
