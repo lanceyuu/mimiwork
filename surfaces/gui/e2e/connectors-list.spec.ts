@@ -64,3 +64,12 @@ test("filter narrows both sections", async ({ page }) => {
   await expect(page.getByTestId("connector-telegram")).toBeVisible();
   await expect(page.getByTestId("connector-slack")).toHaveCount(0);
 });
+
+test("connectors can also be reached from Settings", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await page.getByTestId("account-row").click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath("settings-connectors-entry.png") });
+  await page.getByTestId("settings-connectors").click();
+  await expect(page.getByTestId("connector-slack")).toBeVisible();
+});

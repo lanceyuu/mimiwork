@@ -117,9 +117,13 @@ export function SettingsView({
   initialTab,
   onOpenPersona,
   onCreateSkill,
+  onOpenConnectors,
 }: {
   initialTab?: SetTab;
   onOpenPersona?: (id: string) => void;
+  // Connectors keep their own page; this entry is a second door to it, because
+  // people look for them under Settings and the account menu was the only way in.
+  onOpenConnectors?: () => void;
   // Skills doorway (SKILLS-SPEC §5.2): start a new conversation with the description
   // prefilled — the worker builds the skill and proposes it via save_skill.
   onCreateSkill?: (description: string) => void;
@@ -158,6 +162,17 @@ export function SettingsView({
             </button>
           );
         })}
+
+        {onOpenConnectors && (
+          <button
+            className="w-full text-left px-2.5 py-2 rounded-lg text-[13px] flex items-center gap-2 text-muted hover:bg-paper hover:text-ink"
+            onClick={onOpenConnectors}
+            data-testid="settings-connectors"
+          >
+            <Icon name="plug" size={15} /> {tr("Connectors")}
+            <Icon name="chevronRight" size={13} className="ml-auto text-faint" />
+          </button>
+        )}
 
         <button
           className="w-full text-left px-2.5 py-2 rounded-lg text-[13px] flex items-center gap-2 text-faint hover:bg-paper hover:text-muted mt-1"
