@@ -85,6 +85,50 @@ def test_token_storage_roundtrip(tmp_path, monkeypatch):
     assert not mcp_oauth.has_tokens("granola", secrets)
 
 
+def test_a_fresh_launch_refreshes_an_expired_token_instead_of_asking_to_sign_in(
+    tmp_path, monkeypatch
+):
+    import httpx
+
+    _state(tmp_path, monkeypatch)
+    secrets = SecretStore()
+    storage = mcp_oauth.SecretStoreTokenStorage("notion", secrets)
+
+    async def run():
+        await storage.set_tokens(
+            OAuthToken.model_validate(
+                {"access_token": "old", "token_type": "Bearer",
+                 "refresh_token": "rt", "expires_in": 28800}
+            )
+        )
+        await storage.set_client_info(
+            OAuthClientInformationFull.model_validate(
+                {"client_id": "dcr-1",
+                 "redirect_uris": ["http://127.0.0.1:8765/mcp/oauth/callback"]}
+            )
+        )
+        # Eight hours later, in a new process.
+        secrets.put("mcp-oauth:notion", {**secrets.get("mcp-oauth:notion"),
+                                         "expires_at": 1.0})
+        auth = mcp_oauth.build_auth(
+            "notion", "https://mcp.notion.com/mcp", secrets, interactive=False
+        )
+        flow = auth.async_auth_flow(httpx.Request("POST", "https://mcp.notion.com/mcp"))
+        first = await flow.__anext__()
+        retried = await flow.asend(httpx.Response(200, json={
+            "access_token": "new", "token_type": "Bearer",
+            "refresh_token": "rt2", "expires_in": 28800}))
+        return first, retried
+
+    first, retried = asyncio.run(run())
+    assert str(first.url) == "https://mcp.notion.com/token"
+    assert b"grant_type=refresh_token" in first.content
+    assert retried.headers["Authorization"] == "Bearer new"
+    saved = secrets.get("mcp-oauth:notion")
+    assert saved["tokens"]["refresh_token"] == "rt2"  # rotated token is kept
+    assert saved["expires_at"] > 1.0
+
+
 # -- callback plumbing -----------------------------------------------------------
 
 

@@ -22,6 +22,7 @@ import asyncio
 import logging
 import os
 import secrets
+import time
 from typing import Any, Optional
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
@@ -73,7 +74,24 @@ class SecretStoreTokenStorage(TokenStorage):
             return None
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        self._merge({"tokens": tokens.model_dump(mode="json", exclude_none=True)})
+        self._merge(
+            {
+                "tokens": tokens.model_dump(mode="json", exclude_none=True),
+                # expires_in is relative to the moment it was issued, so a later
+                # process can't tell a stale token from a fresh one without this.
+                "expires_at": time.time() + tokens.expires_in
+                if tokens.expires_in is not None
+                else None,
+            }
+        )
+
+    def expires_at(self) -> Optional[float]:
+        data = self._data()
+        tokens = data.get("tokens") or {}
+        if tokens.get("expires_in") is None:
+            return None  # the vendor issued a non-expiring token
+        # Saved before expiry was recorded: assume stale, so refresh runs first.
+        return data.get("expires_at") or 1.0
 
     async def get_client_info(self) -> Optional[OAuthClientInformationFull]:
         raw = self._data().get("client_info")
@@ -215,6 +233,22 @@ async def _wait_for_callback() -> tuple[str, Optional[str]]:
         _expected_state = None  # don't let this flow's state gate the next one
 
 
+class _RestoringProvider(OAuthClientProvider):
+    """Restores the stored token's expiry on load.
+
+    The SDK keeps expiry only in memory, so in a fresh process it trusts a stale
+    access token, gets a 401, and jumps straight to a browser sign-in without
+    trying the refresh token. Notion's token lasts 8 hours and Canva's 4, so every
+    launch after that asked the owner to sign in again (owner-hit 2026-11-03).
+    """
+
+    async def _initialize(self) -> None:
+        await super()._initialize()
+        storage = self.context.storage
+        if self.context.current_tokens and isinstance(storage, SecretStoreTokenStorage):
+            self.context.token_expiry_time = storage.expires_at()
+
+
 def build_auth(
     server_name: str,
     server_url: str,
@@ -238,7 +272,7 @@ def build_auth(
             "token_endpoint_auth_method": "none",
         }
     )
-    return OAuthClientProvider(
+    return _RestoringProvider(
         server_url=server_url,
         client_metadata=metadata,
         storage=SecretStoreTokenStorage(server_name, secrets),
