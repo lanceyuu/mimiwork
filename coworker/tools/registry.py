@@ -138,6 +138,18 @@ class ToolRegistry:
         spec = self._tools.get(name)
         if spec is None:
             raise KeyError(f"Tool not registered: {name}")
+        if arguments and set(arguments) == {"_raw"}:
+            # Providers put arguments that are not valid JSON under `_raw`. Almost always
+            # the reply hit the output limit mid-call (a whole chapter in one
+            # write_document). Called as-is, the model hears "unexpected argument
+            # '_raw'", blames the parameter name and resends the same oversized call:
+            # a user saw six identical failures and no file (escalation #3313).
+            raise ValueError(
+                f"The arguments for {name} were cut off before they were complete, so "
+                "nothing was done. The content is too long for one call. Split it into "
+                "several smaller calls: write the first part, then add the rest piece "
+                "by piece (write_document takes append=true)."
+            )
         try:
             return spec.func(**(arguments or {}))
         except TypeError as exc:

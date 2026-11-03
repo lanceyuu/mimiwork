@@ -376,3 +376,19 @@ def test_tool_arguments_that_are_valid_json_but_not_an_object_get_a_paired_error
     assert events[-1].data["status"] == "completed"
     answer = [m for m in engine.messages if m.get("tool_call_id") == "c0"]
     assert len(answer) == 1 and "JSON object" in answer[0]["content"]
+
+
+def test_cut_off_arguments_tell_the_model_to_split_the_work_not_rename_a_parameter():
+    registry = ToolRegistry()
+
+    def write_document(path: str, blocks: list, append: bool = False) -> str:
+        return path
+
+    registry.register(write_document)
+    import pytest
+
+    with pytest.raises(ValueError) as exc:
+        registry.execute("write_document", {"_raw": '{"path": "V7.docx", "blocks": [{"text": "Intro'})
+    message = str(exc.value)
+    assert "cut off" in message and "append=true" in message
+    assert "_raw" not in message, "naming the field sends the model hunting for a typo"
