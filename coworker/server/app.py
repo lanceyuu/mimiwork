@@ -874,6 +874,15 @@ def create_app(manager: SessionManager) -> FastAPI:
             session_id, str(body.get("path", "")), paragraph, str(body.get("text", "")), str(body.get("author", ""))
         )
 
+    @app.post("/v1/sessions/{session_id}/artifacts/explain")
+    def session_artifact_explain(session_id: str, body: dict) -> dict[str, Any]:
+        """Plain-language notes for a script. A plain `def` on purpose: FastAPI runs it in
+        its thread pool, so the blocking model call never stalls the event loop."""
+        body = body or {}
+        return manager.explain_artifact(
+            session_id, str(body.get("path", "")), cached_only=bool(body.get("cached_only"))
+        )
+
     @app.post("/v1/sessions/{session_id}/artifacts/reveal")
     def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}

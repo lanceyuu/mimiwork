@@ -8,6 +8,7 @@ sessions span folders.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:  # annotation only — the runtime import stays local, as before.
     from ..timesaved import TimeSaved
 
+from .. import code_explain
 from ..agent import build_engine
 from ..agents import get_agent
 from ..agents import list_agents as _list_agents
@@ -2651,6 +2653,66 @@ class SessionManager:
             "content": text[:500000],
             "truncated": len(text) > 500000,
         }
+
+    def explain_artifact(
+        self, session_id: str, path: str, *, cached_only: bool = False
+    ) -> dict[str, Any]:
+        """Plain-language notes for a script in this session's folders (spec 2026-11-06).
+
+        One model call per version of the file per language, only when the researcher asks:
+        opening a file must never spend credits silently. `cached_only` lets the panel show
+        notes it already has without that risk.
+        """
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
+        if _artifact_kind(target) != "code":
+            return {"ok": False, "error": "only scripts can be explained"}
+        try:
+            source = target.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        language = str(self._prefs.get("language") or "en")
+        digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+        cache = state_dir() / "explain" / f"{digest}-{language}.json"
+        try:
+            return {**json.loads(cache.read_text(encoding="utf-8")), "path": path}
+        except (OSError, ValueError):
+            pass
+        if cached_only:
+            return {"ok": False, "cached": False}
+        listing, shown, cut = code_explain.numbered(source)
+        if shown == 0:
+            return {"ok": False, "error": "this script is empty"}  # no call that must fail
+        engine = self.get_engine(session_id)
+        if engine is None:
+            return {"ok": False, "error": "this conversation has no folder"}
+        try:
+            turn = engine.provider.complete(
+                model=engine.model,
+                messages=[
+                    {"role": "system", "content": code_explain.system_prompt(language)},
+                    {"role": "user", "content": f"File: {target.name}\n\n{listing}"},
+                ],
+                temperature=0.2,
+                # Same reasoning as _generate_autotitle: reasoning-routed models spend hidden
+                # tokens first, and a tight cap returns nothing.
+                max_tokens=8000,
+                reasoning_effort="none",
+            )
+        except Exception as exc:  # any provider failure is the same message to the panel
+            logger.warning("explain_artifact: model call failed: %s", exc)
+            return {"ok": False, "error": "the model could not write notes"}
+        steps = code_explain.parse_steps(getattr(turn, "text", "") or "", shown)
+        if steps is None:
+            return {"ok": False, "error": "the model's notes could not be read"}
+        result = {"ok": True, "steps": steps, "lines_explained": shown, "truncated": cut}
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps(result), encoding="utf-8")
+        except OSError:
+            pass  # notes still show; the next open just asks again
+        return {**result, "path": path}
 
     def comment_artifact(
         self, session_id: str, path: str, paragraph: int, text: str, author: str = ""
