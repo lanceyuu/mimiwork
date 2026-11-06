@@ -20,6 +20,7 @@ from ..office._common import decorate
 from ..office.paths import context_roots, display_path
 from ..registry import reports_failures
 from .kernel import DEFAULT_TIMEOUT, MAX_TIMEOUT, PythonKernel
+from .step_log import append_restart, append_step
 
 _RUN_SCHEMA = {
     "type": "function",
@@ -33,7 +34,9 @@ _RUN_SCHEMA = {
             "are installed. A trailing bare expression reports its value, like a notebook cell. Any "
             "matplotlib chart left open is saved to the workspace automatically and its path "
             "returned; you do not need to call savefig. Prefer this over run_shell for data "
-            "work. Requires approval, like any code execution."
+            "work. Requires approval, like any code execution. Each block is also saved, in "
+            "order, to analysis_steps.py in the session folder so the researcher can read "
+            "and re-run the analysis."
         ),
         "parameters": {
             "type": "object",
@@ -143,14 +146,24 @@ def python_tools(context: Any) -> list:
         try:
             raw = handle.kernel().run(code, timeout=float(timeout or DEFAULT_TIMEOUT))
         except (RuntimeError, OSError) as exc:
+            # Nothing ran, so there is nothing to log.
             return {"error": f"the analysis kernel could not start: {exc}"}
-        return _shape_result(raw, roots)
+        result = _shape_result(raw, roots)
+        logged = append_step(Path(workspace), code, failed="error" in result)
+        if logged is not None:
+            # Named in the result so the artifacts list picks it up: in a granted folder only
+            # paths a tool names are listed (manager._touched_paths).
+            result["files"] = [display_path(logged, roots)]
+        if result.get("state_lost"):
+            append_restart(Path(workspace))
+        return result
 
     def reset_python() -> dict[str, Any]:
         try:
             handle.kernel().reset()
         except (RuntimeError, OSError) as exc:
             return {"error": f"the analysis kernel could not restart: {exc}"}
+        append_restart(Path(workspace))
         return {"ok": True, "note": "the Python kernel is empty; reload any data you need"}
 
     run_python.__name__ = "run_python"
