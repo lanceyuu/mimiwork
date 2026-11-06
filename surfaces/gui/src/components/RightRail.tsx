@@ -14,6 +14,7 @@ import {
 import type { TodoItem } from "../types";
 import { clockTime } from "../time";
 import { useT } from "../i18n";
+import { CodeView } from "./CodeView";
 import { AccessSection } from "./AccessSection";
 import { FoldersSection } from "./FoldersSection";
 import { AgentTeamPanel } from "./connectors/AgentTeamPanel";
@@ -51,7 +52,7 @@ function kindFromPath(path: string): string {
   if (ext === "md") return "markdown";
   if (ext === "csv") return "csv";
   if (ext === "pdf") return "pdf";
-  if (["py", "js", "ts", "tsx", "jsx", "json", "sh", "css"].includes(ext)) return "code";
+  if (["py", "js", "ts", "tsx", "jsx", "json", "sh", "css", "r", "do", "sql"].includes(ext)) return "code";
   return "text";
 }
 
@@ -835,7 +836,8 @@ function ArtifactViewer({
         className="artifact-preview"
         ref={previewRef}
         onClick={(e) => {
-          if (!onFeedback || !content || content.kind === "html" || content.kind === "office" || content.kind === "folder") return;
+          // Scripts take Ask Mimi instead of pins: finishing a text selection is a click.
+          if (!onFeedback || !content || content.kind === "html" || content.kind === "office" || content.kind === "folder" || content.kind === "code") return;
           const el = e.currentTarget;
           const r = el.getBoundingClientRect();
           const spot = pinFor(e.target as Element, e.clientX, e.clientY) || { pin: "" };
@@ -936,6 +938,15 @@ function ArtifactViewer({
               Open in default app
             </button>
           </div>
+        ) : content.kind === "code" ? (
+          <CodeView
+            key={artifact.path}
+            sessionId={sessionId}
+            path={artifact.path}
+            name={artifact.name}
+            source={content.content || ""}
+            onAsk={onFeedback ? (text) => onFeedback(text) : undefined}
+          />
         ) : (
           <pre className="artifact-code">{content.content}</pre>
         )}

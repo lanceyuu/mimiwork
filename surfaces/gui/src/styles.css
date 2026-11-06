@@ -778,6 +778,26 @@ button.btn.danger { color: var(--accent); }
   background: repeating-conic-gradient(var(--check-a) 0% 25%, var(--check-b) 0% 50%) 0 0 / 20px 20px;
 }
 .artifact-code { margin: 0; padding: 22px 26px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; color: var(--ink); }
+/* Plain-language code view (CodeView.tsx): notes first, code folded under each step. */
+.code-view { display: flex; flex-direction: column; gap: 10px; padding: 16px 20px; }
+.code-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.code-tab { padding: 6px 10px; border: 0; background: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; font: inherit; font-size: 13px; }
+.code-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.code-ask { position: sticky; top: 0; z-index: 1; }
+.code-explain-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--muted); }
+.code-explain-empty p { margin: 0; }
+.code-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.code-step { display: flex; flex-direction: column; gap: 6px; }
+.code-note { margin: 0; line-height: 1.5; color: var(--ink); }
+.code-choice { margin: 0; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--paper); font-size: 13px; line-height: 1.45; }
+.code-choice-label { font-weight: 600; }
+/* Not rail-mini-btn: that is a 24x24 icon button, and this label wraps into it. */
+.code-toggle { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.code-toggle:hover { color: var(--ink); }
+.code-block { margin: 0; padding: 6px 0; font-family: var(--mono); font-size: 12px; line-height: 1.55; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+.code-line { display: flex; white-space: pre; }
+/* Line numbers stay out of a copied selection: researchers paste these lines elsewhere. */
+.code-ln { flex: 0 0 3.2em; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
 /* Non-previewable binaries (Office docs): a centered prompt to open in the default app. */
 .artifact-open-prompt {
   height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;

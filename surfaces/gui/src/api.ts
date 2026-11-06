@@ -245,6 +245,33 @@ export async function readArtifact(sessionId: string, path: string): Promise<Art
   return res.json();
 }
 
+/** One step of a script, explained for a researcher who does not read code. */
+export interface CodeStep {
+  start: number;
+  end: number;
+  note: string; // "" for lines no step covered: shown, never hidden
+  choice: string | null;
+}
+
+export interface CodeNotes {
+  ok: boolean;
+  error?: string;
+  cached?: boolean;
+  steps?: CodeStep[];
+  lines_explained?: number;
+  truncated?: boolean;
+}
+
+/** Notes for a script. `cachedOnly` never calls the model, so opening a file costs nothing. */
+export async function explainArtifact(sessionId: string, path: string, cachedOnly = false): Promise<CodeNotes> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, cached_only: cachedOnly }),
+  });
+  return res.json();
+}
+
 /** Show the artifact in the OS file manager ("reveal") or open it with its default app ("open"). */
 /** Open one of this conversation's granted folders in the OS file manager. */
 export async function revealRoot(

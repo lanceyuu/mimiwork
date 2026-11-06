@@ -14,6 +14,7 @@ const artifacts = [
   { path: "brief.docx", name: "brief.docx", kind: "document", size: 2048, modified_at: 1 },
   { path: "old.doc", name: "old.doc", kind: "document", size: 2048, modified_at: 1 },
   { path: "notes.md", name: "notes.md", kind: "markdown", size: 128, modified_at: 2 },
+  { path: "analysis_steps.py", name: "analysis_steps.py", kind: "code", size: 64, modified_at: 3 },
 ];
 const DOCX_HTML = '<h1 data-p="0">Findings</h1><p data-p="1">The sample consisted of twenty four interviews and two groups.</p>';
 
@@ -32,8 +33,11 @@ vi.mock("../api", async () => {
     restoreRecoveryPoint: (...a: unknown[]) => restore(...(a as [])),
     revealArtifact: (...a: unknown[]) => reveal(...(a as [])),
     commentArtifact: (...a: unknown[]) => comment(...(a as [])),
+    explainArtifact: async () => ({ ok: false, cached: false }),
     readArtifact: async (_s: string, path: string) =>
-      path.endsWith(".docx")
+      path.endsWith(".py")
+        ? { ok: true, path, kind: "code", content: "a = 1\nb = 2" }
+        : path.endsWith(".docx")
         ? { ok: true, path, kind: "docx", content: DOCX_HTML, paragraphs: 2 }
         : { ok: true, path, kind: "markdown", content: "# notes" },
   };
@@ -47,6 +51,15 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("opening a produced file", () => {
+  it("opens a script in the plain-language view, and a click on it drops no comment pin", async () => {
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} onFeedback={vi.fn()} />);
+    const [row] = await screen.findAllByText("analysis_steps.py");
+    row.closest("button")!.click();
+    expect(await screen.findByRole("button", { name: "Explain this script" })).toBeTruthy();
+    fireEvent.click(document.querySelector(".artifact-preview")!);
+    expect(screen.queryByTestId("artifact-draft")).toBeNull();
+  });
+
   it("hands a legacy .doc to the OS instead of a viewer that cannot render it", async () => {
     render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} />);
     const [row] = await screen.findAllByText("old.doc");
