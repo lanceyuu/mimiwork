@@ -437,3 +437,67 @@ def test_a_differently_cased_tool_argument_does_not_list_one_file_twice(tmp_path
     rows = manager.list_artifacts("s-case")
     assert len(rows) == 1, [r["name"] for r in rows]
     assert rows[0]["name"].lower() == "students.xlsx"
+
+
+def test_r_stata_and_sql_files_open_as_code():
+    from coworker.server.manager import _artifact_kind
+
+    for name in ("clean.R", "clean.r", "model.do", "query.sql"):
+        assert _artifact_kind(Path(name)) == "code", name
+
+
+def test_the_step_log_stays_listed_beside_the_chart_it_produced(tmp_path):
+    folder = tmp_path / "Study 2"
+    (folder / "figures").mkdir(parents=True)
+    (folder / "figures" / "fig1.png").write_bytes(b"png")
+    (folder / "analysis_steps.py").write_text("# log", encoding="utf-8")
+    client, manager = _fixture(tmp_path)
+    _session(
+        manager,
+        "s-log",
+        folder,
+        _turn(
+            "run_python",
+            {"code": "plot()"},
+            {"ok": True, "figures": ["figures/fig1.png"], "files": ["analysis_steps.py"]},
+        ),
+    )
+    names = [r["name"] for r in manager.list_artifacts("s-log")]
+    assert "fig1.png" in names
+    assert "analysis_steps.py" in names, "the analysis itself is a deliverable"
+
+
+def test_an_r_script_from_a_granted_folder_is_listed_once_it_has_run(tmp_path):
+    folder = tmp_path / "Thesis"
+    folder.mkdir()
+    (folder / "clean.R").write_text("x <- 1", encoding="utf-8")
+    (folder / "table.csv").write_text("a,b", encoding="utf-8")
+    client, manager = _fixture(tmp_path)
+    _session(
+        manager,
+        "s-r",
+        folder,
+        _turn("run_r", {"script": "clean.R"}, {"script": "clean.R", "ok": True}, "c1")
+        + _turn("write_file", {"path": "table.csv"}, {"path": "table.csv"}, "c2"),
+    )
+    rows = {r["name"]: r for r in manager.list_artifacts("s-r")}
+    assert "clean.R" in rows and rows["clean.R"]["kind"] == "code"
+    assert "table.csv" in rows
+
+
+def test_a_step_log_name_the_tool_did_not_write_stays_hidden_as_machinery(tmp_path, monkeypatch):
+    """Pins today's behaviour so the exemption can never widen to a file name."""
+    client, manager = _fixture(tmp_path)
+    monkeypatch.setattr(manager, "scratch_base", lambda: tmp_path / "scratch")
+    workspace = Path(manager._provision_scratch("s-name"))
+    (workspace / "analysis_steps.py").write_text("print('mine')", encoding="utf-8")
+    (workspace / "students.xlsx").write_bytes(b"the point")
+    _session(
+        manager,
+        "s-name",
+        workspace,
+        _turn("write_file", {"path": "analysis_steps.py"}, {"path": "analysis_steps.py"}),
+    )
+    names = [r["name"] for r in manager.list_artifacts("s-name")]
+    assert "students.xlsx" in names
+    assert "analysis_steps.py" not in names, "exempt by having run, never by name"

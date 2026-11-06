@@ -2197,10 +2197,17 @@ class SessionManager:
             "save_skill",
         }
     )
-    _ARTIFACT_PATH_KEYS = ("path", "output_path", "target", "saved_to", "file")
+    # `script` is how run_r names what it ran; without it an R script the researcher
+    # brought in a granted folder is never a row at all.
+    _ARTIFACT_PATH_KEYS = ("path", "output_path", "target", "saved_to", "file", "script")
     _ARTIFACT_PATH_LISTS = ("paths", "figures", "files", "outputs")
+    # Scripts that WERE the analysis, not means to an end: listed even though their suffix
+    # is machinery (spec 2026-11-06). Exempt by path, never by name.
+    _RAN_TOOLS = frozenset({"run_python", "run_r"})
 
-    def _touched_paths(self, record: Any, roots: list[Path]) -> list[Path]:
+    def _touched_paths(
+        self, record: Any, roots: list[Path], ran: Optional[set[str]] = None
+    ) -> list[Path]:
         """Files THIS conversation wrote, in the order it wrote them.
 
         Read from the transcript rather than a side table, so it is right for conversations
@@ -2212,7 +2219,7 @@ class SessionManager:
         found: list[Path] = []
         seen: set[Path] = set()
 
-        def _keep(raw: Any) -> None:
+        def _keep(raw: Any, ran_call: bool = False) -> None:
             if not isinstance(raw, str) or not raw.strip():
                 return
             candidate = Path(raw).expanduser()
@@ -2224,27 +2231,30 @@ class SessionManager:
                     resolved = cand.resolve()
                 except OSError:
                     continue
-                if resolved in seen or not resolved.is_file():
+                if not resolved.is_file():
                     continue
                 if not any(
                     resolved == r or r in resolved.parents for r in roots
                 ):
                     continue  # never leave the folders this session was granted
-                seen.add(resolved)
-                found.append(resolved)
+                if ran_call and ran is not None:
+                    ran.add(str(resolved))
+                if resolved not in seen:
+                    seen.add(resolved)
+                    found.append(resolved)
                 return
 
-        def _harvest(payload: Any) -> None:
+        def _harvest(payload: Any, ran_call: bool = False) -> None:
             if not isinstance(payload, dict):
                 return
             for key in self._ARTIFACT_PATH_KEYS:
-                _keep(payload.get(key))
+                _keep(payload.get(key), ran_call)
             for key in self._ARTIFACT_PATH_LISTS:
                 value = payload.get(key)
                 if isinstance(value, list):
                     for item in value:
                         _keep(item if isinstance(item, str) else (item or {}).get("path")
-                              if isinstance(item, dict) else None)
+                              if isinstance(item, dict) else None, ran_call)
 
         for message in record.messages or []:
             if not isinstance(message, dict):
@@ -2262,10 +2272,11 @@ class SessionManager:
                     args = json.loads(fn.get("arguments") or "{}")
                 except (TypeError, ValueError):
                     args = {}
-                _harvest(args)
+                _harvest(args, name in self._RAN_TOOLS)
             if message.get("role") != "tool":
                 continue
-            if names.get(str(message.get("tool_call_id") or "")) not in self._ARTIFACT_TOOLS:
+            tool = names.get(str(message.get("tool_call_id") or ""))
+            if tool not in self._ARTIFACT_TOOLS:
                 continue
             content = message.get("content")
             if isinstance(content, str):
@@ -2273,7 +2284,7 @@ class SessionManager:
                     content = json.loads(content)
                 except ValueError:
                     continue
-            _harvest(content)
+            _harvest(content, tool in self._RAN_TOOLS)
         return found
 
     # What the user came for, ranked. A turn that writes a report also writes the script
@@ -2300,7 +2311,7 @@ class SessionManager:
     # NOT here — a written report is exactly what someone asked for, R chunks or not.
     _MACHINERY_SUFFIXES = frozenset(
         {
-            ".py", ".pyc", ".pyo", ".r", ".js", ".mjs", ".cjs", ".ts", ".tsx",
+            ".py", ".pyc", ".pyo", ".r", ".do", ".js", ".mjs", ".cjs", ".ts", ".tsx",
             ".jsx", ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd", ".rb", ".pl", ".lua",
             ".sql", ".css", ".scss", ".less", ".log", ".lock", ".toml", ".ini", ".cfg",
             ".yaml", ".yml", ".env",
@@ -2308,8 +2319,10 @@ class SessionManager:
     )
 
     @classmethod
-    def _meaningful(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop machinery — unless machinery is all there is.
+    def _meaningful(
+        cls, rows: list[dict[str, Any]], ran: frozenset[str] | set[str] = frozenset()
+    ) -> list[dict[str, Any]]:
+        """Drop machinery — unless machinery is all there is, or the script WAS the analysis.
 
         A coding session whose deliverable IS the script would otherwise get an empty
         panel, which is worse than a noisy one.
@@ -2318,6 +2331,9 @@ class SessionManager:
             r
             for r in rows
             if Path(str(r.get("name", ""))).suffix.lower() not in cls._MACHINERY_SUFFIXES
+            # Same resolved path _artifact_row stores; the scratch walk dedupes against
+            # these seeded rows by inode, so a ran script always arrives seeded.
+            or str(r.get("abs_path", "")) in ran
         ]
         return kept or rows
 
@@ -2368,6 +2384,7 @@ class SessionManager:
         # given (owner report 2026-08-24). A granted project folder can hold hundreds of
         # files nobody here wrote; listing them as "artifacts" buries the two that matter.
         seeded: list[dict[str, Any]] = []  # what the transcript named, before any walk
+        ran: set[str] = set()
         if record is not None:
             roots = [root] + [
                 p
@@ -2378,7 +2395,7 @@ class SessionManager:
                 )
                 if p.is_dir()
             ]
-            touched = self._touched_paths(record, roots)
+            touched = self._touched_paths(record, roots, ran)
             seeded = [
                 row for row in (self._artifact_row(p, root) for p in touched) if row
             ]
@@ -2387,7 +2404,7 @@ class SessionManager:
             if not self._is_scratch_path(str(root)):
                 if seeded:
                     seeded.sort(key=self._artifact_order)
-                    return self._meaningful(seeded)[:80]
+                    return self._meaningful(seeded, ran)[:80]
                 return []
             # Inside a per-conversation scratch folder every file is this conversation's by
             # construction, so the walk runs even when the transcript already named things.
@@ -2419,6 +2436,9 @@ class SessionManager:
             ".csv",
             ".tsv",
             ".py",
+            ".r",
+            ".do",
+            ".sql",
             ".js",
             ".ts",
             ".tsx",
@@ -2478,7 +2498,7 @@ class SessionManager:
                 except OSError:
                     continue
         out.sort(key=self._artifact_order)
-        return self._meaningful(out)[:80]
+        return self._meaningful(out, ran)[:80]
 
     MAX_BINARY_PREVIEW = 25 * 1024 * 1024  # base64-over-JSON gets heavy past this
 
@@ -7132,7 +7152,7 @@ def _artifact_kind(path: Path) -> str:
         return "office"
     if suffix in {".csv", ".tsv"}:
         return "csv"
-    if suffix in {".py", ".js", ".ts", ".tsx", ".css", ".json"}:
+    if suffix in {".py", ".js", ".ts", ".tsx", ".css", ".json", ".r", ".do", ".sql"}:
         return "code"
     return "text"
 
