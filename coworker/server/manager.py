@@ -2787,12 +2787,26 @@ class SessionManager:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return  # a sync caller has no loop to run a turn on; the queue waits as before
-        pending, engine._steering = engine._steering, []
+        # Typed messages go as one turn, joined as a turn's end joins its leftovers. A
+        # memory nudge stays queued for the next real turn: it is no reason to start one.
+        typed = engine.drain_pending_steering()
+        nudges = [item for item in engine._steering if (item[1] or {}).get("kind") == "memory_consolidation"]
+        sourced = [item for item in engine._steering if item not in nudges]
+        engine._steering = nudges
+        pending = ([("\n\n".join(typed), None)] if typed else []) + sourced
+        if not pending:
+            return
         engine._steer_signal.clear()
 
         async def deliver() -> None:
             for text, source in pending:
-                await self.deliver_to_session(session_id, text, source=source)
+                # A Stop during one delivery is a stop for the rest of the queue too.
+                if engine._cancel.is_set():
+                    return
+                try:
+                    await self.deliver_to_session(session_id, text, source=source)
+                except Exception:
+                    logger.exception("session %s: a queued message failed to deliver", session_id)
 
         # Retained: the loop holds only a weak ref to a task.
         task = loop.create_task(deliver())

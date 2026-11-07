@@ -256,3 +256,79 @@ def test_the_openalex_key_is_saved_never_shown_and_can_be_removed(setup):
     assert client.post("/v1/scholarly", json={"api_key": "k-1"}).json() == {"ok": True, "has_key": True}
     assert "k-1" not in client.get("/v1/scholarly").text
     assert client.post("/v1/scholarly", json={"api_key": ""}).json() == {"ok": True, "has_key": False}
+
+
+async def _drain(manager):
+    await asyncio.gather(*list(manager._drain_tasks))
+
+
+async def test_messages_typed_during_a_write_arrive_as_one_turn(setup, monkeypatch):
+    manager, _, _ = setup
+    engine = manager.get_engine("s1")
+    seen = []
+
+    async def deliver(session_id, text, *, source=None):
+        seen.append((text, source))
+
+    monkeypatch.setattr(manager, "deliver_to_session", deliver)
+    assert manager.try_mark_running("s1")
+    engine.queue_steering("First.", priority=True)
+    engine.queue_steering("Second.", priority=True)
+    manager.release_run_claim("s1")
+    await _drain(manager)
+    assert seen == [("First.\n\nSecond.", None)]
+
+
+async def test_a_memory_nudge_queued_during_a_write_waits_for_the_next_real_turn(setup, monkeypatch):
+    manager, _, _ = setup
+    engine = manager.get_engine("s1")
+    seen = []
+
+    async def deliver(session_id, text, *, source=None):
+        seen.append(text)
+
+    monkeypatch.setattr(manager, "deliver_to_session", deliver)
+    assert manager.try_mark_running("s1")
+    engine.queue_steering("Consolidate.", {"kind": "memory_consolidation"})
+    manager.release_run_claim("s1")
+    await _drain(manager)
+    assert seen == [] and engine._steering == [("Consolidate.", {"kind": "memory_consolidation"})]
+
+
+async def test_a_stop_during_the_first_delivery_cancels_the_rest(setup, monkeypatch):
+    manager, _, _ = setup
+    engine = manager.get_engine("s1")
+    seen = []
+
+    async def deliver(session_id, text, *, source=None):
+        seen.append(text)
+        engine.request_interrupt()
+
+    monkeypatch.setattr(manager, "deliver_to_session", deliver)
+    assert manager.try_mark_running("s1")
+    engine.queue_steering("Typed.", priority=True)
+    engine.queue_steering("From Slack.", {"connector": "slack", "text": "From Slack."})
+    manager.release_run_claim("s1")
+    await _drain(manager)
+    assert seen == ["Typed."]
+
+
+async def test_one_failed_delivery_does_not_lose_the_rest(setup, monkeypatch, caplog):
+    manager, _, _ = setup
+    engine = manager.get_engine("s1")
+    seen = []
+
+    async def deliver(session_id, text, *, source=None):
+        seen.append(text)
+        if text == "Typed.":
+            raise RuntimeError("socket gone")
+
+    monkeypatch.setattr(manager, "deliver_to_session", deliver)
+    assert manager.try_mark_running("s1")
+    engine.queue_steering("Typed.", priority=True)
+    engine.queue_steering("From Slack.", {"connector": "slack", "text": "From Slack."})
+    manager.release_run_claim("s1")
+    await _drain(manager)
+    assert seen == ["Typed.", "From Slack."]
+    assert "socket gone" in caplog.text
+

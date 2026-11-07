@@ -860,9 +860,17 @@ export function App() {
             // `display` (force-run) is the user's literal "/name …" line; the framed
             // `input` is model-facing. Surface/dedupe on what the user actually sees.
             const shown = (typeof d.display === "string" && d.display) || (d.input as string);
+            // Messages typed while the session was busy (a reference write holds it) are
+            // on screen already, each followed by its "queued" notice, and their turn
+            // brings them joined by blank lines. Any trailing run of them is a duplicate.
             setItems((p) => {
-              const last = p[p.length - 1];
-              return last && last.kind === "user" && last.text === shown
+              const typed: string[] = [];
+              for (let i = p.length - 1; i >= 0; i--) {
+                const item = p[i];
+                if (item.kind === "user") typed.unshift(item.text);
+                else if (item.kind !== "notice") break;
+              }
+              return typed.some((_, k) => typed.slice(k).join("\n\n") === shown)
                 ? p
                 : [...p, { kind: "user", text: shown, ts: Date.now() / 1000 }];
             });

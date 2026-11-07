@@ -84,3 +84,35 @@ test("Force stop uses a separate connection and reports a failed delivery before
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   expect(attempts).toBe(2);
 });
+
+test("messages typed while Mimi was busy show once when their queued turn starts", async ({ page }) => {
+  let send: (type: string, data?: object) => void = () => {};
+  const typed: string[] = [];
+  await page.routeWebSocket(/\/ws\/session\//, (ws) => {
+    send = (type, data = {}) => ws.send(JSON.stringify({ type, data }));
+    send("ready", { running: false });
+    ws.onMessage((raw) => {
+      const msg = JSON.parse(String(raw));
+      // The session is held by a reference write: the server queues each message.
+      if (msg.type === "user_message") {
+        typed.push(msg.text);
+        send("steer_queued", { text: msg.text });
+      }
+    });
+  });
+  await page.goto("/");
+  await page.getByTitle("Weekly plan 1").first().click();
+  const box = page.getByPlaceholder(/Ask Mimi|steer it mid-run/);
+  await box.fill("first queued line");
+  await box.press("Enter");
+  await box.fill("second queued line");
+  await box.press("Enter");
+  await expect(page.getByText("Your message takes priority", { exact: false })).toHaveCount(2);
+  // The write ends: the queued messages run as one turn, joined like the server joins them.
+  send("turn_start", { input: typed.join("\n\n"), running_since: Date.now() / 1000 });
+  send("assistant_message", { text: "Done with both." });
+  send("turn_done");
+  await expect(page.getByText("Done with both.")).toBeVisible();
+  await expect(page.getByText("first queued line")).toHaveCount(1);
+  await expect(page.getByText("second queued line")).toHaveCount(1);
+});
