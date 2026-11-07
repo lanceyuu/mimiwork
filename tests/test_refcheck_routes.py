@@ -26,9 +26,11 @@ class _Reader(ProviderClient):
 
     def __init__(self):
         self.calls = 0
+        self.models = []
 
     def complete(self, *, model, messages, tools=None, **settings):
         self.calls += 1
+        self.models.append(model)
         user = messages[-1]["content"]
         entries = [
             {"first": int(n), "last": int(n), "text": text, "title": TITLE, "surname": "Baumiester", "year": "1998"}
@@ -73,6 +75,14 @@ def test_the_chat_tool_reports_problems_and_changes_nothing(setup):
 
 def test_the_chat_tool_lists_the_checked_file_among_the_sessions_files():
     assert "check_references" in SessionManager._ARTIFACT_TOOLS
+
+
+def test_the_chat_tool_uses_the_model_the_user_switched_to(setup):
+    manager, provider, _ = setup
+    engine = manager.get_engine("s1")
+    engine.switch_model("other-model")
+    engine.registry.execute("check_references", {"path": "paper.docx"})
+    assert provider.models == ["other-model"]
 
 
 def test_the_chat_tool_refuses_a_file_outside_the_folders(setup):

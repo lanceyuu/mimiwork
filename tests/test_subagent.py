@@ -130,3 +130,26 @@ def test_code_engine_registers_explore_chat_does_not(tmp_path):
 
     chat = build_engine(agent=chat_agent(), provider=_Stub())
     assert "explore" not in chat.registry.names()
+
+
+def test_explore_uses_the_model_the_user_switched_to(tmp_path):
+    from coworker.agent import build_engine
+    from coworker.agents import code_agent
+
+    class _Recorder(ScriptedProvider):
+        def __init__(self):
+            super().__init__([])
+            self.models = []
+
+        def complete(self, *, model, messages, tools=None, **settings):
+            self.models.append(model)
+            return _text_turn("Nothing to report.")
+
+    provider = _Recorder()
+    engine = build_engine(agent=code_agent(), workspace=tmp_path, provider=provider)
+    try:
+        engine.switch_model("other-model")
+        engine.registry.execute("explore", {"task": "look around"})
+        assert provider.models == ["other-model"]
+    finally:
+        engine.executor.close()

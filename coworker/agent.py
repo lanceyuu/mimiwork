@@ -377,6 +377,16 @@ def build_engine(
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
     # Resolved here (not at engine construction) because the explorer subagent captures it.
     provider = provider or ProviderRouter(secrets, default_provider="openai")
+
+    # Late-bound engine ref: closures below need the engine, which is built last. Filled
+    # at the end. Tools that call a model read it through `current_model`, because
+    # switch_model only rewrites engine.model and a captured string would keep billing
+    # the model the session started with.
+    _engine_box: list = []
+
+    def current_model() -> str:
+        return _engine_box[0].model if _engine_box else model
+
     # The panel's reference check, asked for in chat. It reads through the session's
     # folders and makes model calls, so it needs both, like the explorer subagents.
     if ws is not None:
@@ -384,7 +394,7 @@ def build_engine(
 
         registry.register(
             make_check_references_tool(
-                roots=root_list or str(ws), provider=provider, model=model, secrets=secrets
+                roots=root_list or str(ws), provider=provider, model=current_model, secrets=secrets
             )
         )
     # Code-family personas can fan broad research out to read-only explorer subagents, keeping
@@ -395,7 +405,7 @@ def build_engine(
             explorer_tools(
                 workspace=ws,
                 provider=provider,
-                model=model,
+                model=current_model,
                 model_settings=model_settings,
                 roots=root_list or None,
             )
@@ -582,10 +592,6 @@ def build_engine(
         else None
     )
 
-    # Late-bound engine ref: the closure needs the conversation history (for the disable
-    # countermand) but the engine is constructed after the closure. Filled below.
-    _engine_box: list = []
-
     def context_provider() -> str:
         parts = []
         if permissions.mode is Mode.PLAN:
@@ -675,7 +681,7 @@ def build_engine(
     # engine has to close this. python_tools sets it on the context and its comment
     # has always promised this hand-off — until now nothing read it back.
     engine.python_kernel = getattr(context, "python_kernel", None)  # type: ignore[attr-defined]
-    _engine_box.append(engine)  # late-bind for the countermand (see context_provider)
+    _engine_box.append(engine)  # late-bind for the countermand and current_model
     return engine
 
 

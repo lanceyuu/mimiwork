@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import aisuite as ai
 
@@ -104,7 +104,7 @@ def explorer_tools(
     *,
     workspace: str | Path,
     provider: Any,
-    model: str,
+    model: "str | Callable[[], str]",
     model_settings: Optional[dict[str, Any]] = None,
     roots: Optional[list] = None,
 ) -> list:
@@ -124,7 +124,7 @@ def explorer_tools(
         engine = build_explorer_engine(
             workspace=workspace,
             provider=provider,
-            model=model,
+            model=model() if callable(model) else model,
             model_settings=model_settings,
             roots=roots,
         )

@@ -84,11 +84,11 @@ def summary(result: dict[str, Any], path: str) -> dict[str, Any]:
 
 
 def make_check_references_tool(
-    *, roots: Any, provider: Any, model: str, secrets: Optional[SecretStore] = None
+    *, roots: Any, provider: Any, model: "str | Callable[[], str]", secrets: Optional[SecretStore] = None
 ) -> Callable[..., Any]:
     def complete(system: str, user: str) -> str:
         turn = provider.complete(
-            model=model,
+            model=model() if callable(model) else model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0,
             # Reasoning-routed models spend hidden tokens first; a tight cap returns nothing.
