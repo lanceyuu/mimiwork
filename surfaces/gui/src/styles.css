@@ -808,6 +808,8 @@ button.btn.danger { color: var(--accent); }
 .refs-group { display: flex; flex-direction: column; gap: 6px; }
 .refs-group-head { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 6px 0 0; text-align: left; }
 .refs-fold { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; }
+.refs-fold::after { content: "\25B8"; margin-left: 6px; color: var(--muted); display: inline-block; transition: transform 0.15s; }
+.refs-fold[aria-expanded="true"]::after { transform: rotate(90deg); }
 .refs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .refs-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 4px; }
 .refs-item.refs-retracted { border-left: 3px solid var(--danger); }
@@ -2357,4 +2359,4 @@ ul.help-tip-list { list-style: disc; }
 .ag-palette .help-tip-pop { left: 8px; right: auto; width: min(460px, calc(100% - 16px)); }
 .ag-palette-hint .help-tip-pop { left: auto; right: 8px; }
 .ag-palette-label, .ag-palette-hint { display: inline-flex; align-items: center; gap: 5px; }
-.artifact-tabs { padding: 0 12px; }
+.artifact-tabs { padding: 0 5px; }
