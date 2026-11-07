@@ -38,4 +38,12 @@ describe("PaperSearchCard", () => {
     await waitFor(() => expect(setScholarly).toHaveBeenCalledWith(""));
     expect(await screen.findByText(/a small free daily limit/)).toBeTruthy();
   });
+
+  it("never says there is no key when the sidecar did not answer", async () => {
+    getScholarly.mockRejectedValue(new Error("offline"));
+    render(<PaperSearchCard />);
+    await waitFor(() => expect(getScholarly).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/a small free daily limit/)).toBeNull();
+  });
 });

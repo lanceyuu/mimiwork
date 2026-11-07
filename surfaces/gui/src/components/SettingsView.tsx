@@ -877,9 +877,11 @@ export function PaperSearchCard() {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    // No reply is not "no key": the card waits hidden rather than tell someone with a
+    // saved key that they have none.
     getScholarly()
       .then((r) => setHasKey(!!r.has_key))
-      .catch(() => setHasKey(false));
+      .catch(() => {});
   }, []);
 
   const save = async (value: string) => {
