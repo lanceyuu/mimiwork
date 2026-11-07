@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:  # annotation only — the runtime import stays local, as before.
     from ..timesaved import TimeSaved
 
-from .. import code_explain
+from .. import code_explain, refcheck, scholarly
 from ..agent import build_engine
 from ..agents import get_agent
 from ..agents import list_agents as _list_agents
@@ -118,6 +118,20 @@ def _approval_body(request) -> str:
     reason = (getattr(request, "reason", "") or "").strip()
     preview = args_preview(getattr(request, "arguments", None))
     return "\n".join(p for p in (reason, preview) if p)
+
+
+def _open_in_word(target: Path) -> bool:
+    """Word keeps a "~$…" lock file beside an open document and saves over the file when
+    it closes, which would undo fixes written meanwhile. Long names lose their first
+    characters in the lock's name (none, one or two), so those three forms are matched."""
+    try:
+        for sibling in target.parent.iterdir():
+            name = sibling.name
+            if name.startswith("~$") and name[2:] in {target.name, target.name[1:], target.name[2:]}:
+                return True
+    except OSError:
+        return False
+    return False
 
 
 def _os_reveal(target: Path, mode: str = "reveal") -> dict[str, Any]:
@@ -366,6 +380,8 @@ class SessionManager:
         # paper writing, academic writing, business communication, slide design) into
         # the user's global skills folder — ordinary skills from then on.
         self.skill_store = SkillStore(seed_builtin=True)
+        # Saved reference checks are per file version: past 90 days they only take space.
+        refcheck.prune()
         self.session_skills = SessionSkillStore(base / "session_skills.json")
         # Dead-letter: inbound messages with no destination + background-turn failures, so neither
         # vanishes silently (a debugging/visibility surface, not a redelivery queue).
@@ -2715,6 +2731,103 @@ class SessionManager:
         except OSError:
             pass  # notes still show; the next open just asks again
         return {**result, "path": path}
+
+    # -- reference checks (spec 2026-11-07) -------------------------------------------
+    def _reference_reader(self, session_id: str):
+        def complete(system: str, user: str) -> str:
+            engine = self.get_engine(session_id)
+            if engine is None:
+                raise refcheck.NoModel()
+            turn = engine.provider.complete(
+                model=engine.model,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0,
+                max_tokens=8000,
+                reasoning_effort="none",
+            )
+            return getattr(turn, "text", "") or ""
+
+        return complete
+
+    def check_references(
+        self, session_id: str, path: str, *, cached_only: bool = False, fresh: bool = False
+    ) -> dict[str, Any]:
+        """The References tab's check. Nothing runs until the researcher clicks: opening a
+        file asks with cached_only, which never spends credits."""
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
+        if target.suffix.lower() not in (".docx", ".pdf"):
+            return {"ok": False, "error": "only Word (.docx) and PDF files have a reference check"}
+        result = refcheck.check_file(
+            target,
+            complete=self._reference_reader(session_id),
+            lookups=refcheck.live_lookups(self.secrets),
+            cached_only=cached_only,
+            fresh=fresh,
+        )
+        return {**result, "path": path}
+
+    def release_run_claim(self, session_id: str) -> None:
+        """Give back a claim taken with try_mark_running for work that is not a turn,
+        without the "finished" bell and unseen dot that mark_idle adds."""
+        # ponytail: a message typed during the write (under a second) is queued as steering
+        # for a turn that is not running, and waits for the next turn; deliver the queue
+        # here if that ever shows up in use.
+        self._running_sessions.pop(session_id, None)
+        self._session_progress.pop(session_id, None)
+        self._announce_activity()
+
+    def apply_reference_fixes(
+        self, session_id: str, path: str, ids: list[str], digest: str
+    ) -> dict[str, Any]:
+        """Write the ticked fixes as tracked changes. The caller holds the session's
+        running claim, so no chat turn can touch the file in between."""
+        from ..tools.office.docx_tools import apply_tracked_revisions
+        from ..tools.office.paths import PathError, resolve_write
+
+        target, err = self._artifact_target(session_id, path)
+        if target is None:
+            return {"ok": False, "error": err}
+        if target.suffix.lower() != ".docx":
+            return {"ok": False, "error": "not_writable"}
+        try:
+            resolve_write(str(target), self.get_roots(session_id))
+        except PathError:
+            return {"ok": False, "error": "read_only"}
+        if _open_in_word(target):
+            return {"ok": False, "error": "open_in_word"}
+        plan = refcheck.plan_fixes(target, ids, digest)
+        if not plan.get("ok"):
+            return plan
+        engine = self.get_engine(session_id)
+        recovery = getattr(engine, "file_recovery", None) if engine is not None else None
+        if recovery is not None:
+            # Its own Undo point: without begin_turn the write would join the last turn's.
+            try:
+                recovery.begin_turn()
+                recovery.capture("revise_document", {"path": str(target)})
+            except Exception as exc:
+                logger.warning("apply_reference_fixes: no undo point: %s", exc)
+                return {"ok": False, "error": "write_failed"}
+        try:
+            apply_tracked_revisions(target, plan["edits"])
+        except Exception as exc:
+            logger.warning("apply_reference_fixes: write failed: %s", exc)
+            return {"ok": False, "error": "write_failed"}
+        return {"ok": True, "applied": plan["count"], "path": path}
+
+    def get_scholarly(self) -> dict[str, Any]:
+        profile = self.secrets.get(scholarly.OPENALEX_PROFILE) or {}
+        return {"has_key": bool(isinstance(profile, dict) and profile.get("api_key"))}
+
+    def set_scholarly(self, api_key: str) -> dict[str, Any]:
+        key = (api_key or "").strip()
+        if key:
+            self.secrets.put(scholarly.OPENALEX_PROFILE, {"api_key": key})
+        else:
+            self.secrets.delete(scholarly.OPENALEX_PROFILE)
+        return {"ok": True, **self.get_scholarly()}
 
     def comment_artifact(
         self, session_id: str, path: str, paragraph: int, text: str, author: str = ""

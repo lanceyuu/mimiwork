@@ -883,6 +883,44 @@ def create_app(manager: SessionManager) -> FastAPI:
             session_id, str(body.get("path", "")), cached_only=bool(body.get("cached_only"))
         )
 
+    @app.post("/v1/sessions/{session_id}/artifacts/references")
+    def session_artifact_references(session_id: str, body: dict) -> dict[str, Any]:
+        """The References tab's check. A plain `def` like explain: a check makes model calls
+        and about a minute of lookups, which FastAPI's thread pool keeps off the event loop."""
+        body = body or {}
+        return manager.check_references(
+            session_id,
+            str(body.get("path", "")),
+            cached_only=bool(body.get("cached_only")),
+            fresh=bool(body.get("fresh")),
+        )
+
+    @app.post("/v1/sessions/{session_id}/artifacts/references/apply")
+    async def session_artifact_references_apply(session_id: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        # The claim is taken on the event loop, where every turn takes it, so a chat turn
+        # cannot start between the file-hash check and the write.
+        if not manager.try_mark_running(session_id):
+            return {"ok": False, "error": "busy"}
+        try:
+            return await asyncio.to_thread(
+                manager.apply_reference_fixes,
+                session_id,
+                str(body.get("path", "")),
+                [str(i) for i in body.get("ids") or []],
+                str(body.get("hash", "")),
+            )
+        finally:
+            manager.release_run_claim(session_id)
+
+    @app.get("/v1/scholarly")
+    def scholarly_settings() -> dict[str, Any]:
+        return manager.get_scholarly()
+
+    @app.post("/v1/scholarly")
+    def scholarly_save(body: dict) -> dict[str, Any]:
+        return manager.set_scholarly(str((body or {}).get("api_key") or ""))
+
     @app.post("/v1/sessions/{session_id}/artifacts/reveal")
     def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}
