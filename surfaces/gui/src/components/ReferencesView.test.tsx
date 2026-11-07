@@ -169,10 +169,80 @@ describe("the References tab", () => {
     );
   });
 
-  it("translates the password and other-work notes into every language", () => {
+  it("never runs Check again and Write at the same time", async () => {
+    check.mockResolvedValue(RESULT);
+    let done: (v: unknown) => void = () => {};
+    apply.mockImplementation(() => new Promise((r) => (done = r)));
+    view();
+    fireEvent.click(await screen.findByRole("button", { name: "Write 1 fix into the Word file" }));
+    expect((screen.getByRole("button", { name: "Check again" }) as HTMLButtonElement).disabled).toBe(true);
+    done({ ok: false, error: "changed" });
+    await screen.findByText("The file changed since the check. Check again.");
+    check.mockImplementation(() => new Promise(() => {}));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect((screen.getByRole("button", { name: "Write 1 fix into the Word file" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says Copied only once the clipboard has taken the text", async () => {
+    check.mockResolvedValue({ ...RESULT, kind: "pdf" });
+    const writeText = vi.fn().mockRejectedValueOnce(new Error("denied")).mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      view(false);
+      const [button] = await screen.findAllByRole("button", { name: "Copy" });
+      fireEvent.click(button);
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(button.textContent).toBe("Copy");
+      fireEvent.click(button);
+      await waitFor(() => expect(button.textContent).toBe("Copied"));
+    } finally {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    }
+  });
+
+  it("offers one text with every fix applied when an entry's fixes can only be copied", async () => {
+    const entry = row({
+      id: "m",
+      group: "fix",
+      fixes: [
+        { id: "m.replace_doi", kind: "replace_doi", new: "10.1/right", after: "Baumiester. 10.1/right", writable: false, ticked: false },
+        { id: "m.replace_surname", kind: "replace_surname", new: "Baumeister", after: "Baumeister. 10.1/wrong", writable: false, ticked: false },
+      ],
+      fixed_text: "Baumeister. 10.1/right",
+    });
+    check.mockResolvedValue({ ...RESULT, managed: "Zotero", entries: [entry] });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      view();
+      fireEvent.click(await screen.findByRole("button", { name: "Copy with all fixes" }));
+      expect(writeText).toHaveBeenCalledWith("Baumeister. 10.1/right");
+      expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+      expect(screen.getByText("Replace the DOI with 10.1/right; Change the surname to Baumeister")).toBeTruthy();
+    } finally {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    }
+  });
+
+  it("explains a refused write in plain words", async () => {
+    check.mockResolvedValue(RESULT);
+    apply.mockResolvedValue({ ok: false, error: "not_writable" });
+    view();
+    fireEvent.click(await screen.findByRole("button", { name: "Write 1 fix into the Word file" }));
+    expect(await screen.findByText("Mimi can't write this fix safely. Copy it into Word instead.")).toBeTruthy();
+    apply.mockResolvedValue({ ok: false, error: "managed" });
+    fireEvent.click(screen.getByRole("button", { name: "Write 1 fix into the Word file" }));
+    expect(await screen.findByText("This list is made by a citation tool. Fix the entries there, then refresh the bibliography in Word.")).toBeTruthy();
+  });
+
+  it("translates the password, other-work, combined-copy and refused-write strings into every language", () => {
     const strings = [
       "This PDF is password-protected. Remove the password and try again.",
       "A record with this title and author is from {years} in {container}, perhaps a review or another edition; the year was not compared.",
+      "Copy with all fixes",
+      "Mimi can't write this fix safely. Copy it into Word instead.",
+      "This list is made by a citation tool. Fix the entries there, then refresh the bibliography in Word.",
     ];
     try {
       for (const lang of ["zh", "no", "fr", "es", "ja", "ar", "de", "pt"] as const) {

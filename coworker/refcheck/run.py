@@ -233,6 +233,12 @@ def _row(entry: Any, outcome: Outcome, listing: Listing, claims: Counter, form: 
     elif fixes and listing.kind == "docx" and not listing.managed:
         layout = True
     cand = outcome.match.cand if outcome.match else None
+    extra: dict[str, Any] = {}
+    if len(fixes) > 1 and not any(f["writable"] for f in fixes):
+        # Each fix's own Copy text carries only that fix, so pasting one undoes another.
+        combined = apply_spans(text, fixes)
+        if combined is not None:
+            extra["fixed_text"] = combined
     return {
         "id": entry.id,
         "paragraph": para.index if para else None,
@@ -244,6 +250,7 @@ def _row(entry: Any, outcome: Outcome, listing: Listing, claims: Counter, form: 
         "fixes": fixes,
         "suggestions": [{"text": outcome.suggestion}] if outcome.suggestion else [],
         "layout": layout,
+        **extra,
     }
 
 

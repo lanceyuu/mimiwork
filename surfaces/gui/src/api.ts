@@ -297,6 +297,7 @@ export interface RefEntry {
   fixes: RefFix[];
   suggestions: { text: string }[];
   layout: boolean; // fixes exist but the entry's layout is not safe to edit
+  fixed_text?: string; // every fix applied, when two or more can only be copied
 }
 
 export interface RefCheck {

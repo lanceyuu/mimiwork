@@ -332,3 +332,10 @@ async def test_one_failed_delivery_does_not_lose_the_rest(setup, monkeypatch, ca
     assert seen == ["Typed.", "From Slack."]
     assert "socket gone" in caplog.text
 
+
+def test_a_conversation_with_no_folder_says_so_in_the_panels_words(setup, monkeypatch):
+    manager, _, _ = setup
+    monkeypatch.setattr(manager, "_artifact_target", lambda *a, **k: (None, "no workspace"))
+    client = _client(manager)
+    assert _check(client)["error"] == "no_folder"
+    assert _write(client, {"hash": "h", "entries": []}, ids=[])["error"] == "no_folder"

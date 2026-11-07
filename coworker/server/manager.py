@@ -2758,7 +2758,8 @@ class SessionManager:
         file asks with cached_only, which never spends credits."""
         target, err = self._artifact_target(session_id, path)
         if target is None:
-            return {"ok": False, "error": err}
+            # The panel shows codes, not the file viewer's English sentences.
+            return {"ok": False, "error": "no_folder" if err == "no workspace" else err}
         if target.suffix.lower() not in (".docx", ".pdf"):
             return {"ok": False, "error": "only Word (.docx) and PDF files have a reference check"}
         result = refcheck.check_file(
@@ -2823,7 +2824,8 @@ class SessionManager:
 
         target, err = self._artifact_target(session_id, path)
         if target is None:
-            return {"ok": False, "error": err}
+            # The panel shows codes, not the file viewer's English sentences.
+            return {"ok": False, "error": "no_folder" if err == "no workspace" else err}
         if target.suffix.lower() != ".docx":
             return {"ok": False, "error": "not_writable"}
         try:

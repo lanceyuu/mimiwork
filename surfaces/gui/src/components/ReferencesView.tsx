@@ -32,6 +32,8 @@ const ERRORS: Record<string, string> = {
     "Close the file in Word first, or Word will overwrite the fixes when it saves. If Word is closed, open and close the file once to clear the leftover lock.",
   read_only: "This folder is read-only, so Mimi can't write to the file.",
   write_failed: "Mimi couldn't write the fixes. The file is unchanged.",
+  not_writable: "Mimi can't write this fix safely. Copy it into Word instead.",
+  managed: "This list is made by a citation tool. Fix the entries there, then refresh the bibliography in Word.",
 };
 const SOMETHING = "Something went wrong. Try again.";
 
@@ -101,28 +103,31 @@ function fixLabel(f: RefFix, t: Tr): string {
   return fill(t("Change the surname to {surname}"), { surname: f.new });
 }
 
-function Copy({ text }: { text: string }) {
+function Copy({ text, label = "Copy" }: { text: string; label?: string }) {
   const t = useT();
   const [done, setDone] = useState(false);
   return (
     <button
       className="link refs-copy"
-      onClick={() => {
-        void navigator.clipboard?.writeText(text);
-        setDone(true);
-      }}
+      onClick={() =>
+        // "Copied" only once the write lands: WebKit can refuse, and the clipboard may be missing.
+        navigator.clipboard
+          ?.writeText(text)
+          .then(() => setDone(true))
+          .catch(() => {})
+      }
     >
-      {done ? t("Copied") : t("Copy")}
+      {done ? t("Copied") : t(label)}
     </button>
   );
 }
 
-function Suggestion({ label, text }: { label: string; text: string }) {
+function Suggestion({ label, text, copyLabel }: { label: string; text: string; copyLabel?: string }) {
   return (
     <div className="refs-suggestion">
       <span className="refs-suggestion-label">{label}</span>
       <p className="refs-suggestion-text" data-no-translate>{text}</p>
-      <Copy text={text} />
+      <Copy text={text} label={copyLabel} />
     </div>
   );
 }
@@ -137,7 +142,11 @@ function Item({ entry, canWrite, ticks, onTick }: { entry: RefEntry; canWrite: b
       {entry.codes.map((c, i) => (
         <p key={i} className="refs-note">{describeCode(c, t)}</p>
       ))}
-      {entry.fixes.map((f) =>
+      {/* Copy-only fixes each carry just their own change, so pasting one undoes the
+          other; with two or more, the server sends one text that has them all. */}
+      {entry.fixed_text ? (
+        <Suggestion label={entry.fixes.map((f) => fixLabel(f, t)).join("; ")} text={entry.fixed_text} copyLabel="Copy with all fixes" />
+      ) : entry.fixes.map((f) =>
         canWrite && f.writable ? (
           <label key={f.id} className="refs-fix">
             <input type="checkbox" checked={ticks.has(f.id)} onChange={() => onTick(f.id)} /> {fixLabel(f, t)}
@@ -249,7 +258,8 @@ export function ReferencesView({
   };
 
   const checkButton = (label: string, fresh: boolean) => (
-    <button className="btn sm" disabled={pending} onClick={() => void run(fresh)}>
+    // Never beside a write: a check that started before it would bring back the old result.
+    <button className="btn sm" disabled={pending || writing} onClick={() => void run(fresh)}>
       {pending ? t("Checking references…") : t(label)}
     </button>
   );
@@ -348,7 +358,7 @@ export function ReferencesView({
       })}
       {canWrite && writableCount > 0 && (
         <div className="refs-actions">
-          <button className="btn-primary sm" disabled={writing || ticks.size === 0} onClick={() => void write()}>
+          <button className="btn-primary sm" disabled={pending || writing || ticks.size === 0} onClick={() => void write()}>
             {writing ? t("Writing…") : plural(t, ticks.size, "Write 1 fix into the Word file", "Write {n} fixes into the Word file")}
           </button>
         </div>

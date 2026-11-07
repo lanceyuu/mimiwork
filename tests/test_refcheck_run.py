@@ -327,3 +327,34 @@ def test_the_file_text_of_an_entry_is_its_paragraphs_own_text_or_nothing():
     assert _file_text(e, Listing("pdf", paras), Counter([0, 1])) is None
     other = SimpleNamespace(first=0, last=1, text="Someone else entirely.")
     assert _file_text(other, Listing("docx", paras), Counter([0, 1])) is None
+
+
+def test_a_list_made_by_a_citation_tool_offers_one_text_with_every_fix_applied(tmp_path, monkeypatch):
+    from coworker.refcheck import reading
+
+    real = reading.load_docx
+
+    def managed(path):
+        listing = real(path)
+        listing.managed = "Zotero"
+        return listing
+
+    monkeypatch.setattr(reading, "load_docx", managed)
+    printed = f"{ENTRY} https://doi.org/10.9999/wrong"
+
+    def complete(system, user):
+        return json.dumps({"style": "apa", "entries": [
+            {"first": 0, "last": 0, "text": printed, "title": TITLE, "surname": "Baumiester", "year": "1998", "doi": "10.9999/wrong"},
+        ]})
+
+    (row,) = check_file(_doc(tmp_path, [printed]), complete=complete, lookups=lookups(), cache_dir=tmp_path / "cache")["entries"]
+    assert sorted(f["kind"] for f in row["fixes"]) == ["replace_doi", "replace_surname"]
+    # Each fix's own copy undoes the other; the combined one carries both.
+    assert row["fixed_text"] == f"Baumeister, R. (1998). {TITLE}. JPSP, 74, 1252. https://doi.org/{DOI}"
+
+
+def test_a_writable_entry_or_a_single_fix_has_no_combined_text(tmp_path):
+    (row,) = run(_doc(tmp_path, [ENTRY]), tmp_path)["entries"]
+    assert "fixed_text" not in row
+    (row,) = run(_doc(tmp_path, [ENTRY], name="link.docx", link=True), tmp_path)["entries"]
+    assert len(row["fixes"]) == 1 and "fixed_text" not in row
