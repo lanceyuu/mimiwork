@@ -259,6 +259,11 @@ def plan_fixes(target: Path, ids: list[str], digest: str, cache_dir: Optional[Pa
     if result.get("managed"):
         return _error("managed")
     wanted = set(ids)
+    known = {fix["id"] for row in result["entries"] for fix in row["fixes"]}
+    if not wanted <= known:
+        # An id this result never offered was ticked on another check's results: the
+        # panel is showing something other than what is saved now.
+        return _error("changed")
     by_para: dict[int, list[dict[str, Any]]] = {}
     for row in result["entries"]:
         for fix in row["fixes"]:

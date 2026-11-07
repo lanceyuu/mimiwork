@@ -297,3 +297,33 @@ def test_a_password_protected_pdf_is_an_error_of_its_own(tmp_path, monkeypatch):
     path = tmp_path / "locked.pdf"
     path.write_bytes(b"%PDF-1.7")
     assert run(path, tmp_path)["error"] == "password"
+
+
+def test_planning_refuses_an_id_the_saved_result_does_not_hold(tmp_path):
+    path = _doc(tmp_path, [ENTRY])
+    result = run(path, tmp_path)
+    real = result["entries"][0]["fixes"][0]["id"]
+    assert plan_fixes(path, [real, "e0000000000.replace_doi"], result["hash"], cache_dir=tmp_path / "cache")["error"] == "changed"
+
+
+def test_a_span_ending_past_the_text_is_refused():
+    from coworker.refcheck.verdicts import apply_spans
+
+    assert apply_spans("abc", [{"start": 2, "end": 4, "new": "x"}]) is None
+    assert apply_spans("abc", [{"start": 2, "end": 3, "new": "x"}]) == "abx"
+
+
+def test_the_file_text_of_an_entry_is_its_paragraphs_own_text_or_nothing():
+    from collections import Counter
+    from types import SimpleNamespace
+
+    from coworker.refcheck.reading import Listing, Para
+    from coworker.refcheck.run import _file_text
+
+    paras = [Para("Baumeister, R. (1998). “Ego”"), Para("depletion. JPSP.")]
+    e = SimpleNamespace(first=0, last=1, text='Baumeister, R. (1998). "Ego" depletion. JPSP.')
+    assert _file_text(e, Listing("docx", paras), Counter([0, 1])) == "Baumeister, R. (1998). “Ego” depletion. JPSP."
+    assert _file_text(e, Listing("docx", paras), Counter([0, 1, 1])) is None  # a paragraph two entries share
+    assert _file_text(e, Listing("pdf", paras), Counter([0, 1])) is None
+    other = SimpleNamespace(first=0, last=1, text="Someone else entirely.")
+    assert _file_text(other, Listing("docx", paras), Counter([0, 1])) is None

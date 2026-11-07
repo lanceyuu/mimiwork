@@ -293,7 +293,7 @@ def _recase(family: str, printed: str) -> str:
 def apply_spans(text: str, fixes: list[dict[str, Any]]) -> Optional[str]:
     """All fixes applied right to left; None when two spans overlap."""
     out = text
-    limit = len(text) + 1
+    limit = len(text)
     for fix in sorted(fixes, key=lambda f: f["start"], reverse=True):
         if fix["end"] > limit:
             return None

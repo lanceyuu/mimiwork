@@ -291,7 +291,8 @@ def _next_revision_id(document: Any) -> int:
     from docx.oxml.ns import qn
 
     highest = 0
-    for tag in ("w:ins", "w:del"):
+    # Word numbers formatting changes from the same pool as insertions and deletions.
+    for tag in ("w:ins", "w:del", "w:rPrChange", "w:pPrChange"):
         for el in document.element.body.iter(qn(tag)):
             try:
                 highest = max(highest, int(el.get(qn("w:id")) or 0))
@@ -449,6 +450,7 @@ def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> 
         last = el
 
     def pieces(a: int, b: int, deleted: bool) -> list[tuple[Any, Any]]:
+        nonlocal rev_id
         out: list[tuple[Any, Any]] = []
         for s, e, r in spans:
             lo, hi = max(a, s), min(b, e)
@@ -460,6 +462,10 @@ def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> 
             elif r.getparent().tag == qn("w:ins"):
                 # A word kept from an earlier insertion stays an insertion.
                 keep = copy.deepcopy(r.getparent())
+                # Each piece of a split insertion is a revision of its own, and the
+                # format wants every revision's id unique in the document.
+                keep.set(qn("w:id"), str(rev_id))
+                rev_id += 1
                 for child in list(keep):
                     keep.remove(child)
                 keep.append(frag)

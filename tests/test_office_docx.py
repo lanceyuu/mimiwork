@@ -335,3 +335,61 @@ def test_tracked_revisions_can_be_written_without_the_tool(tmp_path):
     reopened = docx.Document(str(path))
     assert _para_text(_indexed_blocks(reopened)[1]) == "Baumeister, R. (1998). The self. https://doi.org/10.1000/b"
     assert "<w:delText" in _xml(tmp_path, "refs.docx")
+
+
+def _run_with(paragraph, tag, **attrs):
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    run = OxmlElement("w:r")
+    el = OxmlElement(tag)
+    for key, value in attrs.items():
+        el.set(qn(key), value)
+    run.append(el)
+    paragraph._p.append(run)
+
+
+def test_a_paragraph_holding_a_field_mark_or_a_comment_reference_is_replaced_whole():
+    import docx
+
+    from coworker.tools.office.docx_tools import word_level_ok
+
+    document = docx.Document()
+    field = document.add_paragraph("Baumiester, R. (1998). The self.")
+    _run_with(field, "w:fldChar", **{"w:fldCharType": "begin"})
+    commented = document.add_paragraph("Baumiester, R. (1998). The self.")
+    _run_with(commented, "w:commentReference", **{"w:id": "0"})
+    assert not word_level_ok(field, "Baumeister, R. (1998). The self.")
+    assert not word_level_ok(commented, "Baumeister, R. (1998). The self.")
+
+
+def test_a_later_edit_that_splits_an_earlier_insertion_keeps_every_revision_id_unique(tmp_path):
+    import re
+
+    import docx
+
+    from coworker.tools.office.docx_tools import apply_tracked_revisions
+
+    path = tmp_path / "split.docx"
+    document = docx.Document()
+    document.add_paragraph("start end")
+    document.save(path)
+    apply_tracked_revisions(path, [{"index": 0, "text": "start alpha beta gamma end"}])
+    apply_tracked_revisions(path, [{"index": 0, "text": "start alpha BETA gamma end"}])
+    ids = re.findall(r'<w:(?:ins|del) [^>]*w:id="(\d+)"', _xml(tmp_path, "split.docx"))
+    assert len(ids) == len(set(ids))
+
+
+def test_new_revision_ids_skip_those_on_formatting_changes():
+    import docx
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    from coworker.tools.office.docx_tools import _next_revision_id
+
+    document = docx.Document()
+    run = document.add_paragraph().add_run("x")
+    change = OxmlElement("w:rPrChange")
+    change.set(qn("w:id"), "41")
+    run._r.get_or_add_rPr().append(change)
+    assert _next_revision_id(document) == 42
