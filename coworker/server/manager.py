@@ -2823,14 +2823,17 @@ class SessionManager:
             return plan
         engine = self.get_engine(session_id)
         recovery = getattr(engine, "file_recovery", None) if engine is not None else None
-        if recovery is not None:
-            # Its own Undo point: without begin_turn the write would join the last turn's.
-            try:
-                recovery.begin_turn()
-                recovery.capture("revise_document", {"path": str(target)})
-            except Exception as exc:
-                logger.warning("apply_reference_fixes: no undo point: %s", exc)
-                return {"ok": False, "error": "write_failed"}
+        # A write the researcher cannot undo is not one to make.
+        if recovery is None:
+            logger.warning("apply_reference_fixes: no undo point for %s", session_id)
+            return {"ok": False, "error": "write_failed"}
+        # Its own Undo point: without begin_turn the write would join the last turn's.
+        try:
+            recovery.begin_turn()
+            recovery.capture("revise_document", {"path": str(target)})
+        except Exception as exc:
+            logger.warning("apply_reference_fixes: no undo point: %s", exc)
+            return {"ok": False, "error": "write_failed"}
         try:
             apply_tracked_revisions(target, plan["edits"])
         except Exception as exc:

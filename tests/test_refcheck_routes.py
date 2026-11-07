@@ -86,10 +86,12 @@ def test_the_chat_tool_uses_the_model_the_user_switched_to(setup):
     assert provider.models == ["other-model"]
 
 
-def test_the_chat_tool_refuses_a_file_outside_the_folders(setup):
-    manager, provider, _ = setup
-    out = manager.get_engine("s1").registry.execute("check_references", {"path": "/etc/hosts.docx"})
-    assert "error" in out and provider.calls == 0
+def test_the_chat_tool_refuses_a_file_outside_the_folders(setup, tmp_path_factory):
+    manager, provider, ws = setup
+    outside = tmp_path_factory.mktemp("elsewhere") / "paper.docx"
+    (ws / "paper.docx").rename(outside)
+    out = manager.get_engine("s1").registry.execute("check_references", {"path": str(outside)})
+    assert "escapes this session's folders" in out["error"] and provider.calls == 0
 
 
 def _client(manager):
@@ -149,6 +151,54 @@ def test_a_write_mid_turn_is_refused_and_the_claim_is_held_during_a_write(setup,
     monkeypatch.setattr(manager, "apply_reference_fixes", lambda *a: seen.append("s1" in manager._running_sessions) or {"ok": True})
     _write(client, result)
     assert seen == [True] and "s1" not in manager._running_sessions
+
+
+def test_the_claim_is_given_back_when_the_write_raises(setup, monkeypatch):
+    manager, _, _ = setup
+    client = TestClient(create_app(manager), raise_server_exceptions=False)
+    result = _check(client)
+
+    def boom(*a):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(manager, "apply_reference_fixes", boom)
+    out = client.post("/v1/sessions/s1/artifacts/references/apply", json={"path": "paper.docx", "hash": result["hash"], "ids": []})
+    assert out.status_code == 500 and "s1" not in manager._running_sessions
+
+
+@pytest.mark.parametrize("ids", [5, "abc", [1, 2], {"a": 1}])
+def test_fix_ids_that_are_not_a_list_of_strings_are_refused(setup, monkeypatch, ids):
+    manager, _, ws = setup
+    client = _client(manager)
+    result = _check(client)
+    before = (ws / "paper.docx").read_bytes()
+    out = client.post("/v1/sessions/s1/artifacts/references/apply", json={"path": "paper.docx", "hash": result["hash"], "ids": ids})
+    assert out.status_code == 200 and out.json() == {"ok": False, "error": "bad_ids"}
+    assert (ws / "paper.docx").read_bytes() == before
+    assert "s1" not in manager._running_sessions
+
+
+def test_a_file_outside_the_folders_is_never_written(setup, tmp_path_factory):
+    manager, _, ws = setup
+    client = _client(manager)
+    result = _check(client)
+    outside = tmp_path_factory.mktemp("elsewhere") / "paper.docx"
+    (ws / "paper.docx").rename(outside)
+    before = outside.read_bytes()
+    ids = [f["id"] for r in result["entries"] for f in r["fixes"]]
+    out = client.post("/v1/sessions/s1/artifacts/references/apply", json={"path": str(outside), "hash": result["hash"], "ids": ids}).json()
+    assert out["ok"] is False and "escapes" in out["error"]
+    assert outside.read_bytes() == before
+
+
+def test_a_write_with_no_undo_point_is_refused(setup, monkeypatch):
+    manager, _, ws = setup
+    client = _client(manager)
+    result = _check(client)
+    monkeypatch.setattr(manager.get_engine("s1"), "file_recovery", None)
+    before = (ws / "paper.docx").read_bytes()
+    assert _write(client, result)["error"] == "write_failed"
+    assert (ws / "paper.docx").read_bytes() == before
 
 
 async def test_a_wake_that_arrives_during_a_write_runs_once_the_write_ends(setup):

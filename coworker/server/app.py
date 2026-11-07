@@ -898,6 +898,10 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/sessions/{session_id}/artifacts/references/apply")
     async def session_artifact_references_apply(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}
+        ids = body.get("ids") or []
+        # Coercing anything else would turn "abc" into the ids a, b and c.
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            return {"ok": False, "error": "bad_ids"}
         # The claim is taken on the event loop, where every turn takes it, so a chat turn
         # cannot start between the file-hash check and the write.
         if not manager.try_mark_running(session_id):
@@ -907,7 +911,7 @@ def create_app(manager: SessionManager) -> FastAPI:
                 manager.apply_reference_fixes,
                 session_id,
                 str(body.get("path", "")),
-                [str(i) for i in body.get("ids") or []],
+                ids,
                 str(body.get("hash", "")),
             )
         finally:
