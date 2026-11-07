@@ -230,9 +230,11 @@ export function RightRail({
   useEffect(() => {
     setContent(null);
     if (!selected) return;
+    let live = true; // a quick switch must not let the slower read land last
     readArtifact(sessionId, selected.path)
-      .then(setContent)
+      .then((c) => live && setContent(c))
       .catch(() =>
+        live &&
         setContent({
           ok: false,
           path: selected.path,
@@ -240,6 +242,9 @@ export function RightRail({
           error: "Couldn't reach MimiWork's local server to load this file.",
         }),
       );
+    return () => {
+      live = false;
+    };
   }, [selected?.path, sessionId]);
 
   // Notify the app when a preview opens/closes (drives the left-nav auto-collapse).
@@ -254,10 +259,21 @@ export function RightRail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!selected, builderVisible]);
 
+  // A caller can hold an old copy of this function: a reference write captures it when it
+  // starts, and the user may open another file before it returns. Its result then belongs
+  // to a file no longer on screen, and showing it would put A's text (and pins) under B.
+  const selectedPath = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    selectedPath.current = selected?.path;
+  }, [selected?.path]);
   const reloadSelected = () => {
-    if (!selected) return Promise.resolve();
-    setContent(null);
-    return readArtifact(sessionId, selected.path).then(setContent).catch(() => setContent(null));
+    const path = selected?.path;
+    if (!path) return Promise.resolve();
+    const show = (c: ArtifactContent | null) => {
+      if (selectedPath.current === path) setContent(c);
+    };
+    show(null);
+    return readArtifact(sessionId, path).then(show).catch(() => show(null));
   };
 
   // §34 (UX-016): [Title](artifact:path) chips in the transcript open the viewer directly.

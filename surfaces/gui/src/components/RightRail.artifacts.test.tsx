@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { RightRail } from "./RightRail";
+import { OPEN_ARTIFACT_EVENT } from "./Markdown";
 
 // Owner report 2026-08-30: "the output contains some new files, but when i click on it,
 // it is not responded." A Word/Excel/PowerPoint artifact has no in-app preview, so the
@@ -18,6 +19,7 @@ const artifacts = [
 ];
 const DOCX_HTML = '<h1 data-p="0">Findings</h1><p data-p="1">The sample consisted of twenty four interviews and two groups.</p>';
 
+const applyFixes = vi.fn(async (..._a: unknown[]) => ({ ok: true, applied: 1 }));
 const checkRefs = vi.fn(async (..._a: unknown[]) => ({ ok: false, cached: false }) as unknown);
 const REF_RESULT = {
   ok: true,
@@ -51,10 +53,12 @@ vi.mock("../api", async () => {
     commentArtifact: (...a: unknown[]) => comment(...(a as [])),
     explainArtifact: async () => ({ ok: false, cached: false }),
     checkReferences: (...a: unknown[]) => checkRefs(...a),
-    applyReferenceFixes: async () => ({ ok: true, applied: 1 }),
+    applyReferenceFixes: (...a: unknown[]) => applyFixes(...a),
     readArtifact: async (_s: string, path: string) =>
       path.endsWith(".py")
         ? { ok: true, path, kind: "code", content: "a = 1\nb = 2" }
+        : path === "other.docx"
+        ? { ok: true, path, kind: "docx", content: '<p data-p="0">The other file.</p>', paragraphs: 1 }
         : path.endsWith(".docx")
         ? { ok: true, path, kind: "docx", content: DOCX_HTML, paragraphs: 2 }
         : { ok: true, path, kind: "markdown", content: "# notes" },
@@ -171,6 +175,24 @@ describe("opening a produced file", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Write 1 fix into the Word file" }));
     await new Promise((r) => setTimeout(r, 300));
     expect(screen.getByTestId("refs-view").textContent).toContain("1 fix written as tracked changes");
+  });
+
+  it("keeps the newly opened file on screen when a write on the previous one finishes late", async () => {
+    checkRefs.mockResolvedValue(REF_RESULT);
+    let finish: (v: { ok: boolean; applied: number }) => void = () => {};
+    applyFixes.mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} onFeedback={vi.fn()} />);
+    const [row] = await screen.findAllByText("brief.docx");
+    row.closest("button")!.click();
+    await screen.findByTestId("artifact-docx");
+    fireEvent.click(screen.getByRole("tab", { name: "References" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Write 1 fix into the Word file" }));
+    window.dispatchEvent(new CustomEvent(OPEN_ARTIFACT_EVENT, { detail: { path: "other.docx" } }));
+    await waitFor(() => expect(screen.getByTestId("artifact-docx").textContent).toContain("The other file."));
+    finish({ ok: true, applied: 1 });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(screen.getByTestId("artifact-docx").textContent).toContain("The other file.");
+    expect(screen.getByTestId("artifact-docx").textContent).not.toContain("twenty four interviews");
   });
 
   it("offers no References tab on files that are not Word or PDF", async () => {
