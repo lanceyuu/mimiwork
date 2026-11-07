@@ -62,6 +62,8 @@ def test_every_crossref_request_carries_the_project_contact_never_a_user_address
         ("10.1037/ab\nc", "10.1037/abc"),
         ("see the paper", None),
         ("10.12/too-short-prefix", None),
+        ("10.1000/../../10.1234/x", None),
+        ("10.1000/./x", None),
     ],
 )
 def test_dois_are_normalised_the_way_people_print_them(raw, doi):
@@ -171,6 +173,41 @@ def test_a_doi_org_redirect_off_the_registries_is_never_followed():
     assert scholarly.formatted("10.1000/x", "apa")["error"] == "cannot_format"
 
 
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://evilcrossref.org/x",
+        "http://api.crossref.org/v1/works/10.1000%2Fx/transform",
+        "https://api.crossref.org:8765/x",
+        "https://evil.example@api.crossref.org/x",
+    ],
+)
+def test_a_redirect_that_only_looks_like_a_registry_is_never_followed(location):
+    def handler(r):
+        if r.url.host == "doi.org":
+            return httpx.Response(302, headers={"location": location})
+        return httpx.Response(200, text="elsewhere", headers={"content-type": "text/x-bibliography"})
+
+    seen = _serve(handler)
+    assert scholarly.formatted("10.1000/x", "apa")["error"] == "cannot_format"
+    assert [r.url.host for r in seen] == ["doi.org"]
+
+
+def test_the_agency_lookup_never_follows_a_redirect():
+    # Plain lookups (Crossref, doi.org/ra, OpenAlex) have no reason to be redirected; one
+    # that is would otherwise carry the request, or an OpenAlex key, wherever it points.
+    def handler(r):
+        if r.url.host == "api.crossref.org":
+            return httpx.Response(404)
+        if r.url.host == "doi.org":
+            return httpx.Response(302, headers={"location": "http://127.0.0.1:8765/v1/secret"})
+        return httpx.Response(200, json=[{"RA": "LEAKED"}])
+
+    seen = _serve(handler)
+    assert scholarly.crossref_work("10.1000/x").get("agency") != "LEAKED"
+    assert "127.0.0.1" not in [r.url.host for r in seen]
+
+
 def test_a_doi_org_redirect_to_crossref_is_followed():
     def handler(r):
         if r.url.host == "doi.org":
@@ -220,6 +257,11 @@ def test_a_spent_openalex_budget_is_the_limit_error_without_waiting():
     _serve(lambda r: httpx.Response(429, headers={"retry-after": "40000"}))
     assert scholarly.openalex_title("x")["error"] == "openalex_limit"
     assert waits == []  # the budget resets daily; waiting would only stall the check
+
+
+def test_a_payment_required_reply_from_openalex_is_the_limit_error():
+    _serve(lambda r: httpx.Response(402))
+    assert scholarly.openalex_title("x")["error"] == "openalex_limit"
 
 
 def test_no_request_url_with_a_key_reaches_the_log(caplog):

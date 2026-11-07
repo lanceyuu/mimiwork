@@ -93,15 +93,15 @@ def _get(
     headers: Optional[dict[str, str]] = None,
     paced: bool = True,
     retry_429: bool = True,
-    follow: bool = True,
 ) -> Optional[httpx.Response]:
     """One GET, retried once on 5xx (and on 429 unless told not to); None when the network
-    itself failed."""
+    itself failed. Redirects are never followed here: a DOI's registrant chooses where it
+    resolves, so only _negotiate may follow one, hop by hop, onto the registries."""
     sent = {"User-Agent": USER_AGENT, **(headers or {})}
     response: Optional[httpx.Response] = None
     for attempt in (0, 1):
         try:
-            with httpx.Client(transport=_transport, timeout=TIMEOUT, follow_redirects=follow) as client:
+            with httpx.Client(transport=_transport, timeout=TIMEOUT, follow_redirects=False) as client:
                 if paced:
                     with pace:
                         response = client.get(url, params=params, headers=sent)
@@ -150,6 +150,10 @@ def normalise_doi(raw: Any) -> Optional[str]:
         else:
             break
     doi = doi.lower()
+    # A "." or ".." segment would be collapsed by the URL layer into another path on
+    # doi.org (its resolver instead of its /ra/ API), so it is never a DOI here.
+    if any(seg in (".", "..") for seg in doi.split("/")):
+        return None
     return doi if _DOI.match(doi) else None
 
 
@@ -246,13 +250,15 @@ _REGISTRIES = ("doi.org", "crossref.org", "crosscite.org", "datacite.org")
 
 def _registry(url: httpx.URL) -> bool:
     host = url.host or ""
-    return url.scheme == "https" and any(host == h or host.endswith("." + h) for h in _REGISTRIES)
+    if url.scheme != "https" or url.port is not None or url.userinfo:
+        return False
+    return any(host == h or host.endswith("." + h) for h in _REGISTRIES)
 
 
 def _negotiate(doi: str, accept: str) -> Optional[httpx.Response]:
     url = httpx.URL(f"{DOI_ORG}/{_path(doi)}")
     for _ in range(5):
-        response = _get(str(url), headers={"Accept": accept}, follow=False)
+        response = _get(str(url), headers={"Accept": accept})
         if response is None or not response.is_redirect:
             return response
         url = url.join(response.headers.get("location", ""))
@@ -268,7 +274,10 @@ def csl_record(doi: str) -> dict[str, Any]:
     if response.status_code == 404:
         return _failed("no_such_doi")
     kind = response.headers.get("content-type", "")
-    json_reply = response.status_code == 200 and "json" in kind
+    json_reply = response.status_code == 200 and kind.split(";")[0].strip() in (
+        "application/vnd.citationstyles.csl+json",
+        "application/json",
+    )
     data = _json(response) if json_reply else None
     return {"ok": True, "record": data} if isinstance(data, dict) else _failed()
 

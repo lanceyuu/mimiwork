@@ -106,9 +106,9 @@ _UNSOURCED_TEXT = (
     "Your answer states specifics about the outside world ({examples}) but you opened no "
     "source in this turn. Before sending it, look each one up (find_papers for papers, "
     "web_search, web_fetch, kb_search) and keep only what a page you opened says, or tell "
-    "the user plainly which claims you have not verified. Never call a claim verified or confirmed unless you can "
-    "name the page you opened for it. If they all came from sources opened earlier in this "
-    "conversation, say which."
+    "the user plainly which claims you have not verified. Never call a claim verified or "
+    "confirmed unless you can name the page you opened for it. If they all came from "
+    "sources opened earlier in this conversation, say which."
 )
 
 _WRAP_UP_TEXT = (
