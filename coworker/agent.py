@@ -377,6 +377,16 @@ def build_engine(
     # passes its shared router; this fallback covers the TUI / direct build_engine() callers.
     # Resolved here (not at engine construction) because the explorer subagent captures it.
     provider = provider or ProviderRouter(secrets, default_provider="openai")
+    # The panel's reference check, asked for in chat. It reads through the session's
+    # folders and makes model calls, so it needs both, like the explorer subagents.
+    if ws is not None:
+        from .tools.references import make_check_references_tool
+
+        registry.register(
+            make_check_references_tool(
+                roots=root_list or str(ws), provider=provider, model=model, secrets=secrets
+            )
+        )
     # Code-family personas can fan broad research out to read-only explorer subagents, keeping
     # their own context for the actual change. Knowledge-work coworkers (Cowork) get the same
     # delegation, scoped to their roots.

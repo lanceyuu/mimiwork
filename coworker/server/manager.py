@@ -2185,6 +2185,8 @@ class SessionManager:
             "write_document",
             "edit_document",
             "revise_document",
+            # changes nothing, but its file belongs among the session's files
+            "check_references",
             "write_presentation",
             "write_workbook",
             "edit_workbook",
