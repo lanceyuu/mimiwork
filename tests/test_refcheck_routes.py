@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -148,6 +149,24 @@ def test_a_write_mid_turn_is_refused_and_the_claim_is_held_during_a_write(setup,
     monkeypatch.setattr(manager, "apply_reference_fixes", lambda *a: seen.append("s1" in manager._running_sessions) or {"ok": True})
     _write(client, result)
     assert seen == [True] and "s1" not in manager._running_sessions
+
+
+async def test_a_wake_that_arrives_during_a_write_runs_once_the_write_ends(setup):
+    manager, _, _ = setup
+    assert manager.try_mark_running("s1")  # the write's claim
+    await manager.deliver_to_session("s1", "Time to look at the inbox.")
+    manager.release_run_claim("s1")
+    engine = manager.get_engine("s1")
+    for _ in range(100):
+        if any(m.get("content") == "Time to look at the inbox." for m in engine.messages):
+            break
+        await asyncio.sleep(0.02)
+    assert any(m.get("content") == "Time to look at the inbox." for m in engine.messages)
+    for _ in range(100):
+        if "s1" not in manager._running_sessions:
+            break
+        await asyncio.sleep(0.02)
+    assert "s1" not in manager._running_sessions
 
 
 def test_a_changed_file_is_refused(setup):

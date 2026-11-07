@@ -233,6 +233,8 @@ class SessionManager:
         # Sessions with an auto-title LLM call in flight (FB-010) — one call at a time.
         self._autotitle_inflight: set[str] = set()
         self._autotitle_tasks: set[asyncio.Task] = set()
+        # Turns started to deliver what was queued while a non-turn claim held the session.
+        self._drain_tasks: set[asyncio.Task] = set()
         self._autotitle_attempts: dict[str, int] = {}
         # Sessions whose title has already been redone from what they produced. Once
         # each: a title the user has grown used to should not keep moving.
@@ -2771,12 +2773,31 @@ class SessionManager:
     def release_run_claim(self, session_id: str) -> None:
         """Give back a claim taken with try_mark_running for work that is not a turn,
         without the "finished" bell and unseen dot that mark_idle adds."""
-        # ponytail: a message typed during the write (under a second) is queued as steering
-        # for a turn that is not running, and waits for the next turn; deliver the queue
-        # here if that ever shows up in use.
         self._running_sessions.pop(session_id, None)
         self._session_progress.pop(session_id, None)
         self._announce_activity()
+        # While the claim was held, a self-wake, a Slack or channel message, or a message
+        # the user typed found the session busy and was queued as steering for a turn that
+        # is not running. Left there, it waits until the user next speaks; deliver it now,
+        # as a turn's end delivers its own leftovers.
+        engine = self._engines.get(session_id)
+        if engine is None or not engine._steering:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return  # a sync caller has no loop to run a turn on; the queue waits as before
+        pending, engine._steering = engine._steering, []
+        engine._steer_signal.clear()
+
+        async def deliver() -> None:
+            for text, source in pending:
+                await self.deliver_to_session(session_id, text, source=source)
+
+        # Retained: the loop holds only a weak ref to a task.
+        task = loop.create_task(deliver())
+        self._drain_tasks.add(task)
+        task.add_done_callback(self._drain_tasks.discard)
 
     def apply_reference_fixes(
         self, session_id: str, path: str, ids: list[str], digest: str
