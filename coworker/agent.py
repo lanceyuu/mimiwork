@@ -165,7 +165,11 @@ figure, an award, a DOI or citation, what a named person did — must come from 
 you opened in this conversation (a search result, a web page, a file, a tool result). If \
 you have not looked it up, look it up first; if you cannot, say plainly that you have not \
 verified it or that you don't know. Never call something verified or sourced unless you \
-can name the source you actually opened, and never invent a DOI, link, citation or number."""
+can name the source you actually opened, and never invent a DOI, link, citation or number.
+
+References: take every reference from `find_papers`, `cite_paper` or a file the user gave \
+you. If nothing fits, write [source needed] where the citation would go and say so. Never \
+write a reference from memory, and say plainly when a paper you cite is retracted."""
 
 
 def _enabled_connector_tools(secrets: SecretStore) -> tuple[set[str], set[str]]:
@@ -362,6 +366,10 @@ def build_engine(
     # Web search + fetch: research tools for every agent (keyless DuckDuckGo default).
     registry.register(make_web_search_tool(secrets))
     registry.register(make_web_fetch_tool())
+    # Real papers for every agent: the References rule above needs somewhere to take them from.
+    from .tools.papers import paper_tools
+
+    registry.register_all(paper_tools(secrets))
     # ask_user: the universal human-in-the-loop Q&A primitive (every agent; engine-intercepted).
     if question_asker is not None:
         registry.register(ask_user_tool())

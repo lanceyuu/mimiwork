@@ -301,3 +301,19 @@ def test_creating_an_automation_does_not_read_as_reaching_across_systems():
     from coworker.fivea import classify_turn
 
     assert classify_turn(tools=["create_scheduled_task", "update_scheduled_task"]) == "Automation"
+
+
+def test_a_paper_search_counts_as_research_like_a_web_search():
+    t = TimeSaved()
+    t.add_call("find_papers", {"query": "x"}, {})
+    t.add_call("cite_paper", {"doi": "10.1000/a"}, {})
+    assert t.human_minutes == 6.0
+
+
+def test_a_reference_check_counts_two_minutes_per_reference_up_to_the_per_call_cap():
+    t = TimeSaved()
+    t.add_call("check_references", {"path": "a.docx"}, {"counts": {"total": 10}})
+    assert t.human_minutes == 20.0
+    long = TimeSaved()
+    long.add_call("check_references", {"path": "a.docx"}, {"counts": {"total": 40}})
+    assert long.human_minutes == 45.0  # MAX_MINUTES_PER_CALL keeps one call from dominating

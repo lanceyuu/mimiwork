@@ -126,3 +126,21 @@ def test_cite_paper_says_plainly_when_a_doi_does_not_exist():
 def test_paper_tools_never_ask_for_approval():
     for tool in _tools():
         assert tool.__aisuite_tool_metadata__.requires_approval is False
+
+
+def test_every_persona_gets_the_paper_tools_and_the_references_rule(tmp_path):
+    from coworker.agent import _REPLY_GUIDANCE
+    from coworker.server import SessionManager
+
+    manager = SessionManager(workspace=tmp_path)
+    engine = manager.get_engine("s1", workspace=str(tmp_path))
+    names = set(engine.registry.names())
+    assert {"find_papers", "cite_paper"} <= names
+    assert "[source needed]" in _REPLY_GUIDANCE
+    assert "Never write a reference from memory" in _REPLY_GUIDANCE
+
+
+def test_the_unsourced_facts_nudge_points_at_find_papers():
+    from coworker.engine import _UNSOURCED_TEXT
+
+    assert "find_papers" in _UNSOURCED_TEXT

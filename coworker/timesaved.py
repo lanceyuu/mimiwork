@@ -44,6 +44,7 @@ MIN_PER_EDIT = 2.0  # find the passage, revise it, keep the formatting
 MIN_PER_SLIDE = 6.0  # content, layout and speaker notes (15 is typical)
 MIN_PER_ANALYSIS = 8.0  # write the code, run it, fix it, read the output
 MIN_PER_CHART = 6.0  # build it, label it, make it presentable
+MIN_PER_REFERENCE = 2.0  # looking one reference up by hand and comparing it with the record
 MIN_PER_SEARCH = 3.0  # search, open results, decide what's useful
 MIN_PER_100_ROWS = 0.4  # spreadsheet rows entered or transformed
 MIN_PER_SHEET = 2.0  # a sheet set up with headers and formats
@@ -195,8 +196,10 @@ def estimate_call(tool: str, args: Optional[dict], result: Any) -> tuple[str, fl
         return "Analysis", blocks * MIN_PER_ANALYSIS + charts * MIN_PER_CHART
 
     # ── web ──
-    if name in ("web_search", "browser_read_url", "web_fetch"):
+    if name in ("web_search", "browser_read_url", "web_fetch", "find_papers", "cite_paper"):
         return "Research", MIN_PER_SEARCH
+    if name == "check_references":
+        return "Research", max(_num((res.get("counts") or {}).get("total")), 1.0) * MIN_PER_REFERENCE
 
     # ── files and shell ──
     if name in ("read_file", "read_lines"):
