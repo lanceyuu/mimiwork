@@ -3,6 +3,7 @@ import { LANGS, getLang, setLang, useT } from "../i18n";
 import { setLanguage as apiSetLanguage } from "../api";
 import {
   getGlobalInstructions,
+  getScholarly,
   setGlobalInstructions,
   getSettings,
   getTrustedWorkspaces,
@@ -10,6 +11,7 @@ import {
   setContextBar,
   setOnboarded,
   setPdfSettings,
+  setScholarly,
   setScratchBase,
   setDefaultFolder,
   setSessionsPeek,
@@ -32,6 +34,7 @@ import {
   isTauri,
   listenDictationDownloadProgress,
   markDictationTestPassed,
+  openExternal,
   pickFolder,
   platformOS,
   readServerLog,
@@ -215,6 +218,7 @@ export function SettingsView({
               {/* Token savings is model-spend behavior, so it lives here (UX-021),
                   not under General. */}
               <div className="mt-6">
+                <PaperSearchCard />
                 <TokenSavingsCard />
                 <CompactionCard />
               </div>
@@ -862,6 +866,75 @@ export function DiagnosticLog() {
 // setCloudTelemetry API stays for a future opt-out surface.
 
 // -- Sidebar density -------------------------------------------------------------
+// -- Paper search (spec 2026-11-07) -----------------------------------------------
+// The OpenAlex key raises the free daily limit that a whole campus network otherwise
+// shares. The sidecar never sends it back, so the field is always empty.
+export function PaperSearchCard() {
+  const t = useT();
+  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    getScholarly()
+      .then((r) => setHasKey(!!r.has_key))
+      .catch(() => setHasKey(false));
+  }, []);
+
+  const save = async (value: string) => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const r = await setScholarly(value);
+      setHasKey(!!r.has_key);
+      setKey("");
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (hasKey === null) return null;
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="paper-search-card">
+      <div className={FIELD_LABEL}>{t("Paper search")}</div>
+      <div className={FIELD_HELP}>
+        {hasKey
+          ? t("Using your OpenAlex key.")
+          : t("No key: a small free daily limit shared with your network. Paper searches and reference checks both use it.")}
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="password"
+          autoComplete="off"
+          aria-label={t("OpenAlex key")}
+          placeholder={t("OpenAlex key")}
+          value={key}
+          className="flex-1 px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent"
+          onChange={(e) => setKey(e.target.value)}
+        />
+        <button className="btn sm" disabled={busy || !key.trim()} onClick={() => void save(key.trim())}>
+          {t("Save")}
+        </button>
+        {hasKey && (
+          <button className="btn sm" disabled={busy} onClick={() => void save("")}>
+            {t("Remove")}
+          </button>
+        )}
+      </div>
+      <div className={FIELD_HELP}>
+        <button className="text-accent hover:underline" onClick={() => openExternal("https://openalex.org/settings/api")}>
+          {t("Create a free key")}
+        </button>{" "}
+        · {t("The key is stored only on this computer.")}
+      </div>
+      {failed && <div className="rail-error">{t("Couldn't save the key. Try again.")}</div>}
+    </div>
+  );
+}
+
 // -- Token savings (PDF attachments; owner ask, 2026-07-17) ---------------------
 // Attachments replay with EVERY turn, so a big PDF quietly multiplies token spend.
 // This card is the attachment dial: attach thresholds + the fallback for models
