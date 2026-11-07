@@ -367,6 +367,36 @@ def _text_run(text: str, rpr: Any) -> Any:
     return run
 
 
+def _live_runs(p: Any) -> list[Any]:
+    from docx.oxml.ns import qn
+
+    # Live runs = direct children plus runs inside earlier <w:ins> (a second revision of the
+    # same paragraph revises the previously inserted text); runs already under <w:del> stay.
+    return [
+        r
+        for r in p.iter(qn("w:r"))
+        if r.getparent() is p or r.getparent().tag == qn("w:ins")
+    ]
+
+
+def word_level_ok(para: Any, new_text: str) -> bool:
+    """Whether _track_replacement marks only the changed words, keeping each run's
+    formatting, instead of replacing the paragraph whole."""
+    # ponytail: entries with links, tabs or symbols are suggestion-only until
+    # _track_replacement splits runs inside w:hyperlink, w:smartTag, w:fldSimple and
+    # w:customXml, and keeps tabs.
+    from docx.oxml.ns import qn
+
+    runs = _live_runs(para._element)
+    # Only runs made of text can be split at a word. Anything else in a run (a tab, a
+    # break, a picture, a field), or text outside the live runs (a hyperlink), means the
+    # paragraph is replaced whole.
+    if not runs or not all(child.tag in (qn("w:rPr"), qn("w:t")) for r in runs for child in r):
+        return False
+    old_text = "".join((t.text or "") for r in runs for t in r.findall(qn("w:t")))
+    return old_text == _para_text(para) and _word_ops(old_text, new_text) is not None
+
+
 def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> int:
     """Mark how the paragraph's text differs from `new_text` as tracked changes, word by
     word. Returns the next free revision id."""
@@ -375,23 +405,9 @@ def _track_replacement(para: Any, new_text: str, *, rev_id: int, stamp: str) -> 
     from docx.oxml.ns import qn
 
     p = para._element
-    # Live runs = direct children plus runs inside earlier <w:ins> (a second revision of the
-    # same paragraph revises the previously inserted text); runs already under <w:del> stay.
-    runs = [
-        r
-        for r in p.iter(qn("w:r"))
-        if r.getparent() is p or r.getparent().tag == qn("w:ins")
-    ]
-    # Only runs made of text can be split at a word. Anything else in a run (a tab, a
-    # break, a picture, a field), or text outside the live runs (a hyperlink), falls back
-    # to replacing the paragraph whole — what the old code always did.
-    simple = all(
-        child.tag in (qn("w:rPr"), qn("w:t")) for r in runs for child in r
-    )
+    runs = _live_runs(p)
     old_text = "".join((t.text or "") for r in runs for t in r.findall(qn("w:t")))
-    ops = None
-    if runs and simple and old_text == _para_text(para):
-        ops = _word_ops(old_text, new_text)
+    ops = _word_ops(old_text, new_text) if word_level_ok(para, new_text) else None
     if ops is None:
         ops = [("replace", 0, len(old_text), 0, len(new_text))] if runs else [
             ("insert", 0, 0, 0, len(new_text))
@@ -507,6 +523,45 @@ def _list_revisions(document: Any) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def apply_tracked_revisions(target: Any, edits: list) -> dict[str, Any]:
+    """Write `edits` ({index, text, reason}) into the .docx at `target` as tracked changes.
+    The one writer behind revise_document and the References panel's Write button."""
+    docx = require("docx", "python-docx")
+    if not isinstance(edits, list) or not edits:
+        raise ValueError("'edits' must be a non-empty list")
+    document = docx.Document(str(target))
+    indexed = _indexed_blocks(document)
+    next_id = _next_revision_id(document)
+    stamp = _revision_stamp()
+    changes: list[dict[str, Any]] = []
+    for edit in edits:
+        if not isinstance(edit, dict):
+            raise ValueError("each edit must be an object with 'index' and 'text'")
+        index = edit.get("index")
+        if not isinstance(index, int) or not 0 <= index < len(indexed):
+            raise ValueError(
+                f"block index {index!r} is out of range (document has {len(indexed)} blocks)"
+            )
+        para = indexed[index]
+        if para is None:
+            raise ValueError(f"block {index} is a table; revise_document only revises text blocks")
+        before = _para_text(para)
+        after = str(edit.get("text") or "")
+        if before == after:
+            continue  # nothing to track
+        next_id = _track_replacement(para, after, rev_id=next_id, stamp=stamp)
+        changes.append(
+            {
+                "index": index,
+                "before": clip(before, 400),
+                "after": clip(after, 400),
+                "reason": str(edit.get("reason") or "").strip(),
+            }
+        )
+    document.save(str(target))
+    return {"applied": len(changes), "changes": changes}
 
 
 def docx_tools(context: Any) -> list:
@@ -647,48 +702,14 @@ def docx_tools(context: Any) -> list:
 
     @guard
     def revise_document(path: str, edits: list) -> dict[str, Any]:
-        docx = require("docx", "python-docx")
+        require("docx", "python-docx")
         target = resolve_write(path, roots)
         if not target.is_file():
             raise FileNotFoundError(display_path(target, roots))
-        if not isinstance(edits, list) or not edits:
-            raise ValueError("'edits' must be a non-empty list")
-
-        document = docx.Document(str(target))
-        indexed = _indexed_blocks(document)
-        next_id = _next_revision_id(document)
-        stamp = _revision_stamp()
-        changes: list[dict[str, Any]] = []
-        for edit in edits:
-            if not isinstance(edit, dict):
-                raise ValueError("each edit must be an object with 'index' and 'text'")
-            index = edit.get("index")
-            if not isinstance(index, int) or not 0 <= index < len(indexed):
-                raise ValueError(
-                    f"block index {index!r} is out of range (document has {len(indexed)} blocks)"
-                )
-            para = indexed[index]
-            if para is None:
-                raise ValueError(f"block {index} is a table; revise_document only revises text blocks")
-            before = _para_text(para)
-            after = str(edit.get("text") or "")
-            if before == after:
-                continue  # nothing to track
-            next_id = _track_replacement(para, after, rev_id=next_id, stamp=stamp)
-            changes.append(
-                {
-                    "index": index,
-                    "before": clip(before, 400),
-                    "after": clip(after, 400),
-                    "reason": str(edit.get("reason") or "").strip(),
-                }
-            )
-
-        document.save(str(target))
+        result = apply_tracked_revisions(target, edits)
         return {
             "path": display_path(target, roots),
-            "applied": len(changes),
-            "changes": changes,
+            **result,
             "note": (
                 "Changes are tracked — the user accepts or rejects them in Word "
                 "(Review ▸ Track Changes). Tell the user what changed and why, in plain language."

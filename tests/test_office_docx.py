@@ -284,3 +284,54 @@ def test_revise_document_rejects_tables_and_bad_indexes(tools):
     )
     assert "table" in revise("t.docx", [{"index": 1, "text": "x"}])["error"]
     assert "out of range" in revise("t.docx", [{"index": 9, "text": "x"}])["error"]
+
+
+def _hyperlinked(paragraph, text):
+    """A run inside w:hyperlink, the way Word stores a clickable DOI."""
+    from docx.oxml import OxmlElement
+
+    link = OxmlElement("w:hyperlink")
+    run = OxmlElement("w:r")
+    t = OxmlElement("w:t")
+    t.text = text
+    run.append(t)
+    link.append(run)
+    paragraph._p.append(link)
+
+
+def test_a_plain_paragraph_takes_word_level_changes_and_a_linked_one_does_not(tmp_path):
+    import docx
+
+    from coworker.tools.office.docx_tools import word_level_ok
+
+    document = docx.Document()
+    plain = document.add_paragraph("Baumiester, R. (1998). The self. https://doi.org/10.1000/a")
+    linked = document.add_paragraph("Baumeister, R. (1998). The self. ")
+    _hyperlinked(linked, "https://doi.org/10.1000/a")
+    assert word_level_ok(plain, "Baumeister, R. (1998). The self. https://doi.org/10.1000/a")
+    assert not word_level_ok(linked, "Baumeister, R. (1998). The self. https://doi.org/10.1000/b")
+    assert not word_level_ok(plain, "Completely different words")  # no shared word: whole paragraph
+
+
+def test_tracked_revisions_can_be_written_without_the_tool(tmp_path):
+    import docx
+
+    from coworker.tools.office.docx_tools import (
+        _indexed_blocks,
+        _para_text,
+        apply_tracked_revisions,
+    )
+
+    path = tmp_path / "refs.docx"
+    document = docx.Document()
+    document.add_paragraph("References")
+    document.add_paragraph("Baumiester, R. (1998). The self. https://doi.org/10.1000/a")
+    document.save(path)
+    out = apply_tracked_revisions(
+        path,
+        [{"index": 1, "text": "Baumeister, R. (1998). The self. https://doi.org/10.1000/b", "reason": "Corrected."}],
+    )
+    assert out["applied"] == 1
+    reopened = docx.Document(str(path))
+    assert _para_text(_indexed_blocks(reopened)[1]) == "Baumeister, R. (1998). The self. https://doi.org/10.1000/b"
+    assert "<w:delText" in _xml(tmp_path, "refs.docx")
