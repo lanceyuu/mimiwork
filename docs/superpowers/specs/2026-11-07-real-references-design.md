@@ -379,7 +379,7 @@ files. The chat tool never writes fixes; the panel button does, or Mimi uses the
     the file in Word first, or Word will overwrite the fixes when it saves. If Word is
     closed, open and close the file once to clear the leftover lock."
 - **Mid-turn guard without a race.** The route takes the session's running mark
-  (`manager.try_mark_running`) for the whole write and releases it with `mark_idle`, so a
+  (`manager.try_mark_running`) for the whole write and releases it with `release_run_claim` (not `mark_idle`, which rings the "finished" bell), so a
   chat turn cannot start between the check and the write. If the mark is taken, it
   refuses with the "wait" message.
 - **Several fixes on one paragraph** (a surname and a DOI) are grouped: their spans are
