@@ -21,6 +21,7 @@ const GROUPS: { key: RefEntry["group"]; label: string }[] = [
 
 const ERRORS: Record<string, string> = {
   scan: "This PDF is a scan with no text Mimi can read.",
+  password: "This PDF is password-protected. Remove the password and try again.",
   no_list: "Mimi couldn't find a reference list in this file.",
   read_failed: "Couldn't read the reference list. Try again.",
   unreadable: "Mimi couldn't open this file.",
@@ -62,6 +63,11 @@ export function describeCode(c: RefCode, t: Tr): string {
       return p.book
         ? fill(t("The record is from {years}: possibly another edition."), { years })
         : fill(t("The year differs from the record ({years})."), { years });
+    case "year_other_work":
+      return fill(t("A record with this title and author is from {years} in {container}, perhaps a review or another edition; the year was not compared."), {
+        years,
+        container: String(p.container ?? ""),
+      });
     case "year_differs":
       return fill(t("The record's year is {years}, often a preprint or online-first year."), { years });
     case "concern":

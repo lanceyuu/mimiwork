@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ReferencesView } from "./ReferencesView";
+import { ReferencesView, describeCode } from "./ReferencesView";
 import type { RefCheck, RefEntry } from "../api";
+import { setLang, tr } from "../i18n";
 
 // The References tab (spec 2026-11-07): nothing runs before a click, and a fix Mimi
 // cannot write safely is shown for the researcher to copy.
@@ -152,5 +153,35 @@ describe("the References tab", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Check again" }));
     await waitFor(() => expect(check).toHaveBeenLastCalledWith("s1", "paper.docx", { fresh: true }));
     expect(await screen.findByText("Couldn't read the reference list. Try again.")).toBeTruthy();
+  });
+
+  it("says a password-protected PDF needs its password removed", async () => {
+    check.mockResolvedValueOnce({ ok: false, cached: false }).mockResolvedValueOnce({ ok: false, error: "password" });
+    view(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Check references" }));
+    expect(await screen.findByText("This PDF is password-protected. Remove the password and try again.")).toBeTruthy();
+  });
+
+  it("explains a year taken from another work under the same title without calling it wrong", () => {
+    const text = describeCode({ code: "year_other_work", params: { years: [1999], container: "Personnel Psychology" } }, (s) => s);
+    expect(text).toBe(
+      "A record with this title and author is from 1999 in Personnel Psychology, perhaps a review or another edition; the year was not compared.",
+    );
+  });
+
+  it("translates the password and other-work notes into every language", () => {
+    const strings = [
+      "This PDF is password-protected. Remove the password and try again.",
+      "A record with this title and author is from {years} in {container}, perhaps a review or another edition; the year was not compared.",
+    ];
+    try {
+      for (const lang of ["zh", "no", "fr", "es", "ja", "ar", "de", "pt"] as const) {
+        setLang(lang);
+        for (const s of strings) expect(tr(s)).not.toBe(s);
+        expect(tr(strings[1])).toMatch(/\{years\}[\s\S]*\{container\}|\{container\}[\s\S]*\{years\}/);
+      }
+    } finally {
+      setLang("en");
+    }
   });
 });
