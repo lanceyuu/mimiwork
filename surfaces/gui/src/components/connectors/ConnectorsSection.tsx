@@ -18,6 +18,7 @@ import { GmailDetail } from "./GmailDetail";
 import { HubSpotDetail } from "./HubSpotDetail";
 import { SlackDetail } from "./SlackDetail";
 import { GRP } from "./ui";
+import { ReportProblem } from "../ReportProblem";
 
 // Connectors surface = LIST ⇄ per-connector DETAIL SUBPAGE (UX-DECISIONS §21). The
 // Integrations sub-nav never grows per-connector items; detail pages live behind a
@@ -150,7 +151,7 @@ function GenericDetail({
         )}
       </div>
 
-      {c.mcp_error && <div className="text-[12.5px] text-danger mb-3">{c.mcp_error}</div>}
+      {c.mcp_error && <div className="text-[12.5px] text-danger mb-3">{c.mcp_error}<ReportProblem error={c.mcp_error} context="connectors" /></div>}
       {connecting && <AddConnectionModal c={c} onChanged={onChanged} onClose={() => setConnecting(false)} />}
 
       {c.mode === "mcp" && !c.tools.length ? (

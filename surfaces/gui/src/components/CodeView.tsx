@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { explainArtifact, type CodeNotes } from "../api";
 import { useT } from "../i18n";
+import { ReportProblem } from "./ReportProblem";
 
 // A script read as research steps, for someone who does not read code (spec 2026-11-06).
 // The code is never hidden, only folded: a note that a non-coder cannot check against
@@ -128,7 +129,7 @@ export function CodeView({
           <button className="btn sm" disabled={pending} onClick={() => void explain()}>
             {pending ? t("Explaining…") : t("Explain this script")}
           </button>
-          {failed && <p className="rail-error">{t("Couldn't write notes for this file. Try again.")}</p>}
+          {failed && <p className="rail-error">{t("Couldn't write notes for this file. Try again.")}<ReportProblem error={"Couldn't write notes for this file."} context="code view" /></p>}
         </div>
       ) : (
         <ol className="code-steps">

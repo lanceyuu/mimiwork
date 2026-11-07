@@ -22,6 +22,7 @@ import {
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { useT } from "../i18n";
+import { ReportProblem } from "./ReportProblem";
 
 const EMOJIS = [
   "📁", "🎓", "📊", "📝", "🧪", "💼", "🎯", "📚",
@@ -308,6 +309,7 @@ export function ProjectView(props: {
           {deleteError && (
             <div className="mt-2 text-[12px] text-danger" data-testid="project-delete-error">
               {deleteError}
+              <ReportProblem error={deleteError} context="delete project" />
             </div>
           )}
         </section>

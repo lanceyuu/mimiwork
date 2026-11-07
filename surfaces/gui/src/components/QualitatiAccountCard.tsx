@@ -38,6 +38,7 @@ import {
 } from "../api";
 import mimiMark from "../assets/mimi/mimi-line.png";
 import { openExternal } from "../tauri";
+import { ReportProblem } from "./ReportProblem";
 
 // Password policy mirrors QualiTaTi's server rule (auth.validate_password_complexity) so the
 // form can say no BEFORE a round trip; the server's own message is still shown if it disagrees.
@@ -337,7 +338,7 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
             >
               {reconnecting ? "Connecting…" : "Connect the models"}
             </button>
-            {reconnectError && <span className="text-danger/90">{reconnectError}</span>}
+            {reconnectError && <span className="text-danger/90">{reconnectError}<ReportProblem error={reconnectError} context="qualitati models" /></span>}
           </div>
         </div>
       ) : null}
@@ -752,6 +753,7 @@ export function QualitatiAccountCard({ onChanged, site = "global" }: { onChanged
       {error && (
         <div className="mt-1.5 text-[12px] text-danger" data-testid={tid("qualitati-error")}>
           {error}
+          <ReportProblem error={error} context="qualitati account" />
         </div>
       )}
     </div>

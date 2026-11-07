@@ -12,6 +12,7 @@ import { useT } from "../../i18n";
 import { openExternal } from "../../tauri";
 import { Toggle } from "../Toggle";
 import { CHIP_OFF, CHIP_OK, CHIP_WARN, FOOT, GRP, PILL_ACCENT, PILL_LINE, ROW } from "./ui";
+import { ReportProblem } from "../ReportProblem";
 
 // Claude Code, Codex, opencode, Cursor and Gemini CLI, connected like any other tool: installed where, signed in as whom,
 // a real test call, and the model and effort Mimi's hand-offs will use. Delegation reads the
@@ -234,6 +235,7 @@ function AgentCard({
           data-testid="coding-agent-error"
         >
           {a.error}
+          <ReportProblem error={a.error} context="coding agents" />
         </div>
       )}
 
@@ -304,7 +306,7 @@ function AgentCard({
                     )}
                   </div>
                 )}
-                {signIn?.error && <div className="text-danger">{signIn.error}</div>}
+                {signIn?.error && <div className="text-danger">{signIn.error}<ReportProblem error={signIn.error} context="coding agents" /></div>}
                 <div className="text-faint">
                   {t("Or run this in a terminal:")} <Command text={a.sign_in_command} />
                 </div>
@@ -383,13 +385,13 @@ function AgentCard({
             ))}
           </select>
           {saved && <span className="text-[12px] text-ok">{t("Saved")}</span>}
-          {saveError && <span className="text-[12px] text-danger">{saveError}</span>}
+          {saveError && <span className="text-[12px] text-danger">{saveError}<ReportProblem error={saveError} context="coding agents" /></span>}
         </div>
         )}
         {efforts.length === 0 && (saved || saveError) && (
           <div className={ROW}>
             {saved && <span className="text-[12px] text-ok">{t("Saved")}</span>}
-            {saveError && <span className="text-[12px] text-danger">{saveError}</span>}
+            {saveError && <span className="text-[12px] text-danger">{saveError}<ReportProblem error={saveError} context="coding agents" /></span>}
           </div>
         )}
 

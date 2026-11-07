@@ -24,6 +24,7 @@ import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
 import type { Attachment } from "../types";
 import { Markdown, OPEN_ARTIFACT_EVENT, REVEAL_ARTIFACT_EVENT } from "./Markdown";
+import { ReportProblem } from "./ReportProblem";
 
 type Panel = "progress" | "artifacts" | "recovery" | "agents";
 // The conversation is coordinating coding agents once Mimi has proposed a hand-off; the
@@ -507,7 +508,7 @@ export function RightRail({
                   >
                     {restoring ? t("Restoring…") : t("Undo latest file changes")}
                   </button>
-                  {recoveryError && <div className="recovery-error">{recoveryError}</div>}
+                  {recoveryError && <div className="recovery-error">{recoveryError}<ReportProblem error={recoveryError} context="undo file changes" /></div>}
                 </div>
               ) : (
                 <div className="rail-muted">{t("The available file changes have already been restored.")}</div>
@@ -932,7 +933,7 @@ function ArtifactViewer({
           {!content ? (
             <div className="rail-muted">Loading…</div>
           ) : content.error ? (
-            <div className="rail-error">{content.error}</div>
+            <div className="rail-error">{content.error}<ReportProblem error={content.error} context="file preview" /></div>
           ) : content.kind === "html" ? (
             <iframe
               key={`${artifact.path}-${reloadKey}`}
@@ -1279,7 +1280,7 @@ function PdfViewer({ dataUrl }: { dataUrl: string }) {
     };
   }, [dataUrl]);
 
-  if (error) return <div className="rail-error artifact-table-note">Could not render PDF: {error}</div>;
+  if (error) return <div className="rail-error artifact-table-note">Could not render PDF: {error}<ReportProblem error={`Could not render PDF: ${error}`} context="file preview" /></div>;
   return (
     <div className="artifact-pdfjs">
       {loading && <div className="rail-muted artifact-table-note">Rendering PDF…</div>}
@@ -1316,7 +1317,7 @@ function SheetViewer({ dataUrl }: { dataUrl: string }) {
     };
   }, [dataUrl]);
 
-  if (error) return <div className="rail-error artifact-table-note">Could not parse spreadsheet: {error}</div>;
+  if (error) return <div className="rail-error artifact-table-note">Could not parse spreadsheet: {error}<ReportProblem error={`Could not parse spreadsheet: ${error}`} context="file preview" /></div>;
   if (!sheets) return <div className="rail-muted artifact-table-note">Parsing spreadsheet…</div>;
   const sheet = sheets[active];
   return (

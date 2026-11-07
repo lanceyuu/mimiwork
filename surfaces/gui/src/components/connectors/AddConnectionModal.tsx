@@ -7,6 +7,7 @@ import { ConnectorBadge } from "../../connectors/ConnectorIcon";
 import { ConnectSetup } from "../ManageTabs";
 import { PILL_LINE } from "./ui";
 import { McpOneClick } from "./McpOneClick";
+import { ReportProblem } from "../ReportProblem";
 
 // The ONE place a connection gets added (UX-DECISIONS §21): the detail page's header
 // button (or the list's Connect pill) opens this sheet. Connectors with two connect
@@ -140,7 +141,7 @@ function SlackManual({ onConnected }: { onConnected: () => void }) {
       <button className={PILL_LINE + " w-full !py-2"} onClick={submit} disabled={busy || !bot.trim() || !app.trim()}>
         {busy ? "Validating…" : "Connect"}
       </button>
-      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      {error && <div className="text-[12.5px] text-danger">{error}<ReportProblem error={error} context="connectors" /></div>}
       <p className="text-[12px] text-warnInk text-center">
         One mode at a time — this pauses any relay workspaces.
       </p>

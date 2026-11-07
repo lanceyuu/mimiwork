@@ -27,6 +27,7 @@ import {
   stopDictation,
   type DictationStatus,
 } from "../tauri";
+import { ReportProblem } from "./ReportProblem";
 
 // Three modes, in escalating order — ⇧⇥ cycles them, like Claude Code. Kept to three on
 // purpose (owner ask 2026-08-23: the four-row menu read as complex): Plan takes the slot
@@ -916,6 +917,7 @@ export function Composer(props: Props) {
         {commandError && (
           <div className="px-3.5 pt-2 text-[12px] text-danger" data-testid="command-error">
             {commandError}
+            <ReportProblem error={commandError} context="slash command" />
           </div>
         )}
         <textarea
