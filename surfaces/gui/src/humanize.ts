@@ -90,6 +90,12 @@ export function humanizeTool(name: string, args: any): HumanLine {
     }
     case "web_search":
       return { pre: "Searched the web — ", obj: `“${trunc(String(a.query ?? ""), 60)}”` };
+    case "find_papers":
+      return { pre: "Searched for papers — ", obj: `“${trunc(String(a.query ?? ""), 60)}”` };
+    case "cite_paper":
+      return { pre: "Looked up a reference — ", obj: String(a.doi ?? "") };
+    case "check_references":
+      return { pre: "Checked the references in ", obj: String(a.path ?? "").split("/").pop() || "" };
     case "web_fetch": {
       let host = String(a.url ?? "");
       try {
@@ -223,6 +229,9 @@ const STEP_KINDS: Record<string, [string, string] | [string]> = {
   grep: ["searched the code"],
   git_log: ["searched the code"],
   web_search: ["searched the web"],
+  find_papers: ["searched for papers"],
+  cite_paper: ["looked up a reference", "looked up {n} references"],
+  check_references: ["checked a reference list", "checked {n} reference lists"],
   web_fetch: ["read a web page", "read {n} web pages"],
   load_skill: ["used a skill", "used {n} skills"],
   explore: ["sent a sub-agent", "sent {n} sub-agents"],

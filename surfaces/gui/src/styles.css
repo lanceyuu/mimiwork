@@ -798,6 +798,28 @@ button.btn.danger { color: var(--accent); }
 .code-line { display: flex; white-space: pre; }
 /* Line numbers stay out of a copied selection: researchers paste these lines elsewhere. */
 .code-ln { flex: 0 0 3.2em; padding-right: 10px; text-align: right; color: var(--muted); user-select: none; }
+/* References tab (spec 2026-11-07) */
+.refs-view { padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; font-size: 13px; color: var(--ink); }
+.refs-empty { align-items: flex-start; }
+.refs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.refs-dim { color: var(--muted); font-size: 12px; }
+.refs-summary { font-weight: 500; }
+.refs-banner { padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); }
+.refs-group { display: flex; flex-direction: column; gap: 6px; }
+.refs-group-head { font-size: 12.5px; font-weight: 600; color: var(--ink); margin: 6px 0 0; text-align: left; }
+.refs-fold { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; font-size: 12.5px; font-weight: 600; }
+.refs-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.refs-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 4px; }
+.refs-item.refs-retracted { border-left: 3px solid var(--danger); }
+.refs-item.refs-fix { border-left: 3px solid var(--accent); }
+.refs-entry { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
+.refs-note { color: var(--muted); font-size: 12.5px; }
+label.refs-fix { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; cursor: pointer; }
+.refs-suggestion { border-top: 1px dashed var(--line); padding-top: 6px; font-size: 12.5px; }
+.refs-suggestion-label { color: var(--muted); }
+.refs-suggestion-text { font-family: inherit; color: var(--ink); margin: 2px 0; word-break: break-word; }
+.refs-links { display: flex; gap: 12px; font-size: 12.5px; }
+.refs-actions { position: sticky; bottom: 0; padding-top: 8px; background: var(--paper); }
 /* Non-previewable binaries (Office docs): a centered prompt to open in the default app. */
 .artifact-open-prompt {
   height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;

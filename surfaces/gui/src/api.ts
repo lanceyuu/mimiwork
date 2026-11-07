@@ -272,6 +272,92 @@ export async function explainArtifact(sessionId: string, path: string, cachedOnl
   return res.json();
 }
 
+export interface RefCode {
+  code: string;
+  params: Record<string, unknown>;
+}
+
+export interface RefFix {
+  id: string;
+  kind: "replace_doi" | "add_doi" | "replace_surname";
+  new: string; // the replacement value
+  after: string; // the whole entry with this fix applied, for Copy
+  writable: boolean;
+  ticked: boolean;
+}
+
+export interface RefEntry {
+  id: string;
+  paragraph: number | null;
+  text: string;
+  title: string | null;
+  group: "retracted" | "fix" | "not_found" | "couldnt" | "verified";
+  codes: RefCode[];
+  record: { doi: string | null; title: string; link: string } | null;
+  fixes: RefFix[];
+  suggestions: { text: string }[];
+  layout: boolean; // fixes exist but the entry's layout is not safe to edit
+}
+
+export interface RefCheck {
+  ok: boolean;
+  error?: string;
+  cached?: boolean;
+  hash?: string;
+  checked_at?: number;
+  kind?: "docx" | "pdf";
+  managed?: string | null;
+  cut?: boolean;
+  unread?: number;
+  not_checked?: number;
+  counts?: { total: number; verified: number; fix: number; not_found: number; retracted: number; couldnt: number };
+  entries?: RefEntry[];
+}
+
+/** The References tab's check. `cachedOnly` never calls the model, so opening a file costs nothing. */
+export async function checkReferences(
+  sessionId: string,
+  path: string,
+  opts: { cachedOnly?: boolean; fresh?: boolean } = {},
+): Promise<RefCheck> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/references`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, cached_only: !!opts.cachedOnly, fresh: !!opts.fresh }),
+  });
+  return res.json();
+}
+
+/** Write the ticked fixes into the Word file as tracked changes. */
+export async function applyReferenceFixes(
+  sessionId: string,
+  path: string,
+  hash: string,
+  ids: string[],
+): Promise<{ ok: boolean; error?: string; applied?: number }> {
+  const res = await fetch(`${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/artifacts/references/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, hash, ids }),
+  });
+  return res.json();
+}
+
+export async function getScholarly(): Promise<{ has_key: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/scholarly`);
+  return res.json();
+}
+
+/** Save the OpenAlex key; an empty key removes it. The key never comes back from the sidecar. */
+export async function setScholarly(apiKey: string): Promise<{ ok: boolean; has_key: boolean }> {
+  const res = await fetch(`${httpBase()}/v1/scholarly`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+  return res.json();
+}
+
 /** Show the artifact in the OS file manager ("reveal") or open it with its default app ("open"). */
 /** Open one of this conversation's granted folders in the OS file manager. */
 export async function revealRoot(
