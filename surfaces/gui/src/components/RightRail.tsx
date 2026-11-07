@@ -15,6 +15,7 @@ import type { TodoItem } from "../types";
 import { clockTime } from "../time";
 import { useT } from "../i18n";
 import { CodeView } from "./CodeView";
+import { ReferencesView } from "./ReferencesView";
 import { AccessSection } from "./AccessSection";
 import { FoldersSection } from "./FoldersSection";
 import { AgentTeamPanel } from "./connectors/AgentTeamPanel";
@@ -586,6 +587,18 @@ function ArtifactViewer({
   onOpenEntry?: (path: string) => void;
   onFeedback?: (text: string, attachments?: Attachment[]) => void;
 }) {
+  const t = useT();
+  // Word and PDF previews gain a References tab. While it shows, it replaces the preview
+  // element and the pin bar, so neither click-to-pin nor the feedback screenshot sees it.
+  // The tab belongs to a path, so a new file opens on Preview without an effect.
+  const [tabFor, setTabFor] = useState<{ path: string; tab: "preview" | "refs" }>({ path: artifact.path, tab: "preview" });
+  const tab = tabFor.path === artifact.path ? tabFor.tab : "preview";
+  const setTab = (next: "preview" | "refs") => setTabFor({ path: artifact.path, tab: next });
+  // From the path, not content.kind: writing fixes reloads the preview, which clears
+  // content for a moment, and the tab must not unmount and lose its "fixes written" note.
+  const refable = /\.(docx|pdf)$/i.test(artifact.path) && !content?.error;
+  const isWord = /\.docx$/i.test(artifact.path);
+  const showRefs = refable && tab === "refs";
   const [reloadKey, setReloadKey] = useState(0);
   // Comments are PINS: a click drops a numbered marker where you pointed, the note is
   // written beside it, and they all go at once (owner ask 2026-09-02). Coordinates are
@@ -708,7 +721,7 @@ function ArtifactViewer({
               <Icon name="refresh" size={16} />
             </button>
           )}
-          {onFeedback && (
+          {onFeedback && !showRefs && (
             <button
               className="artifact-icon-btn"
               data-testid="artifact-comment"
@@ -749,7 +762,17 @@ function ArtifactViewer({
           </button>
         </div>
       </div>
-      {(pins.length > 0 || (draft && draft.x < 0)) && (
+      {refable && (
+        <div className="code-tabs artifact-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === "preview"} className={"code-tab" + (tab === "preview" ? " active" : "")} onClick={() => setTab("preview")}>
+            {t("Preview")}
+          </button>
+          <button role="tab" aria-selected={tab === "refs"} className={"code-tab" + (tab === "refs" ? " active" : "")} onClick={() => setTab("refs")}>
+            {t("References")}
+          </button>
+        </div>
+      )}
+      {!showRefs && (pins.length > 0 || (draft && draft.x < 0)) && (
         <div className="artifact-feedback" data-testid="artifact-feedback">
           {pins.length > 0 && (
             <div className="artifact-feedback-head">
@@ -832,134 +855,144 @@ function ArtifactViewer({
           </button>
         </div>
       )}
-      <div
-        className="artifact-preview"
-        ref={previewRef}
-        onClick={(e) => {
-          // Scripts take Ask Mimi instead of pins: finishing a text selection is a click.
-          if (!onFeedback || !content || content.kind === "html" || content.kind === "office" || content.kind === "folder" || content.kind === "code") return;
-          const el = e.currentTarget;
-          const r = el.getBoundingClientRect();
-          const spot = pinFor(e.target as Element, e.clientX, e.clientY) || { pin: "" };
-          setDraft({ ...spot, x: e.clientX - r.left + el.scrollLeft, y: e.clientY - r.top + el.scrollTop });
-          setDraftText("");
-        }}
-      >
-        {draft && draft.x >= 0 && (
-          <>
-            <div className="artifact-pin artifact-pin-new" style={{ left: draft.x, top: draft.y }}>
-              {pins.length + 1}
-            </div>
-            <div
-              className="artifact-pin-draft"
-              data-html2canvas-ignore
-              data-testid="artifact-draft"
-              style={{ left: draft.x + 16, top: draft.y - 8 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {draft.pin && <div className="dim text-[11.5px] mb-1">{draft.pin}</div>}
-              <textarea
-                autoFocus
-                className="tmpl-input tmpl-textarea"
-                data-testid="artifact-draft-text"
-                placeholder="What should change here?"
-                value={draftText}
-                onChange={(e) => setDraftText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addPin();
-                  if (e.key === "Escape") setDraft(null);
-                }}
-              />
-              <div className="artifact-feedback-actions">
-                <button className="btn-primary sm" data-testid="artifact-draft-add" disabled={!draftText.trim()} onClick={addPin}>
-                  Add
-                </button>
-                <button className="link" onClick={() => setDraft(null)}>
-                  cancel
-                </button>
+      {showRefs ? (
+        <ReferencesView
+          key={artifact.path}
+          sessionId={sessionId}
+          path={artifact.path}
+          isWord={isWord}
+          onWritten={onReload}
+        />
+      ) : (
+        <div
+          className="artifact-preview"
+          ref={previewRef}
+          onClick={(e) => {
+            // Scripts take Ask Mimi instead of pins: finishing a text selection is a click.
+            if (!onFeedback || !content || content.kind === "html" || content.kind === "office" || content.kind === "folder" || content.kind === "code") return;
+            const el = e.currentTarget;
+            const r = el.getBoundingClientRect();
+            const spot = pinFor(e.target as Element, e.clientX, e.clientY) || { pin: "" };
+            setDraft({ ...spot, x: e.clientX - r.left + el.scrollLeft, y: e.clientY - r.top + el.scrollTop });
+            setDraftText("");
+          }}
+        >
+          {draft && draft.x >= 0 && (
+            <>
+              <div className="artifact-pin artifact-pin-new" style={{ left: draft.x, top: draft.y }}>
+                {pins.length + 1}
               </div>
-            </div>
-          </>
-        )}
-        {!content ? (
-          <div className="rail-muted">Loading…</div>
-        ) : content.error ? (
-          <div className="rail-error">{content.error}</div>
-        ) : content.kind === "html" ? (
-          <iframe
-            key={`${artifact.path}-${reloadKey}`}
-            ref={frameRef}
-            sandbox="allow-same-origin"
-            className="artifact-frame"
-            srcDoc={content.content || ""}
-            onLoad={wireFrame}
-          />
-        ) : content.kind === "markdown" ? (
-          <div className="artifact-md">
-            <Markdown text={content.content || ""} />
-          </div>
-        ) : content.kind === "docx" || content.kind === "slides" ? (
-          // Reading-quality HTML the sidecar built from the file (office_preview.py) —
-          // its own escaping, no scripts. Paragraphs and slides are click-to-pin targets.
-          <div
-            className={"artifact-doc" + (content.kind === "slides" ? " artifact-slides" : "") + (onFeedback ? " pinnable" : "")}
-            data-testid={`artifact-${content.kind}`}
-            dangerouslySetInnerHTML={{ __html: content.content || "" }}
-          />
-        ) : content.kind === "image" ? (
-          <img className="artifact-image" src={content.data_url} />
-        ) : content.kind === "pdf" ? (
-          <PdfViewer dataUrl={content.data_url || ""} />
-        ) : content.kind === "csv" ? (
-          <CsvTable text={content.content || ""} />
-        ) : content.kind === "sheet" ? (
-          <SheetViewer dataUrl={content.data_url || ""} />
-        ) : content.kind === "folder" ? (
-          // A linked directory (e.g. a skill package): render the listing, click through.
-          <div className="artifact-folderlist" data-testid="artifact-folder">
-            {(content.entries || []).map((e) => (
-              <button
-                key={e.name}
-                className="artifact-folder-row"
-                onClick={() => onOpenEntry?.(`${artifact.path.replace(/\/+$/, "")}/${e.name}`)}
+              <div
+                className="artifact-pin-draft"
+                data-html2canvas-ignore
+                data-testid="artifact-draft"
+                style={{ left: draft.x + 16, top: draft.y - 8 }}
+                onClick={(e) => e.stopPropagation()}
               >
-                <Icon name={e.dir ? "folder" : "file"} size={14} />
-                <span className="artifact-folder-name">{e.name}</span>
-                {!e.dir && <span className="artifact-folder-size">{formatBytes(e.size)}</span>}
-              </button>
-            ))}
-            {!content.entries?.length && <div className="rail-muted">This folder is empty.</div>}
-          </div>
-        ) : content.kind === "office" ? (
-          <div className="artifact-open-prompt">
-            <Icon name="panelOpen" size={28} />
-            <p>This {/\.pptm?$/i.test(artifact.name) ? "PowerPoint" : "Word"} file can’t be previewed here.</p>
-            <button className="btn sm" onClick={() => revealArtifact(sessionId, artifact.path, "open")}>
-              Open in default app
-            </button>
-          </div>
-        ) : content.kind === "code" ? (
-          <CodeView
-            key={artifact.path}
-            sessionId={sessionId}
-            path={artifact.path}
-            name={artifact.name}
-            source={content.content || ""}
-            onAsk={onFeedback ? (text) => onFeedback(text) : undefined}
-          />
-        ) : (
-          <pre className="artifact-code">{content.content}</pre>
-        )}
-        {/* Markers last, so they paint above the content in the browser AND in the
-            html2canvas capture (which follows DOM order more than z-index). */}
-        {pins.map((p) =>
-          p.x >= 0 && p.fx == null ? (
-            <div key={p.n} className="artifact-pin" style={{ left: p.x, top: p.y }} data-testid="artifact-pin" title={p.text} data-html2canvas-ignore>
-              {p.n}
+                {draft.pin && <div className="dim text-[11.5px] mb-1">{draft.pin}</div>}
+                <textarea
+                  autoFocus
+                  className="tmpl-input tmpl-textarea"
+                  data-testid="artifact-draft-text"
+                  placeholder="What should change here?"
+                  value={draftText}
+                  onChange={(e) => setDraftText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) addPin();
+                    if (e.key === "Escape") setDraft(null);
+                  }}
+                />
+                <div className="artifact-feedback-actions">
+                  <button className="btn-primary sm" data-testid="artifact-draft-add" disabled={!draftText.trim()} onClick={addPin}>
+                    Add
+                  </button>
+                  <button className="link" onClick={() => setDraft(null)}>
+                    cancel
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          {!content ? (
+            <div className="rail-muted">Loading…</div>
+          ) : content.error ? (
+            <div className="rail-error">{content.error}</div>
+          ) : content.kind === "html" ? (
+            <iframe
+              key={`${artifact.path}-${reloadKey}`}
+              ref={frameRef}
+              sandbox="allow-same-origin"
+              className="artifact-frame"
+              srcDoc={content.content || ""}
+              onLoad={wireFrame}
+            />
+          ) : content.kind === "markdown" ? (
+            <div className="artifact-md">
+              <Markdown text={content.content || ""} />
             </div>
-          ) : null,
-        )}
-      </div>
+          ) : content.kind === "docx" || content.kind === "slides" ? (
+            // Reading-quality HTML the sidecar built from the file (office_preview.py) —
+            // its own escaping, no scripts. Paragraphs and slides are click-to-pin targets.
+            <div
+              className={"artifact-doc" + (content.kind === "slides" ? " artifact-slides" : "") + (onFeedback ? " pinnable" : "")}
+              data-testid={`artifact-${content.kind}`}
+              dangerouslySetInnerHTML={{ __html: content.content || "" }}
+            />
+          ) : content.kind === "image" ? (
+            <img className="artifact-image" src={content.data_url} />
+          ) : content.kind === "pdf" ? (
+            <PdfViewer dataUrl={content.data_url || ""} />
+          ) : content.kind === "csv" ? (
+            <CsvTable text={content.content || ""} />
+          ) : content.kind === "sheet" ? (
+            <SheetViewer dataUrl={content.data_url || ""} />
+          ) : content.kind === "folder" ? (
+            // A linked directory (e.g. a skill package): render the listing, click through.
+            <div className="artifact-folderlist" data-testid="artifact-folder">
+              {(content.entries || []).map((e) => (
+                <button
+                  key={e.name}
+                  className="artifact-folder-row"
+                  onClick={() => onOpenEntry?.(`${artifact.path.replace(/\/+$/, "")}/${e.name}`)}
+                >
+                  <Icon name={e.dir ? "folder" : "file"} size={14} />
+                  <span className="artifact-folder-name">{e.name}</span>
+                  {!e.dir && <span className="artifact-folder-size">{formatBytes(e.size)}</span>}
+                </button>
+              ))}
+              {!content.entries?.length && <div className="rail-muted">This folder is empty.</div>}
+            </div>
+          ) : content.kind === "office" ? (
+            <div className="artifact-open-prompt">
+              <Icon name="panelOpen" size={28} />
+              <p>This {/\.pptm?$/i.test(artifact.name) ? "PowerPoint" : "Word"} file can’t be previewed here.</p>
+              <button className="btn sm" onClick={() => revealArtifact(sessionId, artifact.path, "open")}>
+                Open in default app
+              </button>
+            </div>
+          ) : content.kind === "code" ? (
+            <CodeView
+              key={artifact.path}
+              sessionId={sessionId}
+              path={artifact.path}
+              name={artifact.name}
+              source={content.content || ""}
+              onAsk={onFeedback ? (text) => onFeedback(text) : undefined}
+            />
+          ) : (
+            <pre className="artifact-code">{content.content}</pre>
+          )}
+          {/* Markers last, so they paint above the content in the browser AND in the
+              html2canvas capture (which follows DOM order more than z-index). */}
+          {pins.map((p) =>
+            p.x >= 0 && p.fx == null ? (
+              <div key={p.n} className="artifact-pin" style={{ left: p.x, top: p.y }} data-testid="artifact-pin" title={p.text} data-html2canvas-ignore>
+                {p.n}
+              </div>
+            ) : null,
+          )}
+        </div>
+      )}
     </div>
   );
 }

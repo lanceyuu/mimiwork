@@ -2357,3 +2357,4 @@ ul.help-tip-list { list-style: disc; }
 .ag-palette .help-tip-pop { left: 8px; right: auto; width: min(460px, calc(100% - 16px)); }
 .ag-palette-hint .help-tip-pop { left: auto; right: 8px; }
 .ag-palette-label, .ag-palette-hint { display: inline-flex; align-items: center; gap: 5px; }
+.artifact-tabs { padding: 0 12px; }

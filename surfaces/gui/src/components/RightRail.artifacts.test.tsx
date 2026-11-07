@@ -18,6 +18,22 @@ const artifacts = [
 ];
 const DOCX_HTML = '<h1 data-p="0">Findings</h1><p data-p="1">The sample consisted of twenty four interviews and two groups.</p>';
 
+const checkRefs = vi.fn(async (..._a: unknown[]) => ({ ok: false, cached: false }) as unknown);
+const REF_RESULT = {
+  ok: true,
+  hash: "h1",
+  checked_at: 1,
+  kind: "docx",
+  managed: null,
+  counts: { total: 1, verified: 0, fix: 1, not_found: 0, retracted: 0, couldnt: 0 },
+  entries: [{
+    id: "e1", paragraph: 1, text: "Baumiester (1998). X.", title: "X", group: "fix",
+    codes: [{ code: "surname_differs", params: { surname: "Baumeister" } }],
+    record: null, suggestions: [], layout: false,
+    fixes: [{ id: "e1.replace_surname", kind: "replace_surname", new: "Baumeister", after: "Baumeister (1998). X.", writable: true, ticked: true }],
+  }],
+};
+
 vi.mock("html2canvas", () => ({ default: async () => document.createElement("canvas") }));
 vi.mock("../api", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("../api");
@@ -34,6 +50,8 @@ vi.mock("../api", async () => {
     revealArtifact: (...a: unknown[]) => reveal(...(a as [])),
     commentArtifact: (...a: unknown[]) => comment(...(a as [])),
     explainArtifact: async () => ({ ok: false, cached: false }),
+    checkReferences: (...a: unknown[]) => checkRefs(...a),
+    applyReferenceFixes: async () => ({ ok: true, applied: 1 }),
     readArtifact: async (_s: string, path: string) =>
       path.endsWith(".py")
         ? { ok: true, path, kind: "code", content: "a = 1\nb = 2" }
@@ -46,6 +64,8 @@ vi.mock("../api", async () => {
 beforeEach(() => {
   reveal.mockClear();
   restore.mockClear();
+  checkRefs.mockReset();
+  checkRefs.mockResolvedValue({ ok: false, cached: false });
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 afterEach(cleanup);
@@ -117,6 +137,48 @@ describe("opening a produced file", () => {
     expect(text).toContain("1. (paragraph 2, starting “The sample consisted of twenty four interviews and”) shorter");
     expect(text).toContain("2. (paragraph 1, starting “Findings”) bolder");
     expect(screen.queryByTestId("artifact-pin")).toBeNull(); // sent = cleared
+  });
+
+  it("shows a References tab on Word files that hides the pins while it is open", async () => {
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} onFeedback={vi.fn()} />);
+    const [row] = await screen.findAllByText("brief.docx");
+    row.closest("button")!.click();
+    await screen.findByTestId("artifact-docx");
+    // A whole-file comment first, so there is a pin bar to hide.
+    fireEvent.click(screen.getByTestId("artifact-comment"));
+    fireEvent.change(await screen.findByTestId("artifact-draft-text"), { target: { value: "shorter" } });
+    fireEvent.click(screen.getByTestId("artifact-draft-add"));
+    expect(screen.getByTestId("artifact-feedback")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "References" }));
+    const refs = await screen.findByTestId("refs-view");
+    expect(screen.queryByTestId("artifact-docx")).toBeNull();
+    expect(screen.queryByTestId("artifact-feedback")).toBeNull();
+    expect(screen.queryByTestId("artifact-comment")).toBeNull();
+    fireEvent.click(refs);
+    expect(screen.queryByTestId("artifact-draft")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(await screen.findByTestId("artifact-docx")).toBeTruthy();
+    expect(screen.getByTestId("artifact-feedback")).toBeTruthy();
+  });
+
+  it("keeps the References tab and its note through the preview reload after a write", async () => {
+    checkRefs.mockResolvedValue(REF_RESULT);
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} onFeedback={vi.fn()} />);
+    const [row] = await screen.findAllByText("brief.docx");
+    row.closest("button")!.click();
+    await screen.findByTestId("artifact-docx");
+    fireEvent.click(screen.getByRole("tab", { name: "References" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Write 1 fix into the Word file" }));
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.getByTestId("refs-view").textContent).toContain("1 fix written as tracked changes");
+  });
+
+  it("offers no References tab on files that are not Word or PDF", async () => {
+    render(<RightRail sessionId="s1" active workspace="/ws" toolNames={[]} todo={[]} running={false} refreshKey={0} />);
+    const row = await screen.findByText("notes.md");
+    row.closest("button")!.click();
+    await waitFor(() => expect(document.querySelector(".artifact-md")).not.toBeNull());
+    expect(screen.queryByRole("tab", { name: "References" })).toBeNull();
   });
 
   it("still previews what it can, in the app", async () => {
