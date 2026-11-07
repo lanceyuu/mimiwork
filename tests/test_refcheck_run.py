@@ -287,3 +287,13 @@ def test_a_save_cut_short_is_pruned_with_the_old_results(tmp_path):
     os.utime(tmp, (past, past))
     prune(folder)
     assert not tmp.exists()
+
+
+def test_a_password_protected_pdf_is_an_error_of_its_own(tmp_path, monkeypatch):
+    from coworker.refcheck import reading
+    from coworker.refcheck.reading import Listing
+
+    monkeypatch.setattr(reading, "load_pdf", lambda path: Listing("pdf", [], password=True))
+    path = tmp_path / "locked.pdf"
+    path.write_bytes(b"%PDF-1.7")
+    assert run(path, tmp_path)["error"] == "password"

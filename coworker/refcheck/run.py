@@ -154,6 +154,8 @@ def _check(target: Path, digest: str, complete: Callable[[str, str], str], looku
         listing = reading.load_docx(target) if kind == "docx" else reading.load_pdf(target)
     except Exception:
         return _error("unreadable")
+    if listing.password:
+        return _error("password")
     if listing.scan:
         return _error("scan")
     if not listing.paras:

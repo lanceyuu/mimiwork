@@ -16,6 +16,7 @@ from .office.paths import PathError, display_path, resolve_read
 _ERRORS = {
     "unreadable": "The file could not be opened.",
     "scan": "This PDF is a scan with no text to read.",
+    "password": "This PDF is protected by a password.",
     "no_list": "No reference list was found in this file.",
     "read_failed": "The reference list could not be read. Try again.",
     "no_folder": "This conversation has no folder.",

@@ -41,7 +41,8 @@ _CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
 def loose(text: Any) -> str:
     """The form model output is compared with file text in."""
     t = unicodedata.normalize("NFKC", str(text or "")).casefold().translate(_QUOTES)
-    return " ".join(_DASH.sub("", t).split())
+    # Spaces collapsed first: _DASH's \s* on both sides is quadratic on a long run of them.
+    return _DASH.sub("", " ".join(t.split()))
 
 
 # What may follow a DOI that has ended: closing punctuation, then a space, a quote, a

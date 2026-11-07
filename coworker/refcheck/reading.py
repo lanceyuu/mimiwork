@@ -8,6 +8,7 @@ filled in from memory never drives a verdict.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,7 +30,13 @@ HEADINGS = frozenset(
         "参考文献", "참고문헌", "Список литературы", "المراجع",
     )
 )
-_NUMBERED = re.compile(r"^(?:\d+(?:\.\d+)*|[ivxlcdm]+)[.)]?\s+", re.I)
+# A heading's number: digits, or a well-formed Roman numeral in capitals, or in lower case
+# with a stop. Any run of the letters ivxlcdm read as one turned "Civil", "Did" and
+# "Vivid" into numbers and the words after them into headings.
+_ROMAN = "M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+_NUMBERED = re.compile(
+    rf"^(?:\d+(?:\.\d+)*[.)]?|(?=[IVXLCDM]){_ROMAN}[.)]?|(?=[ivxlcdm]){_ROMAN.lower()}[.)])\s+"
+)
 
 WORD_BATCH = 60
 PDF_BATCH = 150  # PDF "paragraphs" are lines; 60 lines hold only about 15 entries
@@ -74,6 +81,7 @@ class Listing:
     managed: Optional[str] = None
     cut: bool = False
     scan: bool = False
+    password: bool = False
 
 
 def reading_text(p_el: Any) -> str:
@@ -148,7 +156,10 @@ def load_pdf(path: Path) -> Listing:
 
     reader = pypdf.PdfReader(str(path))
     if getattr(reader, "is_encrypted", False):
-        reader.decrypt("")  # "protected but not secret"; a real password raises
+        # An empty password opens a file that is "protected but not secret". A real
+        # password does not raise: decrypt says so, and reading on would report a scan.
+        if reader.decrypt("") == pypdf.PasswordType.NOT_DECRYPTED:
+            return Listing("pdf", [], password=True)
     pages = []
     for page in reader.pages:
         try:
@@ -254,7 +265,9 @@ def _items(data: Any, lo: int, hi: int) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         first, last = item.get("first"), item.get("last")
-        if isinstance(first, int) and isinstance(last, int) and lo <= first <= last < hi:
+        # JSON true and false arrive as ints in Python; they are no paragraph's number.
+        numbers = isinstance(first, int) and isinstance(last, int) and not isinstance(first, bool) and not isinstance(last, bool)
+        if numbers and lo <= first <= last < hi:
             out.append(item)
     return sorted(out, key=lambda item: item["first"])
 
@@ -263,7 +276,7 @@ def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
-def _entry(n: int, item: dict[str, Any], listing: Listing) -> Optional[Entry]:
+def _entry(entry_id: str, item: dict[str, Any], listing: Listing) -> Optional[Entry]:
     printed = _text(item.get("text"))
     slack = 1 if listing.kind == "pdf" else 0  # a model's line numbers in a PDF can be one off
     lo, hi = max(0, item["first"] - slack), item["last"] + 1 + slack
@@ -284,7 +297,7 @@ def _entry(n: int, item: dict[str, Any], listing: Listing) -> Optional[Entry]:
     if not words_present(title, printed):
         title = ""
     return Entry(
-        id=f"e{n}",
+        id=entry_id,
         first=item["first"],
         last=item["last"],
         text=printed,
@@ -336,13 +349,23 @@ def read_entries(listing: Listing, complete: Callable[[str, str], str]) -> Readi
     if calls and not parsed:
         raise ReadFailed("the model's replies could not be read")
     out.not_checked = max(0, n - start) if start < n else 0
+    seen: set[str] = set()
     for item in kept:
         if len(out.entries) >= MAX_ENTRIES:
             out.not_checked += 1
             continue
-        entry = _entry(len(out.entries) + out.unread + 1, item, listing)
+        # From the entry's own text, not its place in the model's reply: a check run
+        # again between showing the results and clicking Write must not point a fix id
+        # at another entry. A second identical entry gets a counter.
+        base = "e" + hashlib.sha256(loose(item.get("text")).encode()).hexdigest()[:10]
+        entry_id, k = base, 1
+        while entry_id in seen:
+            k += 1
+            entry_id = f"{base}-{k}"
+        entry = _entry(entry_id, item, listing)
         if entry is None:
             out.unread += 1
         else:
+            seen.add(entry_id)
             out.entries.append(entry)
     return out

@@ -262,3 +262,60 @@ def test_a_doi_the_model_cut_short_is_dropped_not_kept_as_a_prefix():
 def test_a_doi_ending_the_entry_with_a_full_stop_or_bracket_is_kept():
     assert _one(f"Baumeister, R. (1998). Ego depletion. doi:{FULL_DOI}.", FULL_DOI).doi == FULL_DOI
     assert _one(f"Baumeister, R. (1998). Ego depletion (doi:{FULL_DOI}).", FULL_DOI).doi == FULL_DOI
+
+
+@pytest.mark.parametrize("text", ["Civil References", "Did References", "Vivid Sources", "Mix References", "CIVIL REFERENCES"])
+def test_a_word_made_of_roman_numeral_letters_is_not_a_heading_number(text):
+    assert not is_heading(text)
+
+
+@pytest.mark.parametrize("text", ["XII References", "iv. References", "IX) Sources"])
+def test_a_real_roman_numeral_still_numbers_a_heading(text):
+    assert is_heading(text)
+
+
+def test_the_loose_form_of_a_long_run_of_spaces_takes_no_time():
+    import time
+
+    from coworker.refcheck.matching import loose
+
+    started = time.monotonic()
+    assert loose(" " * 50_000 + "x - y") == "xy"
+    assert time.monotonic() - started < 1
+
+
+def test_true_and_false_are_not_paragraph_numbers():
+    listing = Listing("docx", [Para("A, B. (2001). One."), Para("C, D. (2002). Two.")])
+
+    def complete(system, user):
+        return json.dumps({"entries": [{"first": True, "last": True, "text": "C, D. (2002). Two."}]})
+
+    assert read_entries(listing, complete).entries == []
+
+
+def test_an_entrys_id_comes_from_its_text_not_from_the_models_order():
+    texts = ["A, B. (2001). One.", "C, D. (2002). Two.", "C, D. (2002). Two."]
+    listing = Listing("docx", [Para(t) for t in texts])
+    all_three, _ = _fake_model([(0, 0), (1, 1), (2, 2)])
+    last_two, _ = _fake_model([(1, 1), (2, 2)])
+    first = read_entries(listing, all_three).entries
+    second = read_entries(listing, last_two).entries
+    assert [e.id for e in first[1:]] == [e.id for e in second]
+    assert len({e.id for e in first}) == 3  # the same entry printed twice still has two ids
+
+
+def test_a_pdf_with_a_real_password_is_reported_as_protected(monkeypatch, tmp_path):
+    class Locked(_Reader):
+        def decrypt(self, password):
+            from pypdf import PasswordType
+
+            return PasswordType.NOT_DECRYPTED
+
+    def locked(path):
+        reader = Locked(["References\nA, B. (2001). One."])
+        reader.is_encrypted = True
+        return reader
+
+    monkeypatch.setattr("pypdf.PdfReader", locked)
+    listing = load_pdf(tmp_path / "p.pdf")
+    assert listing.password and listing.paras == []
