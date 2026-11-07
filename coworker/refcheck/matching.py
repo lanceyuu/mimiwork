@@ -65,6 +65,17 @@ def norm(text: Any) -> str:
     return " ".join("".join(c if c.isalnum() else " " for c in t).split())
 
 
+# German umlauts spelled out ("Mueller" for "Müller") are the same name, not a typo.
+_SPELLED = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+
+def same_name(a: Any, b: Any) -> bool:
+    def spelled(t: Any) -> str:
+        return norm(unicodedata.normalize("NFC", str(t or "")).casefold().translate(_SPELLED))
+
+    return bool(spelled(a)) and spelled(a) == spelled(b)
+
+
 def ratio(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b, autojunk=False).ratio() if a and b else 0.0
 
@@ -82,7 +93,9 @@ def words_present(title: Any, text: Any, share: float = 0.9) -> bool:
 
 def split_title(title: Any) -> tuple[str, str, bool]:
     """(full, main title, has a subtitle), splitting at the first colon."""
-    full = scholarly.clean(title)
+    # The "RETRACTED:" prefix Crossref's titles lose in record_title, for OpenAlex and
+    # DataCite titles too.
+    full = scholarly._RETRACTED.sub("", scholarly.clean(title))
     main, colon, _ = full.partition(":")
     return full, (main.strip() if colon else full), bool(colon)
 
@@ -108,6 +121,7 @@ class Candidate:
     link: str = ""
     retraction: dict[str, Any] = field(default_factory=lambda: {"status": "none", "year": None, "notice": None})
     agency: str = ""
+    container: str = ""  # the journal or book it appeared in
 
     @property
     def published(self) -> bool:
@@ -123,6 +137,10 @@ def _years(*dates: Any) -> list[int]:
         if isinstance(parts[0], int):
             out.add(parts[0])
     return sorted(out)
+
+
+def _first(value: Any) -> Any:
+    return (value[0] if value else "") if isinstance(value, list) else value
 
 
 def from_crossref(record: dict[str, Any]) -> Candidate:
@@ -143,6 +161,7 @@ def from_crossref(record: dict[str, Any]) -> Candidate:
         cites=int(record.get("is-referenced-by-count") or 0),
         link=f"https://doi.org/{doi}" if doi else "",
         retraction=scholarly.retraction(record),
+        container=scholarly.clean((record.get("container-title") or [""])[0]),
     )
 
 
@@ -162,6 +181,7 @@ def from_csl(record: dict[str, Any], agency: str) -> Candidate:
         link=f"https://doi.org/{doi}" if doi else "",
         retraction={"status": "unknown", "year": None, "notice": None},
         agency=agency,
+        container=scholarly.clean(_first(record.get("container-title"))),
     )
 
 
@@ -186,13 +206,16 @@ def from_openalex(work: dict[str, Any]) -> Candidate:
         cites=int(work.get("cited_by_count") or 0),
         link=f"https://doi.org/{doi}" if doi else str(work.get("id") or ""),
         retraction={"status": "retracted" if work.get("is_retracted") else "none", "year": None, "notice": None},
+        container=scholarly.clean(((work.get("primary_location") or {}).get("source") or {}).get("display_name")),
     )
 
 
 @dataclass
 class Match:
     cand: Candidate
-    kind: str  # "full": whole titles agree; "main": only the part before the subtitle
+    # "full": whole titles agree; "main": only the part before the subtitle; "printed": the
+    # record's title is printed in the entry, though the model's title ran on past it
+    kind: str
     ratio: float
     d: Optional[int]  # smallest year distance, None when either side has no year
 
@@ -239,6 +262,15 @@ def title_match(entry: Any, cand: Candidate) -> Optional[Match]:
     have no authors and some works carry two DOIs."""
     t = title_test(entry.title, cand)
     return Match(cand, t[0], t[1], year_distance(entry.year, cand)) if t else None
+
+
+def printed_match(entry: Any, cand: Candidate) -> Optional[Match]:
+    """The record a printed DOI leads to when the model's title ran on past the real one
+    (the journal name appended): its title is printed in the entry, and its author is the
+    entry's."""
+    if cand.type in BOOKS or not words_present(cand.title, entry.text) or not author_test(entry.surname, cand):
+        return None
+    return Match(cand, "printed", ratio(norm(entry.title), norm(cand.title)), year_distance(entry.year, cand))
 
 
 def same_paper(entry: Any, cand: Candidate) -> Optional[Match]:

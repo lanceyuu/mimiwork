@@ -313,6 +313,7 @@ files. The chat tool never writes fixes; the panel button does, or Mimi uses the
    | `surname_differs` (record surname) | Needs a fix | Write: replace the surname | ticked | surname ratio 0.85 to below 1 with the record's first author, and equal to no author's given or family name (a different author order is not a misspelling) |
    | `title_differs` (record title) | Needs a fix | Suggest | n/a | the title pair that passed has a ratio below 0.98 (a main-title-only match never raises it) |
    | `edition` (record years) | Needs a fix | Suggest (for books, a note only) | n/a | `d` > 1 |
+   | `year_other_work` (record years, container) | Verified | none, a note | n/a | `d` > 1, the record is not a book, and its journal or book (`container-title`) is not printed in the entry: likely a review of the cited book or another work under its title, so the year is not compared |
    | `year_differs` (record years) | Verified | none, a note | n/a | `d` = 1 ("often a preprint or online-first year") |
    | `concern` (year) | Verified | none, a note | n/a | expression of concern |
    | `outside_crossref` (agency) | Verified | none, a note | n/a | DOI registered elsewhere, same paper |

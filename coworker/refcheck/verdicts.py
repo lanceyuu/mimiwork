@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Any, Callable, Optional
 
 from .. import scholarly
@@ -22,8 +23,11 @@ from .matching import (
     from_crossref,
     from_csl,
     from_openalex,
+    loose,
     norm,
+    printed_match,
     ratio,
+    same_name,
     same_paper,
     title_match,
     words_present,
@@ -45,7 +49,7 @@ _GROUPS = {
     "no_title": "couldnt",
     "openalex_limit": "couldnt",
 }
-# Every other code (year_differs, concern, outside_crossref, found_openalex, found_copy,
+# Every other code (year_differs, year_other_work, concern, outside_crossref, found_openalex, found_copy,
 # retracted_maybe, chapter_doi) is a note on a verified entry.
 
 REASONS = {
@@ -101,7 +105,7 @@ def look_up(entry: Any, lk: Lookups, style: str = "apa") -> Outcome:
         work = lk.crossref_work(entry.doi)
         if work.get("ok"):
             cand = from_crossref(work["record"])
-            match = title_match(entry, cand)
+            match = title_match(entry, cand) or printed_match(entry, cand)
             if match is None:
                 # A chapter cited with its book's DOI is a defensible reference.
                 if cand.type in BOOKS and words_present(cand.title, entry.text):
@@ -113,7 +117,9 @@ def look_up(entry: Any, lk: Lookups, style: str = "apa") -> Outcome:
             if not record.get("ok"):
                 return Outcome([code("lookup_failed")])
             cand = from_csl(record["record"], str(work.get("agency") or ""))
-            match = same_paper(entry, cand)
+            # As for a Crossref DOI: DataCite records often lack authors or carry a later
+            # version's year, and the printed DOI already ties the record to the entry.
+            match = title_match(entry, cand)
             if match is None:
                 wrong = {"why": "other", "title": cand.title}
         elif work.get("error") == "no_such_doi":
@@ -177,12 +183,18 @@ def _codes(entry: Any, m: Match, wrong: Optional[dict[str, Any]], book_doi: bool
         s = norm(entry.surname)
         r = ratio(s, norm(family))
         reordered = any(s in norm(f).split() or s in norm(g).split() for f, g in c.authors)
-        if 0.85 <= r < 1 and not reordered:
+        if 0.85 <= r < 1 and not reordered and not same_name(entry.surname, family):
             out.append(code("surname_differs", surname=family))
     if m.kind == "full" and m.ratio < 0.98:
         out.append(code("title_differs", title=c.title))
     if m.d is not None and m.d > 1:
-        out.append(code("edition", years=c.years, book=c.type in BOOKS))
+        if c.type not in BOOKS and c.container and loose(c.container) not in loose(entry.text):
+            # A book that only a review of it lists (Bandura 1997, reviewed in a journal in
+            # 1999): the record is another work under the same title, so its year proves
+            # nothing. Rejecting it would make a real book Not found; a note is safe.
+            out.append(code("year_other_work", years=c.years, container=c.container))
+        else:
+            out.append(code("edition", years=c.years, book=c.type in BOOKS))
     elif m.d == 1:
         out.append(code("year_differs", years=c.years))
     return out
@@ -206,7 +218,8 @@ def mark_missing_dois(entries: list[Any], outcomes: list[Outcome]) -> None:
         return
     for e, o in matched:
         c = o.match.cand
-        if not e.doi and not e.has_doi_pattern and not o.wrong and c.published and c.doi:
+        other_work = any(x["code"] == "year_other_work" for x in o.codes)
+        if not e.doi and not e.has_doi_pattern and not o.wrong and not other_work and c.published and c.doi:
             o.codes.append(code("doi_missing", doi=c.doi))
 
 
@@ -252,9 +265,29 @@ def make_fixes(entry: Any, outcome: Outcome, text: str, form: str) -> list[dict[
         if found:
             family = params["surname_differs"]["surname"]
             old = found.group(0)
-            new = family.upper() if old.isupper() and len(old) > 1 else (family.title() if family.isupper() else family)
+            new = _recase(family, old)
             fixes.append(_fix(entry, "replace_surname", found.start(), found.end(), new, text))
     return sorted(fixes, key=lambda f: f["start"])
+
+
+def _recase(family: str, printed: str) -> str:
+    """The record's family name in the list's casing. A name stored in capitals takes the
+    printed name's casing letter by letter, since .title() makes "McDonald" "Mcdonald" and
+    "de la Cruz" "De La Cruz"; a letter the printed name lacks is lower case, or upper
+    case where a word starts."""
+    if printed.isupper() and len(printed) > 1:
+        return family.upper()
+    if not family.isupper():
+        return family
+    if len(printed.lower()) != len(printed) or len(family.lower()) != len(family):
+        return family.title()  # a letter that lowercases to two (Turkish İ) breaks the alignment
+    out = list(family.lower())
+    for k in range(len(out)):
+        if k == 0 or not out[k - 1].isalpha():
+            out[k] = out[k].upper()
+    for a, b, size in SequenceMatcher(None, printed.lower(), family.lower(), autojunk=False).get_matching_blocks():
+        out[b : b + size] = printed[a : a + size]
+    return "".join(out)
 
 
 def apply_spans(text: str, fixes: list[dict[str, Any]]) -> Optional[str]:
@@ -283,6 +316,10 @@ def describe(name: str, params: Optional[dict[str, Any]] = None) -> str:
         "doi_missing": f"No DOI. The Crossref record has one: {p.get('doi')}.",
         "surname_differs": f"The first author is spelled {p.get('surname')} in the record.",
         "title_differs": f"The title differs from the record: {p.get('title')}.",
+        "year_other_work": (
+            f"A record with this title and author is from {years} in {p.get('container')}, "
+            "perhaps a review or another edition; the year was not compared."
+        ),
         "edition": f"The record's year is {years}" + (": possibly another edition." if p.get("book") else "."),
         "year_differs": f"The record's year is {years}, often a preprint or online-first year.",
         "concern": f"The journal published an expression of concern{when}.",

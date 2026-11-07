@@ -7,6 +7,7 @@ import re
 from coworker.refcheck.reading import Entry
 from coworker.refcheck.verdicts import (
     Lookups,
+    describe,
     doi_form,
     group_of,
     look_up,
@@ -239,3 +240,88 @@ def test_a_doi_that_is_only_the_start_of_the_printed_one_is_never_replaced_into_
     out = look_up(e, lookups(search=[cr()]))
     assert all(not f["after"].endswith(".1252.1252") for f in make_fixes(e, out, text, "https://doi.org/"))
     assert make_fixes(e, out, text, "https://doi.org/") == []
+
+
+def test_a_datacite_doi_whose_record_has_no_authors_or_a_later_year_is_not_called_wrong():
+    title = "Attention is all you need"
+    text = "Vaswani, A. (2017). Attention is all you need. arXiv. https://doi.org/10.48550/arXiv.1706.03762"
+    e = entry(text=text, title=title, surname="Vaswani", year=2017, doi="10.48550/arxiv.1706.03762")
+    csl = {"ok": True, "record": {"title": "Attention Is All You Need", "author": [], "issued": {"date-parts": [[2023]]}, "type": "article"}}
+    published = cr(doi="10.5555/3295222.3295349", title=title, family="Vaswani", year=2017, kind="proceedings-article")
+    lk = lookups(works={"10.48550/arxiv.1706.03762": {"ok": False, "error": "outside_crossref", "agency": "DataCite"}}, csl=csl, search=[published])
+    out = look_up(e, lk)
+    assert codes(out) == ["outside_crossref"] and group_of(out.codes) == "verified"
+    assert make_fixes(e, out, text, "https://doi.org/") == []
+
+
+def test_a_correct_doi_is_verified_when_the_models_title_carries_the_journal_too():
+    text = f"Baumeister, R. F. (1998). {TITLE} Journal of Personality and Social Psychology, 74, 1252. https://doi.org/{DOI}"
+    long_title = f"{TITLE} Journal of Personality and Social Psychology"
+    e = entry(text=text, title=long_title, doi=DOI.lower())
+    out = look_up(e, lookups(works={DOI.lower(): {"ok": True, "record": cr()}}))
+    assert codes(out) == [] and out.match is not None
+
+
+def test_a_doi_whose_record_title_is_printed_but_by_another_author_is_still_wrong():
+    text = f"Smith, J. (1998). {TITLE} Journal of Personality and Social Psychology. https://doi.org/{DOI}"
+    e = entry(text=text, title=f"{TITLE} Journal of Personality and Social Psychology", surname="Smith", doi=DOI.lower())
+    out = look_up(e, lookups(works={DOI.lower(): {"ok": True, "record": cr()}}))
+    assert codes(out) == ["not_found"]
+
+
+BANDURA = "Bandura, A. (1997). Self-efficacy: The exercise of control. W. H. Freeman."
+REVIEW = {
+    "DOI": "10.1891/0889-8391.13.2.158",
+    "title": ["Self-Efficacy: The Exercise of Control"],
+    "type": "journal-article",
+    "container-title": ["Journal of Cognitive Psychotherapy"],
+    "issued": {"date-parts": [[1999]]},
+    "author": [{"family": "Bandura", "given": "Albert"}, {"family": "Freeman", "given": "W. H."}],
+}
+
+
+def _bandura():
+    return entry(text=BANDURA, title="Self-efficacy: The exercise of control", surname="Bandura", year=1997)
+
+
+def test_a_book_matched_only_by_a_review_of_it_stays_verified_with_a_note():
+    out = look_up(_bandura(), lookups(search=[REVIEW]))
+    assert out.codes == [{"code": "year_other_work", "params": {"years": [1999], "container": "Journal of Cognitive Psychotherapy"}}]
+    assert group_of(out.codes) == "verified" and out.suggestion is None
+    assert describe("year_other_work", out.codes[0]["params"]) == (
+        "A record with this title and author is from 1999 in Journal of Cognitive Psychotherapy, "
+        "perhaps a review or another edition; the year was not compared."
+    )
+
+
+def test_a_book_matched_only_by_a_review_is_never_given_the_reviews_doi():
+    others = [entry(text=f"A (1998). {TITLE}. https://doi.org/{DOI}", doi=DOI.lower()) for _ in range(2)]
+    entries = [_bandura(), *others]
+    outs = [look_up(x, lookups(works={DOI.lower(): {"ok": True, "record": cr()}}, search=[REVIEW])) for x in entries]
+    mark_missing_dois(entries, outs)
+    assert codes(outs[0]) == ["year_other_work"]
+
+
+def test_an_article_whose_printed_journal_matches_the_record_is_still_an_edition_question():
+    record = {**cr(), "container-title": ["JPSP"]}
+    assert codes(look_up(entry(year=2005), lookups(search=[record]))) == ["edition"]
+
+
+def test_a_transliterated_surname_is_not_a_misspelling():
+    assert codes(look_up(entry(text=f"Mueller, K. (1998). {TITLE}.", surname="Mueller"), lookups(search=[cr(family="Müller")]))) == []
+    assert codes(look_up(entry(text=f"Müller, K. (1998). {TITLE}.", surname="Müller"), lookups(search=[cr(family="Mueller")]))) == []
+
+
+def test_a_surname_stored_in_capitals_takes_the_printed_names_casing():
+    for printed, stored, wanted in (("de la Curz", "DE LA CRUZ", "de la Cruz"), ("McDonlad", "MCDONALD", "McDonald")):
+        text = f"{printed}, K. (1998). {TITLE}."
+        e = entry(text=text, surname=printed)
+        (fix,) = make_fixes(e, look_up(e, lookups(search=[cr(family=stored)])), text, "https://doi.org/")
+        assert fix["new"] == wanted
+
+
+def test_a_paper_retracted_and_found_only_on_openalex_is_still_retracted():
+    title = "Ego depletion and the self"
+    work = {"display_name": f"RETRACTED: {title}", "publication_year": 1998, "is_retracted": True, "authorships": [{"author": {"display_name": "Roy F. Baumeister"}}]}
+    e = entry(text=f"Baumeister, R. F. (1998). {title}. J.", title=title)
+    assert codes(look_up(e, lookups(openalex={"ok": True, "results": [work]}))) == ["retracted", "found_openalex"]
