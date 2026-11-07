@@ -72,3 +72,38 @@ test("a researcher checks the references of a Word file", async ({ page }, testI
   await expect(page.getByText("6 references: 3 verified, 1 needs a fix, 1 not found, 1 retracted.")).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("references-checked.png") });
 });
+
+test("a researcher whose reference check fails can report it to the team", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.route("**/v1/sessions/*/artifacts", (r) =>
+    r.fulfill({ json: { artifacts: [{ path: "Findings.docx", name: "Findings.docx", kind: "document", size: 2048, modified_at: 2 }] } }),
+  );
+  await page.route("**/v1/sessions/*/artifacts/read?*", (r) =>
+    r.fulfill({ json: { ok: true, path: "Findings.docx", kind: "docx", content: PREVIEW.html, paragraphs: PREVIEW.paragraphs } }),
+  );
+  await page.route("**/v1/sessions/*/artifacts/references", async (r) => {
+    const body = r.request().postDataJSON();
+    await r.fulfill({ json: body.cached_only ? { ok: false, cached: false } : { ok: false, error: "read_failed" } });
+  });
+  const reports: Array<{ error: string; context: string }> = [];
+  await page.route("**/v1/report", async (r) => {
+    reports.push(r.request().postDataJSON());
+    await r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto("/");
+  await page.locator(".app:not(.boot-splash)").waitFor();
+  await page.getByTitle("Weekly plan 1").first().click();
+  await page.getByText("Findings.docx").first().click();
+  await page.getByRole("tab", { name: "References" }).click();
+  await page.getByRole("button", { name: "Check references" }).click();
+  await page.getByRole("button", { name: "Report this problem" }).click();
+  await expect(page.getByText("Send this error to the QualiTaTi team?")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("references-report-confirm.png") });
+
+  await page.getByRole("button", { name: "Send report" }).click();
+  await expect(page.getByText("Sent — thank you.")).toBeVisible();
+  expect(reports).toHaveLength(1);
+  expect(reports[0].context).toBe("references");
+  await page.screenshot({ path: testInfo.outputPath("references-report-sent.png") });
+});

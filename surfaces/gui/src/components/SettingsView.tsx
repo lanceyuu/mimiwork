@@ -63,6 +63,7 @@ import { PersonasTab } from "./PersonasTab";
 import { SkillsTab } from "./SkillsTab";
 import { TransferGuide } from "./TransferGuide";
 import { showPersonas } from "../flags";
+import { ReportProblem } from "./ReportProblem";
 
 // Settings, restructured (Option 2) into a full-page surface that mirrors IntegrationsView's shell:
 // a left sub-nav (Appearance · Files · Models · Personas) + centered panel, replacing the old
@@ -932,7 +933,7 @@ export function PaperSearchCard() {
         </button>{" "}
         · {t("The key is stored only on this computer.")}
       </div>
-      {failed && <div className="rail-error">{t("Couldn't save the key. Try again.")}</div>}
+      {failed && <div className="rail-error">{t("Couldn't save the key. Try again.")}<ReportProblem error={"Couldn't save the OpenAlex key."} context="paper search" /></div>}
     </div>
   );
 }
@@ -1401,7 +1402,7 @@ function GlobalInstructionsSection() {
             </span>
           )}
         </div>
-        {error && <div className="text-[12px] text-danger mt-2">{error}</div>}
+        {error && <div className="text-[12px] text-danger mt-2">{error}<ReportProblem error={error} context="instructions" /></div>}
       </div>
     </section>
   );

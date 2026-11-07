@@ -25,6 +25,7 @@ import { InlineNotice } from "./InlineNotice";
 import { PanelHead } from "./IntegrationsView";
 import { SelectMenu } from "./SelectMenu";
 import { AutomationQuickstart } from "./AutomationQuickstart";
+import { ReportProblem } from "./ReportProblem";
 
 // Shared utility strings (the §28 page shell — mirrors IntegrationsView's constants).
 const CARD = "rounded-xl2 border border-line bg-panel";
@@ -843,7 +844,7 @@ function TaskDetail({
               </span>
             </div>
             {r.result_text && <div className="sched-run-peek">{r.result_text}</div>}
-            {r.error && <div className="mcp-error">{r.error}</div>}
+            {r.error && <div className="mcp-error">{r.error}<ReportProblem error={r.error} context="scheduled run" /></div>}
           </div>
         ))}
       </div>

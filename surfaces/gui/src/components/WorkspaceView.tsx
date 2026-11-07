@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiToken, httpBase, revealArtifact } from "../api";
 import { PanelHead } from "./IntegrationsView";
 import { Icon } from "./Icon";
+import { ReportProblem } from "./ReportProblem";
 
 // Files — a read-only browser of the session's granted folders (the same roots
 // the @-picker and the file tools see). Breadcrumb + one-level tree + a
@@ -348,6 +349,7 @@ export function WorkspaceView(props: {
         {err && (
           <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-danger/10 text-danger text-[12.5px]" data-testid="workspace-error">
             {err}
+            <ReportProblem error={err} context="workspace" />
           </div>
         )}
 

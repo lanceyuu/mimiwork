@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { connectMcpBacked, getConnectors, type Connector } from "../../api";
 import { PILL_ACCENT, TAG_ACCENT } from "./ui";
+import { ReportProblem } from "../ReportProblem";
 
 // One-click pane for MCP-BACKED connectors (monday, asana, jira — §42): the sidecar
 // runs a fully LOCAL OAuth flow against the vendor's hosted MCP server (DCR — no
@@ -54,7 +55,7 @@ export function McpOneClick({ c, onConnected }: { c: Connector; onConnected: () 
       >
         {waiting ? "Check your browser…" : `Connect ${c.title}`}
       </button>
-      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      {error && <div className="text-[12.5px] text-danger">{error}<ReportProblem error={error} context="connectors" /></div>}
       <p className="text-[12px] text-faint text-center flex items-center justify-center gap-1.5">
         <span className={TAG_ACCENT}>Recommended</span> {c.title} tools load with your next message,
         tokens stay on this computer

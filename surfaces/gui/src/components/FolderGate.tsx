@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getRecentWorkspaces, openWorkspace, type RecentWorkspace } from "../api";
 import { chooseFolder } from "../tauri";
+import { ReportProblem } from "./ReportProblem";
 
 // The mandatory workspace picker for project-scoped personas. Deliberately no
 // "switch persona" escape hatch: if a persona needs a folder, the choice here is
@@ -93,6 +94,7 @@ export function FolderGate({ onChoose, onCancel, create, mode = "session" }: Pro
         {error && (
           <div className="gate-error">
             {error}
+            {!offline && <ReportProblem error={error} context="open folder" />}
             {offline && (
               <button className="btn" style={{ marginLeft: 8 }} onClick={() => window.location.reload()}>
                 Try again

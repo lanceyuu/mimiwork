@@ -29,6 +29,7 @@ import { ModelChecklist } from "./ModelChecklist";
 import { ProviderCards, ProviderForm, useProviderSetup } from "../providers/ProviderSetup";
 import { Toggle } from "./Toggle";
 import { McpOneClick } from "./connectors/McpOneClick";
+import { ReportProblem } from "./ReportProblem";
 
 // "2h ago"-style label for the providers' Last-used line (null when never used).
 const relTime = (epoch?: number | null): string | null => {
@@ -375,7 +376,7 @@ export function McpTab() {
           + Add server
         </button>
       ) : null}
-      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      {error && <div className="text-[12.5px] text-danger">{error}<ReportProblem error={error} context="manage" /></div>}
     </div>
   );
 }
@@ -469,9 +470,9 @@ function McpRow({
         </button>
       </div>
       {server.last_error && server.status !== "connected" && (
-        <div className="text-[12.5px] text-danger mt-1.5">{server.last_error}</div>
+        <div className="text-[12.5px] text-danger mt-1.5">{server.last_error}<ReportProblem error={server.last_error} context="mcp server" /></div>
       )}
-      {toolErr && <div className="text-[12.5px] text-danger mt-1.5">{toolErr}</div>}
+      {toolErr && <div className="text-[12.5px] text-danger mt-1.5">{toolErr}<ReportProblem error={toolErr} context="mcp server" /></div>}
       {tools && (
         <div className="mt-2.5 pt-2.5 border-t border-line flex flex-wrap gap-1.5">
           {tools.length === 0 && <div className="text-[12px] text-faint">No tools.</div>}
@@ -859,7 +860,7 @@ export function ConnectSetup({
           {busy ? "Validating…" : "Connect"}
         </button>
       </div>
-      {error && <div className="text-[12.5px] text-danger">{error}</div>}
+      {error && <div className="text-[12.5px] text-danger">{error}<ReportProblem error={error} context="manage" /></div>}
     </div>
   );
 }

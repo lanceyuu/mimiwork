@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { setWorkspaceTrusted, type WorkspaceCommandTrust } from "../api";
+import { ReportProblem } from "./ReportProblem";
 
 export function WorkspaceTrustPrompt({
   request,
@@ -41,7 +42,7 @@ export function WorkspaceTrustPrompt({
           ))}
         </div>
         <div className="text-[11.5px] text-muted mt-2 break-all">{request.workspace}</div>
-        {error && <div className="gate-error">{error}</div>}
+        {error && <div className="gate-error">{error}<ReportProblem error={error} context="folder trust" /></div>}
         <div className="gate-foot justify-end gap-2">
           <button className="btn" onClick={onClose} disabled={saving}>
             Keep asking

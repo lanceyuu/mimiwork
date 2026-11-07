@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { applyReferenceFixes, checkReferences, type RefCheck, type RefCode, type RefEntry, type RefFix } from "../api";
 import { getLang, useT } from "../i18n";
 import { openExternal } from "../tauri";
+import { ReportProblem } from "./ReportProblem";
 
 // The References tab (spec 2026-11-07). Its rule: never call a real paper wrong and never
 // make an entry worse. So nothing runs before a click, a fix Mimi cannot write safely is
@@ -278,7 +279,7 @@ export function ReferencesView({
             : t("Mimi reads the reference list and looks up each entry in Crossref and OpenAlex.")}
         </p>
         {checkButton(written != null ? "Check again" : "Check references", false)}
-        {error && <p className="rail-error">{t(error)}</p>}
+        {error && <p className="rail-error">{t(error)}<ReportProblem error={error} context="references" /></p>}
       </div>
     );
   }
@@ -363,7 +364,7 @@ export function ReferencesView({
           </button>
         </div>
       )}
-      {error && <p className="rail-error">{t(error)}</p>}
+      {error && <p className="rail-error">{t(error)}<ReportProblem error={error} context="references" /></p>}
     </div>
   );
 }

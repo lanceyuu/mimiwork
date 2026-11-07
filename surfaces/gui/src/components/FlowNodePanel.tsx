@@ -11,6 +11,7 @@ import { useState } from "react";
 import type { Automation } from "../api";
 import { flowNodes } from "./AutomationFlow";
 import { MODES, fromCron, toCron } from "./RunSettings";
+import { ReportProblem } from "./ReportProblem";
 
 type Revise = (nodeTitle: string, comment: string) => Promise<{ ok: boolean; error?: string }>;
 
@@ -252,7 +253,7 @@ export function FlowNodePanel({
                     : "What should be different here? e.g. “only sources from the last 24 hours”",
         )
       )}
-      {error && <div className="mcp-error">{error}</div>}
+      {error && <div className="mcp-error">{error}<ReportProblem error={error} context="flow diagram" /></div>}
     </div>
   );
 }
