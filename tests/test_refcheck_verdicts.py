@@ -231,3 +231,11 @@ def test_the_first_surname_occurrence_is_replaced_in_the_lists_casing():
     e2 = entry(text=lower, surname="Baumiester")
     (fix2,) = make_fixes(e2, look_up(e2, lookups(search=[cr(family="BAUMEISTER")])), lower, "https://doi.org/")
     assert fix2["new"] == "Baumeister"
+
+
+def test_a_doi_that_is_only_the_start_of_the_printed_one_is_never_replaced_into_it():
+    text = f"Baumeister, R. F. (1998). {TITLE}. https://doi.org/{DOI}"
+    e = entry(text=text, doi="10.1037/0022-3514.74.5")
+    out = look_up(e, lookups(search=[cr()]))
+    assert all(not f["after"].endswith(".1252.1252") for f in make_fixes(e, out, text, "https://doi.org/"))
+    assert make_fixes(e, out, text, "https://doi.org/") == []

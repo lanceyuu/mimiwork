@@ -218,3 +218,72 @@ def test_results_older_than_ninety_days_are_pruned(tmp_path):
     os.utime(old, (past, past))
     prune(folder)
     assert not old.exists() and new.exists()
+
+
+def test_a_doi_the_model_cut_short_leaves_the_correct_printed_doi_alone(tmp_path):
+    text = f"Baumeister, R. (1998). {TITLE}. https://doi.org/{DOI}"
+
+    def complete(system, user):
+        return json.dumps({"entries": [{"first": 0, "last": 0, "text": text, "title": TITLE, "surname": "Baumeister", "year": "1998", "doi": "10.1037/0022-3514.74.5"}]})
+
+    found = {**RECORD, "author": [{"family": "Baumeister", "given": "Roy"}]}
+    lk = Lookups(
+        crossref_work=lambda doi: {"ok": True, "record": found} if doi == DOI.lower() else {"ok": False, "error": "no_such_doi"},
+        crossref_search=lambda t: {"ok": True, "items": [found]},
+        csl_record=lambda d: {"ok": False},
+        openalex_title=lambda t: {"ok": True, "results": []},
+        formatted=lambda d, s: {"ok": True, "text": "x"},
+    )
+    (row,) = check_file(_doc(tmp_path, [text]), complete=complete, lookups=lk, cache_dir=tmp_path / "cache")["entries"]
+    assert row["group"] == "verified" and row["fixes"] == []
+
+
+def _saved(tmp_path, result):
+    return tmp_path / "cache" / f"{result['hash']}.json"
+
+
+def test_a_result_saved_by_an_older_version_is_checked_again(tmp_path):
+    path = _doc(tmp_path, [ENTRY])
+    model = Model()
+    saved = _saved(tmp_path, run(path, tmp_path, model=model))
+    data = json.loads(saved.read_text())
+    data.pop("version")
+    saved.write_text(json.dumps(data))
+    assert run(path, tmp_path, model=model)["ok"] and model.calls == 2
+
+
+def test_a_saved_result_without_counts_is_checked_again_not_a_crash(tmp_path):
+    path = _doc(tmp_path, [ENTRY])
+    model = Model()
+    saved = _saved(tmp_path, run(path, tmp_path, model=model))
+    data = json.loads(saved.read_text())
+    data.pop("counts")
+    saved.write_text(json.dumps(data))
+    assert run(path, tmp_path, model=model)["ok"] and model.calls == 2
+
+
+def test_a_saved_result_holding_couldnt_check_entries_is_not_reused(tmp_path):
+    path = _doc(tmp_path, [ENTRY])
+    model = Model()
+    offline = Lookups(
+        crossref_work=lambda doi: {"ok": False, "error": "lookup_failed"},
+        crossref_search=lambda text: {"ok": False, "error": "lookup_failed"},
+        csl_record=lambda doi: {"ok": False, "error": "lookup_failed"},
+        openalex_title=lambda title: {"ok": False, "error": "lookup_failed"},
+        formatted=lambda doi, style: {"ok": False},
+    )
+    first = run(path, tmp_path, model=model, lk=offline)
+    assert first["counts"]["couldnt"] == 1
+    assert run(path, tmp_path, model=model, cached_only=True)["hash"] == first["hash"]
+    assert run(path, tmp_path, model=model)["counts"]["couldnt"] == 0 and model.calls == 2
+
+
+def test_a_save_cut_short_is_pruned_with_the_old_results(tmp_path):
+    folder = tmp_path / "cache"
+    folder.mkdir()
+    tmp = folder / "abc.tmp"
+    tmp.write_text("{")
+    past = time.time() - 91 * 86400
+    os.utime(tmp, (past, past))
+    prune(folder)
+    assert not tmp.exists()

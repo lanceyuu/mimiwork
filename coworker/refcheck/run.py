@@ -36,6 +36,10 @@ from .verdicts import (
 )
 
 KEEP_DAYS = 90
+# Bumped whenever a saved result could hold a verdict or fix the current code would not
+# make, so an old one is checked again instead of shown. 2: a DOI the model cut short
+# could write a corrupt DOI; fix ids came from the model's order.
+VERSION = 2
 
 
 class NoModel(Exception):
@@ -55,7 +59,9 @@ def _load(path: Path) -> Optional[dict[str, Any]]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return data if isinstance(data, dict) and data.get("ok") else None
+    if not isinstance(data, dict) or not data.get("ok") or data.get("version") != VERSION:
+        return None
+    return data if isinstance(data.get("counts"), dict) and isinstance(data.get("entries"), list) else None
 
 
 def _save(path: Path, result: dict[str, Any]) -> None:
@@ -110,7 +116,7 @@ def check_file(
         cached = _load(saved)
         # A result with lookups that failed (offline, OpenAlex's daily limit) is shown
         # when asked for, but never reused as the answer to a new check.
-        if cached and (cached_only or not cached["counts"]["couldnt"]):
+        if cached and (cached_only or not cached["counts"].get("couldnt")):
             return cached
     if cached_only:
         return {"ok": False, "cached": False}
@@ -123,7 +129,7 @@ def check_file(
             try:
                 if saved.stat().st_mtime >= asked:
                     cached = _load(saved)
-                    if cached and not cached["counts"]["couldnt"]:
+                    if cached and not cached["counts"].get("couldnt"):
                         return cached
             except OSError:
                 pass
@@ -170,6 +176,7 @@ def _check(target: Path, digest: str, complete: Callable[[str, str], str], looku
     counts = Counter(row["group"] for row in rows)
     return {
         "ok": True,
+        "version": VERSION,
         "hash": digest,
         "checked_at": time.time(),
         "kind": listing.kind,

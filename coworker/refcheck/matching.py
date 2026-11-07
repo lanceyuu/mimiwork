@@ -44,6 +44,19 @@ def loose(text: Any) -> str:
     return " ".join(_DASH.sub("", t).split())
 
 
+# What may follow a DOI that has ended: closing punctuation, then a space, a quote, a
+# bracket of markup or the end. Anything else continues it, so a DOI the model cut short
+# ("…74.5" of "…74.5.1252") is not found in the text and never stands for the printed one.
+_DOI_END = r"""(?=[.,;:)\]]*(?:[\s"'<>“”‘’«»]|$))"""
+
+
+def find_doi(doi: str, text: str) -> Optional[re.Match[str]]:
+    """The printed DOI in `text`, whole, case-insensitively; a PDF line break may sit
+    anywhere inside it."""
+    body = r"\s*".join(re.escape(ch) for ch in doi)
+    return re.search(body + _DOI_END, text, re.I) if doi else None
+
+
 def norm(text: Any) -> str:
     """The form titles and names are matched in: accents gone, letters and digits of every
     script kept, everything else a space."""

@@ -242,3 +242,23 @@ def test_entries_past_the_cap_are_counted_as_not_checked(monkeypatch):
     complete, _ = _fake_model([(k, k) for k in range(5)])
     result = read_entries(_listing(5), complete)
     assert len(result.entries) == 2 and result.not_checked == 3
+
+
+FULL_DOI = "10.1037/0022-3514.74.5.1252"
+
+
+def _one(text, doi):
+    def complete(system, user):
+        return json.dumps({"entries": [{"first": 0, "last": 0, "text": text, "title": "Ego depletion", "surname": "Baumeister", "year": "1998", "doi": doi}]})
+
+    return read_entries(Listing("docx", [Para(text)]), complete).entries[0]
+
+
+def test_a_doi_the_model_cut_short_is_dropped_not_kept_as_a_prefix():
+    text = f"Baumeister, R. (1998). Ego depletion. https://doi.org/{FULL_DOI}"
+    assert _one(text, "10.1037/0022-3514.74.5").doi is None
+
+
+def test_a_doi_ending_the_entry_with_a_full_stop_or_bracket_is_kept():
+    assert _one(f"Baumeister, R. (1998). Ego depletion. doi:{FULL_DOI}.", FULL_DOI).doi == FULL_DOI
+    assert _one(f"Baumeister, R. (1998). Ego depletion (doi:{FULL_DOI}).", FULL_DOI).doi == FULL_DOI

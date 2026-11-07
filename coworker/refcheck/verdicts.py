@@ -18,6 +18,7 @@ from .matching import (
     BOOKS,
     Match,
     best,
+    find_doi,
     from_crossref,
     from_csl,
     from_openalex,
@@ -240,7 +241,7 @@ def make_fixes(entry: Any, outcome: Outcome, text: str, form: str) -> list[dict[
         # Matched in the original text: offsets taken from text.lower() drift wherever
         # lowercasing changes a character's length (Turkish İ), and the fix would land
         # in the wrong place.
-        found = re.search(re.escape(entry.doi), text, re.I)
+        found = find_doi(entry.doi, text)
         if found:
             fixes.append(_fix(entry, "replace_doi", found.start(), found.end(), cand.doi, text))
     if "doi_missing" in params:

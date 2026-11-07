@@ -15,7 +15,7 @@ from typing import Any, Callable, Optional
 
 from .. import scholarly
 from ..code_explain import _loads
-from .matching import loose, words_present
+from .matching import find_doi, loose, words_present
 
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -271,7 +271,7 @@ def _entry(n: int, item: dict[str, Any], listing: Listing) -> Optional[Entry]:
     if not loose(printed) or loose(printed) not in within:
         return None
     doi = scholarly.normalise_doi(item.get("doi"))
-    if doi and doi not in re.sub(r"\s+", "", printed).lower():
+    if doi and not find_doi(doi, printed):
         doi = None
     raw = item.get("year")
     raw_year = str(raw) if isinstance(raw, int) else _text(raw)  # models often send 1998, not "1998"
