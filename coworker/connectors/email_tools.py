@@ -24,6 +24,7 @@ import smtplib
 import ssl
 import time
 from dataclasses import dataclass
+from email.errors import HeaderParseError
 from email.header import decode_header
 from email.message import EmailMessage
 from email.utils import formataddr, make_msgid
@@ -145,8 +146,14 @@ def _smtp_login(profile, servers, factory) -> smtplib.SMTP:
 def decode_mime_header(raw: Any) -> str:
     if not raw:
         return ""
+    try:
+        pieces = decode_header(str(raw))
+    except HeaderParseError:
+        # A header that says it is encoded and is not. It is shown as it came: one broken
+        # subject must not stop a message being listed, read or answered.
+        return str(raw)
     parts = []
-    for part, charset in decode_header(str(raw)):
+    for part, charset in pieces:
         if isinstance(part, bytes):
             try:
                 parts.append(part.decode(charset or "utf-8", errors="replace"))

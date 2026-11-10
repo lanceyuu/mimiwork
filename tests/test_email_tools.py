@@ -200,6 +200,12 @@ def test_decode_mime_header_rfc2047():
     assert decode_mime_header(None) == ""
 
 
+def test_a_header_that_says_it_is_encoded_and_is_not_is_shown_as_it_came():
+    # Real mail carries these. Raising here stopped the message being listed at all.
+    assert decode_mime_header("=?utf-8?b?A?=") == "=?utf-8?b?A?="
+    assert decode_mime_header("Re: =?utf-8?b?A?= plan") == "Re: =?utf-8?b?A?= plan"
+
+
 def test_extract_text_body_prefers_plain():
     assert extract_text_body(_multipart_message()).strip() == "Plain body here."
 

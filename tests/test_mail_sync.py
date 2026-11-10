@@ -283,3 +283,19 @@ def test_a_message_with_no_readable_date_is_dated_by_when_the_server_received_it
 
     item = {"uid": 1, "flags": "", "size": 0, "has_attachments": False, "headers": EmailMessage(), "received": 1780999200.0}
     assert message_row(ADDRESS, "INBOX", item)["date"] == 1780999200.0
+
+
+def test_one_message_with_a_header_that_cannot_be_decoded_is_still_listed():
+    import email
+
+    from coworker.mail.sync import message_row
+
+    # Straight from the bytes a server sends. Before, this raised, and because a pass
+    # reads a couple of hundred messages at a time, one such email stopped the inbox syncing.
+    headers = email.message_from_string(
+        "From: =?utf-8?b?A?= <ana@example.com>\nSubject: =?utf-8?b?A?=\nMessage-ID: <odd@x>\n\n"
+    )
+    item = {"uid": 7, "flags": "", "size": 10, "has_attachments": False, "headers": headers}
+    row = message_row("user@example.com", "INBOX", item)
+    assert (row["uid"], row["subject"], row["message_id"]) == (7, "=?utf-8?b?A?=", "<odd@x>")
+    assert "ana@example.com" in row["sender"]
