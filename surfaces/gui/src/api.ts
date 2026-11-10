@@ -3409,6 +3409,10 @@ export interface MailThread {
   subject: string;
   in_inbox: boolean;
   messages: MailEnvelope[];
+  /** The message a reply answers: the newest one that came in. */
+  answer: { folder: string; uid: number; message_id: string };
+  /** The id of the conversation's unsent reply, or "". */
+  draft: string;
 }
 
 export interface MailAttachment {
@@ -3421,6 +3425,8 @@ export interface MailMessage extends MailEnvelope {
   ok: boolean;
   error?: string;
   thread_key: string;
+  /** The id of the unsent reply to this message's conversation, or "". */
+  draft: string;
   html: string;
   text: string;
   attachments: MailAttachment[];
@@ -3435,9 +3441,9 @@ const mailUrl = (path: string) => `${httpBase()}/v1/mail${path}`;
 const mailThreadUrl = (key: string, action = "") =>
   mailUrl(`/threads/${encodeURIComponent(key)}${action}`);
 
-async function mailPost<T = MailReply>(url: string, body: unknown = {}): Promise<T> {
+async function mailPost<T = MailReply>(url: string, body: unknown = {}, method = "POST"): Promise<T> {
   const res = await fetch(url, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -3495,4 +3501,85 @@ export function saveMailAttachment(
   index: number,
 ): Promise<MailReply & { path?: string }> {
   return mailPost(mailUrl("/attachments/save"), { folder, uid, index });
+}
+
+/** A passage of an email the user wants answered, and what the reply should say about it. */
+export interface MailComment {
+  /** The Message-ID of the message the passage is in. */
+  message_id: string;
+  quote: string;
+  note: string;
+}
+
+/** A conversation's comments, and its one free note for anything not tied to a passage. */
+export interface MailComments extends MailReply {
+  comments: MailComment[];
+  note: string;
+}
+
+export interface MailDraft {
+  id: string;
+  /** The conversation a reply belongs to; "" for a new message. */
+  thread_key: string;
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  /** Who a reply answers; "" for a new message. */
+  answers: string;
+  /** The Message-ID of the message a reply answers. A conversation can have moved on
+   *  since the draft was started. */
+  answers_id: string;
+  reply: boolean;
+  /** A send of this draft was cut short, so it may or may not have gone. */
+  interrupted: boolean;
+  updated_at: number;
+}
+
+export type MailDraftFields = Partial<Pick<MailDraft, "to" | "cc" | "subject" | "body">>;
+type MailDraftReply = MailReply & { draft?: MailDraft };
+
+const mailDraftUrl = (id: string, action = "") => mailUrl(`/drafts/${encodeURIComponent(id)}${action}`);
+
+export async function getMailComments(key: string): Promise<MailComments> {
+  return (await fetch(mailThreadUrl(key, "/comments"))).json();
+}
+
+/** Save the whole list. Comments are saved as they are typed, so this is called often. */
+export function putMailComments(key: string, comments: MailComment[], note: string): Promise<MailReply> {
+  return mailPost(mailThreadUrl(key, "/comments"), { comments, note }, "PUT");
+}
+
+export async function getMailDrafts(): Promise<MailDraft[]> {
+  return (await (await fetch(mailUrl("/drafts"))).json()).drafts ?? [];
+}
+
+/** Start a draft: a reply to the message named, or with nothing named a new message. A
+ *  conversation has one reply draft, so asking again gives the same one back. */
+export function createMailDraft(
+  reply?: { folder: string; uid: number; reply_all?: boolean },
+): Promise<MailDraftReply> {
+  return mailPost(mailUrl("/drafts"), reply ?? {});
+}
+
+export async function getMailDraft(id: string): Promise<MailDraftReply> {
+  return (await fetch(mailDraftUrl(id))).json();
+}
+
+export function updateMailDraft(id: string, fields: MailDraftFields): Promise<MailReply> {
+  return mailPost(mailDraftUrl(id), fields, "PUT");
+}
+
+export function deleteMailDraft(id: string): Promise<MailReply> {
+  return mailPost(mailDraftUrl(id), {}, "DELETE");
+}
+
+/** Ask Mimi for the text of a reply, from the conversation's comments. Sends nothing. */
+export function writeMailReply(id: string, guidance = ""): Promise<MailReply & { text?: string }> {
+  return mailPost(mailUrl("/reply"), { id, guidance });
+}
+
+/** Send the draft. `note` says so when it went but no copy could be filed in Sent. */
+export function sendMailDraft(id: string): Promise<MailReply & { note?: string }> {
+  return mailPost(mailDraftUrl(id, "/send"));
 }
