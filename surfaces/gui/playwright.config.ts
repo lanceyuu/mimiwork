@@ -18,11 +18,13 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
-    // The macOS app runs in WebKit, and the email reader's safety rests on how the webview
-    // treats a sandboxed frame. Chromium passing says nothing about that, so the safety
-    // tests run in WebKit as well: always in CI, and on any machine that has it installed.
+    // The macOS app runs in WebKit, and the email reader rests on how the webview treats a
+    // sandboxed frame: what it refuses to run or load, and whether a selection made inside
+    // it can be read from outside and survives a press on a button. Chromium passing says
+    // nothing about that, so the safety tests and the commenting test run in WebKit as
+    // well: always in CI, and on any machine that has it installed.
     ...(process.env.CI || existsSync(webkit.executablePath())
-      ? [{ name: "webkit", use: { ...devices["Desktop Safari"] }, testMatch: /mail-safety\.spec\.ts/ }]
+      ? [{ name: "webkit", use: { ...devices["Desktop Safari"] }, testMatch: /mail-(safety|comments)\.spec\.ts/ }]
       : []),
   ],
   webServer: {

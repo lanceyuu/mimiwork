@@ -365,7 +365,13 @@ const PROVIDERS = [
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
   // Mail — per-test state, so an archive or a mark in one test never leaks into another.
-  const mail = { threads: MAIL_THREADS.map((t) => ({ ...t })), revision: 1 };
+  const mail = {
+    threads: MAIL_THREADS.map((t) => ({ ...t })),
+    revision: 1,
+    comments: {} as Record<string, { comments: { message_id: string; quote: string; note: string }[]; note: string }>,
+    drafts: [] as any[],
+    made: 0,
+  };
   const subscriptions: any[] = [
     // One existing subscription (a non-pinned session) so the Slack page's per-workspace
     // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
@@ -2028,8 +2034,77 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/mail/message/read")) return json({ ok: true });
     if (p.endsWith("/v1/mail/message")) {
       const q = new URL(req.url()).searchParams;
-      const found = MAIL_MESSAGES[`${q.get("folder")}/${q.get("uid")}`];
-      return json(found ? { ok: true, ...found } : { ok: false, error: "This message is no longer in the mailbox." });
+      const found: any = MAIL_MESSAGES[`${q.get("folder")}/${q.get("uid")}`];
+      const draft = found && mail.drafts.find((d) => d.thread_key === found.thread_key);
+      return json(
+        found
+          ? { ok: true, ...found, draft: draft?.id ?? "" }
+          : { ok: false, error: "This message is no longer in the mailbox." },
+      );
+    }
+    // comments, drafts, writing a reply, sending
+    {
+      const cm = p.match(/\/v1\/mail\/threads\/([^/]+)\/comments$/);
+      if (cm) {
+        if (m === "PUT") mail.comments[cm[1]] = req.postDataJSON();
+        return json({ ok: true, ...(m === "PUT" ? {} : (mail.comments[cm[1]] ?? { comments: [], note: "" })) });
+      }
+    }
+    if (p.endsWith("/v1/mail/drafts") && m === "GET") return json({ ok: true, drafts: mail.drafts });
+    if (p.endsWith("/v1/mail/drafts") && m === "POST") {
+      const b = req.postDataJSON() || {};
+      const source: any = b.folder ? MAIL_MESSAGES[`${b.folder}/${b.uid}`] : null;
+      // Like the backend: a conversation has one reply draft, and New message gives back
+      // the one that is still empty.
+      let draft = mail.drafts.find((d) =>
+        source ? d.thread_key === source.thread_key : !d.reply && !d.to && !d.cc && !d.subject && !d.body,
+      );
+      if (!draft) {
+        mail.made += 1;
+        draft = {
+          id: `draft-${mail.made}`,
+          thread_key: source?.thread_key ?? "",
+          to: source?.from ?? "",
+          cc: source && b.reply_all ? "Team <team@example.com>" : "",
+          subject: source ? `Re: ${source.subject.replace(/^Re: /, "")}` : "",
+          body: "",
+          answers: source?.from ?? "",
+          answers_id: source?.message_id ?? "",
+          reply: !!source,
+          interrupted: false,
+          updated_at: Math.floor(Date.now() / 1000),
+        };
+        mail.drafts.unshift(draft);
+      }
+      return json({ ok: true, draft });
+    }
+    if (p.endsWith("/v1/mail/reply")) {
+      const b = req.postDataJSON() || {};
+      const draft = mail.drafts.find((d) => d.id === b.id);
+      if (!draft) return json({ ok: false, error: "This draft no longer exists." });
+      const noted = mail.comments[draft.thread_key] ?? { comments: [], note: "" };
+      const said = [...noted.comments.map((c) => c.note), noted.note].filter(Boolean).join(" ");
+      if (!said) return json({ ok: false, error: "Add a comment or a note first, so Mimi knows what to say." });
+      // Stands in for the model: the notes, in a letter, shorter when asked to be.
+      const text = b.guidance ? `Hi Ana, ${said} Me` : `Hi Ana,\n\n${said}\n\nBest,\nMe`;
+      return json({ ok: true, text });
+    }
+    {
+      const dm = p.match(/\/v1\/mail\/drafts\/([^/]+)(\/send)?$/);
+      if (dm) {
+        const draft = mail.drafts.find((d) => d.id === dm[1]);
+        if (!draft) return json({ ok: false, error: "This draft no longer exists." });
+        if (m === "GET") return json({ ok: true, draft });
+        if (m === "PUT") {
+          Object.assign(draft, req.postDataJSON(), { updated_at: Math.floor(Date.now() / 1000) });
+          return json({ ok: true });
+        }
+        // Discarded, or sent: either way the draft is gone, and a sent reply takes its
+        // conversation's comments with it.
+        mail.drafts.splice(mail.drafts.indexOf(draft), 1);
+        if (dm[2]) delete mail.comments[draft.thread_key];
+        return json(dm[2] ? { ok: true, note: "" } : { ok: true });
+      }
     }
     if (p.endsWith("/v1/mail/search")) {
       const words = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
@@ -2042,7 +2117,13 @@ export async function mockApi(page: import("@playwright/test").Page) {
         const row = mail.threads.find((t) => t.key === mm[1]);
         if (!row) return json({ ok: false, error: "This conversation is no longer in the mailbox." });
         if (!mm[2]) {
-          return json({ ok: true, key: row.key, subject: row.subject, in_inbox: true, messages: MAIL_THREAD_MESSAGES[row.key] });
+          const messages = MAIL_THREAD_MESSAGES[row.key];
+          const newest = messages[messages.length - 1];
+          return json({
+            ok: true, key: row.key, subject: row.subject, in_inbox: true, messages,
+            answer: { folder: newest.folder, uid: newest.uid, message_id: newest.message_id },
+            draft: mail.drafts.find((d) => d.thread_key === row.key)?.id ?? "",
+          });
         }
         // Like the backend: a change moves the revision, which is what makes the list reload.
         if (mm[2] === "/read") row.unread = !(req.postDataJSON() || {}).read;
