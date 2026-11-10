@@ -185,7 +185,12 @@ def create_app(manager: SessionManager) -> FastAPI:
         await manager.aclose()  # stop gateway + close MCP connections on shutdown
 
     app = FastAPI(title="coworker", version="0.0.0", lifespan=lifespan)
-    api_token = os.environ.get("COWORKER_API_TOKEN", "")
+    # Taken out of the environment, not just read: every process the sidecar starts
+    # (the agent's shell, coding-agent hand-offs, the analysis kernel, Rscript)
+    # inherits os.environ, and a command that could read this token could call any
+    # route here, including the ones meant only for the user's own clicks, which
+    # would make the approval gate on everything else meaningless.
+    api_token = os.environ.pop("COWORKER_API_TOKEN", "")
     tokenless_paths = {
         "/v1/health",
         "/auth/callback",
