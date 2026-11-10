@@ -1,3 +1,4 @@
+import { MAIL_MESSAGES, MAIL_SEARCH, MAIL_THREADS, MAIL_THREAD_MESSAGES } from "./mail-data";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -363,6 +364,8 @@ const PROVIDERS = [
 
 /** Install the API + WebSocket mocks on a page. Returns handles for assertions/seed data. */
 export async function mockApi(page: import("@playwright/test").Page) {
+  // Mail — per-test state, so an archive or a mark in one test never leaks into another.
+  const mail = { threads: MAIL_THREADS.map((t) => ({ ...t })), revision: 1 };
   const subscriptions: any[] = [
     // One existing subscription (a non-pinned session) so the Slack page's per-workspace
     // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
@@ -2011,6 +2014,42 @@ export async function mockApi(page: import("@playwright/test").Page) {
       const i = subscriptions.findIndex((s) => s.session_id === b.session_id && s.channel === b.channel);
       if (i >= 0) subscriptions.splice(i, 1);
       return json({ ok: true });
+    }
+
+    // mail
+    if (p.endsWith("/v1/mail/status")) {
+      return json({
+        ok: true, connected: true, address: "me@example.com", syncing: false, revision: mail.revision,
+        last_sync: Math.floor(Date.now() / 1000) - 60, last_error: "", can_archive: true, can_bin: true,
+      });
+    }
+    if (p.endsWith("/v1/mail/sync")) return json({ ok: true, started: true });
+    if (p.endsWith("/v1/mail/threads")) return json({ ok: true, threads: mail.threads });
+    if (p.endsWith("/v1/mail/message/read")) return json({ ok: true });
+    if (p.endsWith("/v1/mail/message")) {
+      const q = new URL(req.url()).searchParams;
+      const found = MAIL_MESSAGES[`${q.get("folder")}/${q.get("uid")}`];
+      return json(found ? { ok: true, ...found } : { ok: false, error: "This message is no longer in the mailbox." });
+    }
+    if (p.endsWith("/v1/mail/search")) {
+      const words = (new URL(req.url()).searchParams.get("q") || "").toLowerCase();
+      return json({ ok: true, results: MAIL_SEARCH.filter((r) => r.subject.toLowerCase().includes(words)) });
+    }
+    if (p.endsWith("/v1/mail/attachments/save")) return json({ ok: true, path: "/Users/me/Downloads/plan.pdf" });
+    {
+      const mm = p.match(/\/v1\/mail\/threads\/([^/]+)(\/read|\/archive|\/bin)?$/);
+      if (mm) {
+        const row = mail.threads.find((t) => t.key === mm[1]);
+        if (!row) return json({ ok: false, error: "This conversation is no longer in the mailbox." });
+        if (!mm[2]) {
+          return json({ ok: true, key: row.key, subject: row.subject, in_inbox: true, messages: MAIL_THREAD_MESSAGES[row.key] });
+        }
+        // Like the backend: a change moves the revision, which is what makes the list reload.
+        if (mm[2] === "/read") row.unread = !(req.postDataJSON() || {}).read;
+        else mail.threads.splice(mail.threads.indexOf(row), 1);
+        mail.revision += 1;
+        return json({ ok: true });
+      }
     }
 
     // agent systems
