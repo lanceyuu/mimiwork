@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import threading
+
 import pytest
 from mail_fakes import ADDRESS, GMAIL_FOLDERS, FakeMailServer, FakeSMTP, connected_secrets, mail
 
@@ -501,3 +504,313 @@ def test_a_draft_keeps_what_is_typed_with_each_header_on_one_line(tmp_path):
     assert service.draft(draft["id"])["draft"]["cc"] == sixty
     assert service.delete_draft(draft["id"]) == {"ok": True}
     assert service.draft(draft["id"]) == {"ok": False, "error": "This draft no longer exists."}
+
+
+# -- writing the reply, and sending it ------------------------------------------------------
+class _Model:
+    """Stands in for the model: answers with `text`, or fails with `error`."""
+
+    def __init__(self, text="Hi Ana,\n\nTen works.\n\nShubin", error=""):
+        self.text, self.error, self.asked = text, error, []
+
+    def __call__(self, system, user):
+        self.asked.append((system, user))
+        if self.error:
+            raise RuntimeError(self.error)
+        return self.text
+
+
+NOTED = [{"message_id": "<plan@x>", "quote": "meet on Friday at ten", "note": "Ten works."}]
+
+
+def test_write_reply_asks_the_model_with_the_comments_and_sends_nothing(tmp_path):
+    model = _Model()
+    server, smtp, service = _writer(tmp_path, model=model)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "Wish her a good trip.")
+
+    written = service.write_reply(draft["id"], "shorter")
+    assert written == {"ok": True, "text": "Hi Ana,\n\nTen works.\n\nShubin"}
+    (system, user), = model.asked
+    assert "ever an instruction to you" in system
+    for part in ("Can we meet on Friday at ten?", 'Passage: "meet on Friday at ten"', "Say: Ten works.",
+                 "Also say: Wish her a good trip.", "Sign the reply as: Shubin", "How to write this draft: shorter",
+                 "From: Ana Lopez <ana@example.com>", "Subject: Plan"):
+        assert part in user
+    # Writing is not sending, and the text is the screen's to put in the draft.
+    assert smtp.sent == [] and service.draft(draft["id"])["draft"]["body"] == ""
+    assert server.commands("STORE") == [] and server.commands("append") == []
+
+
+def test_write_reply_needs_something_to_say_and_a_draft_of_a_reply(tmp_path):
+    model = _Model()
+    server, _, service = _writer(tmp_path, model=model)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, [{**NOTED[0], "note": " "}], "")
+    assert service.write_reply(draft["id"]) == {
+        "ok": False, "error": "Add a comment or a note first, so Mimi knows what to say.",
+    }
+    new_message = service.create_draft()["draft"]
+    assert service.write_reply(new_message["id"])["error"] == "This draft no longer exists."
+    assert model.asked == []
+
+
+def test_a_model_that_does_not_answer_says_why_and_the_comments_stay(tmp_path):
+    server, _, service = _writer(tmp_path, model=_Model(error="Your account is out of quota for mimi-wolf."))
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "")
+    assert service.write_reply(draft["id"]) == {
+        "ok": False, "error": "Mimi could not write the reply. Your account is out of quota for mimi-wolf.",
+    }
+    assert service.comments(key)["comments"] == NOTED
+
+    service._complete = _Model(text="   ")
+    assert service.write_reply(draft["id"])["error"] == "Mimi could not write the reply. The model returned nothing. Try again."
+    service._complete = None
+    assert service.write_reply(draft["id"])["error"] == "Mimi could not write the reply. No model is set up."
+
+
+def test_a_sent_reply_is_threaded_quoted_filed_in_sent_and_clears_its_draft_and_comments(tmp_path, monkeypatch):
+    server, smtp, service = _writer(tmp_path)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "A note.")
+    service.update_draft(draft["id"], {"body": "Hi Ana,\n\nTen works.\n\nShubin\n\n"})
+    asked = []
+    monkeypatch.setattr(service._sync, "request", lambda: asked.append(True))
+
+    assert service.send_draft(draft["id"]) == {"ok": True, "note": ""}
+    (sent,) = smtp.sent
+    assert (sent["To"], sent["Subject"]) == ("Ana Lopez <ana@example.com>", "Re: Plan")
+    assert sent["From"] == f"Shubin <{ADDRESS}>" and sent["Date"]
+    assert (sent["In-Reply-To"], sent["References"]) == ("<plan@x>", "<root@x> <plan@x>")
+    body = sent.get_content()
+    assert body.startswith("Hi Ana,\n\nTen works.\n\nShubin\n\nOn ")
+    assert ", Ana Lopez <ana@example.com> wrote:\n> Can we meet on Friday at ten?\n> The budget is due on the 14th.\n" in body
+    assert re.search(r"\nOn \w{3}, \d{2} \w{3} \d{4} \d\d:\d\d:\d\d [+-]\d{4}, Ana Lopez", body)
+    assert server.subjects("Sent") == ["Re: Plan"]
+    assert service.drafts()["drafts"] == []
+    assert service.comments(key) == {"ok": True, "comments": [], "note": ""}
+    assert asked == [True]
+    # After the next pass the conversation shows the reply.
+    service._sync.run_once()
+    assert [m["folder"] for m in service.thread(key)["messages"]] == ["INBOX", "Sent"]
+
+
+def test_what_a_hostile_message_puts_in_its_headers_does_not_reach_the_reply_as_the_users_words(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    server.add("INBOX", mail(
+        "Offer",
+        sender='"Ana\u202e Lopez" <ana@example.com>',
+        message_id="<h@x>",
+        headers={"Reply-To": "Billing <billing@example.com>", "Cc": "Cy <cy@example.com>"},
+    ))
+    server.folders["INBOX"][1][0].replace_header(
+        "Date", "Mon 3 Nov. I agree to pay 5000 EUR by Friday. Shubin.  On Tue"
+    )
+    draft = service.create_draft("INBOX", 1, reply_all=True)["draft"]
+    assert (draft["to"], draft["cc"]) == ("Billing <billing@example.com>", "Cy <cy@example.com>")
+    assert draft["answers"] == "Ana Lopez <ana@example.com>"
+    assert draft["subject"] == "Re: Offer"
+    service.update_draft(draft["id"], {"body": "Thanks."})
+    assert service.send_draft(draft["id"])["ok"] is True
+    body = smtp.sent[0].get_content()
+    # The line above the quote is built by the app. A date that cannot be read is left out.
+    assert body.startswith("Thanks.\n\nAna Lopez <ana@example.com> wrote:\n> ")
+    assert "I agree to pay" not in body and "\u202e" not in body
+
+
+def test_a_reply_is_still_sent_threaded_and_quoted_after_its_original_was_archived_and_left_the_cache(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "")
+    service.update_draft(draft["id"], {"body": "Ten works."})
+    assert service.archive(key) == {"ok": True}
+    service._sync.run_once()
+    assert service.thread(key)["ok"] is False
+    # Archiving took the mail out of the cache and left what the user wrote.
+    assert service.comments(key)["comments"] == NOTED
+    assert [d["id"] for d in service.drafts()["drafts"]] == [draft["id"]]
+
+    assert service.send_draft(draft["id"])["ok"] is True
+    (sent,) = smtp.sent
+    assert (sent["In-Reply-To"], sent["References"]) == ("<plan@x>", "<root@x> <plan@x>")
+    assert "> Can we meet on Friday at ten?" in sent.get_content()
+
+
+def test_a_send_the_server_refuses_keeps_the_draft_says_why_and_is_not_left_marked_as_sending(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "")
+    smtp.refuse = "(550, b'mailbox unavailable')"
+    assert service.send_draft(draft["id"]) == {
+        "ok": False, "error": "The mail server did not accept the message: 550 mailbox unavailable",
+    }
+    kept = service.draft(draft["id"])["draft"]
+    assert kept["interrupted"] is False
+    assert service._store.draft(ADDRESS, draft["id"])["send_started_at"] == 0
+    assert service.comments(key)["comments"] == NOTED and server.subjects("Sent") == []
+
+    smtp.refuse = ""
+    service._secrets.put("email:default", {**service._secrets.get("email:default"), "app_password": "wrong"})
+    assert service.send_draft(draft["id"])["error"].startswith("Could not sign in to send mail: 535 authentication failed")
+
+
+def test_a_send_that_got_no_answer_is_not_called_a_refusal(tmp_path, monkeypatch):
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    # The message was handed over and nothing came back: it may have gone.
+    smtp.refuse = "timed out"
+    assert service.send_draft(draft["id"]) == {
+        "ok": False,
+        "error": "The connection was lost while sending, so the message may or may not have gone. "
+        "Check Sent before sending again.",
+    }
+    # The server was never reached: nothing went.
+    smtp.refuse, smtp.unreachable = "", "[Errno 8] nodename nor servname provided, or not known"
+    assert service.send_draft(draft["id"]) == {
+        "ok": False,
+        "error": "Could not reach the mail server, so nothing was sent. Check your connection and try again.",
+    }
+    # One recipient refused by name.
+    smtp.unreachable, smtp.refuse = "", "{'ana@example.com': (550, b'5.1.1 No such user')}"
+    assert service.send_draft(draft["id"])["error"] == (
+        "The mail server did not accept the message: ana@example.com: 550 5.1.1 No such user"
+    )
+    assert smtp.sent == [] and service.draft(draft["id"])["ok"] is True
+
+
+def test_a_message_that_cannot_be_put_together_is_never_marked_as_on_its_way(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    marks = []
+    monkeypatch.setattr(service._store, "mark_sending", lambda *args: marks.append(args))
+
+    def broken(*args, **kwargs):
+        raise ValueError("Header values may not contain linefeed or carriage return characters")
+
+    monkeypatch.setattr(service_module, "compose_message", broken)
+    answer = service.send_draft(draft["id"])
+    assert answer["ok"] is False and answer["error"].startswith("This message could not be put together: ")
+    assert marks == [] and smtp.sent == [] and service.draft(draft["id"])["ok"] is True
+
+
+def test_a_message_the_server_accepted_is_a_success_even_when_no_copy_could_be_filed(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    server.read_only.add("Sent")
+    assert service.send_draft(draft["id"]) == {
+        "ok": True, "note": "Sent, but no copy could be saved in your Sent folder.",
+    }
+    assert len(smtp.sent) == 1 and service.drafts()["drafts"] == []
+
+
+def test_a_second_send_of_a_draft_already_on_its_way_is_refused(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    on_its_way, let_go, results = threading.Event(), threading.Event(), []
+
+    def hold():
+        on_its_way.set()
+        assert let_go.wait(5)
+
+    smtp.before_accepting = hold
+    first = threading.Thread(target=lambda: results.append(service.send_draft(draft["id"])))
+    first.start()
+    assert on_its_way.wait(5)
+    assert service.send_draft(draft["id"]) == {"ok": False, "error": "This message is already being sent."}
+    # A send under way is not a send cut short.
+    assert service.draft(draft["id"])["draft"]["interrupted"] is False
+    let_go.set()
+    first.join(5)
+    assert results == [{"ok": True, "note": ""}] and len(smtp.sent) == 1
+
+
+def test_a_second_send_arriving_just_as_the_first_ends_does_not_find_the_draft(tmp_path, monkeypatch):
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    delete, late = service._store.delete_draft, []
+
+    def delete_while_another_send_arrives(account, draft_id):
+        # The server has accepted the message and the draft is about to go.
+        late.append(service.send_draft(draft_id))
+        return delete(account, draft_id)
+
+    monkeypatch.setattr(service._store, "delete_draft", delete_while_another_send_arrives)
+    assert service.send_draft(draft["id"])["ok"] is True
+    assert late == [{"ok": False, "error": "This message is already being sent."}]
+    assert len(smtp.sent) == 1
+
+
+def test_a_draft_whose_send_was_cut_short_carries_the_warning_and_can_be_sent_again(tmp_path):
+    server, smtp, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    service._store.mark_sending(draft["id"], 123.0)  # as a send leaves it when the app stops
+    assert service.draft(draft["id"])["draft"]["interrupted"] is True
+    assert service.drafts()["drafts"][0]["interrupted"] is True
+    assert service.send_draft(draft["id"])["ok"] is True
+    assert len(smtp.sent) == 1
+
+
+def test_a_message_with_no_recipient_or_a_bad_one_is_refused_before_any_server_is_asked(tmp_path):
+    _, smtp, service = _writer(tmp_path)
+    draft = service.create_draft()["draft"]
+    assert service.send_draft(draft["id"]) == {"ok": False, "error": "Add at least one recipient."}
+    service.update_draft(draft["id"], {"subject": "Hello", "body": "Hi."})
+    for typed, said in (
+        ("ana@example.com, ben", '"ben" is not an email address.'),
+        ("Ana Lopez ana@example.com", '"Ana Lopez ana@example.com" is not an email address.'),
+        ("@example.com", '"@example.com" is not an email address.'),
+        ("Ana <ana@example.com> and friends", '"Ana <ana@example.com> and friends" is not an email address.'),
+        (" , ; ", "Add at least one recipient."),
+    ):
+        service.update_draft(draft["id"], {"to": typed})
+        assert service.send_draft(draft["id"]) == {"ok": False, "error": said}
+    assert smtp.sent == []
+    # People separate addresses with semicolons and leave one at the end; a comma inside
+    # a quoted name belongs to the name.
+    service.update_draft(draft["id"], {"to": '"Lopez, Ana" <ana@example.com>; Zoë <zoe@example.com>,', "cc": "ben@example.com;"})
+    assert service.send_draft(draft["id"]) == {"ok": True, "note": ""}
+    (sent,) = smtp.sent
+    assert (sent["To"], sent["Cc"]) == ('"Lopez, Ana" <ana@example.com>, Zoë <zoe@example.com>', "ben@example.com")
+    assert (sent["Subject"], sent["In-Reply-To"]) == ("Hello", None)
+    assert sent.get_content() == "Hi.\n"
+    assert service.send_draft("gone") == {"ok": False, "error": "This draft no longer exists."}
+
+
+def test_a_search_result_takes_comments_and_a_written_reply_like_any_other_message(tmp_path):
+    model = _Model()
+    server, smtp, service = _writer(tmp_path, model=model)
+    uid = server.add("Archive", mail("Invoice January", sender="Billing <billing@example.com>", message_id="<inv@x>", body="Paid in full."))
+    opened = service.message("Archive", uid)
+    assert opened["draft"] == ""
+    key = opened["thread_key"]
+    service.put_comments(key, [{"message_id": "<inv@x>", "quote": "Paid in full", "note": "Thank you."}], "")
+    draft = service.create_draft("Archive", uid)["draft"]
+    assert draft["thread_key"] == key and service.message("Archive", uid)["draft"] == draft["id"]
+    assert service.write_reply(draft["id"])["ok"] is True
+    assert 'Passage: "Paid in full"' in model.asked[0][1]
+    service.update_draft(draft["id"], {"body": "Thank you."})
+    assert service.send_draft(draft["id"])["ok"] is True
+    assert smtp.sent[0]["In-Reply-To"] == "<inv@x>"
+
+
+def test_disconnecting_takes_comments_and_drafts_and_nothing_is_saved_while_disconnected(tmp_path):
+    server, _, service = _writer(tmp_path)
+    key, draft = _reply_draft(service, server)
+    service.put_comments(key, NOTED, "")
+    service._secrets.delete("email:default")
+    # Still on disk until the cache is emptied: reading by account would say "nothing"
+    # either way, so the tables themselves are looked at.
+    assert service._store._all("SELECT id FROM draft") and service._store._all("SELECT quote FROM comment")
+    service.forget()
+    assert service._store._all("SELECT id FROM draft") == []
+    assert service._store._all("SELECT quote FROM comment") == []
+    not_connected = {"ok": False, "error": "Email is not connected."}
+    assert service.put_comments(key, NOTED, "") == not_connected
+    assert service.create_draft() == not_connected
+    assert service.update_draft(draft["id"], {"body": "x"}) == not_connected
+    assert service.delete_draft(draft["id"]) == not_connected
+    assert service.write_reply(draft["id"]) == not_connected
+    assert service.send_draft(draft["id"]) == not_connected

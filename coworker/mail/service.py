@@ -1,8 +1,8 @@
 """What the Mail screen can ask for. Every route under /v1/mail is one call into this.
 
 Nothing here passes through the approval engine. These are the user's own button presses
-on their own mailbox, each naming what it does; the agent gains no tool from this file,
-and its `email_send` and `email_save_draft` still stop for approval.
+on their own mailbox, each naming what it does, Send included; the agent gains no tool
+from this file, and its `email_send` and `email_save_draft` still stop for approval.
 """
 
 from __future__ import annotations
@@ -15,7 +15,8 @@ import sqlite3
 import threading
 import time
 import uuid
-from email.utils import format_datetime, getaddresses, parsedate_to_datetime
+from email.message import EmailMessage
+from email.utils import format_datetime, formatdate, getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -24,9 +25,13 @@ from ..connectors.email_tools import (
     _default_smtp_factory,
     _one_line,
     _safe_filename,
+    compose_message,
     decode_mime_header,
+    load_profile,
+    send_message,
 )
 from ..secrets import SecretStore
+from . import reply as reply_writer
 from .imap import MailConnection, MailError
 from .render import attachment_bytes, attachments, render_message
 from .store import DRAFT_FIELDS, MailStore
@@ -56,6 +61,8 @@ _NEEDS_QUOTES = re.compile(r'[,;:<>@()\[\]."\\]')
 # An address is one word. One with a space, a control character or an encoded word in it
 # is not what it looks like on screen.
 _ODD_ADDRESS = re.compile(r"[\s\x00-\x1f\x7f]|=\?")
+# How Python prints a mail server's answer: (554, b'5.7.1 Relay denied').
+_SERVER_SAID = re.compile(r"\((\d{3}), b?(['\"])(.*?)\2\)", re.S)
 
 
 def _named(folder: Any, uid: Any) -> bool:
@@ -126,6 +133,88 @@ def _sent_on(msg: Any) -> str:
         return format_datetime(parsedate_to_datetime(str(msg.get("Date", ""))))
     except Exception:
         return ""
+
+
+def _entries(text: str) -> list[str]:
+    """A line of recipients as typed, one entry each. People separate addresses with
+    commas or semicolons and leave one at the end; a comma inside a quoted name is part
+    of the name."""
+    entries, current, quoted = [], [], False
+    for ch in text:
+        if ch == '"':
+            quoted = not quoted
+        if ch in ",;" and not quoted:
+            entries.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    entries.append("".join(current))
+    return [entry.strip() for entry in entries if entry.strip()]
+
+
+def _is_address(entry: str) -> bool:
+    """Judged by the parser that will send it, so what passes here is what is sent to."""
+    try:
+        header = EmailMessage()
+        header["To"] = entry
+        parsed = header["To"]
+    except Exception:
+        return False
+    if parsed.defects or len(parsed.addresses) != 1:
+        return False
+    found = parsed.addresses[0]
+    return bool(found.username and found.domain) and not _ODD_ADDRESS.search(found.addr_spec)
+
+
+def check_recipients(to: str, cc: str) -> tuple[str, str, str]:
+    """(to, cc, problem): the two lines as they will be sent, or why they cannot be."""
+    lines = []
+    for text in (to, cc):
+        entries = _entries(text)
+        for entry in entries:
+            if not _is_address(entry):
+                return "", "", f'"{entry}" is not an email address.'
+        lines.append(", ".join(entries))
+    if not lines[0]:
+        return "", "", "Add at least one recipient."
+    return lines[0], lines[1], ""
+
+
+def _with_original(draft: dict[str, Any]) -> str:
+    """The text that is sent: the reply, then the message it answers, quoted the usual way."""
+    body = draft["body"].rstrip() + "\n"
+    if not draft["orig_text"]:
+        return body
+    who = draft["orig_sender"] or "the sender"
+    lead = f"On {draft['orig_date']}, {who} wrote:" if draft["orig_date"] else f"{who} wrote:"
+    quoted = "\n".join(f"> {line}" if line else ">" for line in draft["orig_text"].splitlines())
+    return f"{body}\n{lead}\n{quoted}\n"
+
+
+def _readable(reason: str) -> str:
+    """A mail server's answer without Python's brackets and quotes around it."""
+    reason = _SERVER_SAID.sub(lambda said: f"{said.group(1)} {said.group(3)}", reason)
+    return re.sub(r"'([^'\s]+@[^'\s]+)'", r"\1", reason).strip("{}")
+
+
+def _plain_send_error(error: str) -> str:
+    """The shared send path words a failure for the agent ("SMTP login failed: …", "send
+    failed: …"). This words it for a person, and keeps apart the two cases that look alike
+    and are not: the server said no (nothing went), and nothing came back (it may have gone)."""
+    for stage in ("SMTP login failed: ", "send failed: "):
+        if not error.startswith(stage):
+            continue
+        reason, signing_in = error[len(stage) :], stage.startswith("SMTP")
+        if _SERVER_SAID.search(reason):
+            lead = "Could not sign in to send mail: " if signing_in else "The mail server did not accept the message: "
+            return lead + _readable(reason)
+        if signing_in:
+            return "Could not reach the mail server, so nothing was sent. Check your connection and try again."
+        return (
+            "The connection was lost while sending, so the message may or may not have gone. "
+            "Check Sent before sending again."
+        )
+    return error
 
 
 def _public(row: dict[str, Any]) -> dict[str, Any]:
@@ -515,3 +604,108 @@ class MailService:
             return _not_connected()
         self._store.delete_draft(account, draft_id)
         return {"ok": True}
+
+    def write_reply(self, draft_id: str, guidance: str = "") -> dict[str, Any]:
+        """Ask the model for the text of a reply, from the conversation's comments. Sends
+        nothing and changes nothing: the text goes back to the screen for the user to edit."""
+        account = self._account()
+        if not account:
+            return _not_connected()
+        row = self._store.draft(account, draft_id)
+        if row is None or not row["thread_key"]:
+            return {"ok": False, "error": _NO_DRAFT}
+        noted = self._store.comments(account, row["thread_key"])
+        if not reply_writer.has_something_to_say(noted["comments"], noted["note"]):
+            return {"ok": False, "error": "Add a comment or a note first, so Mimi knows what to say."}
+        profile = self._secrets.get("email:default") or {}
+        try:
+            if self._complete is None:
+                raise RuntimeError("No model is set up.")
+            text = reply_writer.write_reply(
+                self._complete,
+                original=row["orig_text"],
+                sender=row["orig_sender"],
+                subject=row["orig_subject"],
+                date=row["orig_date"],
+                comments=noted["comments"],
+                note=noted["note"],
+                name=str(profile.get("display_name") or "").strip(),
+                guidance=str(guidance or ""),
+            )
+            if not text:
+                raise RuntimeError("The model returned nothing. Try again.")
+        except Exception as exc:  # every way a provider can fail lands here
+            return {"ok": False, "error": f"Mimi could not write the reply. {exc}".strip()}
+        return {"ok": True, "text": text}
+
+    def send_draft(self, draft_id: str) -> dict[str, Any]:
+        """Send a draft through the same path the agent's `email_send` uses, so it threads,
+        files its Sent copy and fails the same way. Once the server has accepted the
+        message this answers success whatever happens to the Sent copy, so nothing
+        invites a second send."""
+        account = self._account()
+        if not account:
+            return _not_connected()
+        with self._sending_lock:
+            if draft_id in self._sending:
+                return {"ok": False, "error": "This message is already being sent."}
+            self._sending.add(draft_id)
+        # The draft stays marked as on its way until it has been deleted, so a second
+        # request arriving just as the first ends cannot find it and send it again.
+        try:
+            row = self._store.draft(account, draft_id)
+            if row is None:
+                return {"ok": False, "error": _NO_DRAFT}
+            profile, servers, err = load_profile(self._secrets)
+            if err:
+                return {
+                    "ok": False,
+                    "error": "Mail does not know this mailbox's servers. Add them under Connectors, Email.",
+                }
+            to, cc, problem = check_recipients(row["recipients"], row["cc"])
+            if problem:
+                return {"ok": False, "error": problem}
+            try:
+                msg = compose_message(
+                    profile,
+                    servers,
+                    to=to,
+                    cc=cc,
+                    subject=row["subject"],
+                    body=_with_original(row),
+                    reply_headers={
+                        "message_id": row["orig_message_id"],
+                        "references": row["orig_references"],
+                        "subject": row["orig_subject"],
+                    }
+                    if row["thread_key"]
+                    else None,
+                    imap_factory=self._imap_factory,
+                )
+                if isinstance(msg, dict):
+                    raise ValueError(msg.get("error"))
+                msg["Date"] = formatdate(localtime=True)
+            except Exception as exc:
+                # Nothing has left the computer yet.
+                return {"ok": False, "error": f"This message could not be put together: {exc}"}
+            self._store.mark_sending(draft_id, time.time())
+            try:
+                result = send_message(
+                    profile, servers, msg, imap_factory=self._imap_factory, smtp_factory=self._smtp_factory
+                )
+            except Exception as exc:
+                result = {"error": f"send failed: {exc}"}
+            finally:
+                self._store.mark_sending(draft_id, 0)
+            if "error" in result:
+                return {"ok": False, "error": _plain_send_error(str(result["error"]))}
+            self._store.delete_draft(account, draft_id)
+            if row["thread_key"]:
+                # The reply has answered them.
+                self._store.put_comments(account, row["thread_key"], [], "")
+        finally:
+            with self._sending_lock:
+                self._sending.discard(draft_id)
+        self._sync.request()
+        unfiled = str(result.get("sent_copy") or "").startswith("delivered, but")
+        return {"ok": True, "note": "Sent, but no copy could be saved in your Sent folder." if unfiled else ""}
