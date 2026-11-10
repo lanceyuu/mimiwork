@@ -1406,3 +1406,61 @@ def test_ws_a_turn_that_crashes_reports_an_error_and_keeps_it_in_the_transcript(
     assert errors and "Something went wrong" in errors[0]["data"]["error"]
     engine = client.app.state.manager._engines["crash"]
     assert any(m.get("role") == "notice" and m.get("kind") == "error" for m in engine.messages)
+
+
+def _serve_with_launch_token(tmp_path, monkeypatch, token):
+    monkeypatch.setenv("COWORKER_API_TOKEN", token)
+    manager = SessionManager(workspace=tmp_path, provider=ScriptedProvider([]))
+    return TestClient(create_app(manager))
+
+
+def test_a_shell_command_cannot_read_the_launch_token(tmp_path, monkeypatch):
+    import sys
+
+    from coworker.tools.shell import LocalExecutor
+
+    token = "b" * 64
+    client = _serve_with_launch_token(tmp_path, monkeypatch, token)
+    shell = LocalExecutor(cwd=tmp_path, default_timeout=10)
+    try:
+        show = (
+            'echo "token=[$env:COWORKER_API_TOKEN]"'
+            if sys.platform == "win32"
+            else 'echo "token=[$COWORKER_API_TOKEN]"'
+        )
+        result = shell.run(show)
+    finally:
+        shell.close()
+
+    assert "token=[]" in result["output"]
+    assert token not in result["output"]
+    # Taking the token out of the environment must not open the door instead.
+    assert client.get("/v1/sessions").status_code == 401
+    assert client.get(
+        "/v1/sessions", headers={"X-OpenWorker-Token": token}
+    ).status_code == 200
+
+
+def test_analysis_code_cannot_read_the_launch_token(tmp_path, monkeypatch):
+    import sys
+
+    from coworker.tools.analysis.kernel import PythonKernel
+
+    _serve_with_launch_token(tmp_path, monkeypatch, "c" * 64)
+    kernel = PythonKernel(tmp_path, python=sys.executable)
+    kernel.start()
+    try:
+        result = kernel.run("import os; print(os.environ.get('COWORKER_API_TOKEN'))")
+    finally:
+        kernel.close()
+
+    assert result["ok"]
+    assert result["stdout"].strip() == "None"
+
+
+def test_a_coding_agent_hand_off_is_not_given_the_launch_token(tmp_path, monkeypatch):
+    from coworker.tools import delegate
+
+    _serve_with_launch_token(tmp_path, monkeypatch, "d" * 64)
+
+    assert "COWORKER_API_TOKEN" not in delegate._env()
