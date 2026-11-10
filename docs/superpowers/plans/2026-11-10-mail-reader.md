@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-10-mail-client-design.md`. Read it before starting a chunk. This plan builds steps 1 to 3 of its build order. Comments and replies are Plan B; AI sorting is Plan C.
 
-**How this plan was checked.** Every code block below was applied to a throwaway copy of the repository at `bcbce42` and run there, then pasted in from the files that ran. In that copy the whole backend suite, the whole GUI unit suite, the type check, the linter and the whole Chromium browser suite pass. Four things were not run and are marked where they occur: the live mail-server probe (Task 1), the probe of the real app window (Task 2, Step 7), the safety tests in WebKit (Task 17, because WebKit for the tests is a download that needs the owner's word), and the fallback in Task 12, Step 5. `docs/superpowers/plans/mail-reader-preview/` holds five screenshots of the screen this plan builds, taken against the mocked backend.
+**How this plan was checked.** Every code block below was applied to a throwaway copy of the repository at `bcbce42` and run there, then pasted in from the files that ran. In that copy the whole backend suite (2,444 tests), the whole GUI unit suite (554), the type check, the linter and the whole Chromium browser suite (237) pass. Each chunk was reviewed by a separate reviewer, the backend chunks three times; what the reviews found is fixed here and listed under Decisions. Four things were not run and are marked where they occur: the live mail-server probe (Task 1), the probe of the real app window (Task 2, Step 7), the safety tests in WebKit (Task 17, because WebKit for the tests is a download that needs the owner's word; a reviewer did run `disarm.ts` in a real macOS webview), and the fallback in Task 12, Step 5. The fixes from the last review round (which parts of an email are listed, and two writes that could follow a disconnect) are tested but were not reviewed again. `docs/superpowers/plans/mail-reader-preview/` holds five screenshots of the screen this plan builds, taken against the mocked backend.
 
 **Standing rules for whoever executes this** (from `AGENTS.md`):
 
@@ -22,14 +22,6 @@
 
 ---
 
-## Open items from the last review round (do these before starting Chunk 7)
-
-The plan's second review of the backend chunks ended with these still open. None is in the code below yet.
-
-- **Disconnecting must not block the sidecar.** `POST /v1/connectors/{name}/disconnect` is an `async def` route. `MailService.forget()` waits for a running sync pass (up to 35 seconds) and logs out. Task 10 must run it off the event loop, for example `await asyncio.to_thread(manager.mail.forget)` in the route when `name == "email"`, and `aclose` must do the same for `mail.close()`. Add a test.
-- **The full backend suite, the full GUI suite and the Chromium browser suite were last run before the final batch of backend fixes** (the `changing()` guard, `render.py`'s choice of parts, `INTERNALDATE`, read-only folders). The 122 mail and email-tool tests pass on the final code; rerun everything before trusting it.
-- **Chunks 4 to 6 were not reviewed a third time** after those fixes.
-
 ## Decisions this plan makes where the spec left room
 
 - **A facade, `coworker/mail/service.py`.** The spec has each route call "a manager method". `manager.py` is 7,400 lines, so the methods live on a `MailService` the manager holds as `manager.mail`, and routes call `manager.mail.…`.
@@ -39,7 +31,7 @@ The plan's second review of the backend chunks ended with these still open. None
 - **Bodies load one message at a time through `GET /message`.** `GET /threads/{key}` answers from the cache alone and never waits on the mail server; the screen asks for each message it expands. A thread of thirty messages opens at once.
 - **`GET /threads` takes no `tab` yet.** There is one tab until Plans B and C add Drafts and the sorted ones.
 - **Opening a thread marks every Inbox message in it read**, not only the one on screen.
-- **The folder is always opened read-write.** Reads use `PEEK`, so nothing changes by reading, and one kind of `SELECT` keeps "which folder is selected" a single fact.
+- **A folder is opened read-write, and read-only only where the server allows nothing else.** Reads use `PEEK`, so nothing changes by reading, and one kind of `SELECT` keeps "which folder is selected" a single fact.
 - **The cache's revision number lives in memory.** The screen only checks whether it changed, and a restarted sidecar reloads the list anyway.
 - **The screen asks for status every two seconds the whole time Mail is open**, not only while a pass runs. It is a loopback call, and it also catches changes the screen made itself.
 - **Disarming is stricter than the spec's list.** It removes every `template` outright (the spec removes only the `shadowrootmode` attribute), and also `script`, `noscript`, nested frames (`iframe`, `frame`, `frameset`, `object`, `embed`) and SVG animation elements (`animate`, `set`, `animateMotion`, `animateTransform`). An SVG `animate` can give a link an address after loading with no script at all, which the spec's list missed. After disarming, the result is parsed once more; if anything armed reappears, or the policy is not first in the head, the email is shown as plain text.
@@ -48,8 +40,9 @@ The plan's second review of the backend chunks ended with these still open. None
 - **A reply to a long thread no longer fails.** A `References` header folded over several lines used to make `email_send` answer "Header values may not contain linefeed or carriage return characters". Task 3 unfolds the reply headers, so that reply now threads. This is the one deliberate change to the agent tools' behaviour.
 - **A link inside a `template` is not shown at all**, because its template is gone. The spec's test wanted its address card; the test here checks that it cannot be clicked.
 - **The reader is two components.** `MailFrame` is only the sandboxed frame, the address card and Show images. `MailReader` is the thread around it. The part that must stay safe stays small.
-- **A change the user makes can never be undone by a sync pass in flight.** The cache counts the user's own changes (`touched`). A pass notes the count before it asks the server anything and hands it back with each write; if it has moved, the write is refused. Every change also asks for a pass, so one always follows and reads the mailbox afresh.
-- **Disconnecting stops the pass first.** `MailSync.stop()` ends the pass under way and waits for it before the cache is emptied, so a pass cannot write a disconnected mailbox's mail back to disk.
+- **A change the user makes can never be undone by a sync pass in flight.** Each change is wrapped in `MailStore.changing()`, from before the cache is written until the mail server has answered. A pass notes a counter (`touched`) before it asks the server anything and hands it back with each write; the write is refused if a change is under way or the counter has moved, and the pass ends there. Every change also asks for a pass, so one always follows and reads the mailbox afresh.
+- **Disconnecting stops the pass first, off the event loop.** `MailSync.stop()` ends the pass under way and waits for it before the cache is emptied, and emptying the cache makes anything a late pass noted out of date, so a pass cannot write a disconnected mailbox's mail back to disk. The disconnect route runs this in a worker thread, because it can wait half a minute and the route is `async`.
+- **What an email shows is every inline text part in order**, with one branch of a `multipart/alternative`. A mail app that puts an attachment in the middle of the text sends the text as two parts, and both are the message.
 - **Changes act on every copy; the reader shows one.** A message that reached you twice (directly and through a list) is shown once, and marked or moved as both.
 - **An attachment is saved by its place in the list**, not its name: `POST /attachments/save` takes `index`. Two attachments can share a name.
 - **An attached email is an attachment.** A forwarded or bounced email's own body is never shown as the body of the message that carries it.
@@ -58,6 +51,7 @@ The plan's second review of the backend chunks ended with these still open. None
 - **An email is shown as soon as it has been read and checked, not when its last image arrives**, and the frame follows the email's height upward a limited number of times. Both came from the screen's reviewer, who found the email blank behind one slow image and two common layouts sized wrongly.
 - **The address card shows the address as the browser reads it** (`new URL(…).href`), so a look-alike or reordered address appears in its plain form, and Close lets go of the link so the same link can be clicked again.
 - **The WebKit project joins the browser tests in CI always, and locally only where WebKit is installed for the tests.** Installing it is a download, so it waits for the owner's word; without it the local gate still runs.
+- **Known limit: connecting a different address leaves the old mailbox's cached mail on disk until Mail next syncs.** It is never shown (every read is by the connected address), and the next sync removes it. Disconnecting removes it at once.
 - **Mail gets a row in the main navigation**, with Automations, Apps and Agents. The spec said "beside Inbox", but Inbox lives in the account menu.
 - **The screen says "Connectors"**, the name the app shows for the Integrations page.
 - **`disarm.ts` is written in Task 2**, earlier than the rest of the screen, because the probe of the real app window needs it.
@@ -2091,9 +2085,9 @@ git add coworker/mail/__init__.py coworker/mail/imap.py tests/mail_fakes.py test
 git commit -m "Give Mail one reused connection to the mailbox, with read, flag and move operations"
 ```
 
-## Chunk 4: Threads, the cache, and preparing an email
+## Chunk 4: Threads and the cache
 
-Three small units with no network in them. Each is written test-first and committed on its own.
+Two small units with no network in them. Each is written test-first and committed on its own.
 
 ### Task 5: Which conversation a message belongs to
 
@@ -2193,8 +2187,10 @@ Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Commit**
 
+Run the gates first: `.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q`
+Expected: `All checks passed!`, and pytest green. Then:
+
 ```bash
-.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q
 git add coworker/mail/threads.py tests/test_mail_threads.py
 git commit -m "Group mail into conversations by the first message they refer back to"
 ```
@@ -2390,10 +2386,14 @@ def test_a_write_from_a_pass_is_refused_once_the_user_has_changed_something(tmp_
 
 def test_emptying_the_cache_makes_a_pass_still_running_out_of_date(tmp_path):
     store = _store(tmp_path)
-    mark = store.touched
+    mark, epoch = store.touched, store.epoch
     store.clear()
     assert store.add([_row("INBOX", 1)], expect=mark) is False
+    # A request that was fetching a message, or undoing a refused move, writes nothing either.
+    assert store.add([_row("INBOX", 1)], epoch=epoch) is False
+    store.put_body(ME, "INBOX", 1, {"html": "<p>x</p>", "text": "x", "attachments": []}, 0.0, epoch=epoch)
     assert store.uids(ME, "INBOX") == set()
+    assert store.body(ME, "INBOX", 1, 0.0) is None
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -2471,6 +2471,9 @@ class MailStore:
         # refused: a pass can never put back what the user has just changed.
         self.touched = 0
         self._changing = 0
+        # Moves when the cache is emptied. A request that began before the mailbox was
+        # disconnected hands back what it noted, and what it would write is dropped.
+        self.epoch = 0
         with self._lock, self._conn:
             self._conn.executescript(_SCHEMA)
 
@@ -2497,13 +2500,17 @@ class MailStore:
                 self._changing -= 1
                 self.touched += 1
 
-    def _write(self, statements: list[tuple[str, list]], expect: Optional[int]) -> bool:
+    def _write(
+        self, statements: list[tuple[str, list]], expect: Optional[int], epoch: Optional[int] = None
+    ) -> bool:
         """Run each statement for each of its rows, as one change. With `expect` (a sync
         pass), nothing is written and False comes back if the user has changed something
         since the pass noted `touched`, or is changing something now. The revision moves
         only if a row changed."""
         with self._lock, self._conn:
             if expect is not None and (self._changing or expect != self.touched):
+                return False
+            if epoch is not None and epoch != self.epoch:
                 return False
             changed = sum(
                 self._conn.executemany(sql, rows).rowcount for sql, rows in statements if rows
@@ -2546,8 +2553,10 @@ class MailStore:
         )
         return {row["uid"] for row in rows}
 
-    def add(self, rows: list[dict[str, Any]], expect: Optional[int] = None) -> bool:
-        return self._write([(_INSERT, rows)], expect)
+    def add(
+        self, rows: list[dict[str, Any]], expect: Optional[int] = None, epoch: Optional[int] = None
+    ) -> bool:
+        return self._write([(_INSERT, rows)], expect, epoch)
 
     def remove(
         self, account: str, folder: str, uids: list[int], expect: Optional[int] = None
@@ -2637,9 +2646,12 @@ class MailStore:
         return {**rows[0], "attachments": json.loads(rows[0]["attachments"])}
 
     def put_body(
-        self, account: str, folder: str, uid: int, rendered: dict[str, Any], now: float
+        self, account: str, folder: str, uid: int, rendered: dict[str, Any], now: float,
+        epoch: Optional[int] = None,
     ) -> None:
         with self._lock, self._conn:
+            if epoch is not None and epoch != self.epoch:
+                return
             self._conn.execute(
                 "INSERT OR REPLACE INTO body (account, folder, uid, html, text, attachments, opened_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -2692,9 +2704,10 @@ class MailStore:
             for table in ("folder", "message", "body", "setting"):
                 self._conn.execute(f"DELETE FROM {table}")
             self.revision += 1
-            # A pass still running when the mailbox was disconnected must not write its
-            # mail back, so everything it noted is made out of date.
+            # A pass, or a request, still running when the mailbox was disconnected must
+            # not write its mail back, so everything they noted is made out of date.
             self.touched += 1
+            self.epoch += 1
 
 
 def _distinct(rows: list[dict[str, Any]], inbox: str) -> list[dict[str, Any]]:
@@ -2717,6 +2730,7 @@ Notes for the implementer:
 - `prune` and `put_body` do not move the revision: neither changes what the list shows.
 - The facade wraps each change in `store.changing()`; `add`, `remove` and `set_flags` take `expect` from a sync pass and nothing from the facade. That is what stops a pass that read the mailbox a moment ago from undoing an archive or a mark the user has just made; keep the check and the write inside the one lock.
 - `thread` is for showing (one row for each message); `thread_rows` is for acting (every copy in a folder). Do not act on de-duplicated rows.
+- `clear` also moves `epoch`. A request that was fetching a message, or putting rows back after a refused move, hands back the `epoch` it noted and writes nothing if the cache was emptied meanwhile.
 - `clear` empties `setting` too. Every setting in Plan A describes the mailbox. Plan C adds preferences (the sorting switch, excluded senders); it must decide there whether a disconnect should wipe them.
 - Plans B and C add `comment`, `draft` and `thread_ai`. They must not be keyed by folder and uid; see the module docstring.
 
@@ -2727,15 +2741,19 @@ Expected: PASS, 13 tests.
 
 - [ ] **Step 5: Commit**
 
+Run the gates first: `.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q`
+Expected: `All checks passed!`, and pytest green. Then:
+
 ```bash
-.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q
 git add coworker/mail/store.py tests/test_mail_store.py
 git commit -m "Add Mail's local cache, which forgets what the retention rules say it should"
 ```
 
+## Chunk 5: Preparing an email, and sync
+
 ### Task 7: Preparing an email for the screen
 
-A pure function from a parsed message to its HTML, its text and its attachment list. It does not try to make the HTML safe; that is `disarm.ts` and the sandboxed frame. An attached email (a forward, a bounce) is one attachment: its body is never shown as this message's.
+A pure function from a parsed message to its HTML, its text and its attachment list. It does not try to make the HTML safe; that is `disarm.ts` and the sandboxed frame. An attached email (a forward, a bounce) is one attachment: its body is never shown as this message's. Every part of an email ends up as one of three things: the sender's words, a picture placed inside them, or a listed attachment. Nothing is silently dropped.
 
 **Files:**
 - Create: `coworker/mail/render.py`
@@ -2870,6 +2888,40 @@ def test_attachments_are_listed_with_their_size_and_not_shown_as_the_body():
     assert out["attachments"] == [
         {"filename": "report.pdf", "content_type": "application/pdf", "size": 9}
     ]
+
+
+def test_an_email_that_is_wholly_a_forwarded_email_lists_that_emails_attachments():
+    from email.mime.message import MIMEMessage
+
+    from coworker.mail.render import attachment_bytes, attachments
+
+    wrapper = MIMEMessage(mail("Inside", body="The real words.", attachment="inner.pdf"))
+    wrapper["Subject"] = "Fwd: Inside"
+    assert [a["filename"] for a in render_message(wrapper)["attachments"]] == ["inner.pdf"]
+    ((name, part),) = attachments(wrapper)  # what saving uses: the same list, the same file
+    assert (name, attachment_bytes(part)) == ("inner.pdf", b"%PDF-fake")
+
+
+def test_every_part_of_an_email_is_either_shown_or_listed():
+    from email.mime.application import MIMEApplication
+    from email.mime.image import MIMEImage
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = "Odds and ends"
+    named = MIMEText("<p>Written as a file, meant as the message.</p>", "html")
+    named.add_header("Content-Disposition", "inline", filename="message.html")
+    msg.attach(named)
+    by_type_only = MIMEApplication(b"%PDF-1", "pdf", name="by-name.pdf")  # no Content-Disposition
+    msg.attach(by_type_only)
+    capitalised = MIMEApplication(b"%PDF-2", "pdf")
+    capitalised.add_header("Content-Disposition", "Attachment", filename="capitalised.pdf")
+    msg.attach(capitalised)
+    msg.attach(MIMEImage(b"\x89PNG-photo", "png"))  # a photo with no name and no place in the text
+    out = render_message(msg)
+    assert "meant as the message" in out["html"]
+    assert [a["filename"] for a in out["attachments"]] == ["by-name.pdf", "capitalised.pdf", "attachment.png"]
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -2895,6 +2947,7 @@ from __future__ import annotations
 
 import base64
 import email as email_lib
+import mimetypes
 import re
 from html import escape
 from typing import Any, Iterator
@@ -2918,13 +2971,27 @@ _CID_SRC = re.compile(r"(\bsrc\s*=\s*[\"']?)cid:([^\"'\s>]+)", re.IGNORECASE)
 _PLAIN_STYLE = "white-space:pre-wrap;font:14px/1.5 system-ui,sans-serif;margin:0"
 
 
+def _whole(msg: Message) -> Message:
+    """The email to show. One that is nothing but a forwarded email is shown as that
+    email; `render_message` and `attachments` both start here, so they always agree."""
+    if msg.get_content_type() == "message/rfc822" and msg.is_multipart():
+        return msg.get_payload(0)
+    return msg
+
+
 def _is_attachment(part: Message) -> bool:
-    disposition = str(part.get("Content-Disposition", ""))
-    return (
-        part.get_content_maintype() == "message"
-        or "attachment" in disposition
-        or bool(part.get_filename() and "inline" in disposition)
-    )
+    """Every part is one of three things: the sender's words, a picture placed inside
+    them, or a file that came with them. This is the third, so nothing in an email is
+    ever neither shown nor listed."""
+    if part.get_content_maintype() == "message":
+        return True
+    if part.is_multipart():
+        return False
+    if part.get_content_disposition() == "attachment":
+        return True
+    if part.get_content_type() in ("text/html", "text/plain"):
+        return False
+    return not (part.get_content_maintype() == "image" and part.get("Content-ID"))
 
 
 def _own_parts(msg: Message) -> Iterator[Message]:
@@ -2961,7 +3028,7 @@ def attachments(msg: Message) -> list[tuple[str, Message]]:
     """(name, part) for each attachment, in order. `render_message` lists them and
     `MailService.save_attachment` saves by place in this same list."""
     out = []
-    for part in _own_parts(msg):
+    for part in _own_parts(_whole(msg)):
         if not _is_attachment(part):
             continue
         name = decode_mime_header(part.get_filename() or "")
@@ -2969,7 +3036,9 @@ def attachments(msg: Message) -> list[tuple[str, Message]]:
             # A bounce carries the original with no file name; name it after its subject.
             subject = decode_mime_header(part.get_payload(0).get("Subject", "")).strip()
             name = f"{subject or 'Attached message'}.eml"
-        out.append((name or "attachment", part))
+        if not name:
+            name = "attachment" + (mimetypes.guess_extension(part.get_content_type()) or "")
+        out.append((name, part))
     return out
 
 
@@ -2981,13 +3050,11 @@ def attachment_bytes(part: Message) -> bytes:
 
 
 def render_message(msg: Message) -> dict[str, Any]:
-    if msg.get_content_type() == "message/rfc822" and msg.is_multipart():
-        # The whole email is one forwarded email: show that, or there is nothing to show.
-        msg = msg.get_payload(0)
+    msg = _whole(msg)
     inline = {
         str(part.get("Content-ID", "")).strip("<> "): part
         for part in _own_parts(msg)
-        if part.get("Content-ID") and part.get_content_maintype() == "image"
+        if part.get("Content-ID") and part.get_content_maintype() == "image" and not _is_attachment(part)
     }
     left = _INLINE_LIMIT
 
@@ -3030,7 +3097,7 @@ def render_message(msg: Message) -> dict[str, Any]:
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `.venv/bin/pytest tests/test_mail_render.py -q`
-Expected: PASS, 10 tests.
+Expected: PASS, 12 tests.
 
 - [ ] **Step 5: Run the Python gates and commit**
 
@@ -3041,8 +3108,6 @@ Expected: `All checks passed!`, and pytest green.
 git add coworker/mail/render.py tests/test_mail_render.py
 git commit -m "Prepare an email for the screen with its own inline images inside it"
 ```
-
-## Chunk 5: Sync
 
 ### Task 8: A sync pass
 
@@ -3548,8 +3613,10 @@ Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Commit**
 
+Run the gates first: `.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q`
+Expected: `All checks passed!`, and pytest green. Then:
+
 ```bash
-.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q
 git add coworker/mail/sync.py tests/test_mail_sync.py
 git commit -m "Sync the inbox and sent mail into the cache, one pass at a time"
 ```
@@ -3851,6 +3918,35 @@ def test_a_file_name_cannot_hide_what_kind_of_file_it_is(tmp_path):
     server.add("INBOX", mail("Trick", attachment="invoice\u202efdp.exe"))
     saved = service.save_attachment("INBOX", 1, 0)
     assert saved["path"].endswith("invoicefdp.exe")
+
+
+def test_a_message_being_opened_while_the_mailbox_is_disconnected_is_not_kept(tmp_path, monkeypatch):
+    server, service = _service(tmp_path)
+    server.add("INBOX", mail("Private", body="Secret words."))
+    _synced(service)
+    real_message = service._conn.message
+
+    def fetched_then_disconnected(folder, uid):
+        fetched = real_message(folder, uid)
+        service._store.clear()  # the disconnect lands while the message is being prepared
+        return fetched
+
+    monkeypatch.setattr(service._conn, "message", fetched_then_disconnected)
+    service.message("INBOX", 1)
+    assert service._store.body(ADDRESS, "INBOX", 1, 0.0) is None
+
+
+def test_saving_from_an_email_that_is_wholly_a_forwarded_email_saves_the_file_that_was_listed(tmp_path):
+    from email.mime.message import MIMEMessage
+
+    server, service = _service(tmp_path)
+    wrapper = MIMEMessage(mail("Inside", attachment="inner.pdf"))
+    wrapper["Subject"], wrapper["From"], wrapper["Date"] = "Fwd: Inside", ADDRESS, mail()["Date"]
+    server.add("INBOX", wrapper)
+    assert service.message("INBOX", 1)["attachments"][0]["filename"] == "inner.pdf"
+    saved = service.save_attachment("INBOX", 1, 0)
+    assert saved["path"].endswith("inner.pdf")
+    assert (tmp_path / "Downloads" / "inner.pdf").read_bytes() == b"%PDF-fake"
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -4001,7 +4097,7 @@ class MailService:
         result is not, so it is fetched and shown without being kept."""
         if not _named(folder, uid):
             return {"ok": False, "error": _GONE}
-        account = self._account()
+        account, epoch = self._account(), self._store.epoch
         row = self._store.row(account, folder, uid)
         rendered = self._store.body(account, folder, uid, time.time()) if row else None
         if rendered is None:
@@ -4010,7 +4106,7 @@ class MailService:
                 return {"ok": False, "error": _GONE}
             rendered = render_message(msg)
             if row:
-                self._store.put_body(account, folder, uid, rendered, time.time())
+                self._store.put_body(account, folder, uid, rendered, time.time(), epoch=epoch)
             else:
                 item = {"uid": uid, "flags": "", "size": 0, "has_attachments": False, "headers": msg}
                 row = {**message_row(account, folder, item), "has_attachments": bool(rendered["attachments"])}
@@ -4082,14 +4178,15 @@ class MailService:
         rows = self._store.thread_rows(account, key, INBOX)
         if not rows:
             return {"ok": False, "error": "This conversation is no longer in the inbox."}
-        uids = [row["uid"] for row in rows]
+        uids, epoch = [row["uid"] for row in rows], self._store.epoch
         try:
             with self._store.changing():
                 self._store.remove(account, INBOX, uids)
                 try:
                     self._conn.move(INBOX, uids, role)
                 except MailError:
-                    self._store.add(rows)
+                    # Put back, unless the mailbox was disconnected in the meantime.
+                    self._store.add(rows, epoch=epoch)
                     raise
         finally:
             self._sync.request()
@@ -4140,12 +4237,14 @@ Notes for the implementer:
 - [ ] **Step 4: Run the tests to see them pass**
 
 Run: `.venv/bin/pytest tests/test_mail_service.py -q`
-Expected: PASS, 21 tests.
+Expected: PASS, 23 tests.
 
 - [ ] **Step 5: Commit**
 
+Run the gates first: `.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q`
+Expected: `All checks passed!`, and pytest green. Then:
+
 ```bash
-.venv/bin/ruff check coworker tests scripts && .venv/bin/pytest -q
 git add coworker/mail/service.py tests/test_mail_service.py
 git commit -m "Add the Mail facade: list, open, search, mark, archive, bin, save an attachment"
 ```
@@ -4157,8 +4256,8 @@ After Task 10 the backend is complete for Plan A. Nothing is visible yet.
 ### Task 10: The manager holds Mail, and the routes reach it
 
 **Files:**
-- Modify: `coworker/server/manager.py` (three places: after `self.task_store = …` in `__init__`; `disconnect_connector`; `aclose`)
-- Modify: `coworker/server/app.py` (a new block above `# -- apps (Mimi-written HTML tools)`)
+- Modify: `coworker/server/manager.py` (two places: after `self.task_store = …` in `__init__`; `aclose`)
+- Modify: `coworker/server/app.py` (a new block above `# -- apps (Mimi-written HTML tools)`; the `connector_disconnect` route)
 - Test: `tests/test_mail_routes.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -4170,6 +4269,7 @@ After Task 10 the backend is complete for Plan A. Nothing is visible yet.
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi.testclient import TestClient
@@ -4289,6 +4389,26 @@ def test_disconnecting_the_email_connector_empties_mail(tmp_path):
     status = client.get("/v1/mail/status").json()
     assert (status["connected"], status["address"], status["last_sync"]) == (False, "", 0)
     assert client.get("/v1/mail/threads").json()["threads"] == []
+
+
+def test_emptying_mail_on_disconnect_is_done_off_the_event_loop(tmp_path, monkeypatch):
+    client = _client(tmp_path, FakeMailServer())
+    mail_service = client.app.state.manager.mail
+    on_the_loop = []
+    real_forget = mail_service.forget
+
+    def forget():
+        try:
+            asyncio.get_running_loop()
+            on_the_loop.append(True)
+        except RuntimeError:
+            on_the_loop.append(False)
+        real_forget()
+
+    monkeypatch.setattr(mail_service, "forget", forget)
+    client.post("/v1/connectors/email/disconnect")
+    # It can wait half a minute for a sync pass; on the loop that would freeze every request.
+    assert on_the_loop == [False]
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -4307,21 +4427,11 @@ In `coworker/server/manager.py`, directly after the line `self.task_store = Task
         self.mail = MailService(self.secrets, base / "mail.db")
 ```
 
-Replace the last line of `disconnect_connector`, `return disconnect_connector(self.secrets, name)`, with:
-
-```python
-        result = disconnect_connector(self.secrets, name)
-        if name == "email":
-            # Mail must not keep a logged-in connection, or anyone's mail on disk, for a
-            # mailbox the user has disconnected.
-            self.mail.forget()
-        return result
-```
-
 In `aclose`, after `self.audit_store.close()`, add:
 
 ```python
-        self.mail.close()
+        # Off the event loop: closing waits for a sync pass under way and logs out.
+        await asyncio.to_thread(self.mail.close)
 ```
 
 - [ ] **Step 4: Add the routes**
@@ -4383,10 +4493,28 @@ In `coworker/server/app.py`, directly above the line `# -- apps (Mimi-written HT
 
 Nothing is added to the websocket validator: Mail sends no websocket frame.
 
+Then replace the existing `connector_disconnect` route (the whole function under `@app.post("/v1/connectors/{name}/disconnect")`) with:
+
+```python
+    @app.post("/v1/connectors/{name}/disconnect")
+    async def connector_disconnect(name: str) -> dict[str, Any]:
+        result = manager.disconnect_connector(name)
+        if name == "email":
+            # Mail must not keep a logged-in connection, or anyone's mail on disk, for a
+            # mailbox the user has disconnected. Done after the stored login is gone, so the
+            # sync pass it stops cannot log in again, and off the event loop: it waits for
+            # that pass and logs out politely, and neither may hold up every other request.
+            await asyncio.to_thread(manager.mail.forget)
+        await _refresh_listeners_if_two_way(name)
+        return result
+```
+
+`manager.disconnect_connector` itself is not changed. This route is its only caller, and it is `async`, so anything slow done inside it would stop the sidecar answering anything else. `MailService.forget()` can wait up to 35 seconds for a sync pass to end.
+
 - [ ] **Step 5: Run the tests to see them pass**
 
 Run: `.venv/bin/pytest tests/test_mail_routes.py -q`
-Expected: PASS, 5 tests.
+Expected: PASS, 6 tests.
 
 - [ ] **Step 6: Run the Python gates**
 
