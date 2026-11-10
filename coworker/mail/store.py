@@ -1,9 +1,10 @@
 """Mail's local cache: what the list and the reader show without asking the server.
 
-The mailbox is the truth. Every table here except `setting` can be deleted and rebuilt
-from it. Rows are keyed by where the server keeps a message (folder and uid), which
-changes when the message moves; anything that must outlive a move is keyed by
-`thread_key` or `Message-ID` instead. Thread-safe (check_same_thread=False and a lock),
+The mailbox is the truth for mail: `folder`, `message` and `body` can be deleted and
+rebuilt from it. Their rows are keyed by where the server keeps a message (folder and
+uid), which changes when the message moves. `comment` and `draft` exist only here, so
+they are keyed by `thread_key` instead and outlive an archive, a move made by another
+mail app, and a folder that had to be read again from scratch. Thread-safe (check_same_thread=False and a lock),
 because the sync thread and the request handlers both use it.
 """
 
@@ -37,6 +38,21 @@ CREATE TABLE IF NOT EXISTS body (
   opened_at REAL NOT NULL,
   PRIMARY KEY (account, folder, uid));
 CREATE TABLE IF NOT EXISTS setting (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS comment (
+  account TEXT NOT NULL, thread_key TEXT NOT NULL, position INTEGER NOT NULL,
+  message_id TEXT NOT NULL DEFAULT '', quote TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '', orphaned_at REAL NOT NULL DEFAULT 0,
+  PRIMARY KEY (account, thread_key, position));
+CREATE TABLE IF NOT EXISTS draft (
+  id TEXT PRIMARY KEY, account TEXT NOT NULL, thread_key TEXT NOT NULL DEFAULT '',
+  recipients TEXT NOT NULL DEFAULT '', cc TEXT NOT NULL DEFAULT '',
+  subject TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+  orig_message_id TEXT NOT NULL DEFAULT '', orig_references TEXT NOT NULL DEFAULT '',
+  orig_subject TEXT NOT NULL DEFAULT '', orig_sender TEXT NOT NULL DEFAULT '',
+  orig_date TEXT NOT NULL DEFAULT '', orig_text TEXT NOT NULL DEFAULT '',
+  send_started_at REAL NOT NULL DEFAULT 0, updated_at REAL NOT NULL DEFAULT 0,
+  orphaned_at REAL NOT NULL DEFAULT 0);
+CREATE UNIQUE INDEX IF NOT EXISTS draft_reply ON draft (account, thread_key) WHERE thread_key != '';
 """
 _COLUMNS = (
     "account", "folder", "uid", "message_id", "thread_key", "sender", "recipients", "cc",
@@ -47,6 +63,14 @@ _INSERT = (
     f"VALUES ({', '.join(':' + column for column in _COLUMNS)})"
 )
 _BODY_SECONDS = 30 * 86400
+_DRAFT_COLUMNS = (
+    "id", "account", "thread_key", "recipients", "cc", "subject", "body", "orig_message_id",
+    "orig_references", "orig_subject", "orig_sender", "orig_date", "orig_text", "updated_at",
+)
+# What the user may change in a draft. The rest is the snapshot of the original, taken once.
+DRAFT_FIELDS = ("recipients", "cc", "subject", "body")
+# A comment or a draft goes this long after its conversation left the cache.
+_ORPHAN_SECONDS = 30 * 86400
 
 
 class MailStore:
@@ -258,9 +282,107 @@ class MailStore:
             )
 
     def prune(self, now: float) -> None:
-        """Forget message text nobody has opened for 30 days. The cache must not only grow."""
+        """Forget message text nobody has opened for 30 days, and comments and reply drafts
+        whose conversation has been out of the cache for 30 days. The cache must not only
+        grow. A draft of a new message belongs to no conversation and is never pruned."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM body WHERE opened_at < ?", (now - _BODY_SECONDS,))
+            for table in ("comment", "draft"):
+                has_mail = (
+                    f"EXISTS (SELECT 1 FROM message WHERE message.account = {table}.account "
+                    f"AND message.thread_key = {table}.thread_key)"
+                )
+                # The clock starts when the conversation is first found missing, and stops
+                # if its mail comes back.
+                self._conn.execute(f"UPDATE {table} SET orphaned_at = 0 WHERE orphaned_at > 0 AND {has_mail}")
+                self._conn.execute(
+                    f"UPDATE {table} SET orphaned_at = ? "
+                    f"WHERE orphaned_at = 0 AND thread_key != '' AND NOT {has_mail}",
+                    (now,),
+                )
+                self._conn.execute(
+                    f"DELETE FROM {table} WHERE orphaned_at > 0 AND orphaned_at < ?",
+                    (now - _ORPHAN_SECONDS,),
+                )
+
+    # -- comments --------------------------------------------------------------------
+    def comments(self, account: str, key: str) -> dict[str, Any]:
+        """A conversation's comments in the order they were made, and its free note. The
+        free note is kept as the one row with no quote."""
+        rows = self._all(
+            "SELECT message_id, quote, note FROM comment "
+            "WHERE account = ? AND thread_key = ? ORDER BY position",
+            (account, key),
+        )
+        return {
+            "comments": [row for row in rows if row["quote"]],
+            "note": next((row["note"] for row in rows if not row["quote"]), ""),
+        }
+
+    def put_comments(self, account: str, key: str, comments: list[dict[str, str]], note: str) -> None:
+        """Replace a conversation's comments. The screen always saves the whole list, so
+        a comment needs no id of its own."""
+        rows = [(account, key, n, c["message_id"], c["quote"], c["note"]) for n, c in enumerate(comments)]
+        if note:
+            rows.append((account, key, len(rows), "", "", note))
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM comment WHERE account = ? AND thread_key = ?", (account, key))
+            self._conn.executemany(
+                "INSERT INTO comment (account, thread_key, position, message_id, quote, note) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+
+    # -- drafts ----------------------------------------------------------------------
+    def drafts(self, account: str) -> list[dict[str, Any]]:
+        return self._all("SELECT * FROM draft WHERE account = ? ORDER BY updated_at DESC", (account,))
+
+    def draft(self, account: str, draft_id: str) -> Optional[dict[str, Any]]:
+        rows = self._all("SELECT * FROM draft WHERE account = ? AND id = ?", (account, draft_id))
+        return rows[0] if rows else None
+
+    def reply_draft(self, account: str, key: str) -> Optional[dict[str, Any]]:
+        """The conversation's unsent reply. There is at most one."""
+        rows = self._all(
+            "SELECT * FROM draft WHERE account = ? AND thread_key = ? AND thread_key != ''",
+            (account, key),
+        )
+        return rows[0] if rows else None
+
+    def add_draft(self, row: dict[str, Any], epoch: Optional[int] = None) -> bool:
+        """Keep a new draft. False, and nothing kept, when the cache was emptied since
+        `epoch` was noted: a reply draft holds the original's text, and mail text must not
+        be written back after its mailbox was disconnected. A second reply draft for one
+        conversation is refused by the table itself (`sqlite3.IntegrityError`)."""
+        marks = ", ".join(":" + column for column in _DRAFT_COLUMNS)
+        with self._lock, self._conn:
+            if epoch is not None and epoch != self.epoch:
+                return False
+            self._conn.execute(f"INSERT INTO draft ({', '.join(_DRAFT_COLUMNS)}) VALUES ({marks})", row)
+            return True
+
+    def update_draft(self, account: str, draft_id: str, fields: dict[str, str], now: float) -> bool:
+        """Change what the user may change. False when the draft is no longer there. A
+        draft being worked on is not an abandoned one, so an edit starts its 30 days again."""
+        names = [name for name in DRAFT_FIELDS if name in fields]
+        sets = ", ".join([*(f"{name} = ?" for name in [*names, "updated_at"]), "orphaned_at = 0"])
+        with self._lock, self._conn:
+            done = self._conn.execute(
+                f"UPDATE draft SET {sets} WHERE account = ? AND id = ?",
+                (*(fields[name] for name in names), now, account, draft_id),
+            )
+            return done.rowcount > 0
+
+    def delete_draft(self, account: str, draft_id: str) -> bool:
+        with self._lock, self._conn:
+            done = self._conn.execute("DELETE FROM draft WHERE account = ? AND id = ?", (account, draft_id))
+            return done.rowcount > 0
+
+    def mark_sending(self, draft_id: str, started_at: float) -> None:
+        """Written before a send and cleared (0) when it returns. A draft found with it
+        still set was being sent when the app stopped."""
+        with self._lock, self._conn:
+            self._conn.execute("UPDATE draft SET send_started_at = ? WHERE id = ?", (started_at, draft_id))
 
     # -- settings --------------------------------------------------------------------
     def get(self, key: str) -> str:
@@ -275,11 +397,12 @@ class MailStore:
 
     # -- forgetting ------------------------------------------------------------------
     def forget_others(self, account: str) -> None:
-        """Drop every other mailbox's mail: only one is connected at a time."""
+        """Drop every other mailbox's mail, comments and drafts: only one is connected
+        at a time."""
         with self._lock, self._conn:
             changed = sum(
                 self._conn.execute(f"DELETE FROM {table} WHERE account != ?", (account,)).rowcount
-                for table in ("folder", "message", "body")
+                for table in ("folder", "message", "body", "comment", "draft")
             )
             self.revision += 1 if changed else 0
 
@@ -299,7 +422,7 @@ class MailStore:
     def clear(self) -> None:
         """Empty the cache, for when the mailbox is disconnected."""
         with self._lock, self._conn:
-            for table in ("folder", "message", "body", "setting"):
+            for table in ("folder", "message", "body", "setting", "comment", "draft"):
                 self._conn.execute(f"DELETE FROM {table}")
             self.revision += 1
             # A pass, or a request, still running when the mailbox was disconnected must

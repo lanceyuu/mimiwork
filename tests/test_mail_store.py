@@ -205,3 +205,134 @@ def test_mail_that_was_removed_or_disconnected_leaves_no_text_in_the_file(tmp_pa
     # And the file gives the space back: it is no bigger than a cache that never held mail.
     MailStore(tmp_path / "never-used.db").close()
     assert len(left) <= (tmp_path / "never-used.db").stat().st_size
+
+
+# -- comments and drafts ---------------------------------------------------------------
+def _draft(draft_id, *, key="k1", account=ME, updated_at=1.0, **fields):
+    row = dict.fromkeys(
+        ("recipients", "cc", "subject", "body", "orig_message_id", "orig_references",
+         "orig_subject", "orig_sender", "orig_date", "orig_text"),
+        "",
+    )
+    return {**row, "id": draft_id, "account": account, "thread_key": key, "updated_at": updated_at, **fields}
+
+
+COMMENT = {"message_id": "<INBOX-1@x>", "quote": "on Friday", "note": "Yes."}
+
+
+def test_comments_come_back_in_the_order_made_with_the_free_note_apart(tmp_path):
+    store = _store(tmp_path)
+    assert store.comments(ME, "k1") == {"comments": [], "note": ""}
+    second = {"message_id": "<INBOX-1@x>", "quote": "the budget", "note": ""}
+    store.put_comments(ME, "k1", [COMMENT, second], "Say hello.")
+    store.put_comments(ME, "k2", [second], "")
+    assert store.comments(ME, "k1") == {"comments": [COMMENT, second], "note": "Say hello."}
+    # Saving is always the whole list: what is left out is gone.
+    store.put_comments(ME, "k1", [second], "")
+    assert store.comments(ME, "k1") == {"comments": [second], "note": ""}
+    assert store.comments(ME, "k2") == {"comments": [second], "note": ""}
+
+
+def test_a_draft_is_kept_changed_listed_newest_first_and_deleted(tmp_path):
+    store = _store(tmp_path)
+    store.add_draft(_draft("d1", recipients="ana@example.com", orig_text="Shall we?"))
+    store.add_draft(_draft("d2", key="", updated_at=2.0))
+    assert [d["id"] for d in store.drafts(ME)] == ["d2", "d1"]
+    assert store.reply_draft(ME, "k1")["id"] == "d1"
+    # A draft of a new message belongs to no conversation, so it is nobody's reply.
+    assert store.reply_draft(ME, "") is None
+
+    assert store.update_draft(ME, "d1", {"body": "Yes.", "orig_text": "changed"}, 3.0) is True
+    changed = store.draft(ME, "d1")
+    assert (changed["body"], changed["updated_at"], changed["orig_text"]) == ("Yes.", 3.0, "Shall we?")
+    assert [d["id"] for d in store.drafts(ME)] == ["d1", "d2"]
+    assert store.update_draft(ME, "gone", {"body": "x"}, 4.0) is False
+    assert store.update_draft("other@example.com", "d1", {"body": "x"}, 4.0) is False
+
+    store.mark_sending("d1", 9.0)
+    assert store.draft(ME, "d1")["send_started_at"] == 9.0
+    store.mark_sending("d1", 0)
+    assert store.draft(ME, "d1")["send_started_at"] == 0
+    assert store.delete_draft(ME, "d1") is True
+    assert store.delete_draft(ME, "d1") is False
+    assert store.draft(ME, "d1") is None
+
+
+def test_comments_and_a_reply_draft_go_thirty_days_after_their_conversation_left_the_cache(tmp_path):
+    store = _store(tmp_path)
+    store.add([_row("INBOX", 1, key="here")])
+    for key in ("here", "gone", "back"):
+        store.put_comments(ME, key, [COMMENT], "")
+        store.add_draft(_draft(f"d-{key}", key=key))
+    store.add_draft(_draft("d-new", key=""))
+
+    store.prune(100 * DAY)  # "gone" and "back" are first found without mail: the clock starts
+    store.prune(129 * DAY)
+    assert {d["id"] for d in store.drafts(ME)} == {"d-here", "d-gone", "d-back", "d-new"}
+    store.add([_row("INBOX", 2, key="back")])  # its mail is back, so its clock stops
+    store.prune(131 * DAY)
+    assert {d["id"] for d in store.drafts(ME)} == {"d-here", "d-back", "d-new"}
+    assert store.comments(ME, "gone")["comments"] == []
+    assert store.comments(ME, "back")["comments"] == [COMMENT]
+    assert store.comments(ME, "here")["comments"] == [COMMENT]
+    store.remove(ME, "INBOX", [2])
+    store.prune(140 * DAY)  # gone again: thirty days from now, not from the first time
+    store.prune(169 * DAY)
+    assert store.draft(ME, "d-back") is not None
+    store.prune(171 * DAY)
+    assert store.draft(ME, "d-back") is None
+    # A draft of a new message is only ever sent or discarded.
+    assert store.draft(ME, "d-new") is not None
+
+
+def test_a_draft_still_being_written_is_not_an_abandoned_one(tmp_path):
+    store = _store(tmp_path)
+    store.add_draft(_draft("d1", key="archived"))
+    store.prune(100 * DAY)
+    assert store.update_draft(ME, "d1", {"body": "Still writing."}, 129 * DAY) is True
+    store.prune(131 * DAY)  # thirty-one days after its conversation left, two after the edit
+    assert store.draft(ME, "d1")["body"] == "Still writing."
+    store.prune(162 * DAY)
+    assert store.draft(ME, "d1") is None
+
+
+def test_a_conversation_has_one_reply_draft_and_none_is_kept_once_the_cache_was_emptied(tmp_path):
+    import sqlite3
+
+    import pytest
+
+    store = _store(tmp_path)
+    assert store.add_draft(_draft("d1")) is True
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add_draft(_draft("d2"))
+    assert store.add_draft(_draft("d3", key="")) is True and store.add_draft(_draft("d4", key="")) is True
+    noted = store.epoch
+    store.clear()
+    assert store.add_draft(_draft("d5", key="k5"), epoch=noted) is False
+    assert store.drafts(ME) == []
+
+
+def test_a_folder_read_again_from_scratch_keeps_comments_and_drafts(tmp_path):
+    store = _store(tmp_path)
+    store.reset_folder(ME, "INBOX", "inbox", 1)
+    store.add([_row("INBOX", 1)])
+    store.put_comments(ME, "k1", [COMMENT], "Note.")
+    store.add_draft(_draft("d1"))
+    store.reset_folder(ME, "INBOX", "inbox", 2)
+    assert store.uids(ME, "INBOX") == set()
+    assert store.comments(ME, "k1") == {"comments": [COMMENT], "note": "Note."}
+    assert store.draft(ME, "d1") is not None
+
+
+def test_another_mailbox_or_a_disconnect_takes_comments_and_drafts_with_it(tmp_path):
+    store = _store(tmp_path)
+    for account in (ME, "old@example.com"):
+        store.put_comments(account, "k1", [COMMENT], "")
+        store.add_draft(_draft(f"d-{account}", account=account))
+    store.forget_others(ME)
+    assert store.comments("old@example.com", "k1")["comments"] == []
+    assert store.drafts("old@example.com") == []
+    assert store.comments(ME, "k1")["comments"] == [COMMENT]
+    store.clear()
+    assert store.comments(ME, "k1")["comments"] == []
+    assert store.drafts(ME) == []
