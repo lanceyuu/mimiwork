@@ -654,3 +654,22 @@ More than one mailbox and a merged inbox; keyboard triage; snooze and reminders;
 and send later; saving to the mailbox's Drafts; sending attachments; rich text and
 signatures; labels and other folders; older mail in the list; moving a thread between tabs
 by hand; mail arriving in the background; letting a conversation open a thread in Mail.
+
+## Probe results
+
+Recorded 2026-11-10 with `scripts/live_mail_probe.py`, read-only, on the mailbox connected in the app. The server host is `mail.privateemail.com`.
+
+| Line | Found |
+|---|---|
+| `MOVE:` | yes. The server supports MOVE. |
+| `UIDPLUS`, `SPECIAL-USE`, `CONDSTORE`, `IDLE` | all yes |
+| `\Sent:` | resolved to a folder |
+| `\Trash:` | resolved to a folder |
+| `\Archive:` or `\All:` | `\Archive` resolved to a folder; `\All` did not, which is expected on a server that is not Gmail |
+| `\Drafts:` and `\Junk:` | each resolved to a folder |
+| header names returned | the header fetch returned `list-unsubscribe` along with date, from, message-id, subject and to, so Plan C's newsletter rule can rely on it |
+| the reply's items | one tuple, then one `bytes` item holding only the closing bracket. `UID`, `FLAGS`, `RFC822.SIZE` and `BODYSTRUCTURE` all arrive in the tuple, before the headers, and nothing useful is in the trailing `bytes` item |
+
+Not run yet: the `--move` probe (it writes one test message into the inbox and moves it to the archive, then the bin) and the probe of a second mailbox on a different kind of server. Both wait for the owner's word. Moving is therefore untested on this server and on any other.
+
+The probe of the real app window (Task 2) is recorded separately.
