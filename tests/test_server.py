@@ -623,6 +623,44 @@ def test_standalone_server_token_file_is_user_only(tmp_path, monkeypatch):
         os.environ.pop("COWORKER_API_TOKEN", None)
 
 
+def test_a_launch_token_sent_on_standard_input_is_used_and_never_written_to_disk(
+    tmp_path, monkeypatch
+):
+    import io
+    import os
+
+    from coworker.server import run as server_run
+
+    monkeypatch.setenv("COWORKER_TOKEN_ON_STDIN", "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO("e" * 64 + "\n"))
+    try:
+        assert server_run._ensure_api_token(9876) is None
+        assert os.environ["COWORKER_API_TOKEN"] == "e" * 64
+        assert not (tmp_path / "coworker-state" / "sidecar-9876.token").exists()
+        # A server started later by the agent's shell must not wait on its own input.
+        assert "COWORKER_TOKEN_ON_STDIN" not in os.environ
+    finally:
+        os.environ.pop("COWORKER_API_TOKEN", None)
+
+
+def test_the_server_will_not_start_when_the_promised_launch_token_never_arrives(
+    tmp_path, monkeypatch
+):
+    import io
+    import os
+
+    from coworker.server import run as server_run
+
+    monkeypatch.setenv("COWORKER_TOKEN_ON_STDIN", "1")
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    try:
+        with pytest.raises(SystemExit):
+            server_run._ensure_api_token(9876)
+        assert not (tmp_path / "coworker-state" / "sidecar-9876.token").exists()
+    finally:
+        os.environ.pop("COWORKER_API_TOKEN", None)
+
+
 def test_ws_error_persists_notice_and_retry_reruns(tmp_path):
     class FlakyProvider(ProviderClient):
         def __init__(self):

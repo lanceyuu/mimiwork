@@ -47,6 +47,26 @@ fn launch_token() -> String {
     format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple())
 }
 
+/// Starts the sidecar and hands it the launch token on its standard input. Not in its
+/// environment: the operating system keeps the environment a process was started with
+/// readable for its whole life (`ps eww`, /proc/<pid>/environ), so any command the agent
+/// ran could lift the token from there and call routes meant only for the user's clicks.
+fn spawn_with_token(cmd: &mut Command, token: &str) -> std::io::Result<Child> {
+    use std::io::Write;
+
+    cmd.env("COWORKER_TOKEN_ON_STDIN", "1")
+        .stdin(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    // Dropping the handle closes the pipe, so the sidecar and everything it starts read
+    // end-of-input afterwards, as they did when this was the null device.
+    if let Some(mut stdin) = child.stdin.take() {
+        if let Err(e) = writeln!(stdin, "{token}") {
+            eprintln!("[coworker] could not hand the launch token to the sidecar: {e}");
+        }
+    }
+    Ok(child)
+}
+
 /// Path to the server entrypoint. Resolution order:
 ///   1. `COWORKER_SERVER_BIN` env override.
 ///   2. The bundled onedir sidecar shipped via Tauri `resources` (production): the
@@ -1244,16 +1264,14 @@ pub fn run() {
                 // reparenting check alone leaks both processes on quit.
                 .env("COWORKER_EXIT_WITH_PARENT", "1")
                 .env("COWORKER_PARENT_PID", std::process::id().to_string())
-                .env("COWORKER_API_TOKEN", &api_token)
                 // One resolved state dir for shell + sidecar (incl. the ~/.config fallback).
-                .env("COWORKER_STATE_DIR", state_dir())
-                // This GUI app has no console, so a console-subsystem child would inherit
-                // invalid std handles and crash a few seconds in when uvicorn writes its logs
-                // (the "Starting coworker…" freeze on Windows). Hand it real handles: the
-                // server's output goes to a log file so field issues are debuggable at all
-                // ("relay off, no messages" was undiagnosable with everything on /dev/null).
-                // One file per launch, previous run kept as .old.
-                .stdin(Stdio::null());
+                .env("COWORKER_STATE_DIR", state_dir());
+            // This GUI app has no console, so a console-subsystem child would inherit
+            // invalid std handles and crash a few seconds in when uvicorn writes its logs
+            // (the "Starting coworker…" freeze on Windows). Hand it real handles: the
+            // server's output goes to a log file so field issues are debuggable at all
+            // ("relay off, no messages" was undiagnosable with everything on /dev/null).
+            // One file per launch, previous run kept as .old.
             match server_log_file() {
                 Some(log) => {
                     if let Ok(err_clone) = log.try_clone() {
@@ -1275,7 +1293,7 @@ pub fn run() {
                 use std::os::windows::process::CommandExt;
                 server_cmd.creation_flags(0x0800_0000);
             }
-            let child = match server_cmd.spawn() {
+            let child = match spawn_with_token(&mut server_cmd, &api_token) {
                 Ok(child) => Some(child),
                 Err(e) => {
                     eprintln!("[coworker] failed to start server sidecar: {e}");
@@ -1477,6 +1495,28 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{clamp_rect, cursor_on_pet, logical_hit, rect_visible};
+
+    // `ps eww` shows the environment a process was started with for as long as it
+    // runs, so the token has to reach the sidecar some other way.
+    #[cfg(unix)]
+    #[test]
+    fn the_sidecar_is_handed_the_launch_token_on_stdin_and_not_in_its_environment() {
+        use std::process::{Command, Stdio};
+
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args([
+            "-c",
+            "read line; echo \"stdin=$line env=[$COWORKER_API_TOKEN] flag=$COWORKER_TOKEN_ON_STDIN\"",
+        ])
+        .env_remove("COWORKER_API_TOKEN")
+        .stdout(Stdio::piped());
+        let child = super::spawn_with_token(&mut cmd, "tok123").unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            "stdin=tok123 env=[] flag=1"
+        );
+    }
 
     // A 2x 1512x982 display, in physical pixels — the machine the bug was reported on.
     const SCREEN: (i32, i32, i32, i32) = (0, 0, 3024, 1964);
