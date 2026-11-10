@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { openExternal } from "../../tauri";
 import { contentHeight, disarmEmail, focusedAddress, isParsed, releaseFocus, stillArmed } from "./disarm";
+import { clearSelection, markQuotes, selectedText } from "./quote";
 
 const MAX_HEIGHT = 20_000;
 // How many times the frame may grow to fit its email. An email sized to its own window
@@ -26,7 +27,24 @@ export function linkTarget(address: string): { shown: string; openable: boolean 
 }
 
 /** One email, shown as it was sent, in a frame where nothing can run, load or navigate. */
-export function MailFrame({ html, text }: { html: string; text: string }) {
+export function MailFrame({
+  html,
+  text,
+  quotes = [],
+  onSelect,
+  chosen = false,
+}: {
+  html: string;
+  text: string;
+  /** Passages to highlight: the ones the user has commented on. Each is one line of text. */
+  quotes?: string[];
+  /** Told what the reader has selected in the email whenever it changes; "" for nothing.
+   *  Give it a function that stays the same between renders. */
+  onSelect?: (text: string) => void;
+  /** This email holds the selection the reader will comment on. When another email takes
+   *  it over, this one lets go of its own. */
+  chosen?: boolean;
+}) {
   const t = useT();
   const frame = useRef<HTMLIFrameElement>(null);
   const growths = useRef(0);
@@ -63,6 +81,57 @@ export function MailFrame({ html, text }: { html: string; text: string }) {
     }, 250);
     return () => window.clearInterval(timer);
   }, [safe]);
+
+  // Each quote is one line, so the list can be compared, and kept, as text.
+  const quoted = quotes.join("\n");
+  // The quotes the shown email was last marked with; null until it has been marked once.
+  const marked = useRef<string | null>(null);
+  const wasChosen = useRef(false);
+  useEffect(() => {
+    if (!ready) return;
+    const shown = () => {
+      const doc = frame.current?.contentDocument;
+      return doc && isParsed(doc) ? doc : null;
+    };
+    let pending = true;
+    const mark = (doc: Document) => {
+      pending = false;
+      try {
+        markQuotes(doc, quoted ? quoted.split("\n") : []);
+      } catch {
+        // An email built to break the marking costs its highlights, never the app.
+        return;
+      }
+      // Marking rebuilds the text it touches, which leaves the selection stretched over
+      // words the reader never chose. When the quotes have changed, a comment was just
+      // added or removed and the selection has done its work, so it is let go. Not the
+      // first time an email is marked: the reader may already be selecting in it.
+      if (marked.current !== null && marked.current !== quoted) clearSelection(doc);
+      marked.current = quoted;
+    };
+    // At once, so a new comment's passage lights up with the press, not a moment later.
+    const now = shown();
+    if (now) mark(now);
+    // Each email has its own selection, and a webview may keep them all. Once the reader
+    // has selected in another email, what is still selected here would look chosen and
+    // not be, and selecting the same words here again would not count as a change.
+    if (now && wasChosen.current && !chosen) clearSelection(now);
+    wasChosen.current = chosen;
+    // Unknown at first, so the first look always reports, even "nothing selected".
+    let picked: string | null = null;
+    // Asked from outside on a timer, like everything else about a shown email.
+    const timer = window.setInterval(() => {
+      const doc = shown();
+      if (!doc) return;
+      if (pending) mark(doc);
+      const text = selectedText(doc);
+      if (text !== picked) {
+        picked = text;
+        onSelect?.(text);
+      }
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [ready, quoted, onSelect, chosen]);
 
   if (safe === null || refused === safe) {
     return (
