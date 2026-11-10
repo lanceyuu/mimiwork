@@ -2429,3 +2429,43 @@ ul.help-tip-list { list-style: disc; }
 @media (max-width: 900px) {
   .mail-list-pane { width: 240px; }
 }
+/* Comments and the reply. The email and its comments sit side by side while the reader
+   pane has room; in a narrow pane the comments go beneath. The pane, not the window, is
+   what is measured, because the sidebar and the list take a share of the window. */
+.mail-reader-pane { container-type: inline-size; }
+.mail-work { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 18px; align-items: start; max-width: 1160px; margin: 0 auto; }
+.mail-work > .mail-reader { margin: 0; max-width: none; }
+.mail-side { position: sticky; top: 0; display: flex; flex-direction: column; gap: 8px; font-size: 12.5px; color: var(--muted); }
+@container (max-width: 700px) {
+  .mail-work { grid-template-columns: minmax(0, 1fr); }
+  .mail-side { position: static; }
+}
+.mail-side-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.mail-side-hint { margin: 0; font-size: 12px; color: var(--faint); }
+.mail-side > .btn, .mail-side > .btn-primary { align-self: flex-start; }
+.mail-side-label { display: flex; flex-direction: column; gap: 4px; }
+.mail-comment { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+/* The same colour the passage is marked with in the email. */
+.mail-comment-quote {
+  margin: 0; padding: 0 22px 0 8px; border-left: 3px solid #fde68a; font-size: 12px; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.mail-comment-note { width: 100%; resize: vertical; font: inherit; font-size: 12.5px; }
+.mail-comment-remove { position: absolute; top: 6px; right: 6px; display: inline-flex; background: none; border: 0; padding: 2px; color: var(--faint); cursor: pointer; }
+.mail-comment-remove:hover { color: var(--danger); }
+.mail-reply-bar { display: flex; gap: 6px; }
+.mail-composer { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.mail-composer-answers { font-size: 12px; color: var(--faint); }
+.mail-field { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.mail-field > span { flex: none; width: 56px; }
+.mail-field > .tmpl-input { flex: 1; min-width: 0; }
+.mail-draft-body { width: 100%; resize: vertical; font: inherit; font-size: 13.5px; line-height: 1.5; }
+.mail-composer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mail-rewrite { display: flex; gap: 6px; flex: 1; min-width: 220px; justify-content: flex-end; }
+.mail-rewrite .tmpl-input { flex: 1; min-width: 0; max-width: 320px; }
+.mail-tabs { display: flex; gap: 2px; padding: 6px 10px 0; border-bottom: 1px solid var(--line); }
+.mail-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; font: inherit; font-size: 12.5px; color: var(--muted); cursor: pointer; }
+.mail-tab.active { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.mail-tab-count { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--faint); }
+.mail-notice { max-width: 1160px; margin: 0 auto 10px; padding: 8px 14px; }
+.mail-composer-older { padding: 0; color: var(--muted); }
