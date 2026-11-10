@@ -6,10 +6,13 @@ from email.message import EmailMessage
 
 from coworker.connectors.email_tools import (
     build_search_criteria,
+    compose_message,
     decode_mime_header,
     extract_text_body,
+    load_profile,
     make_email_tools,
     resolve_servers,
+    send_message,
 )
 from coworker.roots import RootDir
 from coworker.secrets import SecretStore
@@ -463,3 +466,69 @@ def test_make_integration_tools_includes_email(tmp_path):
         enabled_tools={"email_search", "email_send"},
     )
     assert {t.__name__ for t in tools} == {"email_search", "email_send"}
+
+
+# -- the path Mail shares with the tools ---------------------------------------------
+def _no_imap(host, port):
+    raise AssertionError("the original must not be looked up")
+
+
+def test_a_reply_composed_from_its_headers_threads_without_looking_the_original_up(tmp_path):
+    profile, servers, err = load_profile(_connected_secrets(tmp_path))
+    assert err is None
+    msg = compose_message(
+        profile,
+        servers,
+        to="ana@example.com",
+        subject="",
+        body="re!",
+        reply_headers={
+            "message_id": "<orig-123@example.com>",
+            "references": "<root@example.com>",
+            "subject": "Quarterly report",
+        },
+        imap_factory=_no_imap,
+    )
+    assert msg["In-Reply-To"] == "<orig-123@example.com>"
+    assert msg["References"] == "<root@example.com> <orig-123@example.com>"
+    assert msg["Subject"] == "Re: Quarterly report"
+
+
+def test_a_reply_in_a_long_thread_whose_headers_are_folded_still_threads(tmp_path):
+    profile, servers, _ = load_profile(_connected_secrets(tmp_path))
+    msg = compose_message(
+        profile,
+        servers,
+        to="ana@example.com",
+        subject="",
+        body="re!",
+        reply_headers={
+            "message_id": "<c@example.com>",
+            "references": "<a@example.com>\r\n <b@example.com>",
+            "subject": "A long\r\n subject",
+        },
+        imap_factory=_no_imap,
+    )
+    assert msg["References"] == "<a@example.com> <b@example.com> <c@example.com>"
+    assert msg["Subject"] == "Re: A long subject"
+
+
+def test_a_composed_message_is_sent_and_filed_by_the_shared_path(tmp_path):
+    imap, smtp = PrivateEmailIMAP(), FakeSMTP()
+    profile, servers, _ = load_profile(_private_email_secrets(tmp_path))
+    msg = compose_message(profile, servers, to="ana@example.com", subject="Hi", body="Hello")
+    result = send_message(
+        profile,
+        servers,
+        msg,
+        imap_factory=lambda h, p: imap,
+        smtp_factory=lambda h, p: smtp,
+    )
+    assert result["ok"] and result["sent_copy"] == "filed in Sent"
+    assert smtp.sent == [msg]
+
+
+def test_a_missing_connection_is_reported_in_the_tools_own_words(tmp_path):
+    profile, servers, err = load_profile(SecretStore(tmp_path / "secrets.json"))
+    assert profile is None and servers is None
+    assert "not connected" in err["error"]

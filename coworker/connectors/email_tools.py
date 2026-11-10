@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import email as email_lib
 import imaplib
+import mimetypes
 import re
 import smtplib
 import ssl
@@ -381,6 +382,231 @@ def _attach(
     return fn
 
 
+# -- shared by the agent's tools and the Mail section --------------------------------
+_NOT_CONNECTED = "email is not connected; add it in Manage → Integrations"
+
+
+def load_profile(
+    secrets: SecretStore,
+) -> tuple[Optional[dict[str, Any]], Optional[EmailServers], Optional[dict[str, Any]]]:
+    """(profile, servers, error) — error is a tool-result dict."""
+    profile = secrets.get("email:default") or {}
+    if not profile.get("address") or not profile.get("app_password"):
+        return None, None, {"error": _NOT_CONNECTED}
+    servers, err = resolve_servers(profile)
+    if servers is None:
+        return None, None, {"error": err}
+    return profile, servers, None
+
+
+def open_imap(profile, servers, imap_factory):
+    """(imap, error) — error is a tool-result dict."""
+    try:
+        return _imap_login(profile, servers, imap_factory), None
+    except Exception as exc:
+        return None, {"error": f"IMAP login failed: {exc}.{_auth_hint(servers)}"}
+
+
+def _logout(imap) -> None:
+    try:
+        imap.logout()
+    except Exception:
+        pass
+
+
+def _one_line(value: Any) -> str:
+    """A header value without its folding. A long header arrives split over several
+    lines, and a header set with a line break in it is refused."""
+    return " ".join(str(value or "").split())
+
+
+def _reply_headers_from_server(profile, servers, uid: str, folder: str, imap_factory):
+    """(headers, error): what a reply needs from the message it answers."""
+    imap, err = open_imap(profile, servers, imap_factory)
+    if err:
+        return None, err
+    try:
+        sel_err = _select_readonly(imap, folder)
+        if sel_err:
+            return None, {"error": sel_err}
+        status, data = imap.uid(
+            "FETCH",
+            str(uid),
+            "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES SUBJECT)])",
+        )
+        if status != "OK" or not data or not isinstance(data[0], tuple):
+            return None, {"error": f"reply target {uid} not found in {folder}"}
+        orig = email_lib.message_from_bytes(data[0][1])
+        return {
+            "message_id": _one_line(orig.get("Message-ID")),
+            "references": _one_line(orig.get("References")),
+            "subject": decode_mime_header(orig.get("Subject", "")),
+        }, None
+    except Exception as exc:
+        return None, {"error": str(exc)}
+    finally:
+        _logout(imap)
+
+
+def compose_message(
+    profile: dict[str, Any],
+    servers: EmailServers,
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    reply_to_uid: str = "",
+    reply_to_folder: str = "INBOX",
+    reply_headers: Optional[dict[str, str]] = None,
+    attachments: Optional[list[str]] = None,
+    roots: Optional[list[RootDir]] = None,
+    imap_factory: Callable[[str, int], imaplib.IMAP4] = _default_imap_factory,
+) -> EmailMessage | dict[str, Any]:
+    """The finished message, or a tool-result error dict.
+
+    A reply takes its threading from `reply_headers` when given (`message_id`,
+    `references`, `subject`), else looks them up by uid and folder. Mail hands the headers
+    over, because the message it answers may have been moved since it was read.
+    """
+    msg = EmailMessage()
+    display = str(profile.get("display_name") or "").strip()
+    msg["From"] = (
+        formataddr((display, profile["address"])) if display else profile["address"]
+    )
+    msg["To"] = to
+    if cc:
+        msg["Cc"] = cc
+    if bcc:
+        msg["Bcc"] = bcc
+    msg["Message-ID"] = make_msgid(domain=profile["address"].rsplit("@", 1)[-1])
+
+    final_subject = subject
+    if reply_headers is None and reply_to_uid:
+        reply_headers, err = _reply_headers_from_server(
+            profile, servers, reply_to_uid, reply_to_folder, imap_factory
+        )
+        if err:
+            return err
+    if reply_headers:
+        orig_id = _one_line(reply_headers.get("message_id"))
+        if orig_id:
+            msg["In-Reply-To"] = orig_id
+            refs = _one_line(reply_headers.get("references"))
+            msg["References"] = f"{refs} {orig_id}".strip()
+        if not subject:
+            orig_subject = _one_line(reply_headers.get("subject"))
+            final_subject = (
+                orig_subject
+                if orig_subject.lower().startswith("re:")
+                else f"Re: {orig_subject}"
+            )
+    msg["Subject"] = final_subject
+    msg.set_content(body)
+
+    allowed_roots = [r.path for r in (roots or [])]
+    for raw_path in attachments or []:
+        path = Path(str(raw_path)).expanduser().resolve()
+        if not any(path.is_relative_to(root) for root in allowed_roots):
+            return {
+                "error": f"attachment {raw_path} is outside the session's directories"
+            }
+        if not path.is_file():
+            return {"error": f"attachment not found: {raw_path}"}
+        ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        maintype, subtype = ctype.split("/", 1)
+        msg.add_attachment(
+            path.read_bytes(),
+            maintype=maintype,
+            subtype=subtype,
+            filename=path.name,
+        )
+    return msg
+
+
+def send_message(
+    profile: dict[str, Any],
+    servers: EmailServers,
+    msg: EmailMessage,
+    *,
+    imap_factory: Callable[[str, int], imaplib.IMAP4] = _default_imap_factory,
+    smtp_factory: Callable[[str, int], smtplib.SMTP] = _default_smtp_factory,
+) -> dict[str, Any]:
+    """Send a composed message and file its Sent copy where the host does not."""
+    try:
+        smtp = _smtp_login(profile, servers, smtp_factory)
+    except Exception as exc:
+        return {"error": f"SMTP login failed: {exc}.{_auth_hint(servers)}"}
+    try:
+        smtp.send_message(msg)
+    except Exception as exc:
+        return {"error": f"send failed: {exc}"}
+    finally:
+        try:
+            smtp.quit()
+        except Exception:
+            pass
+    result = {"ok": True, "message_id": msg["Message-ID"], "subject": msg["Subject"]}
+    if servers.imap_host.endswith(_SERVER_FILES_SENT):
+        return result
+    imap, err = open_imap(profile, servers, imap_factory)
+    if err:
+        result["sent_copy"] = "delivered, but no copy was filed in Sent"
+        return result
+    try:
+        folder = _find_folder(imap, rb"\Sent", _SENT_NAMES)
+        if folder is None:
+            result["sent_copy"] = "delivered, but the mailbox has no Sent folder"
+        else:
+            status, _ = imap.append(
+                _quote(folder),
+                r"(\Seen)",
+                imaplib.Time2Internaldate(time.time()),
+                msg.as_bytes(),
+            )
+            result["sent_copy"] = (
+                f"filed in {folder}"
+                if status == "OK"
+                else f"delivered, but filing a copy in {folder} failed"
+            )
+    except Exception as exc:
+        result["sent_copy"] = f"delivered, but filing a copy in Sent failed: {exc}"
+    finally:
+        _logout(imap)
+    return result
+
+
+def save_draft(
+    profile: dict[str, Any],
+    servers: EmailServers,
+    msg: EmailMessage,
+    *,
+    imap_factory: Callable[[str, int], imaplib.IMAP4] = _default_imap_factory,
+) -> dict[str, Any]:
+    """File a composed message in the mailbox's Drafts folder. Nothing is sent."""
+    imap, err = open_imap(profile, servers, imap_factory)
+    if err:
+        return err
+    try:
+        folder = _find_folder(imap, rb"\Drafts", _DRAFTS_NAMES)
+        if folder is None:
+            return {"error": "the mailbox has no Drafts folder"}
+        status, _ = imap.append(
+            _quote(folder),
+            r"(\Draft \Seen)",
+            imaplib.Time2Internaldate(time.time()),
+            msg.as_bytes(),
+        )
+    except Exception as exc:
+        return {"error": f"saving the draft failed: {exc}"}
+    finally:
+        _logout(imap)
+    if status != "OK":
+        return {"error": f"saving the draft in {folder} failed"}
+    return {"ok": True, "folder": folder, "subject": msg["Subject"]}
+
+
 # -- the tools ----------------------------------------------------------------------
 def make_email_tools(
     secrets: SecretStore,
@@ -391,33 +617,13 @@ def make_email_tools(
 ) -> list[Callable[..., Any]]:
     def _connect_imap():
         """(imap, profile, servers, error) — error is a tool-result dict."""
-        profile = secrets.get("email:default") or {}
-        if not profile.get("address") or not profile.get("app_password"):
-            return (
-                None,
-                None,
-                None,
-                {"error": "email is not connected; add it in Manage → Integrations"},
-            )
-        servers, err = resolve_servers(profile)
-        if servers is None:
-            return None, None, None, {"error": err}
-        try:
-            imap = _imap_login(profile, servers, imap_factory)
-        except Exception as exc:
-            return (
-                None,
-                None,
-                None,
-                {"error": f"IMAP login failed: {exc}.{_auth_hint(servers)}"},
-            )
+        profile, servers, err = load_profile(secrets)
+        if err:
+            return None, None, None, err
+        imap, err = open_imap(profile, servers, imap_factory)
+        if err:
+            return None, None, None, err
         return imap, profile, servers, None
-
-    def _logout(imap) -> None:
-        try:
-            imap.logout()
-        except Exception:
-            pass
 
     def email_list_folders() -> dict[str, Any]:
         imap, _, _, err = _connect_imap()
@@ -599,104 +805,6 @@ def make_email_tools(
         finally:
             _logout(imap)
 
-    def _compose(
-        profile: dict[str, Any],
-        to: str,
-        subject: str,
-        body: str,
-        cc: str,
-        bcc: str,
-        reply_to_uid: str,
-        reply_to_folder: str,
-        attachments: Optional[list[str]],
-    ) -> EmailMessage | dict[str, Any]:
-        """The finished message, or a tool-result error dict."""
-        msg = EmailMessage()
-        display = str(profile.get("display_name") or "").strip()
-        msg["From"] = (
-            formataddr((display, profile["address"])) if display else profile["address"]
-        )
-        msg["To"] = to
-        if cc:
-            msg["Cc"] = cc
-        if bcc:
-            msg["Bcc"] = bcc
-        msg["Message-ID"] = make_msgid(domain=profile["address"].rsplit("@", 1)[-1])
-
-        # Reply threading: pull Message-ID/References/Subject from the original first.
-        final_subject = subject
-        if reply_to_uid:
-            imap, _, _, err = _connect_imap()
-            if err:
-                return err
-            try:
-                sel_err = _select_readonly(imap, reply_to_folder)
-                if sel_err:
-                    return {"error": sel_err}
-                status, data = imap.uid(
-                    "FETCH",
-                    str(reply_to_uid),
-                    "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES SUBJECT)])",
-                )
-                if status != "OK" or not data or not isinstance(data[0], tuple):
-                    return {
-                        "error": f"reply target {reply_to_uid} not found in {reply_to_folder}"
-                    }
-                orig = email_lib.message_from_bytes(data[0][1])
-                orig_id = str(orig.get("Message-ID", "")).strip()
-                if orig_id:
-                    msg["In-Reply-To"] = orig_id
-                    refs = str(orig.get("References", "")).strip()
-                    msg["References"] = f"{refs} {orig_id}".strip()
-                if not subject:
-                    orig_subject = decode_mime_header(orig.get("Subject", ""))
-                    final_subject = (
-                        orig_subject
-                        if orig_subject.lower().startswith("re:")
-                        else f"Re: {orig_subject}"
-                    )
-            except Exception as exc:
-                return {"error": str(exc)}
-            finally:
-                _logout(imap)
-        msg["Subject"] = final_subject
-        msg.set_content(body)
-
-        allowed_roots = [r.path for r in (roots or [])]
-        for raw_path in attachments or []:
-            path = Path(str(raw_path)).expanduser().resolve()
-            if not any(path.is_relative_to(root) for root in allowed_roots):
-                return {
-                    "error": f"attachment {raw_path} is outside the session's directories"
-                }
-            if not path.is_file():
-                return {"error": f"attachment not found: {raw_path}"}
-            import mimetypes
-
-            ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-            maintype, subtype = ctype.split("/", 1)
-            msg.add_attachment(
-                path.read_bytes(),
-                maintype=maintype,
-                subtype=subtype,
-                filename=path.name,
-            )
-        return msg
-
-    def _profile():
-        """(profile, servers, error) — error is a tool-result dict."""
-        profile = secrets.get("email:default") or {}
-        if not profile.get("address") or not profile.get("app_password"):
-            return (
-                None,
-                None,
-                {"error": "email is not connected; add it in Manage → Integrations"},
-            )
-        servers, err = resolve_servers(profile)
-        if servers is None:
-            return None, None, {"error": err}
-        return profile, servers, None
-
     def email_send(
         to: str,
         subject: str,
@@ -707,57 +815,28 @@ def make_email_tools(
         reply_to_folder: str = "INBOX",
         attachments: Optional[list[str]] = None,
     ) -> dict[str, Any]:
-        profile, servers, err = _profile()
+        profile, servers, err = load_profile(secrets)
         if err:
             return err
-        msg = _compose(
-            profile, to, subject, body, cc, bcc, reply_to_uid, reply_to_folder, attachments
+        msg = compose_message(
+            profile,
+            servers,
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            reply_to_uid=reply_to_uid,
+            reply_to_folder=reply_to_folder,
+            attachments=attachments,
+            roots=roots,
+            imap_factory=imap_factory,
         )
         if isinstance(msg, dict):
             return msg
-        final_subject = msg["Subject"]
-
-        try:
-            smtp = _smtp_login(profile, servers, smtp_factory)
-        except Exception as exc:
-            return {"error": f"SMTP login failed: {exc}.{_auth_hint(servers)}"}
-        try:
-            smtp.send_message(msg)
-        except Exception as exc:
-            return {"error": f"send failed: {exc}"}
-        finally:
-            try:
-                smtp.quit()
-            except Exception:
-                pass
-        result = {"ok": True, "message_id": msg["Message-ID"], "subject": final_subject}
-        if servers.imap_host.endswith(_SERVER_FILES_SENT):
-            return result
-        imap, _, _, err = _connect_imap()
-        if err:
-            result["sent_copy"] = "delivered, but no copy was filed in Sent"
-            return result
-        try:
-            folder = _find_folder(imap, rb"\Sent", _SENT_NAMES)
-            if folder is None:
-                result["sent_copy"] = "delivered, but the mailbox has no Sent folder"
-            else:
-                status, _ = imap.append(
-                    _quote(folder),
-                    r"(\Seen)",
-                    imaplib.Time2Internaldate(time.time()),
-                    msg.as_bytes(),
-                )
-                result["sent_copy"] = (
-                    f"filed in {folder}"
-                    if status == "OK"
-                    else f"delivered, but filing a copy in {folder} failed"
-                )
-        except Exception as exc:
-            result["sent_copy"] = f"delivered, but filing a copy in Sent failed: {exc}"
-        finally:
-            _logout(imap)
-        return result
+        return send_message(
+            profile, servers, msg, imap_factory=imap_factory, smtp_factory=smtp_factory
+        )
 
     def email_save_draft(
         to: str,
@@ -769,34 +848,26 @@ def make_email_tools(
         reply_to_folder: str = "INBOX",
         attachments: Optional[list[str]] = None,
     ) -> dict[str, Any]:
-        profile, _, err = _profile()
+        profile, servers, err = load_profile(secrets)
         if err:
             return err
-        msg = _compose(
-            profile, to, subject, body, cc, bcc, reply_to_uid, reply_to_folder, attachments
+        msg = compose_message(
+            profile,
+            servers,
+            to=to,
+            subject=subject,
+            body=body,
+            cc=cc,
+            bcc=bcc,
+            reply_to_uid=reply_to_uid,
+            reply_to_folder=reply_to_folder,
+            attachments=attachments,
+            roots=roots,
+            imap_factory=imap_factory,
         )
         if isinstance(msg, dict):
             return msg
-        imap, _, _, err = _connect_imap()
-        if err:
-            return err
-        try:
-            folder = _find_folder(imap, rb"\Drafts", _DRAFTS_NAMES)
-            if folder is None:
-                return {"error": "the mailbox has no Drafts folder"}
-            status, _ = imap.append(
-                _quote(folder),
-                r"(\Draft \Seen)",
-                imaplib.Time2Internaldate(time.time()),
-                msg.as_bytes(),
-            )
-        except Exception as exc:
-            return {"error": f"saving the draft failed: {exc}"}
-        finally:
-            _logout(imap)
-        if status != "OK":
-            return {"error": f"saving the draft in {folder} failed"}
-        return {"ok": True, "folder": folder, "subject": msg["Subject"]}
+        return save_draft(profile, servers, msg, imap_factory=imap_factory)
 
     return [
         _attach(
