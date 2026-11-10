@@ -79,7 +79,7 @@ Following from 3: the first release reads **the one mailbox connected through th
 connector**. Mailboxes connected through the Gmail or Outlook connectors do not appear in
 Mail. The account switcher in the first mockup is dropped until a second mailbox can exist.
 
-Proposed here, for the owner to confirm:
+Proposed here, and approved by the owner with the spec on 2026-11-10:
 
 4. **Send, archive and move to bin in Mail do not pass through the approval engine.** They
    are the user pressing a button that names what will happen, so a second approval card
