@@ -684,3 +684,19 @@ Recorded 2026-11-10.
 - **Windows has not been probed.**
 
 To do the click check by hand (about two minutes): in an empty folder run `python3 -m http.server 8799`; in `surfaces/gui` run `npm run tauri dev -- --config '{"identifier":"com.mimiwork.desktop.probe","build":{"devUrl":"http://localhost:1420/probe/mail.html"}}'` with `COWORKER_STATE_DIR` pointing at an empty folder, so it runs beside the installed app without sharing its data. In the top frame click each link. Wanted: the line "focused element's address" shows that link's address, and the listener prints no line containing `/hit-`.
+
+### Comments and reply, on the real mailbox with a real model
+
+Recorded 2026-11-10, after the owner said to run it. Done with a script that calls the same `MailService` the screen calls, against the connected mailbox (`mail.privateemail.com`) and the app's default model (`qualitati:mimi-puppy`), with a temporary cache file. Two messages were sent, both only to the mailbox's own address.
+
+- **A new message sent through Mail's own send** was accepted in 6.7 s and arrived in the inbox.
+- **Write reply** took 4.0 s. The comments were saved in the opposite order to the email (slides first, Friday second) with a free note. The reply answered Friday first and the slides second, said only what the notes said, added the free note, was in the email's language, and ended without a name because the connection has no display name set.
+- **Rewrite with "shorter"** took 2.5 s and did not make it shorter: 86 characters became 92. The wording changed; the length did not. On this model the one line of guidance cannot be relied on.
+- **Send of the reply** was accepted in 6.3 s. The draft and the comments were cleared. After the next sync the conversation showed the original and the reply, with the reply's copy in Sent. Its `In-Reply-To` is the original's `Message-ID`, it carries a `Date` header, the line above the quote reads "On Tue, 10 Nov 2026 23:33:01 +0100, <own address> wrote:", and the original is quoted beneath.
+- **With no network** (the first attempt ran in a shell that had none), Send answered "Could not reach the mail server, so nothing was sent. Check your connection and try again." and the draft stayed.
+
+Not done: everything that needs the app's own window, which is selecting a passage with a real pointer (a drag over more than one paragraph, two messages open at once, a newsletter with a hidden preview line), the Drafts tab surviving a restart, and "Put back what I had written". Those are steps 1, 2, 3, 7 and 9 of Task 15 and part of step 5. Windows has not been opened.
+
+The test left four items in the mailbox, all with "MimiWork reply check" in the subject: the message and its reply, each in the inbox and in Sent. They are safe to delete.
+
+A mistake during this work, recorded so it is not repeated: while the plan was being reviewed, a reviewer's scratch test ran from outside the repository's `tests/` folder, where `tests/conftest.py` does not apply, and wrote the test fixtures' fake mailbox over the owner's real Email connection in `~/.config/coworker/secrets.json`. The owner reconnected it before this check. Any test run from outside `tests/` must set `COWORKER_STATE_DIR` to a temporary folder first.
