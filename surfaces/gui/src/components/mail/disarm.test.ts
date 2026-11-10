@@ -64,6 +64,10 @@ describe("disarmEmail", () => {
   it("does not let an email plant the address the app will offer", () => {
     const doc = disarmed('<p tabindex="0" data-mail-href="https://evil.example">Click</p>');
     expect(doc.querySelector("[data-mail-href]")).toBeNull();
+    // Nor pass one of its own elements off as a highlight the app made.
+    const marked = disarmed('<mark data-mail-comment>their own highlight</mark>');
+    expect(marked.querySelector("[data-mail-comment]")).toBeNull();
+    expect(marked.querySelector("mark")!.textContent).toBe("their own highlight");
   });
 
   it("puts the policy first in the head, without remote images unless asked", () => {

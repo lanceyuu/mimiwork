@@ -27,7 +27,7 @@ const LINKS = new Set(["a", "area"]);
 
 // Because of those names, nothing here reads a property off an email's document or its
 // elements. It calls the real one, taken from the prototype, which an email cannot reach.
-const own = <T>(proto: object, name: string) => {
+export const own = <T>(proto: object, name: string) => {
   const read = Object.getOwnPropertyDescriptor(proto, name)!.get!;
   return (target: unknown): T => read.call(target);
 };
@@ -64,8 +64,10 @@ export function disarmEmail(html: string, opts: { images?: boolean } = {}): stri
   all(doc, `${DROP}, meta[http-equiv]`).forEach((el) => Element.prototype.remove.call(el));
   all(doc, NAMED).forEach((el) => strip(el, "name"));
   for (const el of all(doc, "*")) {
-    // An email may not plant an address where the app looks for one.
+    // An email may not plant an address where the app looks for one, or pass one of its
+    // own elements off as a highlight the app made (see quote.ts).
     strip(el, "data-mail-href");
+    strip(el, "data-mail-comment");
     for (const name of names(el)) {
       if (!isAddress(name)) continue;
       const address = read(el, name) ?? "";
