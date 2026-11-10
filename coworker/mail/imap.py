@@ -82,14 +82,14 @@ def _roles(imap) -> dict[str, Optional[str]]:
 def _search(imap, criteria) -> list[int]:
     status, data = imap.uid("SEARCH", criteria)
     if status != "OK":
-        raise MailError("the mail server could not search this folder")
+        raise MailError("The mail server could not search this folder")
     return [int(uid) for uid in (data[0] or b"").split()]
 
 
 def _fetch(imap, uid_set: str, spec: str) -> list:
     status, data = imap.uid("FETCH", uid_set, spec)
     if status != "OK":
-        raise MailError("the mail server could not read these messages")
+        raise MailError("The mail server could not read these messages")
     return data or []
 
 
@@ -197,9 +197,9 @@ class MailConnection:
         try:
             imap = _imap_login(profile, servers, self._factory)
         except (OSError, imaplib.IMAP4.abort) as exc:
-            raise MailError(f"could not reach the mail server: {exc}") from exc
+            raise MailError(f"Could not reach the mail server: {exc}") from exc
         except Exception as exc:
-            raise MailError(f"IMAP login failed: {exc}.{_auth_hint(servers)}") from exc
+            raise MailError(f"Could not sign in to the mailbox: {exc}.{_auth_hint(servers)}") from exc
         # Held before the key is set: if anything below fails, the next operation finds a
         # connection without a matching key and closes it, so it is never left open.
         self._imap = imap
@@ -219,7 +219,7 @@ class MailConnection:
             # A folder the server will not let anyone change can still be read.
             status, data = imap.select(_quote(folder), readonly=True)
         if status != "OK":
-            raise MailError(f"cannot open folder {folder!r}")
+            raise MailError(f"Cannot open folder {folder!r}")
         self._exists = int(data[0] or 0)
         _, validity = imap.response("UIDVALIDITY")
         self._uidvalidity = int(validity[0]) if validity and validity[0] else 0
@@ -236,13 +236,13 @@ class MailConnection:
                     return operation(imap)
                 except imaplib.IMAP4.readonly as exc:
                     # A subclass of abort, but the line is fine: the folder is read-only.
-                    raise MailError("this folder cannot be changed") from exc
+                    raise MailError("This folder cannot be changed") from exc
                 except (imaplib.IMAP4.abort, OSError) as exc:
                     self._drop(dead=True)
                     if attempt == 2:
-                        raise MailError(f"the mail server stopped answering: {exc}") from exc
+                        raise MailError(f"The mail server stopped answering: {exc}") from exc
                 except imaplib.IMAP4.error as exc:
-                    raise MailError(f"the mail server refused: {exc}") from exc
+                    raise MailError(f"The mail server refused: {exc}") from exc
 
     # -- operations ----------------------------------------------------------------
     def describe(self) -> dict[str, Any]:
@@ -316,7 +316,7 @@ class MailConnection:
                 "STORE", _uid_set(uids), "+FLAGS" if seen else "-FLAGS", r"(\Seen)"
             )
             if status != "OK":
-                raise MailError("the mail server refused the change")
+                raise MailError("The mail server refused the change")
 
         if uids:
             self._run(folder, operation)
@@ -328,10 +328,10 @@ class MailConnection:
         def operation(imap):
             target = self._roles.get(role)
             if not self._can_move or not target:
-                raise MailError("this mailbox cannot move mail")
+                raise MailError("This mailbox cannot move mail")
             status, _ = imap.uid("MOVE", _uid_set(uids), _quote(target))
             if status != "OK":
-                raise MailError(f"the mail server refused to move the message to {target}")
+                raise MailError(f"The mail server refused to move the message to {target}")
 
         if uids:
             self._run(folder, operation)

@@ -184,3 +184,24 @@ def test_emptying_the_cache_makes_a_pass_still_running_out_of_date(tmp_path):
     store.put_body(ME, "INBOX", 1, {"html": "<p>x</p>", "text": "x", "attachments": []}, 0.0, epoch=epoch)
     assert store.uids(ME, "INBOX") == set()
     assert store.body(ME, "INBOX", 1, 0.0) is None
+
+
+def test_mail_that_was_removed_or_disconnected_leaves_no_text_in_the_file(tmp_path):
+    store = _store(tmp_path)
+    store.add([_row("INBOX", n, subject=f"KEPT-{n}") for n in range(50)])
+    store.add([_row("INBOX", 900, subject="ARCHIVED-SUBJECT-MARKER")])
+    body = {"html": "<p>ARCHIVED-BODY-MARKER</p>" * 400, "text": "x", "attachments": []}
+    store.put_body(ME, "INBOX", 900, body, 0.0)
+    store.remove(ME, "INBOX", [900])  # archived: SQLite must not keep the text in a free page
+    store._conn.commit()
+    left = (tmp_path / "mail.db").read_bytes()
+    assert b"ARCHIVED-SUBJECT-MARKER" not in left and b"ARCHIVED-BODY-MARKER" not in left
+    assert b"KEPT-1" in left
+
+    store.clear()  # disconnected
+    store.close()
+    left = (tmp_path / "mail.db").read_bytes()
+    assert b"KEPT-" not in left
+    # And the file gives the space back: it is no bigger than a cache that never held mail.
+    MailStore(tmp_path / "never-used.db").close()
+    assert len(left) <= (tmp_path / "never-used.db").stat().st_size

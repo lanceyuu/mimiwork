@@ -1325,8 +1325,8 @@ export function Sidebar(props: Props) {
         </button>
       </div>
 
-      {/* Automations: a first-class nav row (UX-023) — the account menu keeps its entry.
-          The badge is the cross-automation unseen-run total. */}
+      {/* First-class nav rows: Mail, then Automations (UX-023) — the account menu keeps
+          the Automations entry, and its badge is the cross-automation unseen-run total. */}
       <div className="px-2.5 mt-1">
         <button
           className={

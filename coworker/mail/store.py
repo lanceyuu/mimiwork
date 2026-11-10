@@ -54,6 +54,10 @@ class MailStore:
         self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # Deleting a row only marks its space free; the text stays in the file until
+        # something else is written there. Mail that was archived, binned or disconnected
+        # must not linger on disk, so freed space is overwritten as it is freed.
+        self._conn.execute("PRAGMA secure_delete = ON")
         # Goes up whenever what the screen shows may have changed, so the screen can ask
         # "anything new?" without fetching the list. In memory only: a restarted sidecar
         # starts again from 0 and the screen, seeing a different number, reloads.
@@ -302,6 +306,9 @@ class MailStore:
             # not write its mail back, so everything they noted is made out of date.
             self.touched += 1
             self.epoch += 1
+        with self._lock:
+            # Give the space back as well; this cannot run inside the transaction above.
+            self._conn.execute("VACUUM")
 
 
 def _distinct(rows: list[dict[str, Any]], inbox: str) -> list[dict[str, Any]]:

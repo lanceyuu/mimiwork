@@ -155,7 +155,7 @@ def test_a_refused_move_puts_the_conversation_back_and_says_why(tmp_path):
     server.capabilities = "IMAP4rev1"
     service._conn.close()  # the next login learns the server cannot move
     result = service.archive(row["key"])
-    assert result == {"ok": False, "error": "this mailbox cannot move mail"}
+    assert result == {"ok": False, "error": "This mailbox cannot move mail"}
     assert [t["subject"] for t in service.threads()["threads"]] == ["Stay"]
     assert server.subjects("INBOX") == ["Stay"]
 

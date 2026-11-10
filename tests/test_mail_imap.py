@@ -55,7 +55,7 @@ def test_a_server_that_keeps_dropping_is_reported_not_retried_without_end(tmp_pa
     server, conn = _conn(tmp_path)
     server.add("INBOX", mail("One"))
     server.drops = 5
-    with pytest.raises(MailError, match="stopped answering"):
+    with pytest.raises(MailError, match="The mail server stopped answering"):
         conn.message("INBOX", 1)
     assert server.logins == 2
 
@@ -162,7 +162,7 @@ def test_a_folder_that_cannot_be_changed_is_reported_plainly_without_logging_in_
     server.add("INBOX", mail("One"))
     server.read_only.add("INBOX")
     assert conn.message("INBOX", 1)["Subject"] == "One"  # it can still be read
-    with pytest.raises(MailError, match="cannot be changed"):
+    with pytest.raises(MailError, match="This folder cannot be changed"):
         conn.set_seen("INBOX", [1], True)
     assert server.logins == 1
 
