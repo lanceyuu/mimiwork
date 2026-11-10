@@ -71,7 +71,7 @@ jobs:
           npm ci
           npm test
           npm run build
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit
           npm run e2e
 
   build:

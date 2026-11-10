@@ -1,4 +1,5 @@
-import { defineConfig, devices } from "@playwright/test";
+import { existsSync } from "node:fs";
+import { defineConfig, devices, webkit } from "@playwright/test";
 
 // E2E harness for the GUI. Tests are hermetic: every /v1 request and the event WebSocket are mocked
 // at the network layer (see e2e/fixtures.ts), so they run without the Python backend and never
@@ -15,7 +16,15 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    // The macOS app runs in WebKit, and the email reader's safety rests on how the webview
+    // treats a sandboxed frame. Chromium passing says nothing about that, so the safety
+    // tests run in WebKit as well: always in CI, and on any machine that has it installed.
+    ...(process.env.CI || existsSync(webkit.executablePath())
+      ? [{ name: "webkit", use: { ...devices["Desktop Safari"] }, testMatch: /mail-safety\.spec\.ts/ }]
+      : []),
+  ],
   webServer: {
     // Dev server on a dedicated port so it never collides with a running `npm run dev` (5173).
     command: `npm run dev -- --port ${PORT} --strictPort`,
