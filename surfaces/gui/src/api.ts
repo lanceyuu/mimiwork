@@ -3361,3 +3361,138 @@ export async function exportAgentSystem(id: string): Promise<{ ok: boolean; path
   const data = await res.json().catch(() => null);
   return data?.ok && data.path ? data : null;
 }
+
+// -- Mail (the Mail section) ---------------------------------------------------------------
+// Every Mail call answers `{ ok: false, error }` in plain language when it cannot do what
+// was asked, so the screen shows the reason as it is.
+
+export interface MailStatus {
+  ok: boolean;
+  connected: boolean;
+  address: string;
+  syncing: boolean;
+  /** Moves whenever the list may have changed; the screen reloads when it differs. */
+  revision: number;
+  last_sync: number;
+  last_error: string;
+  can_archive: boolean;
+  can_bin: boolean;
+}
+
+export interface MailThreadRow {
+  key: string;
+  subject: string;
+  sender: string;
+  date: number;
+  unread: boolean;
+  count: number;
+  has_attachments: boolean;
+}
+
+export interface MailEnvelope {
+  folder: string;
+  uid: number;
+  message_id: string;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  date: number;
+  unread: boolean;
+  has_attachments: boolean;
+}
+
+export interface MailThread {
+  ok: boolean;
+  error?: string;
+  key: string;
+  subject: string;
+  in_inbox: boolean;
+  messages: MailEnvelope[];
+}
+
+export interface MailAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+}
+
+export interface MailMessage extends MailEnvelope {
+  ok: boolean;
+  error?: string;
+  thread_key: string;
+  html: string;
+  text: string;
+  attachments: MailAttachment[];
+}
+
+export interface MailReply {
+  ok: boolean;
+  error?: string;
+}
+
+const mailUrl = (path: string) => `${httpBase()}/v1/mail${path}`;
+const mailThreadUrl = (key: string, action = "") =>
+  mailUrl(`/threads/${encodeURIComponent(key)}${action}`);
+
+async function mailPost<T = MailReply>(url: string, body: unknown = {}): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function getMailStatus(): Promise<MailStatus> {
+  return (await fetch(mailUrl("/status"))).json();
+}
+
+/** Start a sync pass. Returns at once; `getMailStatus().syncing` says when it has ended. */
+export function syncMail(): Promise<MailReply> {
+  return mailPost(mailUrl("/sync"));
+}
+
+export async function getMailThreads(): Promise<MailThreadRow[]> {
+  return (await (await fetch(mailUrl("/threads"))).json()).threads ?? [];
+}
+
+export async function getMailThread(key: string): Promise<MailThread> {
+  return (await fetch(mailThreadUrl(key))).json();
+}
+
+/** One message with its body. Also how a search result is opened. */
+export async function getMailMessage(folder: string, uid: number): Promise<MailMessage> {
+  const query = `folder=${encodeURIComponent(folder)}&uid=${uid}`;
+  return (await fetch(mailUrl(`/message?${query}`))).json();
+}
+
+export function markMailThread(key: string, read: boolean): Promise<MailReply> {
+  return mailPost(mailThreadUrl(key, "/read"), { read });
+}
+
+export function markMailMessageRead(folder: string, uid: number): Promise<MailReply> {
+  return mailPost(mailUrl("/message/read"), { folder, uid });
+}
+
+export function archiveMailThread(key: string): Promise<MailReply> {
+  return mailPost(mailThreadUrl(key, "/archive"));
+}
+
+export function binMailThread(key: string): Promise<MailReply> {
+  return mailPost(mailThreadUrl(key, "/bin"));
+}
+
+export async function searchMail(q: string): Promise<MailReply & { results?: MailEnvelope[] }> {
+  return (await fetch(mailUrl(`/search?q=${encodeURIComponent(q)}`))).json();
+}
+
+/** Save the attachment at `index` in the message's list into Downloads. By place, not by
+ *  name, because two attachments can share a name. The reply carries the saved path. */
+export function saveMailAttachment(
+  folder: string,
+  uid: number,
+  index: number,
+): Promise<MailReply & { path?: string }> {
+  return mailPost(mailUrl("/attachments/save"), { folder, uid, index });
+}
