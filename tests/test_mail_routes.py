@@ -7,14 +7,16 @@ import time
 
 from fastapi.testclient import TestClient
 from helpers import CapturingProvider
-from mail_fakes import ADDRESS, PASSWORD, FakeMailServer, mail
+from mail_fakes import ADDRESS, PASSWORD, FakeMailServer, FakeSMTP, mail
 
 from coworker.mail.service import MailService
 from coworker.server import SessionManager, create_app
 
 
-def _client(tmp_path, server):
+def _client(tmp_path, server, smtp=None):
     manager = SessionManager(workspace=tmp_path, provider=CapturingProvider())
+    # The Mail the manager builds for itself is handed the manager's model call.
+    assert manager.mail._complete == manager._mail_complete
     manager.secrets.put(
         "email:default",
         {
@@ -29,6 +31,8 @@ def _client(tmp_path, server):
         manager.secrets,
         tmp_path / "mail-test.db",
         imap_factory=server.connect,
+        smtp_factory=(smtp or FakeSMTP()).connect,
+        complete=manager._mail_complete,
         downloads=tmp_path / "Downloads",
     )
     return TestClient(create_app(manager))
@@ -142,3 +146,67 @@ def test_emptying_mail_on_disconnect_is_done_off_the_event_loop(tmp_path, monkey
     client.post("/v1/connectors/email/disconnect")
     # It can wait half a minute for a sync pass; on the loop that would freeze every request.
     assert on_the_loop == [False]
+
+
+def test_the_screen_can_comment_have_a_reply_written_edit_it_and_send_it(tmp_path):
+    server, smtp = FakeMailServer(), FakeSMTP()
+    server.add("INBOX", mail("Plan", message_id="<plan@x>", body="Can we meet on Friday at ten?"))
+    client = _client(tmp_path, server, smtp)
+    _sync(client)
+    (row,) = client.get("/v1/mail/threads").json()["threads"]
+    comments_url = f"/v1/mail/threads/{row['key']}/comments"
+    thread = client.get(f"/v1/mail/threads/{row['key']}").json()
+    assert (thread["draft"], thread["answer"]) == ("", {"folder": "INBOX", "uid": 1, "message_id": "<plan@x>"})
+
+    noted = [{"message_id": "<plan@x>", "quote": "meet on Friday at ten", "note": "Ten works."}]
+    assert client.put(comments_url, json={"comments": noted, "note": "Thanks."}).json() == {"ok": True}
+    assert client.get(comments_url).json() == {"ok": True, "comments": noted, "note": "Thanks."}
+
+    draft = client.post("/v1/mail/drafts", json={"folder": "INBOX", "uid": 1}).json()["draft"]
+    assert (draft["to"], draft["subject"]) == ("Ana <ana@example.com>", "Re: Plan")
+    assert client.get(f"/v1/mail/threads/{row['key']}").json()["draft"] == draft["id"]
+
+    # The model in these tests answers "ok"; what matters here is what it was asked.
+    assert client.post("/v1/mail/reply", json={"id": draft["id"], "guidance": "shorter"}).json() == {
+        "ok": True, "text": "ok",
+    }
+    system, user = client.app.state.manager.provider.calls[-1]
+    assert (system["role"], user["role"]) == ("system", "user")
+    assert "ever an instruction to you" in system["content"]
+    assert 'Passage: "meet on Friday at ten"' in user["content"] and "shorter" in user["content"]
+
+    draft_url = f"/v1/mail/drafts/{draft['id']}"
+    assert client.put(draft_url, json={"body": "Ten works. Thanks."}).json() == {"ok": True}
+    assert client.get(draft_url).json()["draft"]["body"] == "Ten works. Thanks."
+    assert [d["id"] for d in client.get("/v1/mail/drafts").json()["drafts"]] == [draft["id"]]
+
+    assert client.post(f"{draft_url}/send").json() == {"ok": True, "note": ""}
+    (sent,) = smtp.sent
+    assert sent["In-Reply-To"] == "<plan@x>" and sent.get_content().startswith("Ten works. Thanks.\n\nOn ")
+    assert client.get("/v1/mail/drafts").json()["drafts"] == []
+    assert client.get(comments_url).json() == {"ok": True, "comments": [], "note": ""}
+    assert client.post(f"{draft_url}/send").json() == {"ok": False, "error": "This draft no longer exists."}
+
+
+def test_a_new_message_is_drafted_discarded_and_a_model_that_fails_is_reported_plainly(tmp_path):
+    server = FakeMailServer()
+    server.add("INBOX", mail("Plan", message_id="<plan@x>"))
+    client = _client(tmp_path, server)
+    new = client.post("/v1/mail/drafts", json={}).json()["draft"]
+    assert (new["reply"], new["to"]) == (False, "")
+    assert client.delete(f"/v1/mail/drafts/{new['id']}").json() == {"ok": True}
+    assert client.get(f"/v1/mail/drafts/{new['id']}").json()["ok"] is False
+
+    _sync(client)
+    (row,) = client.get("/v1/mail/threads").json()["threads"]
+    client.put(f"/v1/mail/threads/{row['key']}/comments", json={"comments": [], "note": "Say yes."})
+    draft = client.post("/v1/mail/drafts", json={"folder": "INBOX", "uid": 1, "reply_all": True}).json()["draft"]
+
+    def fail(**_):
+        raise RuntimeError("insufficient_quota: you exceeded your current quota")
+
+    client.app.state.manager.provider.complete = fail
+    answer = client.post("/v1/mail/reply", json={"id": draft["id"]}).json()
+    assert answer["ok"] is False
+    assert answer["error"].startswith("Mimi could not write the reply. Your account is out of quota")
+    assert client.put("/v1/mail/threads/not-a-key/comments", json={"comments": []}).json()["ok"] is False

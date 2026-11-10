@@ -322,7 +322,7 @@ class SessionManager:
         # Mail: the connection and cache behind the Mail section (coworker/mail/).
         from ..mail.service import MailService
 
-        self.mail = MailService(self.secrets, base / "mail.db")
+        self.mail = MailService(self.secrets, base / "mail.db", complete=self._mail_complete)
         # Apps: Mimi-written HTML tools, one folder each (Apps section).
         from ..apps import AppStore
 
@@ -3515,6 +3515,22 @@ class SessionManager:
         except Exception:
             text = ""
         return {"ok": True, "model": model, "reply": text[:120]}
+
+    def _mail_complete(self, system: str, user: str) -> str:
+        """Mail's one model call, for Write reply: the user's default model, no tools, no
+        session. Spends credits exactly like a chat turn. Raises with a plain reason."""
+        try:
+            turn = self.provider.complete(
+                model=self.model,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                tools=None,
+            )
+        except Exception as exc:
+            from ..providers.errors import friendly_model_error
+
+            reason = friendly_model_error(self.model, exc) or str(exc)[:300]
+            raise RuntimeError(reason or "The model did not answer.") from exc
+        return (getattr(turn, "text", None) or "").strip()
 
     def _model_provider(self, model: str) -> str:
         """The provider a model string routes to (known `prefix:` or the OpenAI default)."""

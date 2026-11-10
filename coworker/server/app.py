@@ -1794,6 +1794,47 @@ def create_app(manager: SessionManager) -> FastAPI:
             str(body.get("folder") or ""), body.get("uid") or 0, body.get("index", -1)
         )
 
+    @app.get("/v1/mail/threads/{key}/comments")
+    def mail_comments(key: str) -> dict[str, Any]:
+        return manager.mail.comments(key)
+
+    @app.put("/v1/mail/threads/{key}/comments")
+    def mail_comments_put(key: str, body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.mail.put_comments(key, body.get("comments"), body.get("note"))
+
+    @app.post("/v1/mail/reply")
+    def mail_reply(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.mail.write_reply(str(body.get("id") or ""), str(body.get("guidance") or ""))
+
+    @app.get("/v1/mail/drafts")
+    def mail_drafts() -> dict[str, Any]:
+        return manager.mail.drafts()
+
+    @app.post("/v1/mail/drafts")
+    def mail_draft_create(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.mail.create_draft(
+            str(body.get("folder") or ""), body.get("uid") or 0, bool(body.get("reply_all"))
+        )
+
+    @app.get("/v1/mail/drafts/{draft_id}")
+    def mail_draft(draft_id: str) -> dict[str, Any]:
+        return manager.mail.draft(draft_id)
+
+    @app.put("/v1/mail/drafts/{draft_id}")
+    def mail_draft_put(draft_id: str, body: dict) -> dict[str, Any]:
+        return manager.mail.update_draft(draft_id, body)
+
+    @app.delete("/v1/mail/drafts/{draft_id}")
+    def mail_draft_delete(draft_id: str) -> dict[str, Any]:
+        return manager.mail.delete_draft(draft_id)
+
+    @app.post("/v1/mail/drafts/{draft_id}/send")
+    def mail_draft_send(draft_id: str) -> dict[str, Any]:
+        return manager.mail.send_draft(draft_id)
+
     # -- apps (Mimi-written HTML tools) -------------------------------------------
     @app.get("/v1/apps")
     def apps_list() -> dict[str, Any]:
