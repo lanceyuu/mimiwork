@@ -63,6 +63,7 @@ const baseProps = {
   onOpenIntegrations: vi.fn(),
   onOpenAudit: vi.fn(),
   onOpenInbox: vi.fn(),
+  onOpenMail: vi.fn(),
   onOpenFiles: vi.fn(),
   onOpenApps: vi.fn(),
   onOpenApp: vi.fn(),
@@ -74,6 +75,7 @@ const baseProps = {
   integrationsActive: false,
   auditActive: false,
   inboxActive: false,
+  mailActive: false,
   filesActive: false,
 };
 

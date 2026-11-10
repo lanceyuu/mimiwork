@@ -88,6 +88,7 @@ import { ProjectView } from "./components/ProjectView";
 import { AuditView } from "./components/AuditView";
 import { WorkspaceView } from "./components/WorkspaceView";
 import { InboxView } from "./components/InboxView";
+import { MailView } from "./components/mail/MailView";
 import { DirectoryRequestCard } from "./components/DirectoryRequestCard";
 import { PlanCard } from "./components/PlanCard";
 import { WorkspaceTrustPrompt } from "./components/WorkspaceTrustPrompt";
@@ -186,6 +187,7 @@ type Surface =
   | "integrations"
   | "audit"
   | "inbox"
+  | "mail"
   | "persona"
   | "settings"
   | "project"
@@ -1911,11 +1913,13 @@ export function App() {
         onOpenIntegrations={() => setSurface("integrations")}
         onOpenAudit={() => setSurface("audit")}
         onOpenInbox={() => setSurface("inbox")}
+        onOpenMail={() => setSurface("mail")}
         onOpenFiles={() => setSurface("files")}
         scheduledActive={surface === "scheduled"}
         integrationsActive={surface === "integrations"}
         auditActive={surface === "audit"}
         inboxActive={surface === "inbox"}
+        mailActive={surface === "mail"}
         filesActive={surface === "files"}
         collapsed={navCollapsed}
         onCollapse={toggleNav}
@@ -1930,6 +1934,7 @@ export function App() {
         integrations: "Connectors",
         audit: "Activity",
         inbox: "Inbox",
+        mail: "Mail",
         persona: "Persona",
         settings: "Settings",
         project: projects.find((p) => p.id === projectId)?.name || "Project",
@@ -1975,6 +1980,8 @@ export function App() {
         <WorkspaceView workspace={workspace} sessionId={sessionId} />
       ) : surface === "inbox" ? (
         <InboxView onOpenSession={openSessionFromInbox} />
+      ) : surface === "mail" ? (
+        <MailView onOpenConnectors={() => setSurface("integrations")} />
       ) : surface === "persona" ? (
         <PersonaView
           personaId={personaViewId || agent}

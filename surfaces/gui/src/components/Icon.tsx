@@ -18,6 +18,7 @@ export type IconName =
   | "sliders"
   | "gear"
   | "inbox"
+  | "mail"
   | "code"
   | "wrench"
   | "pencil"
@@ -218,6 +219,13 @@ export function Icon({
         <svg {...s}>
           <circle cx="12" cy="12" r="3" />
           <path d="M19 12a7 7 0 00-.1-1l2-1.6-2-3.4-2.3 1a7 7 0 00-1.7-1L16.5 3h-4l-.4 2.4a7 7 0 00-1.7 1l-2.3-1-2 3.4 2 1.6a7 7 0 000 2l-2 1.6 2 3.4 2.3-1a7 7 0 001.7 1l.4 2.4h4l.4-2.4a7 7 0 001.7-1l2.3 1 2-3.4-2-1.6c.1-.3.1-.7.1-1z" />
+        </svg>
+      );
+    case "mail":
+      return (
+        <svg {...s}>
+          <rect x="3" y="5" width="18" height="14" rx="2" />
+          <path d="m3.5 7 8.5 6 8.5-6" />
         </svg>
       );
     case "inbox":
