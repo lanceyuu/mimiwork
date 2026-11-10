@@ -673,3 +673,5 @@ Recorded 2026-11-10 with `scripts/live_mail_probe.py`, read-only, on the mailbox
 Not run yet: the `--move` probe (it writes one test message into the inbox and moves it to the archive, then the bin) and the probe of a second mailbox on a different kind of server. Both wait for the owner's word. Moving is therefore untested on this server and on any other.
 
 The probe of the real app window (Task 2) is recorded separately.
+
+The probe of the real app window (`surfaces/gui/probe/mail.html`, Task 2 Step 7) has not been run yet. Until it is, how links open in the reader, by focus as built or by a list of links under the email, is undecided. Windows has not been probed either.

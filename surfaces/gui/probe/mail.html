@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Mail reader probe</title>
+    <style>
+      body { font: 13px/1.5 system-ui; margin: 16px; background: #fff; color: #111; }
+      iframe { width: 100%; height: 300px; border: 1px solid #999; }
+      pre { background: #f3f3f3; padding: 8px; white-space: pre-wrap; }
+      h2 { font-size: 14px; margin: 18px 0 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Mail reader probe</h1>
+    <p>
+      Start <code>python3 -m http.server 8799</code> in an empty folder first. Click every link
+      in both frames, then read that terminal. Lines for <code>/raw-…</code> are expected: they
+      prove the listener sees a request. Any line for <code>/hit-…</code> is a failure.
+    </p>
+    <h2>Disarmed (what Mail will show)</h2>
+    <iframe id="safe" sandbox="allow-same-origin"></iframe>
+    <h2>Raw (control: shows what the sandbox alone allows)</h2>
+    <iframe id="raw" sandbox="allow-same-origin"></iframe>
+    <h2>What the app can see from outside</h2>
+    <pre id="report">starting…</pre>
+    <script type="module" src="./mail.ts"></script>
+  </body>
+</html>
