@@ -127,6 +127,18 @@ def _ensure_ca_bundle() -> None:
 
 def _ensure_api_token(port: int) -> Path | None:
     """Set launch auth; standalone/dev tokens use a user-only, port-specific file."""
+    # The desktop app sends the token on standard input rather than in the environment:
+    # the operating system keeps the environment a process was started with readable
+    # for its whole life (`ps eww`, /proc/<pid>/environ), so any command the agent ran
+    # could lift the token from there and call routes meant only for the user's clicks.
+    if os.environ.pop("COWORKER_TOKEN_ON_STDIN", None) == "1":
+        token = sys.stdin.readline().strip()
+        if not token:
+            # Starting with a token of our own would leave the window locked out with
+            # nothing in the log to say why.
+            raise SystemExit("The launch token did not arrive on standard input.")
+        os.environ["COWORKER_API_TOKEN"] = token  # create_app takes it straight back out
+        return None
     if os.environ.get("COWORKER_API_TOKEN"):
         return None  # Tauri supplied an in-memory token; never persist it.
     token = secrets.token_hex(32)
