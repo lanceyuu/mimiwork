@@ -670,8 +670,17 @@ Recorded 2026-11-10 with `scripts/live_mail_probe.py`, read-only, on the mailbox
 | header names returned | the header fetch returned `list-unsubscribe` along with date, from, message-id, subject and to, so Plan C's newsletter rule can rely on it |
 | the reply's items | one tuple, then one `bytes` item holding only the closing bracket. `UID`, `FLAGS`, `RFC822.SIZE` and `BODYSTRUCTURE` all arrive in the tuple, before the headers, and nothing useful is in the trailing `bytes` item |
 
-Not run yet: the `--move` probe (it writes one test message into the inbox and moves it to the archive, then the bin) and the probe of a second mailbox on a different kind of server. Both wait for the owner's word. Moving is therefore untested on this server and on any other.
+The move test, run the same day with `--move` after the owner allowed it: one test message was written into the inbox, moved to the archive folder and then to the bin. After each step exactly one copy existed, in the place it was moved to (inbox 1; then archive 1; then bin 1, with 0 everywhere else). `MOVE` answered `OK` both times. The test message was left in the bin. So archive and bin behave as designed on this server.
 
-The probe of the real app window (Task 2) is recorded separately.
+Not run: a second mailbox on a different kind of server. Gmail's "All Mail" archive is therefore still untested against a live server; it is covered only by the in-memory server in the tests.
 
-The probe of the real app window (`surfaces/gui/probe/mail.html`, Task 2 Step 7) has not been run yet. Until it is, how links open in the reader, by focus as built or by a list of links under the email, is undecided. Windows has not been probed either.
+### The email reader, in WebKit and in the real window
+
+Recorded 2026-11-10.
+
+- **The three safety tests in WebKit.** After the owner allowed the download, WebKit for the tests (Playwright's WebKit 26.5) was installed and `npx playwright test --project=webkit` passed 3 of 3: nothing in the hostile email ran; no remote image, stylesheet or background was requested until Show images; and a clicked link (plain, same-frame and SVG) requested nothing and showed its address. In Chromium the same tests pass, and both deliberate breaks of `disarm.ts` (a loosened policy; links left with their addresses) made all three fail.
+- **The real app window, on load.** A dev build of the app (Tauri's own WKWebView, macOS 26.6.2) was opened directly on `surfaces/gui/probe/mail.html`, twice, with a local listener logging every request. The unprotected control frame requested the stylesheet, the imported stylesheet, the background, the tracking pixel and the two images named `head` and `documentElement`. The disarmed frame, showing the same hostile email, requested nothing at all. No script and no meta refresh fired in either frame.
+- **The real app window, on click: not done.** Clicking needs a pointer in the window. The owner declined computer control of the dev window, so no link was clicked there. How links open is therefore confirmed in WebKit under the test tool, not yet by a real pointer in the app itself. The reader is built to open links by focus; the fallback (a list of the message's links, plan Task 12 Step 5) has not been needed so far.
+- **Windows has not been probed.**
+
+To do the click check by hand (about two minutes): in an empty folder run `python3 -m http.server 8799`; in `surfaces/gui` run `npm run tauri dev -- --config '{"identifier":"com.mimiwork.desktop.probe","build":{"devUrl":"http://localhost:1420/probe/mail.html"}}'` with `COWORKER_STATE_DIR` pointing at an empty folder, so it runs beside the installed app without sharing its data. In the top frame click each link. Wanted: the line "focused element's address" shows that link's address, and the listener prints no line containing `/hit-`.
