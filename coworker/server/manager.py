@@ -319,6 +319,10 @@ class SessionManager:
         # Automation: scheduled tasks store + the tick scheduler (started in the lifespan).
         # The scheduler also resumes self-wake'd sessions each tick (extra_tick).
         self.task_store = TaskStore(base / "automation.db")
+        # Mail: the connection and cache behind the Mail section (coworker/mail/).
+        from ..mail.service import MailService
+
+        self.mail = MailService(self.secrets, base / "mail.db")
         # Apps: Mimi-written HTML tools, one folder each (Apps section).
         from ..apps import AppStore
 
@@ -4613,6 +4617,8 @@ class SessionManager:
         await self.stop_gateway()
         await self.mcp.aclose()
         self.audit_store.close()
+        # Off the event loop: closing waits for a sync pass under way and logs out.
+        await asyncio.to_thread(self.mail.close)
 
     # -- automation (scheduled tasks) -------------------------------------------
     def approval_prompt_data(self, session_id: str, request) -> dict[str, Any]:

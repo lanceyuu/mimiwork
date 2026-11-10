@@ -1129,6 +1129,12 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/connectors/{name}/disconnect")
     async def connector_disconnect(name: str) -> dict[str, Any]:
         result = manager.disconnect_connector(name)
+        if name == "email":
+            # Mail must not keep a logged-in connection, or anyone's mail on disk, for a
+            # mailbox the user has disconnected. Done after the stored login is gone, so the
+            # sync pass it stops cannot log in again, and off the event loop: it waits for
+            # that pass and logs out politely, and neither may hold up every other request.
+            await asyncio.to_thread(manager.mail.forget)
         await _refresh_listeners_if_two_way(name)
         return result
 
@@ -1731,6 +1737,57 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.get("/v1/agent-systems/{system_id}/runs/{run_id}")
     def agent_system_run(system_id: str, run_id: str) -> dict[str, Any]:
         return manager.get_agent_system_run(system_id, run_id)
+
+    # -- mail (the Mail section) -----------------------------------------------------
+    # Plain REST: nothing here goes over the websocket. Each route is one call into
+    # manager.mail, which answers a failure as {ok: False, error} in plain language.
+    @app.get("/v1/mail/status")
+    def mail_status() -> dict[str, Any]:
+        return manager.mail.status()
+
+    @app.post("/v1/mail/sync")
+    def mail_sync() -> dict[str, Any]:
+        return manager.mail.sync()
+
+    @app.get("/v1/mail/threads")
+    def mail_threads() -> dict[str, Any]:
+        return manager.mail.threads()
+
+    @app.get("/v1/mail/threads/{key}")
+    def mail_thread(key: str) -> dict[str, Any]:
+        return manager.mail.thread(key)
+
+    @app.post("/v1/mail/threads/{key}/read")
+    def mail_thread_read(key: str, body: dict) -> dict[str, Any]:
+        return manager.mail.mark_thread(key, bool((body or {}).get("read", True)))
+
+    @app.post("/v1/mail/threads/{key}/archive")
+    def mail_thread_archive(key: str) -> dict[str, Any]:
+        return manager.mail.archive(key)
+
+    @app.post("/v1/mail/threads/{key}/bin")
+    def mail_thread_bin(key: str) -> dict[str, Any]:
+        return manager.mail.bin(key)
+
+    @app.get("/v1/mail/message")
+    def mail_message(folder: str = "", uid: int = 0) -> dict[str, Any]:
+        return manager.mail.message(folder, uid)
+
+    @app.post("/v1/mail/message/read")
+    def mail_message_read(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.mail.mark_message_read(str(body.get("folder") or ""), body.get("uid") or 0)
+
+    @app.get("/v1/mail/search")
+    def mail_search(q: str = "") -> dict[str, Any]:
+        return manager.mail.search(q)
+
+    @app.post("/v1/mail/attachments/save")
+    def mail_attachment_save(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.mail.save_attachment(
+            str(body.get("folder") or ""), body.get("uid") or 0, body.get("index", -1)
+        )
 
     # -- apps (Mimi-written HTML tools) -------------------------------------------
     @app.get("/v1/apps")
