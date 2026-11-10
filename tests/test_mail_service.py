@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from mail_fakes import ADDRESS, GMAIL_FOLDERS, FakeMailServer, connected_secrets, mail
+from mail_fakes import ADDRESS, GMAIL_FOLDERS, FakeMailServer, FakeSMTP, connected_secrets, mail
 
 from coworker.mail.service import MailService
 from coworker.mail.sync import _Stopped
@@ -309,3 +309,195 @@ def test_saving_from_an_email_that_is_wholly_a_forwarded_email_saves_the_file_th
     saved = service.save_attachment("INBOX", 1, 0)
     assert saved["path"].endswith("inner.pdf")
     assert (tmp_path / "Downloads" / "inner.pdf").read_bytes() == b"%PDF-fake"
+
+
+# -- comments, drafts, writing a reply, sending ------------------------------------------
+def _writer(tmp_path, *, model=None, display_name="Shubin", **server_options):
+    server, smtp = FakeMailServer(**server_options), FakeSMTP()
+    secrets = connected_secrets(tmp_path)
+    secrets.put("email:default", {**secrets.get("email:default"), "display_name": display_name})
+    service = MailService(
+        secrets, tmp_path / "mail.db", imap_factory=server.connect, smtp_factory=smtp.connect,
+        complete=model, downloads=tmp_path / "Downloads",
+    )
+    return server, smtp, service
+
+
+PLAN = dict(
+    sender="Ana Lopez <ana@example.com>", to=f"{ADDRESS}, Ben <ben@example.com>", message_id="<plan@x>",
+    references="<root@x>", body="Can we meet on Friday at ten?\nThe budget is due on the 14th.",
+    headers={"Cc": "Cy <cy@example.com>"},
+)
+
+
+def _reply_draft(service, server, **options):
+    """A conversation in the inbox, synced, with a reply draft started on it."""
+    server.add("INBOX", mail("Plan", **PLAN))
+    (row,) = _synced(service)
+    draft = service.create_draft("INBOX", 1, **options)["draft"]
+    return row["key"], draft
+
+
+def test_comments_are_saved_by_conversation_and_tidied_on_the_way_in(tmp_path):
+    _, _, service = _writer(tmp_path)
+    key = "a" * 16
+    assert service.comments(key) == {"ok": True, "comments": [], "note": ""}
+    saved = service.put_comments(
+        key,
+        [
+            {"message_id": "<1@x>", "quote": "  meet on\n Friday ", "note": "Yes.\nTen."},
+            {"message_id": "<1@x>", "quote": "", "note": "a comment on nothing is dropped"},
+            {"message_id": "<1@x>", "quote": "q" * 5000, "note": ""},
+            "not a comment",
+        ],
+        "Say hello.",
+    )
+    assert saved == {"ok": True}
+    got = service.comments(key)
+    assert got["comments"][0] == {"message_id": "<1@x>", "quote": "meet on Friday", "note": "Yes.\nTen."}
+    assert len(got["comments"]) == 2 and len(got["comments"][1]["quote"]) == 1000
+    assert got["note"] == "Say hello."
+    for bad in (service.put_comments("../etc", [], ""), service.put_comments(key, "x", ""), service.put_comments(key, [{}] * 101, "")):
+        assert bad == {"ok": False, "error": "These comments could not be saved."}
+
+
+def test_reply_answers_the_sender_and_reply_all_adds_everyone_else_but_you(tmp_path):
+    server, _, service = _writer(tmp_path)
+    _, draft = _reply_draft(service, server)
+    assert (draft["to"], draft["cc"], draft["subject"]) == ("Ana Lopez <ana@example.com>", "", "Re: Plan")
+    assert (draft["reply"], draft["answers"], draft["body"], draft["interrupted"]) == (
+        True, "Ana Lopez <ana@example.com>", "", False,
+    )
+
+    server.add("INBOX", mail("Re: Other", **{**PLAN, "message_id": "<other@x>", "references": "<other-root@x>"}))
+    all_of_them = service.create_draft("INBOX", 2, reply_all=True)["draft"]
+    assert all_of_them["to"] == "Ana Lopez <ana@example.com>"
+    assert all_of_them["cc"] == "Ben <ben@example.com>, Cy <cy@example.com>"
+    assert all_of_them["subject"] == "Re: Other"
+
+
+def test_a_reply_goes_where_the_message_asks_and_a_follow_up_to_your_own_goes_to_its_recipients(tmp_path):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("List", sender="Ana <ana@example.com>", headers={"Reply-To": '"Team, The" <team@example.com>'}))
+    server.add("Sent", mail("Mine", sender=f"Me <{ADDRESS}>", to="Ana <ana@example.com>", message_id="<mine@x>"))
+    assert service.create_draft("INBOX", 1)["draft"]["to"] == '"Team, The" <team@example.com>'
+    assert service.create_draft("Sent", 1)["draft"]["to"] == "Ana <ana@example.com>"
+
+
+def test_a_conversation_has_one_reply_draft_and_the_reader_is_told_of_it(tmp_path):
+    server, _, service = _writer(tmp_path)
+    key, draft = _reply_draft(service, server)
+    assert service.create_draft("INBOX", 1, reply_all=True)["draft"]["id"] == draft["id"]
+    thread = service.thread(key)
+    assert (thread["draft"], thread["answer"]) == (
+        draft["id"], {"folder": "INBOX", "uid": 1, "message_id": "<plan@x>"},
+    )
+    assert draft["answers_id"] == "<plan@x>"
+    assert service.message("INBOX", 1)["draft"] == draft["id"]
+    assert service.draft(draft["id"])["draft"]["id"] == draft["id"]
+    assert [d["id"] for d in service.drafts()["drafts"]] == [draft["id"]]
+    assert service.create_draft("INBOX", 99) == {"ok": False, "error": "This message is no longer in the mailbox."}
+    assert service.create_draft("INBOX", 0)["ok"] is False
+
+
+def test_a_reply_answers_the_newest_message_that_came_in_not_your_own_last_word(tmp_path):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("Plan", message_id="<a@x>", days_ago=2))
+    server.add("Sent", mail("Re: Plan", sender=ADDRESS, to="ana@example.com", message_id="<b@x>", references="<a@x>", days_ago=1))
+    (row,) = _synced(service)
+    assert service.thread(row["key"])["answer"] == {"folder": "INBOX", "uid": 1, "message_id": "<a@x>"}
+
+
+def test_a_reply_left_empty_on_an_earlier_message_is_started_again_for_the_newest(tmp_path):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("Plan", sender="Ana <ana@example.com>", message_id="<a@x>", body="First.", days_ago=2))
+    (row,) = _synced(service)
+    old = service.create_draft("INBOX", 1)["draft"]
+    server.add("INBOX", mail("Re: Plan", sender="Ben <ben@example.com>", message_id="<b@x>", references="<a@x>", body="Second.", days_ago=1))
+    _synced(service)
+    assert service.thread(row["key"])["answer"]["message_id"] == "<b@x>"
+
+    # Nothing was written in it, so it would only answer the wrong message.
+    new = service.create_draft("INBOX", 2)["draft"]
+    assert (new["to"], new["answers_id"]) == ("Ben <ben@example.com>", "<b@x>")
+    assert new["id"] != old["id"] and [d["id"] for d in service.drafts()["drafts"]] == [new["id"]]
+    assert service._store.draft(ADDRESS, new["id"])["orig_text"] == "Second."
+
+    # Once it holds the user's words it is kept, and says which message it answers.
+    service.update_draft(new["id"], {"body": "Half a thought"})
+    server.add("INBOX", mail("Re: Plan", sender="Ana <ana@example.com>", message_id="<c@x>", references="<a@x> <b@x>"))
+    _synced(service)
+    kept = service.create_draft("INBOX", 3)["draft"]
+    assert (kept["id"], kept["answers_id"], kept["body"]) == (new["id"], "<b@x>", "Half a thought")
+    assert service.thread(row["key"])["answer"]["message_id"] == "<c@x>"
+
+
+def test_an_address_that_is_not_what_it_looks_like_is_left_out_of_a_reply():
+    import email
+
+    from coworker.mail.service import reply_recipients
+
+    # As the bytes arrive from a server: an encoded word where the name of the mailbox
+    # should be is shown one way and sent another, so it is not offered at all.
+    raw = email.message_from_string(
+        "From: Ana <ana@example.com>\n"
+        "Reply-To: =?utf-8?q?x?=@evil.example, Billing <billing@example.com>\n"
+        f"To: {ADDRESS}, Odd <o\tdd@example.com>, Cy <cy@example.com>\n\nHello."
+    )
+    assert reply_recipients(raw, ADDRESS, True) == ("Billing <billing@example.com>", "Cy <cy@example.com>")
+
+
+def test_a_reply_to_someone_who_asks_for_answers_at_your_own_address_still_goes_to_them(tmp_path):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("Trick", sender="Ana <ana@example.com>", to="Ben <ben@example.com>", headers={"Reply-To": ADDRESS}))
+    # Not a follow-up to your own message: it is theirs, so it does not go to its recipients.
+    assert service.create_draft("INBOX", 1)["draft"]["to"] == ADDRESS
+
+
+def test_a_draft_started_while_the_mailbox_is_being_disconnected_is_not_kept(tmp_path, monkeypatch):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("Plan", message_id="<plan@x>", body="Private words."))
+    fetch = service._conn.message
+
+    def fetch_then_disconnect(folder, uid):
+        msg = fetch(folder, uid)
+        service._store.clear()
+        return msg
+
+    monkeypatch.setattr(service._conn, "message", fetch_then_disconnect)
+    assert service.create_draft("INBOX", 1) == {"ok": False, "error": "Email is not connected."}
+    assert service._store._all("SELECT id FROM draft") == []
+
+
+def test_new_message_gives_back_the_one_still_empty_instead_of_another(tmp_path):
+    _, _, service = _writer(tmp_path)
+    first = service.create_draft()["draft"]
+    assert (first["reply"], first["to"], first["thread_key"]) == (False, "", "")
+    assert service.create_draft()["draft"]["id"] == first["id"]
+    assert service.update_draft(first["id"], {"to": "ana@example.com"}) == {"ok": True}
+    assert service.create_draft()["draft"]["id"] != first["id"]
+
+
+def test_a_draft_keeps_what_is_typed_with_each_header_on_one_line(tmp_path):
+    _, _, service = _writer(tmp_path)
+    draft = service.create_draft()["draft"]
+    service.update_draft(draft["id"], {"to": "ana@example.com\nBcc: x@example.com", "subject": "Hi\r\nthere", "body": "Line one\nLine two", "id": "other"})
+    kept = service.draft(draft["id"])["draft"]
+    assert (kept["id"], kept["to"], kept["subject"]) == (draft["id"], "ana@example.com Bcc: x@example.com", "Hi there")
+    assert kept["body"] == "Line one\nLine two"
+    assert service.update_draft("gone", {"body": "x"}) == {"ok": False, "error": "This draft no longer exists."}
+
+    # A long list of recipients is kept whole. One that is too long is refused, never cut:
+    # cut short, it would be sent to the wrong people.
+    sixty = ", ".join(f"Person Number {n} <person.number{n}@department.example.com>" for n in range(60))
+    assert service.update_draft(draft["id"], {"cc": sixty, "body": "x"}) == {"ok": True}
+    assert service.draft(draft["id"])["draft"]["cc"] == sixty
+    assert service.update_draft(draft["id"], {"cc": "a@example.com, " * 2000}) == {
+        "ok": False, "error": "That is too many recipients for one message.",
+    }
+    assert service.update_draft(draft["id"], {"subject": "s" * 999})["error"] == "The subject is too long."
+    assert service.update_draft(draft["id"], {"body": "b" * 200_001})["error"] == "The message is too long to save."
+    assert service.update_draft(draft["id"], {"to": ["ana@example.com"]})["error"] == "This draft could not be saved."
+    assert service.draft(draft["id"])["draft"]["cc"] == sixty
+    assert service.delete_draft(draft["id"]) == {"ok": True}
+    assert service.draft(draft["id"]) == {"ok": False, "error": "This draft no longer exists."}

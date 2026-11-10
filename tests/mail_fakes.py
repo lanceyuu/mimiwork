@@ -3,6 +3,8 @@ IMAP commands `coworker/mail/imap.py` sends. No network, no real mailbox."""
 
 from __future__ import annotations
 
+import email
+import email.policy
 import imaplib
 import re
 from datetime import datetime, timedelta, timezone
@@ -172,6 +174,16 @@ class FakeMailConnection:
     def shutdown(self):
         self.server.log.append(("shutdown",))
 
+    def append(self, mailbox, flags, date_time, message):
+        """How a sent message's copy is filed in Sent."""
+        name = mailbox.strip('"')
+        self._step("append", name)
+        if name in self.server.read_only:
+            return "NO", [b"cannot append"]
+        parsed = email.message_from_bytes(message, policy=email.policy.default)
+        self.server.add(name, parsed, seen="\\Seen" in flags)
+        return "OK", [b"APPEND completed"]
+
     def uid(self, command, *args):
         self._step(command, self.selected, *args)
         box = self.server.folders[self.selected]
@@ -265,3 +277,32 @@ class FakeMailConnection:
             else:
                 out.append(f"{meta})".encode())
         return out or [None]
+
+
+class FakeSMTP:
+    """Pass `smtp.connect` wherever an `smtp_factory` is wanted."""
+
+    def __init__(self):
+        self.sent: list[EmailMessage] = []
+        self.refuse = ""  # when set, the server refuses every message with this reason
+        self.unreachable = ""  # when set, the server cannot be reached at all
+        self.before_accepting = None  # called while a message is on its way
+
+    def connect(self, host: str, port: int) -> "FakeSMTP":
+        if self.unreachable:
+            raise OSError(self.unreachable)
+        return self
+
+    def login(self, user, password):
+        if password != PASSWORD:
+            raise RuntimeError("(535, b'authentication failed')")
+
+    def send_message(self, msg):
+        if self.before_accepting:
+            self.before_accepting()
+        if self.refuse:
+            raise RuntimeError(self.refuse)
+        self.sent.append(msg)
+
+    def quit(self):
+        pass

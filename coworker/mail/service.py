@@ -10,21 +10,52 @@ from __future__ import annotations
 import functools
 import imaplib
 import re
+import smtplib
+import sqlite3
+import threading
 import time
+import uuid
+from email.utils import format_datetime, getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from ..connectors.email_tools import _default_imap_factory, _safe_filename
+from ..connectors.email_tools import (
+    _default_imap_factory,
+    _default_smtp_factory,
+    _one_line,
+    _safe_filename,
+    decode_mime_header,
+)
 from ..secrets import SecretStore
 from .imap import MailConnection, MailError
 from .render import attachment_bytes, attachments, render_message
-from .store import MailStore
+from .store import DRAFT_FIELDS, MailStore
 from .sync import MailSync, message_row
+from .threads import thread_key
 
 INBOX = "INBOX"
 _GONE = "This message is no longer in the mailbox."
 # Characters that reorder the text around them, so that a program can pass for a document.
 _BIDI = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_NO_DRAFT = "This draft no longer exists."
+_KEY = re.compile(r"[0-9a-f]{16}")
+# What the screen may hand over, at most. It is the only caller, but a limit here means a
+# mistake there cannot fill the cache.
+_QUOTE_LIMIT, _NOTE_LIMIT, _MAX_COMMENTS = 1000, 4000, 100
+# A draft field over its limit is refused, never cut: a list of recipients cut short would
+# be sent to the wrong people, and nobody would be told.
+_DRAFT_LIMITS = {
+    "recipients": (20_000, "That is too many recipients for one message."),
+    "cc": (20_000, "That is too many recipients for one message."),
+    "subject": (998, "The subject is too long."),
+    "body": (200_000, "The message is too long to save."),
+}
+# The screen's name for each thing a user may change in a draft, and the cache's.
+_DRAFT_NAMES = dict(zip(("to", "cc", "subject", "body"), DRAFT_FIELDS))
+_NEEDS_QUOTES = re.compile(r'[,;:<>@()\[\]."\\]')
+# An address is one word. One with a space, a control character or an encoded word in it
+# is not what it looks like on screen.
+_ODD_ADDRESS = re.compile(r"[\s\x00-\x1f\x7f]|=\?")
 
 
 def _named(folder: Any, uid: Any) -> bool:
@@ -44,6 +75,57 @@ def _answers(method):
             return {"ok": False, "error": str(exc)}
 
     return wrapper
+
+
+def _not_connected() -> dict[str, Any]:
+    return {"ok": False, "error": "Email is not connected."}
+
+
+def _people(*headers: Any) -> list[tuple[str, str]]:
+    return [
+        pair
+        for pair in getaddresses([str(h) for h in headers if h])
+        if "@" in pair[1] and not _ODD_ADDRESS.search(pair[1])
+    ]
+
+
+def _address(name: str, address: str) -> str:
+    """One recipient as a person reads and types it: `Ana Lopez <ana@example.com>`. The
+    name comes from an incoming email, so marks that reorder or hide text are left out."""
+    name = " ".join(decode_mime_header(name).replace('"', "").replace("\\", "").split())
+    name = "".join(ch for ch in name if ch.isprintable())[:200]
+    if not name:
+        return address
+    return f'"{name}" <{address}>' if _NEEDS_QUOTES.search(name) else f"{name} <{address}>"
+
+
+def reply_recipients(msg: Any, own: str, reply_all: bool) -> tuple[str, str]:
+    """(to, cc) for a reply to `msg`. Reply answers whoever the message asks to be
+    answered; Reply all adds everyone else it went to, never the user's own address."""
+    sender = _people(msg.get("From"))
+    to = _people(msg.get("Reply-To")) or sender
+    others = _people(*msg.get_all("To", []), *msg.get_all("Cc", []))
+    if sender and all(address.lower() == own.lower() for _, address in sender):
+        # The user's own message: a follow-up goes to the people that message went to.
+        # Judged by who sent it, not by where it asks replies to go.
+        to, others = _people(*msg.get_all("To", [])) or to, _people(*msg.get_all("Cc", []))
+    seen = {own.lower()} | {address.lower() for _, address in to}
+    cc = []
+    for name, address in others if reply_all else []:
+        if address.lower() not in seen:
+            seen.add(address.lower())
+            cc.append((name, address))
+    return ", ".join(_address(*pair) for pair in to), ", ".join(_address(*pair) for pair in cc)
+
+
+def _sent_on(msg: Any) -> str:
+    """When a message was sent, for the line above the quote in a reply. Built again from
+    the date as parsed, never copied: the header is the sender's text, and that line is
+    sent as the user's own words."""
+    try:
+        return format_datetime(parsedate_to_datetime(str(msg.get("Date", ""))))
+    except Exception:
+        return ""
 
 
 def _public(row: dict[str, Any]) -> dict[str, Any]:
@@ -68,13 +150,23 @@ class MailService:
         path: str | Path,
         *,
         imap_factory: Callable[[str, int], imaplib.IMAP4] = _default_imap_factory,
+        smtp_factory: Callable[[str, int], smtplib.SMTP] = _default_smtp_factory,
+        complete: Optional[Callable[[str, str], str]] = None,
         downloads: Optional[Path] = None,
     ) -> None:
         self._secrets = secrets
+        self._imap_factory = imap_factory
+        self._smtp_factory = smtp_factory
+        # The model, as `complete(system, user) -> str`. It raises with a plain reason.
+        self._complete = complete
         self._conn = MailConnection(secrets, imap_factory=imap_factory)
         self._store = MailStore(path)
         self._sync = MailSync(self._conn, self._store)
         self._downloads = downloads
+        # Drafts being sent right now. In memory on purpose: after a restart nothing is
+        # in flight, and `send_started_at` in the cache says a send was cut short.
+        self._sending: set[str] = set()
+        self._sending_lock = threading.Lock()
 
     def _account(self) -> str:
         profile = self._secrets.get("email:default") or {}
@@ -121,15 +213,22 @@ class MailService:
         return {"ok": True, "threads": self._store.threads(self._account(), INBOX)}
 
     def thread(self, key: str) -> dict[str, Any]:
-        rows = self._store.thread(self._account(), key, INBOX)
+        account = self._account()
+        rows = self._store.thread(account, key, INBOX)
         if not rows:
             return {"ok": False, "error": "This conversation is no longer in the mailbox."}
+        received = [row for row in rows if row["folder"] == INBOX]
+        # What a reply answers: the newest message that came in, not the user's own last word.
+        answer = (received or rows)[-1]
+        draft = self._store.reply_draft(account, key)
         return {
             "ok": True,
             "key": key,
             "subject": rows[-1]["subject"],
-            "in_inbox": any(row["folder"] == INBOX for row in rows),
+            "in_inbox": bool(received),
             "messages": [_public(row) for row in rows],
+            "answer": {"folder": answer["folder"], "uid": answer["uid"], "message_id": answer["message_id"]},
+            "draft": draft["id"] if draft else "",
         }
 
     @_answers
@@ -151,7 +250,14 @@ class MailService:
             else:
                 item = {"uid": uid, "flags": "", "size": 0, "has_attachments": False, "headers": msg}
                 row = {**message_row(account, folder, item), "has_attachments": bool(rendered["attachments"])}
-        return {"ok": True, **_public(row), "thread_key": row["thread_key"], **rendered}
+        draft = self._store.reply_draft(account, row["thread_key"])
+        return {
+            "ok": True,
+            **_public(row),
+            "thread_key": row["thread_key"],
+            "draft": draft["id"] if draft else "",
+            **rendered,
+        }
 
     @_answers
     def search(self, query: str) -> dict[str, Any]:
@@ -264,3 +370,148 @@ class MailService:
         except OSError as exc:
             return {"ok": False, "error": f"Could not save the file: {exc.strerror or exc}"}
         return {"ok": False, "error": "Could not save the file: too many files with this name."}
+
+    # -- comments --------------------------------------------------------------------
+    # Comments and drafts are kept by conversation, not by where its mail sits, so they
+    # are there for a search result too, and stay when the conversation is archived.
+    def comments(self, key: str) -> dict[str, Any]:
+        return {"ok": True, **self._store.comments(self._account(), key)}
+
+    def put_comments(self, key: str, comments: Any, note: Any) -> dict[str, Any]:
+        """Save the whole list, as the screen does while the user types."""
+        account = self._account()
+        if not account:
+            return _not_connected()
+        if not _KEY.fullmatch(str(key)) or not isinstance(comments, list) or len(comments) > _MAX_COMMENTS:
+            return {"ok": False, "error": "These comments could not be saved."}
+        kept = []
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+            quote = " ".join(str(comment.get("quote") or "").split())[:_QUOTE_LIMIT]
+            if quote:
+                kept.append(
+                    {
+                        "message_id": _one_line(comment.get("message_id"))[:998],
+                        "quote": quote,
+                        "note": str(comment.get("note") or "")[:_NOTE_LIMIT],
+                    }
+                )
+        self._store.put_comments(account, key, kept, str(note or "")[:_NOTE_LIMIT])
+        return {"ok": True}
+
+    # -- drafts ----------------------------------------------------------------------
+    def _draft(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "thread_key": row["thread_key"],
+            "to": row["recipients"],
+            "cc": row["cc"],
+            "subject": row["subject"],
+            "body": row["body"],
+            # Who a reply answers, and which of their messages; "" for a new message.
+            "answers": row["orig_sender"] if row["thread_key"] else "",
+            "answers_id": row["orig_message_id"],
+            "reply": bool(row["thread_key"]),
+            "interrupted": bool(row["send_started_at"]) and row["id"] not in self._sending,
+            "updated_at": row["updated_at"],
+        }
+
+    def drafts(self) -> dict[str, Any]:
+        return {"ok": True, "drafts": [self._draft(row) for row in self._store.drafts(self._account())]}
+
+    def draft(self, draft_id: str) -> dict[str, Any]:
+        row = self._store.draft(self._account(), draft_id)
+        return {"ok": True, "draft": self._draft(row)} if row else {"ok": False, "error": _NO_DRAFT}
+
+    @_answers
+    def create_draft(self, folder: str = "", uid: int = 0, reply_all: bool = False) -> dict[str, Any]:
+        """A new message, or with `folder` and `uid` a reply to that message. A reply takes
+        what it will need from the original now (who to answer, how to thread, the text to
+        quote), so it can still be sent after the original has been archived or has left
+        the cache. A conversation has one reply draft; asking again gives it back, unless
+        it answers an earlier message and nothing has been written in it yet, in which case
+        it is started again for this one."""
+        account, epoch = self._account(), self._store.epoch
+        if not account:
+            return _not_connected()
+        row = dict.fromkeys(
+            ("thread_key", "recipients", "cc", "subject", "body", "orig_message_id",
+             "orig_references", "orig_subject", "orig_sender", "orig_date", "orig_text"),
+            "",
+        )
+        if folder or uid:
+            if not _named(folder, uid):
+                return {"ok": False, "error": _GONE}
+            msg = self._conn.message(folder, uid)
+            if msg is None:
+                return {"ok": False, "error": _GONE}
+            key = thread_key(msg, account=account, folder=folder, uid=uid)
+            answered = _one_line(msg.get("Message-ID"))
+            existing = self._store.reply_draft(account, key)
+            if existing:
+                in_use = existing["body"].strip() or existing["id"] in self._sending
+                if existing["orig_message_id"] == answered or in_use:
+                    return {"ok": True, "draft": self._draft(existing)}
+                # Left empty on an earlier message of the conversation. Kept, it would
+                # answer, thread under and quote a message the user is no longer looking at.
+                self._store.delete_draft(account, existing["id"])
+            to, cc = reply_recipients(msg, account, bool(reply_all))
+            sender = _people(msg.get("From"))
+            subject = _one_line(decode_mime_header(msg.get("Subject", "")))
+            row.update(
+                thread_key=key,
+                recipients=to,
+                cc=cc,
+                subject=subject if subject.lower().startswith("re:") else f"Re: {subject}".strip(),
+                orig_message_id=answered,
+                orig_references=_one_line(msg.get("References")),
+                orig_subject=subject,
+                orig_sender=_address(*sender[0]) if sender else "",
+                orig_date=_sent_on(msg),
+                # ponytail: one cap (render's 20,000 characters) for what the model reads
+                # and what is quoted. Keep the whole text for quoting if long mail is cut short.
+                orig_text=render_message(msg)["text"],
+            )
+        else:
+            # Pressing New message again gives back the one still empty, not another.
+            for old in self._store.drafts(account):
+                if not old["thread_key"] and not any(old[name] for name in DRAFT_FIELDS):
+                    return {"ok": True, "draft": self._draft(old)}
+        row.update(id=uuid.uuid4().hex, account=account, updated_at=time.time())
+        try:
+            # Refused if the mailbox was disconnected while the original was being fetched.
+            if not self._store.add_draft(row, epoch=epoch):
+                return _not_connected()
+        except sqlite3.IntegrityError:
+            # Two requests at once for one conversation: the other one made its reply draft.
+            return {"ok": True, "draft": self._draft(self._store.reply_draft(account, row["thread_key"]))}
+        return {"ok": True, "draft": self._draft({**row, "send_started_at": 0})}
+
+    def update_draft(self, draft_id: str, fields: Any) -> dict[str, Any]:
+        account = self._account()
+        if not account:
+            return _not_connected()
+        fields = fields if isinstance(fields, dict) else {}
+        clean = {}
+        for name, column in _DRAFT_NAMES.items():
+            if name not in fields:
+                continue
+            value, (limit, too_long) = fields[name], _DRAFT_LIMITS[column]
+            if not isinstance(value, str):
+                return {"ok": False, "error": "This draft could not be saved."}
+            # A header on one line: a line break in one would start another header.
+            value = value if column == "body" else _one_line(value)
+            if len(value) > limit:
+                return {"ok": False, "error": too_long}
+            clean[column] = value
+        if not self._store.update_draft(account, draft_id, clean, time.time()):
+            return {"ok": False, "error": _NO_DRAFT}
+        return {"ok": True}
+
+    def delete_draft(self, draft_id: str) -> dict[str, Any]:
+        account = self._account()
+        if not account:
+            return _not_connected()
+        self._store.delete_draft(account, draft_id)
+        return {"ok": True}
