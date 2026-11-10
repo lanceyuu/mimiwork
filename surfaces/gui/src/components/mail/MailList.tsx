@@ -66,7 +66,8 @@ export function MailList({
             <span className="mail-row-top">
               <span className="mail-row-dot" aria-hidden="true" />
               {row.unread ? <span className="sr-only">{t("Unread")}</span> : null}
-              <span className="mail-row-sender">{senderName(row.sender)}</span>
+              {/* Who it is from and what it is about are the mail's own words, not the app's. */}
+              <span className="mail-row-sender" data-no-translate>{senderName(row.sender)}</span>
               {row.count && row.count > 1 ? <span className="mail-row-count">{row.count}</span> : null}
               {row.has_attachments ? (
                 <span className="mail-row-clip" title={t("Has an attachment")}>
@@ -76,7 +77,7 @@ export function MailList({
               ) : null}
               <span className="mail-row-date">{formatMailDate(row.date)}</span>
             </span>
-            <span className="mail-row-subject">{row.subject || "—"}</span>
+            <span className="mail-row-subject" data-no-translate>{row.subject || "—"}</span>
             {row.folder ? <span className="mail-row-folder">{row.folder}</span> : null}
             {row.error ? <span className="mail-row-error" role="alert">{row.error}</span> : null}
           </button>

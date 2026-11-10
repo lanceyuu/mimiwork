@@ -2,11 +2,14 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
   archiveMailThread,
   binMailThread,
+  createMailDraft,
+  getMailDrafts,
   getMailStatus,
   getMailThreads,
   markMailThread,
   searchMail,
   syncMail,
+  type MailDraft,
   type MailEnvelope,
   type MailReply,
   type MailStatus,
@@ -14,6 +17,7 @@ import {
 } from "../../api";
 import { useT } from "../../i18n";
 import { Icon } from "../Icon";
+import { MailDraftPane } from "./MailComposer";
 import { formatMailDate, MailList, type MailRow } from "./MailList";
 import { MailReader, type Opened } from "./MailReader";
 
@@ -21,8 +25,15 @@ const POLL_MS = 2000;
 const SYNC_EVERY_MS = 120_000;
 const OFFLINE = "Could not reach MimiWork. Try again.";
 
+const draftRow = (id: string) => `draft/${id}`;
 const openedId = (opened: Opened | null): string =>
-  !opened ? "" : opened.kind === "thread" ? opened.key : `${opened.folder}/${opened.uid}`;
+  !opened
+    ? ""
+    : opened.kind === "thread"
+      ? opened.key
+      : opened.kind === "draft"
+        ? draftRow(opened.id)
+        : `${opened.folder}/${opened.uid}`;
 
 /** The Mail section: the connected mailbox's inbox, a reader, and search. */
 export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void }) {
@@ -35,6 +46,12 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const [tab, setTab] = useState<"all" | "drafts">("all");
+  const [drafts, setDrafts] = useState<MailDraft[]>([]);
+  // One line above the reader: that a message went, or why something could not be done
+  // when the place that would have said so is no longer on screen.
+  const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
+  const draftsRun = useRef(0);
   const revision = useRef(-1);
   const lastSync = useRef(0);
   const searchRun = useRef(0);
@@ -79,6 +96,54 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   }, [refresh, startSync]);
 
   const reload = useCallback(() => void refresh(true), [refresh]);
+
+  const loadDrafts = useCallback(() => {
+    const run = (draftsRun.current += 1);
+    void getMailDrafts()
+      // An answer overtaken by a later request is dropped, or a draft just discarded
+      // would come back into the list.
+      .then((rows) => run === draftsRun.current && setDrafts(rows))
+      .catch(() => undefined);
+  }, []);
+  useEffect(loadDrafts, [loadDrafts]);
+  // While the Drafts tab is open its rows follow what is being typed in the editor.
+  // ponytail: asked for again every two seconds. Have the editor say when it has saved
+  // if this is ever seen to cost anything.
+  useEffect(() => {
+    if (tab !== "drafts") return;
+    const timer = window.setInterval(loadDrafts, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [tab, loadDrafts]);
+
+  // `from` names the reader that sent. If the user has moved on to something else by the
+  // time the answer comes, what they are reading now is left open.
+  const sent = useCallback(
+    (from: string, note: string) => {
+      setOpened((now) => (openedId(now) === from ? null : now));
+      setNotice({ text: t(note || "Sent."), bad: false });
+      loadDrafts();
+      reload();
+    },
+    [loadDrafts, reload, t],
+  );
+  // Only reached when the reader that was sending has been left: say it here, and say
+  // where the message is, because nothing else on screen will.
+  const sendFailed = useCallback(
+    (reason: string) => {
+      setNotice({ text: `${t("Your message was not sent.")} ${t(reason)} ${t("It is under Drafts.")}`, bad: true });
+      loadDrafts();
+    },
+    [loadDrafts, t],
+  );
+
+  const newMessage = async () => {
+    const reply = await createMailDraft().catch(() => null);
+    if (!reply?.ok || !reply.draft) return setNotice({ text: t(reply?.error || OFFLINE), bad: true });
+    setNotice(null);
+    setTab("drafts");
+    setOpened({ kind: "draft", id: reply.draft.id });
+    loadDrafts();
+  };
 
   // The list changes first so it answers at once. If the server refuses, the reload
   // brings the row back and it carries the reason.
@@ -150,9 +215,25 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
         has_attachments: r.has_attachments,
         folder: r.folder,
       }))
-    : threads.map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
+    : tab === "drafts"
+      ? drafts.map((d) => ({
+          id: draftRow(d.id),
+          sender: d.to || t("No recipient yet"),
+          subject: d.subject,
+          date: d.updated_at,
+          unread: false,
+        }))
+      : threads.map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
 
   const open = (id: string) => {
+    setNotice(null);
+    const draft = results ? undefined : drafts.find((d) => draftRow(d.id) === id);
+    if (draft) {
+      // A reply is shown with the conversation it answers while that is still in the
+      // inbox; otherwise, and for a new message, the draft is shown by itself.
+      const inInbox = draft.thread_key && threads.some((row) => row.key === draft.thread_key);
+      return setOpened(inInbox ? { kind: "thread", key: draft.thread_key } : { kind: "draft", id: draft.id });
+    }
     // Opening a row is the user having seen why its last change failed.
     setRowErrors((errors) => {
       if (!(id in errors)) return errors;
@@ -169,7 +250,13 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
     : status.last_sync
       ? `${t("Last synced")} ${formatMailDate(status.last_sync)}`
       : "";
-  const empty = searching ? t("Searching…") : results ? t("Nothing found.") : t("No mail here yet.");
+  const empty = searching
+    ? t("Searching…")
+    : results
+      ? t("Nothing found.")
+      : tab === "drafts"
+        ? t("No drafts.")
+        : t("No mail here yet.");
 
   return (
     <main className="app-page mail-page" data-testid="mail-page">
@@ -195,6 +282,9 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           />
         </form>
         <div className="app-head-actions">
+          <button className="btn sm" data-testid="mail-new" onClick={() => void newMessage()}>
+            <Icon name="pencil" size={14} /> {t("New message")}
+          </button>
           <button className="btn sm" data-testid="mail-refresh" disabled={status.syncing} onClick={startSync}>
             <Icon name="refresh" size={14} /> {t("Refresh")}
           </button>
@@ -208,12 +298,31 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
       )}
       <div className="mail-body">
         <div className="mail-list-pane">
-          {results && (
+          {results ? (
             <div className="mail-search-head">
               <span>{t("Search results")}</span>
               <button className="mail-inline-link" data-testid="mail-search-clear" onClick={clearSearch}>
                 {t("Back to inbox")}
               </button>
+            </div>
+          ) : (
+            <div className="mail-tabs">
+              {(["all", "drafts"] as const).map((name) => (
+                <button
+                  key={name}
+                  aria-pressed={tab === name}
+                  className={"mail-tab" + (tab === name ? " active" : "")}
+                  data-testid={`mail-tab-${name}`}
+                  onClick={() => {
+                    setTab(name);
+                    setOpened(null);
+                    if (name === "drafts") loadDrafts();
+                  }}
+                >
+                  {name === "all" ? t("All") : t("Drafts")}
+                  {name === "drafts" && drafts.length > 0 ? <span className="mail-tab-count">{drafts.length}</span> : null}
+                </button>
+              ))}
             </div>
           )}
           {/* A search that failed shows why in place of results, not "Nothing found." */}
@@ -224,7 +333,27 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           )}
         </div>
         <div className="mail-reader-pane">
-          {opened ? (
+          {notice && (
+            <div
+              className={notice.bad ? "mail-error mail-notice" : "mail-note mail-notice"}
+              role={notice.bad ? "alert" : "status"}
+              data-testid="mail-notice"
+            >
+              {notice.text}
+            </div>
+          )}
+          {opened?.kind === "draft" ? (
+            <MailDraftPane
+              key={openedId(opened)}
+              id={opened.id}
+              onSent={(note) => sent(draftRow(opened.id), note)}
+              onSendFailed={sendFailed}
+              onClosed={() => {
+                setOpened(null);
+                loadDrafts();
+              }}
+            />
+          ) : opened ? (
             <MailReader
               key={openedId(opened)}
               opened={opened}
@@ -234,8 +363,11 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
               onBin={(key) => change(key, () => binMailThread(key), true)}
               onUnread={(key) => change(key, () => markMailThread(key, false), false)}
               onChanged={reload}
+              onDrafts={loadDrafts}
+              onSent={(note) => sent(openedId(opened), note)}
+              onSendFailed={sendFailed}
             />
-          ) : (
+          ) : notice ? null : (
             <div className="mail-placeholder">{t("Select a conversation to read it.")}</div>
           )}
         </div>

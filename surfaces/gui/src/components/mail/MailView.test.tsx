@@ -24,7 +24,21 @@ const api = vi.hoisted(() => ({
   getMailMessage: vi.fn(),
   markMailMessageRead: vi.fn(),
   saveMailAttachment: vi.fn(),
+  getMailComments: vi.fn(),
+  putMailComments: vi.fn(),
+  getMailDrafts: vi.fn(),
+  createMailDraft: vi.fn(),
+  getMailDraft: vi.fn(),
+  updateMailDraft: vi.fn(),
+  deleteMailDraft: vi.fn(),
+  writeMailReply: vi.fn(),
+  sendMailDraft: vi.fn(),
+  reportProblem: vi.fn(),
 }));
+const DRAFT = {
+  id: "d1", thread_key: "", to: "ben@example.com", cc: "", subject: "Lunch on Thursday", body: "Noon?",
+  answers: "", answers_id: "", reply: false, interrupted: false, updated_at: 0,
+};
 vi.mock("../../api", () => api);
 
 import { MailView } from "./MailView";
@@ -37,8 +51,19 @@ beforeEach(() => {
   api.binMailThread.mockResolvedValue({ ok: true });
   api.markMailThread.mockResolvedValue({ ok: true });
   api.markMailMessageRead.mockResolvedValue({ ok: true });
-  api.getMailThread.mockResolvedValue({ ok: true, key: "k1", subject: "Plan for Friday", in_inbox: true, messages: [ENVELOPE] });
-  api.getMailMessage.mockResolvedValue({ ...ENVELOPE, ok: true, thread_key: "k1", html: "<p>Shall we?</p>", text: "Shall we?", attachments: [] });
+  api.getMailThread.mockResolvedValue({
+    ok: true, key: "k1", subject: "Plan for Friday", in_inbox: true, messages: [ENVELOPE],
+    answer: { folder: "INBOX", uid: 1, message_id: "<1@x>" }, draft: "",
+  });
+  api.getMailMessage.mockResolvedValue({ ...ENVELOPE, ok: true, thread_key: "k1", draft: "", html: "<p>Shall we?</p>", text: "Shall we?", attachments: [] });
+  api.getMailComments.mockResolvedValue({ ok: true, comments: [], note: "" });
+  api.putMailComments.mockResolvedValue({ ok: true });
+  api.getMailDrafts.mockResolvedValue([]);
+  api.createMailDraft.mockResolvedValue({ ok: true, draft: { ...DRAFT, id: "d2", to: "", subject: "", body: "" } });
+  api.getMailDraft.mockImplementation(async (id: string) => ({ ok: true, draft: { ...DRAFT, id } }));
+  api.updateMailDraft.mockResolvedValue({ ok: true });
+  api.deleteMailDraft.mockResolvedValue({ ok: true });
+  api.sendMailDraft.mockResolvedValue({ ok: true, note: "" });
   api.searchMail.mockResolvedValue({ ok: true, results: [{ ...ENVELOPE, folder: "Archive", uid: 9, subject: "Invoice January" }] });
 });
 
@@ -156,5 +181,103 @@ describe("MailView", () => {
     answer({ ok: true, results: [{ ...ENVELOPE, folder: "Archive", uid: 9, subject: "Invoice January" }] });
     await waitFor(() => expect(screen.getByTestId("mail-row").textContent).toContain("Plan for Friday"));
     expect(screen.queryByText("Search results")).toBeNull();
+  });
+
+  it("lists unsent drafts under their own tab, with how many there are", async () => {
+    api.getMailDrafts.mockResolvedValue([DRAFT]);
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    await waitFor(() => expect(screen.getByTestId("mail-tab-drafts").textContent).toBe("Drafts1"));
+    fireEvent.click(screen.getByTestId("mail-tab-drafts"));
+    expect(screen.getByTestId("mail-row").textContent).toContain("ben@example.com");
+    expect(screen.getByTestId("mail-row").textContent).toContain("Lunch on Thursday");
+    fireEvent.click(screen.getByTestId("mail-tab-all"));
+    expect(screen.getByTestId("mail-row").textContent).toContain("Plan for Friday");
+  });
+
+  it("New message opens an empty draft in the editor, under Drafts", async () => {
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    fireEvent.click(screen.getByTestId("mail-new"));
+    expect(await screen.findByTestId("mail-composer")).toBeTruthy();
+    expect(api.createMailDraft).toHaveBeenCalledWith();
+    expect(api.getMailDraft).toHaveBeenCalledWith("d2");
+    expect(screen.getByTestId("mail-tab-drafts").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("a draft sent from the editor closes it and says so", async () => {
+    api.getMailDrafts.mockResolvedValue([DRAFT]);
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    fireEvent.click(screen.getByTestId("mail-tab-drafts"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    api.getMailDrafts.mockResolvedValue([]);
+    fireEvent.click(await screen.findByTestId("mail-send"));
+    expect((await screen.findByTestId("mail-notice")).textContent).toBe("Sent.");
+    expect(api.sendMailDraft).toHaveBeenCalledWith("d1");
+    expect(screen.queryByTestId("mail-composer")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("mail-list-empty").textContent).toBe("No drafts."));
+  });
+
+  it("a send the server refuses keeps the draft open with the reason", async () => {
+    api.getMailDrafts.mockResolvedValue([DRAFT]);
+    api.sendMailDraft.mockResolvedValue({ ok: false, error: "The mail server did not accept the message: mailbox unavailable" });
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    fireEvent.click(screen.getByTestId("mail-tab-drafts"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    fireEvent.click(await screen.findByTestId("mail-send"));
+    expect((await screen.findByTestId("mail-draft-error")).textContent).toContain("mailbox unavailable");
+    expect(screen.getByTestId("mail-draft-body")).toHaveProperty("value", "Noon?");
+    expect(screen.queryByTestId("report-problem")).toBeNull();
+  });
+
+  it("a send that ends after the user has moved on leaves what they are reading open", async () => {
+    api.getMailDrafts.mockResolvedValue([DRAFT]);
+    let answer: (reply: unknown) => void = () => {};
+    api.sendMailDraft.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    fireEvent.click(screen.getByTestId("mail-tab-drafts"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    fireEvent.click(await screen.findByTestId("mail-send"));
+    await waitFor(() => expect(api.sendMailDraft).toHaveBeenCalled());
+    // The user does not wait: they go and read a conversation.
+    fireEvent.click(screen.getByTestId("mail-tab-all"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    await screen.findByTestId("mail-subject");
+    answer({ ok: false, error: "The mail server did not accept the message: 550 mailbox unavailable" });
+    // The editor that would have shown the reason is gone, so the section says it.
+    const notice = await screen.findByTestId("mail-notice");
+    expect(notice.textContent).toBe(
+      "Your message was not sent. The mail server did not accept the message: 550 mailbox unavailable It is under Drafts.",
+    );
+    expect(notice.getAttribute("role")).toBe("alert");
+    expect(screen.getByTestId("mail-subject")).toBeTruthy();
+  });
+
+  it("a reply draft opens with its conversation while that is in the inbox, and alone once it is not", async () => {
+    const reply = { ...DRAFT, id: "d3", thread_key: "k1", reply: true, answers: "Ana <ana@example.com>", subject: "Re: Plan for Friday" };
+    api.getMailDrafts.mockResolvedValue([reply]);
+    api.getMailThread.mockResolvedValue({
+      ok: true, key: "k1", subject: "Plan for Friday", in_inbox: true, messages: [ENVELOPE],
+      answer: { folder: "INBOX", uid: 1, message_id: "<1@x>" }, draft: "d3",
+    });
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    fireEvent.click(screen.getByTestId("mail-tab-drafts"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    expect(await screen.findByTestId("mail-subject")).toBeTruthy();
+    expect(await screen.findByTestId("mail-composer")).toBeTruthy();
+    expect(screen.getByTestId("mail-comments")).toBeTruthy();
+    cleanup();
+
+    api.getMailThreads.mockResolvedValue([]); // archived since
+    render(<MailView onOpenConnectors={() => {}} />);
+    fireEvent.click(await screen.findByTestId("mail-tab-drafts"));
+    fireEvent.click(await screen.findByTestId("mail-row"));
+    expect(await screen.findByTestId("mail-draft-pane")).toBeTruthy();
+    expect(await screen.findByTestId("mail-composer")).toBeTruthy();
+    expect(screen.queryByTestId("mail-comments")).toBeNull();
   });
 });
