@@ -2469,3 +2469,13 @@ ul.help-tip-list { list-style: disc; }
 .mail-tab-count { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--faint); }
 .mail-notice { max-width: 1160px; margin: 0 auto 10px; padding: 8px 14px; }
 .mail-composer-older { padding: 0; color: var(--muted); }
+/* Sorting: the offer made once, the settings, and the one-line summary in the list. */
+.mail-row-summary { font-size: 12px; color: var(--faint); padding-left: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mail-tabs { flex-wrap: wrap; }
+.mail-offer { margin: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; color: var(--ink); }
+.mail-offer p { margin: 0; color: var(--muted); }
+.mail-offer-actions { display: flex; align-items: center; gap: 8px; }
+.mail-settings { max-width: 1160px; margin: 0 auto 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font-size: 12.5px; color: var(--muted); }
+.mail-settings-head { display: flex; justify-content: space-between; align-items: center; color: var(--ink); font-size: 13px; }
+.mail-settings-switch { display: flex; align-items: center; gap: 8px; color: var(--ink); }
+
