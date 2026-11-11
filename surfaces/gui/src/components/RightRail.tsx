@@ -20,6 +20,7 @@ import { AccessSection } from "./AccessSection";
 import { FoldersSection } from "./FoldersSection";
 import { AgentTeamPanel } from "./connectors/AgentTeamPanel";
 import { Icon } from "./Icon";
+import { dragWindowFrom } from "../tauri";
 import { AppFrame, AskLog, type AskEntry } from "./AppFrame";
 import { APPS_CHANGED, commentArtifact, getApp, getApps, revertApp, type MimiApp } from "../api";
 import type { Attachment } from "../types";
@@ -332,7 +333,7 @@ export function RightRail({
     <aside className={"right-rail" + (selected ? " artifact-mode" : builderVisible ? " app-mode" : "")}>
       {builderVisible && builderApp ? (
         <div className="app-builder" data-testid="app-builder">
-          <div className="app-builder-head">
+          <div className="app-builder-head" onPointerDown={dragWindowFrom}>
             <span className="app-icon" aria-hidden>
               {builderApp.icon}
             </span>
@@ -716,7 +717,7 @@ function ArtifactViewer({
 
   return (
     <div className="artifact-viewer">
-      <div className="artifact-head">
+      <div className="artifact-head" onPointerDown={dragWindowFrom}>
         <button className="artifact-icon-btn" onClick={onBack} aria-label="Back to artifacts" title="Back">
           <Icon name="arrowLeft" size={16} />
         </button>

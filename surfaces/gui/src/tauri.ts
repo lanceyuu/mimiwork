@@ -98,6 +98,16 @@ export const dismissCompanion = () => invoke<void>("companion_dismiss");
 /** Begin native window dragging from a custom title/header region. */
 export const startWindowDrag = () => invoke<boolean>("start_window_drag");
 
+/** For the top strip of a panel that covers part of the window's own top bar: a press on
+ * the strip moves the window, a press on one of its controls does not. An open file
+ * preview covers most of the top bar, and without this the window could not be moved
+ * from there. Does nothing in a browser. */
+export const dragWindowFrom = (event: { button: number; target: EventTarget | null }) => {
+  if (!isTauri() || event.button !== 0) return;
+  if (event.target instanceof Element && event.target.closest("button, a, input, select, textarea")) return;
+  void startWindowDrag();
+};
+
 // Local dictation is native-only. The browser build deliberately keeps this unavailable rather
 // than silently sending microphone audio to a server.
 export const getDictationStatus = () => invoke<DictationStatus>("get_dictation_status");
