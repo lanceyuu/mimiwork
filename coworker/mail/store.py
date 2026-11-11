@@ -69,7 +69,7 @@ _DRAFT_COLUMNS = (
 )
 # What the user may change in a draft. The rest is the snapshot of the original, taken once.
 DRAFT_FIELDS = ("recipients", "cc", "subject", "body")
-# A comment or a draft goes this long after its conversation left the cache.
+# A comment goes this long after its conversation left the cache.
 _ORPHAN_SECONDS = 30 * 86400
 
 
@@ -282,28 +282,34 @@ class MailStore:
             )
 
     def prune(self, now: float) -> None:
-        """Forget message text nobody has opened for 30 days, and comments and reply drafts
-        whose conversation has been out of the cache for 30 days. The cache must not only
-        grow. A draft of a new message belongs to no conversation and is never pruned."""
+        """Forget message text nobody has opened for 30 days, and comments whose
+        conversation has been out of the cache for 30 days. The cache must not only grow.
+
+        A draft is never forgotten here (the owner's decision, 2026-11-11): it is what the
+        user wrote, and it goes only when it is sent or discarded. Comments on a
+        conversation that still has an unsent reply are kept with it, because the reply
+        can still be rewritten from them."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM body WHERE opened_at < ?", (now - _BODY_SECONDS,))
-            for table in ("comment", "draft"):
-                has_mail = (
-                    f"EXISTS (SELECT 1 FROM message WHERE message.account = {table}.account "
-                    f"AND message.thread_key = {table}.thread_key)"
-                )
-                # The clock starts when the conversation is first found missing, and stops
-                # if its mail comes back.
-                self._conn.execute(f"UPDATE {table} SET orphaned_at = 0 WHERE orphaned_at > 0 AND {has_mail}")
-                self._conn.execute(
-                    f"UPDATE {table} SET orphaned_at = ? "
-                    f"WHERE orphaned_at = 0 AND thread_key != '' AND NOT {has_mail}",
-                    (now,),
-                )
-                self._conn.execute(
-                    f"DELETE FROM {table} WHERE orphaned_at > 0 AND orphaned_at < ?",
-                    (now - _ORPHAN_SECONDS,),
-                )
+            has_mail = (
+                "EXISTS (SELECT 1 FROM message WHERE message.account = comment.account "
+                "AND message.thread_key = comment.thread_key)"
+            )
+            has_reply = (
+                "EXISTS (SELECT 1 FROM draft WHERE draft.account = comment.account "
+                "AND draft.thread_key = comment.thread_key)"
+            )
+            # The clock starts when the conversation is first found missing, and stops if
+            # its mail comes back.
+            self._conn.execute(f"UPDATE comment SET orphaned_at = 0 WHERE orphaned_at > 0 AND {has_mail}")
+            self._conn.execute(
+                f"UPDATE comment SET orphaned_at = ? WHERE orphaned_at = 0 AND NOT {has_mail}",
+                (now,),
+            )
+            self._conn.execute(
+                f"DELETE FROM comment WHERE orphaned_at > 0 AND orphaned_at < ? AND NOT {has_reply}",
+                (now - _ORPHAN_SECONDS,),
+            )
 
     # -- comments --------------------------------------------------------------------
     def comments(self, account: str, key: str) -> dict[str, Any]:
@@ -362,10 +368,9 @@ class MailStore:
             return True
 
     def update_draft(self, account: str, draft_id: str, fields: dict[str, str], now: float) -> bool:
-        """Change what the user may change. False when the draft is no longer there. A
-        draft being worked on is not an abandoned one, so an edit starts its 30 days again."""
+        """Change what the user may change. False when the draft is no longer there."""
         names = [name for name in DRAFT_FIELDS if name in fields]
-        sets = ", ".join([*(f"{name} = ?" for name in [*names, "updated_at"]), "orphaned_at = 0"])
+        sets = ", ".join(f"{name} = ?" for name in [*names, "updated_at"])
         with self._lock, self._conn:
             done = self._conn.execute(
                 f"UPDATE draft SET {sets} WHERE account = ? AND id = ?",

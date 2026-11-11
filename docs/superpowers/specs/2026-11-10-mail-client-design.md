@@ -261,9 +261,10 @@ The cache must not only grow:
   it falls out of the sync window.
 - A `body` row is removed 30 days after it was last opened, and with its `message` row.
 - A `thread_ai` row is removed when no `message` row carries its `thread_key`.
-- A `comment` is removed when the user deletes it or its reply is sent. A `draft` is
-  removed when it is sent or discarded. Either is also removed once its thread has had no
-  `message` row for 30 days.
+- A `comment` is removed when the user deletes it or its reply is sent, and once its
+  thread has had no `message` row for 30 days, unless the thread still has an unsent
+  reply. A `draft` is removed only when it is sent or discarded: it never expires (the
+  owner's decision, 2026-11-11).
 - When `uidvalidity` changes, that folder's `message` and `body` rows are dropped and it
   syncs from scratch.
 - `disconnect_connector` in the manager, when the connector is `email`, closes the Mail
@@ -414,7 +415,9 @@ app.
 - the free note;
 - the user's display name from the Email profile.
 
-The model is the user's default model (`self.model`), called with `tools=None`.
+The model is the user's default model (`self.model`), called with `tools=None`, except
+that a default of `mimi-puppy` is stepped up to the same provider's `mimi-hound`: on real
+mail Puppy ignored "shorter" (the owner's decision, 2026-11-11).
 
 The system prompt fixes these rules:
 

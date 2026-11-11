@@ -258,42 +258,46 @@ def test_a_draft_is_kept_changed_listed_newest_first_and_deleted(tmp_path):
     assert store.draft(ME, "d1") is None
 
 
-def test_comments_and_a_reply_draft_go_thirty_days_after_their_conversation_left_the_cache(tmp_path):
+def test_comments_go_thirty_days_after_their_conversation_left_the_cache(tmp_path):
     store = _store(tmp_path)
     store.add([_row("INBOX", 1, key="here")])
     for key in ("here", "gone", "back"):
         store.put_comments(ME, key, [COMMENT], "")
-        store.add_draft(_draft(f"d-{key}", key=key))
-    store.add_draft(_draft("d-new", key=""))
 
     store.prune(100 * DAY)  # "gone" and "back" are first found without mail: the clock starts
     store.prune(129 * DAY)
-    assert {d["id"] for d in store.drafts(ME)} == {"d-here", "d-gone", "d-back", "d-new"}
+    assert all(store.comments(ME, key)["comments"] == [COMMENT] for key in ("here", "gone", "back"))
     store.add([_row("INBOX", 2, key="back")])  # its mail is back, so its clock stops
     store.prune(131 * DAY)
-    assert {d["id"] for d in store.drafts(ME)} == {"d-here", "d-back", "d-new"}
     assert store.comments(ME, "gone")["comments"] == []
     assert store.comments(ME, "back")["comments"] == [COMMENT]
     assert store.comments(ME, "here")["comments"] == [COMMENT]
     store.remove(ME, "INBOX", [2])
     store.prune(140 * DAY)  # gone again: thirty days from now, not from the first time
     store.prune(169 * DAY)
-    assert store.draft(ME, "d-back") is not None
+    assert store.comments(ME, "back")["comments"] == [COMMENT]
     store.prune(171 * DAY)
-    assert store.draft(ME, "d-back") is None
-    # A draft of a new message is only ever sent or discarded.
-    assert store.draft(ME, "d-new") is not None
+    assert store.comments(ME, "back")["comments"] == []
 
 
-def test_a_draft_still_being_written_is_not_an_abandoned_one(tmp_path):
+def test_a_draft_is_never_forgotten_and_keeps_the_comments_it_can_be_rewritten_from(tmp_path):
     store = _store(tmp_path)
-    store.add_draft(_draft("d1", key="archived"))
-    store.prune(100 * DAY)
-    assert store.update_draft(ME, "d1", {"body": "Still writing."}, 129 * DAY) is True
-    store.prune(131 * DAY)  # thirty-one days after its conversation left, two after the edit
-    assert store.draft(ME, "d1")["body"] == "Still writing."
-    store.prune(162 * DAY)
-    assert store.draft(ME, "d1") is None
+    store.add_draft(_draft("d-reply", key="archived", body="Half a thought"))
+    store.add_draft(_draft("d-new", key=""))
+    store.put_comments(ME, "archived", [COMMENT], "A note.")
+    store.put_comments(ME, "no-reply", [COMMENT], "")
+    for day in (100, 131, 500, 5000):
+        store.prune(day * DAY)
+    # What the user wrote goes only when it is sent or discarded, however long ago
+    # its conversation left the cache.
+    assert {d["id"] for d in store.drafts(ME)} == {"d-reply", "d-new"}
+    assert store.draft(ME, "d-reply")["body"] == "Half a thought"
+    assert store.comments(ME, "archived") == {"comments": [COMMENT], "note": "A note."}
+    assert store.comments(ME, "no-reply")["comments"] == []
+    # Once the reply is gone, its comments follow the thirty-day rule again.
+    store.delete_draft(ME, "d-reply")
+    store.prune(5001 * DAY)
+    assert store.comments(ME, "archived")["comments"] == []
 
 
 def test_a_conversation_has_one_reply_draft_and_none_is_kept_once_the_cache_was_emptied(tmp_path):
