@@ -42,6 +42,7 @@ WRITE_PATH_ARGUMENTS = {
     "combine_images": "output",
     "generate_image": "output",
     "save_slide_photo": "output",
+    "save_pdf_pages": "output",
 }
 
 _BASE: dict[str, RiskClass] = {

@@ -134,7 +134,7 @@ def _slides(context: AgentContext) -> list:
 
 
 def _pdf(context: AgentContext) -> list:
-    return pdf_tools(context)  # read_pdf (text + tables, scanned-document detection)
+    return pdf_tools(context)  # read_pdf (text + tables, scanned-document detection), save_pdf_pages
 
 
 def _images(context: AgentContext) -> list:

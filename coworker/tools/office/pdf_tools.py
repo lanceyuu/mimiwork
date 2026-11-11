@@ -15,10 +15,11 @@ and says so.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from ._common import clip, decorate, guard, require
-from .paths import context_roots, display_path, resolve_read
+from .paths import context_roots, display_path, resolve_read, resolve_write
 
 _DEFAULT_PAGES = 10
 _MAX_PAGES = 50
@@ -32,7 +33,8 @@ _READ_SCHEMA = {
             "Read a PDF's text, page by page. Long documents are windowed: pass start_page to "
             "continue where the previous read stopped. Set tables=true to also extract tables "
             "as structured rows — do that when you need numbers out of a report rather than "
-            "prose. If the PDF is scanned (no text layer) this says so explicitly instead of "
+            "prose. This returns words only: to learn how pages LOOK (a design, a slide "
+            "style, a figure), use save_pdf_pages. If the PDF is scanned (no text layer) this says so explicitly instead of "
             "returning empty pages. Read-only."
         ),
         "parameters": {
@@ -56,6 +58,61 @@ _READ_SCHEMA = {
         },
     },
 }
+
+
+# The engine shows a vision model at most four pictures after a step.
+MAX_PAGE_PICTURES = 4
+# Long side in pixels: enough to judge type, colour and layout, small enough to send.
+_PICTURE_SIDE = 1600
+
+_PAGES_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "save_pdf_pages",
+        "description": (
+            "Save chosen pages of a PDF as pictures and look at them. Use this whenever the "
+            "LOOK of the pages matters and words are not enough: imitating a design or slide "
+            "style, describing a figure, checking a layout. Pick pages that differ from one "
+            f"another, at most {MAX_PAGE_PICTURES} per call. The pictures are shown to you "
+            "right after this step; describe a style only from what you see in them."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The .pdf file."},
+                "pages": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Page numbers, 1-based, e.g. [1, 4, 9].",
+                },
+                "output": {
+                    "type": "string",
+                    "description": "Folder to save the pictures in, e.g. 'reference'.",
+                },
+            },
+            "required": ["path", "pages", "output"],
+        },
+    },
+}
+
+
+def render_pages(pdf: Path, numbers: list[int], folder: Path, stem: str) -> list[Path]:
+    """Pages of `pdf` as JPEGs named `<stem>-page-<n>.jpg` in `folder`."""
+    pdfium = require("pypdfium2", "pypdfium2")
+    require("PIL.Image", "Pillow")
+    document = pdfium.PdfDocument(str(pdf))
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        saved: list[Path] = []
+        for number in numbers:
+            page = document[number - 1]
+            picture = page.render(scale=_PICTURE_SIDE / max(page.get_size())).to_pil()
+            target = folder / f"{stem}-page-{number}.jpg"
+            picture.convert("RGB").save(target, "JPEG", quality=85)
+            saved.append(target)
+        return saved
+    finally:
+        document.close()
 
 
 def _page_tables(target: Any, first: int, last: int) -> list[dict[str, Any]]:
@@ -164,4 +221,36 @@ def pdf_tools(context: Any) -> list:
             )
         return result
 
-    return [decorate(read_pdf, name="read_pdf", schema=_READ_SCHEMA)]
+    @guard
+    def save_pdf_pages(path: str, pages: list, output: str) -> dict[str, Any]:
+        target = resolve_read(path, roots)
+        if not target.is_file():
+            raise FileNotFoundError(display_path(target, roots))
+        folder = resolve_write(output, roots)
+        total = len(require("pypdf", "pypdf").PdfReader(str(target)).pages)
+        numbers = sorted({n for n in pages or [] if isinstance(n, int) and not isinstance(n, bool)})
+        if not numbers or numbers[0] < 1 or numbers[-1] > total:
+            raise ValueError(f"'pages' must be page numbers between 1 and {total}")
+        if len(numbers) > MAX_PAGE_PICTURES:
+            raise ValueError(f"at most {MAX_PAGE_PICTURES} pages per call; call again for more")
+        taken = [n for n in numbers if (folder / f"{target.stem}-page-{n}.jpg").exists()]
+        if taken:
+            raise ValueError(f"pictures of pages {taken} are already in {output}; use them, or another folder")
+        saved = render_pages(target, numbers, folder, target.stem)
+        return {
+            "path": display_path(target, roots),
+            "total_pages": total,
+            "files": [display_path(p, roots) for p in saved],
+            "_images": [str(p) for p in saved],
+        }
+
+    return [
+        decorate(read_pdf, name="read_pdf", schema=_READ_SCHEMA),
+        decorate(
+            save_pdf_pages,
+            name="save_pdf_pages",
+            schema=_PAGES_SCHEMA,
+            risk="medium",
+            capabilities=["write"],
+        ),
+    ]

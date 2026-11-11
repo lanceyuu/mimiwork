@@ -2223,6 +2223,7 @@ class SessionManager:
             "edit_image",
             "generate_image",
             "save_slide_photo",
+            "save_pdf_pages",
             "run_python",  # charts land in figures/
             "run_r",
             "qualitati_export_survey",

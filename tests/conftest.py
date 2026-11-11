@@ -27,6 +27,13 @@ def _isolated_state_dir(tmp_path, monkeypatch):
     # rows. Seeding behavior itself is tested explicitly with this re-enabled
     # (test_activity_and_builtin_skills.py).
     monkeypatch.setenv("COWORKER_SEED_BUILTIN_SKILLS", "0")
+    # A deck is pictured after every save when LibreOffice is installed, which takes
+    # seconds per deck and would make results depend on the developer's machine.
+    import importlib
+
+    monkeypatch.setattr(
+        importlib.import_module("coworker.tools.office.pptx_tools"), "_soffice", lambda: ""
+    )
     monkeypatch.setenv("COWORKER_SEED_BUILTIN_APPS", "0")
     monkeypatch.setenv("COWORKER_MEMORY_VAULT", str(tmp_path / "memory-vault"))
 

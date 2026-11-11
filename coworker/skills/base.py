@@ -129,6 +129,7 @@ def skill_catalog_text(
 
 
 AllowedSkills = Union[set, Callable[[], set], None]
+_PICTURE_TYPES = (".png", ".jpg", ".jpeg", ".webp")
 
 
 def skill_tools(loader: SkillLoader, allowed: AllowedSkills = None) -> list:
@@ -156,11 +157,20 @@ def skill_tools(loader: SkillLoader, allowed: AllowedSkills = None) -> list:
                 n for n in loader.names() if gate is None or n in gate
             )
             return {"error": f"unknown skill: {name}", "available": available}
-        return {
+        loaded = {
             "name": skill.name,
             "instructions": skill.instructions,
             "resources_path": skill.path,
         }
+        # A look cannot be put into words well enough to imitate it, so a skill's own
+        # pictures are shown each time it loads. The engine shows the first four.
+        pictures = sorted(
+            p for p in Path(skill.path or "").glob("*") if p.suffix.lower() in _PICTURE_TYPES
+        ) if skill.path else []
+        if pictures:
+            loaded["reference_pictures"] = [p.name for p in pictures]
+            loaded["_images"] = [str(p) for p in pictures]
+        return loaded
 
     return [
         ai.tool(

@@ -452,24 +452,38 @@ def _paint_quote(slide: Any, entry: dict, theme: Theme) -> None:
         _write(sub, "— " + who, font=theme.body, size=theme.size_caption + 1, color=theme.muted, first=True)
 
 
-def _paint_photo_split(slide: Any, entry: dict, theme: Theme, picture_path: str, height: int) -> None:
-    from pptx.util import Inches
-
-    # Crop the photo to fill the right half. PowerPoint retains the full source image.
-    left = Inches(theme.canvas_width / 2)
-    picture = slide.shapes.add_picture(picture_path, left, 0)
+def _cover(picture: Any, width: int, height: int, focus: float = 0.5) -> None:
+    """Crop a picture to fill a frame without distorting it."""
     source_ratio = picture.width / picture.height
-    frame_ratio = left / height
-    focus = float(entry.get("photo_focus", 0.5))
-    if not 0 <= focus <= 1:
-        raise ValueError("photo_focus must be between 0 and 1")
+    frame_ratio = width / height
     if source_ratio > frame_ratio:
         excess = 1 - frame_ratio / source_ratio
         picture.crop_left, picture.crop_right = excess * focus, excess * (1 - focus)
     else:
         excess = 1 - source_ratio / frame_ratio
         picture.crop_top, picture.crop_bottom = excess * focus, excess * (1 - focus)
-    picture.width, picture.height = left, height
+    picture.width, picture.height = width, height
+
+
+def paint_background(slide: Any, picture_path: str, width: int, height: int) -> None:
+    """A picture filling the slide, behind everything already drawn on it."""
+    picture = slide.shapes.add_picture(picture_path, 0, 0)
+    _cover(picture, width, height)
+    tree = picture._element.getparent()
+    tree.remove(picture._element)
+    tree.insert(2, picture._element)  # after the group's own two property elements
+
+
+def _paint_photo_split(slide: Any, entry: dict, theme: Theme, picture_path: str, height: int) -> None:
+    from pptx.util import Inches
+
+    # Crop the photo to fill the right half. PowerPoint retains the full source image.
+    left = Inches(theme.canvas_width / 2)
+    picture = slide.shapes.add_picture(picture_path, left, 0)
+    focus = float(entry.get("photo_focus", 0.5))
+    if not 0 <= focus <= 1:
+        raise ValueError("photo_focus must be between 0 and 1")
+    _cover(picture, left, height, focus)
 
     width = theme.canvas_width / 2 - 2 * theme.margin_x
     _place_title(slide, str(entry.get("title") or ""), theme, x=theme.margin_x, y=1.65,

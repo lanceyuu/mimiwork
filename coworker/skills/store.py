@@ -634,7 +634,10 @@ _SAVE_SKILL_SCHEMA = {
                     "items": {"type": "string"},
                     "description": (
                         "Optional paths of files in this session's folders to bundle into "
-                        "the skill (scripts, examples, README). Copied in by basename."
+                        "the skill (scripts, examples, README). Copied in by basename. A "
+                        "skill about a visual style needs 2-4 reference pictures here "
+                        "(pages saved with save_pdf_pages, a background): they are shown "
+                        "to you every time the skill loads, and words alone do not carry a look."
                     ),
                 },
             },

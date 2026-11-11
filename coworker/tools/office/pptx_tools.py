@@ -18,13 +18,62 @@ revised rather than regenerated from scratch.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from ... import deliverable_check
+from ...secrets import state_dir
 from . import deck_render, deck_theme
 from ._common import clip, decorate, guard, require
-from .paths import context_roots, display_path, resolve_read, resolve_write
+from .paths import PathError, context_roots, display_path, resolve_read, resolve_write
+from .pdf_tools import MAX_PAGE_PICTURES, render_pages
+
+_PICTURE_TYPES = (".png", ".jpg", ".jpeg")
+_NO_RENDERER = (
+    "This computer has nothing to draw slides with, so they cannot be shown. "
+    "Installing LibreOffice (free) makes it possible."
+)
+# A packaged app does not inherit the shell's PATH, so the usual install places are named.
+_SOFFICE_PLACES = (
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/opt/homebrew/bin/soffice",
+    "/usr/local/bin/soffice",
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+)
+
+
+def _soffice() -> str:
+    return shutil.which("soffice") or next((p for p in _SOFFICE_PLACES if os.path.exists(p)), "")
+
+
+def slide_pictures(deck: Path, numbers: list[int]) -> list[str]:
+    """Pictures of the numbered slides as they really render, or nothing when this
+    computer has no LibreOffice to draw them with. Never raises: a deck that saved
+    correctly must not fail because it could not also be pictured."""
+    exe = _soffice()
+    if not exe or not numbers:
+        return []
+    # ponytail: one shared folder, pictures replaced per deck name; clear it if it ever grows.
+    work = Path(tempfile.gettempdir()) / "mimiwork-slide-pictures"
+    flat = work / f"{deck.stem}.pdf"
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        # Its own settings folder, so a LibreOffice the user has open cannot block this one.
+        subprocess.run(
+            [exe, f"-env:UserInstallation={(work / 'settings').as_uri()}", "--headless",
+             "--convert-to", "pdf", "--outdir", str(work), str(deck)],
+            check=True, capture_output=True, timeout=120,
+        )
+        return [str(p) for p in render_pages(flat, numbers, work, deck.stem)]
+    except Exception:
+        return []
+    finally:
+        flat.unlink(missing_ok=True)
 
 _SLIDE_SHAPE = {
     "type": "object",
@@ -94,6 +143,13 @@ _SLIDE_SHAPE = {
             "type": "string",
             "description": "For 'image': one line under the picture saying what it shows.",
         },
+        "background": {
+            "type": "string",
+            "description": (
+                "PNG/JPG that fills this slide behind its text, e.g. a textured or "
+                "illustrated page. Overrides style.background."
+            ),
+        },
         "notes": {
             "type": "string",
             "description": "Speaker notes — what the presenter should say on this slide.",
@@ -110,7 +166,11 @@ _WRITE_SCHEMA = {
             "the QualiTaTi theme. Use the audience, purpose and constraints from the brief "
             "to choose the sequence and layouts. Include useful speaker notes. Resolve "
             "layout_warnings by reflowing or splitting slides. Pass a supplied template to "
-            "inherit its theme or append=true to add slides to an existing deck."
+            "inherit its theme or append=true to add slides to an existing deck. To follow "
+            "a visual style the layouts cannot draw (textures, hand-drawn shapes, "
+            "illustrated pages), put that look in a background picture and keep the words "
+            "as editable text on top. When pictures of the finished slides come back, "
+            "compare them with the brief or reference and rewrite what does not match."
         ),
         "parameters": {
             "type": "object",
@@ -134,6 +194,10 @@ _WRITE_SCHEMA = {
                         "ink": {"type": "string", "description": "Text colour, e.g. #111C1B."},
                         "bg": {"type": "string", "description": "Paper colour, e.g. #FAFAF7."},
                         "accent": {"type": "string", "description": "Accent colour, e.g. #0B7C72."},
+                        "background": {
+                            "type": "string",
+                            "description": "PNG/JPG that fills every slide behind its text.",
+                        },
                     },
                     "additionalProperties": False,
                 },
@@ -157,12 +221,18 @@ _READ_SCHEMA = {
         "description": (
             "Read a PowerPoint (.pptx) deck as numbered slides with their titles, bullet text, "
             "and speaker notes — so an existing deck can be revised rather than rebuilt. "
-            "Read-only."
+            "This returns words only: pass show_slides to also LOOK at chosen slides as "
+            "pictures, which is the only way to judge or imitate a design. Read-only."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "The .pptx file to read."},
+                "show_slides": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": f"Slide numbers to see as pictures, 1-based, at most {MAX_PAGE_PICTURES}.",
+                },
             },
             "required": ["path"],
         },
@@ -219,7 +289,15 @@ def pptx_tools(context: Any) -> list:
                 raise ValueError(f"each slide must be an object, got {type(entry).__name__}")
 
             def _picture(rel: str) -> str:
-                found = resolve_read(rel, roots)
+                try:
+                    found = resolve_read(rel, roots)
+                except PathError:
+                    # A style skill keeps its own pictures (backgrounds, marks) in the
+                    # user's skills folder. Pictures there, and nothing else, may be placed.
+                    found = Path(rel).expanduser().resolve()
+                    skills = (state_dir() / "skills").resolve()
+                    if skills not in found.parents or found.suffix.lower() not in _PICTURE_TYPES:
+                        raise
                 if not found.is_file():
                     raise FileNotFoundError(display_path(found, roots))
                 return str(found)
@@ -231,6 +309,11 @@ def pptx_tools(context: Any) -> list:
                 number=existing + offset + 1,
                 resolve_image=_picture,
             )
+            backdrop = str(entry.get("background") or (style or {}).get("background") or "")
+            if backdrop:
+                deck_render.paint_background(
+                    slide, _picture(backdrop), deck.slide_width, deck.slide_height
+                )
             _set_notes(slide, str(entry.get("notes") or ""))
             for w in slide_warnings:
                 layout_warnings.append(f"slide {existing + offset + 1}: {w}")
@@ -249,17 +332,25 @@ def pptx_tools(context: Any) -> list:
             result["font_note"] = "The PowerPoint deck uses Arial, the portable body-font fallback for DM Sans."
         if layout_warnings:
             # The deck IS saved — text was shrunk to its floor — but these slides hold
-            # more than fits. There is no renderer here to screenshot-and-verify with,
+            # more than fits. Most computers have no renderer to picture the slides with,
             # so this estimate is the layout check; the model must act on it.
             result["layout_warnings"] = layout_warnings
             result["action_required"] = (
                 "Rewrite the flagged slides with fewer/shorter bullets or split each "
                 "into two slides, then call write_presentation again."
             )
+        shown = range(existing + 1, existing + min(len(slides), MAX_PAGE_PICTURES) + 1)
+        pictures = slide_pictures(target, list(shown))
+        if pictures:
+            result["_images"] = pictures
+            result["shown"] = (
+                f"Pictures of slides {shown[0]}-{shown[-1]} follow this step. Look at them "
+                "against the brief and any reference before saying the deck is ready."
+            )
         return deliverable_check.attach(result, target)
 
     @guard
-    def read_presentation(path: str) -> dict[str, Any]:
+    def read_presentation(path: str, show_slides: list | None = None) -> dict[str, Any]:
         pptx = require("pptx", "python-pptx")
         target = resolve_read(path, roots)
         if not target.is_file():
@@ -296,11 +387,19 @@ def pptx_tools(context: Any) -> list:
                 }
             )
 
-        return {
+        result: dict[str, Any] = {
             "path": display_path(target, roots),
             "total_slides": len(slides),
             "slides": slides,
         }
+        wanted = sorted({n for n in show_slides or [] if isinstance(n, int) and 1 <= n <= len(slides)})
+        if wanted:
+            pictures = slide_pictures(target, wanted[:MAX_PAGE_PICTURES])
+            if pictures:
+                result["_images"] = pictures
+            else:
+                result["show_slides_note"] = _NO_RENDERER
+        return result
 
     return [
         decorate(

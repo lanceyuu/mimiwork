@@ -218,3 +218,21 @@ def test_broken_frontmatter_still_yields_a_skill(tmp_path):
     assert skill.name == "sloppy"
     assert skill.description.startswith("has: a colon")
     assert skill.allowed_tools == ["a", "b"]
+
+
+def test_a_skill_shows_its_own_pictures_each_time_it_loads(tmp_path):
+    folder = tmp_path / "skills" / "cute-school"
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text("---\nname: cute-school\n---\nDraw like this.", encoding="utf-8")
+    (folder / "page-2.jpg").write_bytes(b"jpg")
+    (folder / "page-1.PNG").write_bytes(b"png")
+    (folder / "notes.txt").write_text("not a picture", encoding="utf-8")
+    plain = tmp_path / "skills" / "plain"
+    plain.mkdir()
+    (plain / "SKILL.md").write_text("Just words.", encoding="utf-8")
+
+    load = skill_tools(SkillLoader([tmp_path / "skills"]))[0]
+    loaded = load("cute-school")
+    assert loaded["reference_pictures"] == ["page-1.PNG", "page-2.jpg"]
+    assert loaded["_images"] == [str(folder / "page-1.PNG"), str(folder / "page-2.jpg")]
+    assert "_images" not in load("plain")

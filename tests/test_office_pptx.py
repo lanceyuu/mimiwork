@@ -415,3 +415,96 @@ def test_a_requested_palette_and_typefaces_survive_appending(tools):
     assert (theme.heading, theme.body, theme.bg, theme.ink) == ("Georgia", "Arial", 0, 0xFFFFFF)
     for slide in deck.slides:
         assert slide.shapes.title.text_frame.paragraphs[0].runs[0].font.name == "Georgia"
+
+
+# -- a look the layouts cannot draw, and seeing the result -------------------------
+
+import importlib  # noqa: E402
+
+# The package exports a function of the same name, which hides the module.
+_pptx_module = importlib.import_module("coworker.tools.office.pptx_tools")
+
+_REAL_SOFFICE = _pptx_module._soffice
+
+
+def _libreoffice_runs() -> bool:
+    """A leftover launcher can outlive the application it points at."""
+    import subprocess
+
+    exe = _REAL_SOFFICE()
+    try:
+        return bool(exe) and subprocess.run(
+            [exe, "--version"], capture_output=True, timeout=60
+        ).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _picture(path, size=(400, 300)):
+    from PIL import Image
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, "#D9D9D9").save(path)
+    return path
+
+
+def test_a_background_picture_fills_the_slide_and_sits_behind_the_words(tools):
+    import pptx
+
+    write, ws = tools[0]["write_presentation"], tools[1]
+    _picture(ws / "paper.png")
+    _picture(ws / "cover.png")
+    out = write(
+        "deck.pptx",
+        [
+            {"layout": "bullets", "title": "Paris", "bullets": ["Seine"]},
+            {"layout": "title", "title": "Bonjour", "background": "cover.png"},
+        ],
+        style={"background": "paper.png"},
+    )
+    assert "error" not in out
+    deck = pptx.Presentation(ws / "deck.pptx")
+    for slide in deck.slides:
+        back = slide.shapes[0]
+        assert back.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE
+        assert (back.left, back.top, back.width, back.height) == (
+            0, 0, deck.slide_width, deck.slide_height)
+        # 4:3 into 16:9 is cropped top and bottom, never stretched
+        assert back.crop_top == back.crop_bottom > 0
+
+
+def test_a_style_skill_can_supply_pictures_but_nothing_else_outside_the_folders(tools, tmp_path):
+    from coworker.secrets import state_dir
+
+    write = tools[0]["write_presentation"]
+    skill = state_dir() / "skills" / "cute-school"
+    backdrop = _picture(skill / "paper.png")
+    (skill / "SKILL.md").write_text("words", encoding="utf-8")
+    stray = _picture(tmp_path / "private" / "photo.png")
+
+    slide = {"layout": "title", "title": "Bonjour"}
+    assert "error" not in write("a.pptx", [{**slide, "background": str(backdrop)}])
+    assert "escapes" in write("b.pptx", [{**slide, "background": str(stray)}])["error"]
+    assert "escapes" in write("c.pptx", [{**slide, "background": str(skill / "SKILL.md")}])["error"]
+
+
+def test_without_a_renderer_a_deck_still_saves_and_says_it_cannot_be_shown(tools):
+    write, read = tools[0]["write_presentation"], tools[0]["read_presentation"]
+    out = write("deck.pptx", [{"layout": "title", "title": "Bonjour"}])
+    assert "error" not in out and "_images" not in out
+    seen = read("deck.pptx", show_slides=[1])
+    assert "_images" not in seen and "LibreOffice" in seen["show_slides_note"]
+
+
+@pytest.mark.skipif(not _libreoffice_runs(), reason="needs LibreOffice to draw slides")
+def test_finished_slides_come_back_as_pictures_to_look_at(tools, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setattr(_pptx_module, "_soffice", _REAL_SOFFICE)
+    write, read = tools[0]["write_presentation"], tools[0]["read_presentation"]
+    out = write("deck.pptx", [{"layout": "title", "title": f"Slide {n}"} for n in range(1, 7)])
+    assert len(out["_images"]) == 4 and "slides 1-4" in out["shown"]
+    with Image.open(out["_images"][0]) as picture:
+        assert picture.width > picture.height
+    assert [p[-10:] for p in read("deck.pptx", show_slides=[6, 2])["_images"]] == [
+        "page-2.jpg", "page-6.jpg"]
