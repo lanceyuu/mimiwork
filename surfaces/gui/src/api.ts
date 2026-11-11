@@ -3377,7 +3377,14 @@ export interface MailStatus {
   last_error: string;
   can_archive: boolean;
   can_bin: boolean;
+  /** Mimi sorts new mail and writes a one-line summary of each conversation. */
+  sorting: boolean;
+  /** The user has been asked once whether to turn sorting on, and has answered. */
+  sorting_asked: boolean;
 }
+
+/** Where sorting put a conversation; "" when it has not been sorted. */
+export type MailCategory = "" | "needs_reply" | "fyi" | "newsletters";
 
 export interface MailThreadRow {
   key: string;
@@ -3387,6 +3394,9 @@ export interface MailThreadRow {
   unread: boolean;
   count: number;
   has_attachments: boolean;
+  category: MailCategory;
+  /** One line on what the conversation is about, written by Mimi; "" when there is none. */
+  summary: string;
 }
 
 export interface MailEnvelope {
@@ -3583,3 +3593,21 @@ export function writeMailReply(id: string, guidance = ""): Promise<MailReply & {
 export function sendMailDraft(id: string): Promise<MailReply & { note?: string }> {
   return mailPost(mailDraftUrl(id, "/send"));
 }
+
+export interface MailSettings extends MailReply {
+  sorting: boolean;
+  /** Addresses (`ana@example.com`) and domains (`@example.com`) whose mail is never sent to be sorted. */
+  excluded: string[];
+  /** Why the last attempt to sort did not work, or "". */
+  sort_error: string;
+}
+
+export async function getMailSettings(): Promise<MailSettings> {
+  return (await fetch(mailUrl("/settings"))).json();
+}
+
+/** Turn sorting on or off, or change whose mail is never sorted. Answers the settings as they now are. */
+export function putMailSettings(changes: { sorting?: boolean; excluded?: string[] }): Promise<MailSettings> {
+  return mailPost(mailUrl("/settings"), changes, "PUT");
+}
+
