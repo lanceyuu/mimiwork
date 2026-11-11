@@ -371,7 +371,17 @@ export async function mockApi(page: import("@playwright/test").Page) {
     comments: {} as Record<string, { comments: { message_id: string; quote: string; note: string }[]; note: string }>,
     drafts: [] as any[],
     made: 0,
+    // "" until the user has answered the offer; then "on" or "off".
+    sorting: "",
+    excluded: [] as string[],
   };
+  // What sorting says about the three conversations once it is on.
+  const SORTED: Record<string, { category: string; summary: string }> = {
+    a1a1a1a1a1a1a1a1: { category: "needs_reply", summary: "Ana asks to meet on Friday at ten." },
+    b2b2b2b2b2b2b2b2: { category: "fyi", summary: "The October invoice is ready." },
+    c3c3c3c3c3c3c3c3: { category: "newsletters", summary: "" },
+  };
+  const mailSettings = () => ({ ok: true, sorting: mail.sorting === "on", excluded: mail.excluded, sort_error: "" });
   const subscriptions: any[] = [
     // One existing subscription (a non-pinned session) so the Slack page's per-workspace
     // "Listening" row has an entry. Relay-mode channels are team-qualified (slack:T…/C…).
@@ -2027,10 +2037,30 @@ export async function mockApi(page: import("@playwright/test").Page) {
       return json({
         ok: true, connected: true, address: "me@example.com", syncing: false, revision: mail.revision,
         last_sync: Math.floor(Date.now() / 1000) - 60, last_error: "", can_archive: true, can_bin: true,
+        sorting: mail.sorting === "on", sorting_asked: mail.sorting !== "",
       });
     }
     if (p.endsWith("/v1/mail/sync")) return json({ ok: true, started: true });
-    if (p.endsWith("/v1/mail/threads")) return json({ ok: true, threads: mail.threads });
+    if (p.endsWith("/v1/mail/threads")) {
+      const blank = { category: "", summary: "" };
+      return json({
+        ok: true,
+        threads: mail.threads.map((t) => ({ ...t, ...(mail.sorting === "on" ? SORTED[t.key] : blank) })),
+      });
+    }
+    if (p.endsWith("/v1/mail/settings")) {
+      if (m === "PUT") {
+        const b = req.postDataJSON() || {};
+        if (Array.isArray(b.excluded)) {
+          const bad = b.excluded.find((rule: string) => !rule.includes("@"));
+          if (bad) return json({ ok: false, error: `"${bad}" is not an address or a domain. Write ana@example.com, or @example.com for everyone there.` });
+          mail.excluded = b.excluded;
+        }
+        if ("sorting" in b) mail.sorting = b.sorting ? "on" : "off";
+        mail.revision += 1;
+      }
+      return json(mailSettings());
+    }
     if (p.endsWith("/v1/mail/message/read")) return json({ ok: true });
     if (p.endsWith("/v1/mail/message")) {
       const q = new URL(req.url()).searchParams;
