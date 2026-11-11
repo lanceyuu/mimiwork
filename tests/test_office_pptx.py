@@ -504,6 +504,7 @@ def test_finished_slides_come_back_as_pictures_to_look_at(tools, monkeypatch):
     write, read = tools[0]["write_presentation"], tools[0]["read_presentation"]
     out = write("deck.pptx", [{"layout": "title", "title": f"Slide {n}"} for n in range(1, 7)])
     assert len(out["_images"]) == 4 and "slides 1-4" in out["shown"]
+    assert "not the typeface" in out["shown"]
     with Image.open(out["_images"][0]) as picture:
         assert picture.width > picture.height
     assert [p[-10:] for p in read("deck.pptx", show_slides=[6, 2])["_images"]] == [

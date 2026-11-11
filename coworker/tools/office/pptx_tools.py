@@ -38,6 +38,12 @@ _NO_RENDERER = (
     "This computer has nothing to draw slides with, so they cannot be shown. "
     "Installing LibreOffice (free) makes it possible."
 )
+# Seen on a real run: LibreOffice drew Courier New but replaced Chalkboard SE, a font the
+# Mac has. A model told nothing would "fix" a typeface that is right in PowerPoint.
+_FONT_CAVEAT = (
+    "They are drawn by LibreOffice, which replaces fonts it does not have: judge layout, "
+    "colour, pictures and overflow from them, not the typeface."
+)
 # A packaged app does not inherit the shell's PATH, so the usual install places are named.
 _SOFFICE_PLACES = (
     "/Applications/LibreOffice.app/Contents/MacOS/soffice",
@@ -345,7 +351,8 @@ def pptx_tools(context: Any) -> list:
             result["_images"] = pictures
             result["shown"] = (
                 f"Pictures of slides {shown[0]}-{shown[-1]} follow this step. Look at them "
-                "against the brief and any reference before saying the deck is ready."
+                "against the brief and any reference before saying the deck is ready. "
+                + _FONT_CAVEAT
             )
         return deliverable_check.attach(result, target)
 
@@ -395,10 +402,9 @@ def pptx_tools(context: Any) -> list:
         wanted = sorted({n for n in show_slides or [] if isinstance(n, int) and 1 <= n <= len(slides)})
         if wanted:
             pictures = slide_pictures(target, wanted[:MAX_PAGE_PICTURES])
+            result["show_slides_note"] = _FONT_CAVEAT if pictures else _NO_RENDERER
             if pictures:
                 result["_images"] = pictures
-            else:
-                result["show_slides_note"] = _NO_RENDERER
         return result
 
     return [
