@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS draft (
   orig_date TEXT NOT NULL DEFAULT '', orig_text TEXT NOT NULL DEFAULT '',
   send_started_at REAL NOT NULL DEFAULT 0, updated_at REAL NOT NULL DEFAULT 0,
   orphaned_at REAL NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS thread_ai (
+  account TEXT NOT NULL, thread_key TEXT NOT NULL, category TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '', for_message TEXT NOT NULL DEFAULT '',
+  tries INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (account, thread_key));
 CREATE UNIQUE INDEX IF NOT EXISTS draft_reply ON draft (account, thread_key) WHERE thread_key != '';
 """
 _COLUMNS = (
@@ -214,16 +219,31 @@ class MailStore:
         self.set_flags(account, folder, changes)
 
     # -- threads ---------------------------------------------------------------------
-    def threads(self, account: str, inbox: str) -> list[dict[str, Any]]:
-        """Conversations with at least one message in the inbox, newest first."""
+    def _conversations(self, account: str, inbox: str) -> list[tuple[str, list[dict], list[dict]]]:
+        """(key, every row oldest first, the rows in the inbox) for each conversation with
+        at least one message in the inbox."""
         groups: dict[str, list[dict[str, Any]]] = {}
         for row in self._all("SELECT * FROM message WHERE account = ? ORDER BY date", (account,)):
             groups.setdefault(row["thread_key"], []).append(row)
         out = []
         for key, rows in groups.items():
             received = [row for row in rows if row["folder"] == inbox]
-            if not received:
-                continue
+            if received:
+                out.append((key, rows, received))
+        return out
+
+    def threads(self, account: str, inbox: str) -> list[dict[str, Any]]:
+        """Conversations with at least one message in the inbox, newest first. `category`
+        and `summary` are what sorting said about the conversation as it stands now; both
+        are "" when it has not been sorted, or has had a newer message since."""
+        sorted_as = {
+            row["thread_key"]: row
+            for row in self._all("SELECT * FROM thread_ai WHERE account = ?", (account,))
+        }
+        out = []
+        for key, rows, received in self._conversations(account, inbox):
+            said = sorted_as.get(key)
+            current = said is not None and said["for_message"] == _identity(rows[-1])
             out.append(
                 {
                     "key": key,
@@ -234,9 +254,72 @@ class MailStore:
                     "unread": any("\\Seen" not in row["flags"] for row in received),
                     "count": len(_distinct(rows, inbox)),
                     "has_attachments": any(row["has_attachments"] for row in rows),
+                    "category": said["category"] if current else "",
+                    "summary": said["summary"] if current else "",
                 }
             )
         return sorted(out, key=lambda thread: thread["date"], reverse=True)
+
+    # -- sorting ---------------------------------------------------------------------
+    def to_sort(self, account: str, inbox: str, max_tries: int) -> list[dict[str, Any]]:
+        """Inbox conversations whose newest message has not been sorted, newest first. One
+        that was tried `max_tries` times for that message and never answered is left alone,
+        so a model that is down, or an email it cannot handle, is not asked about for ever."""
+        tried = {
+            row["thread_key"]: row
+            for row in self._all("SELECT * FROM thread_ai WHERE account = ?", (account,))
+        }
+        out = []
+        for key, rows, _ in self._conversations(account, inbox):
+            newest, said = rows[-1], tried.get(key)
+            if said is not None and said["for_message"] == _identity(newest):
+                if said["category"] or said["tries"] >= max_tries:
+                    continue
+            out.append({"key": key, "newest": newest, "for_message": _identity(newest)})
+        return sorted(out, key=lambda item: item["newest"]["date"], reverse=True)
+
+    def put_sorted(self, account: str, rows: list[dict[str, str]], epoch: int) -> bool:
+        """Keep what sorting said: `key`, `category`, `summary`, `for_message` each. Refused
+        when the cache was emptied since `epoch` was noted: a summary is made from mail
+        text, and must not be written back after its mailbox was disconnected."""
+        with self._lock, self._conn:
+            if epoch != self.epoch:
+                return False
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO thread_ai (account, thread_key, category, summary, for_message, tries) "
+                "VALUES (?, ?, ?, ?, ?, 0)",
+                [(account, r["key"], r["category"], r["summary"], r["for_message"]) for r in rows],
+            )
+            self.revision += 1 if rows else 0
+            return True
+
+    def note_unsorted(self, account: str, items: list[dict[str, Any]], epoch: int) -> None:
+        """Count one more try for conversations sorting was asked about and did not answer."""
+        with self._lock, self._conn:
+            if epoch != self.epoch:
+                return
+            for item in items:
+                self._conn.execute(
+                    "INSERT INTO thread_ai (account, thread_key, for_message, tries) VALUES (?, ?, ?, 1) "
+                    "ON CONFLICT (account, thread_key) DO UPDATE SET "
+                    "tries = CASE WHEN for_message = excluded.for_message THEN tries + 1 ELSE 1 END, "
+                    "category = '', summary = '', for_message = excluded.for_message",
+                    (account, item["key"], item["for_message"]),
+                )
+
+    def forget_sorting(self, account: str, keys: Optional[list[str]] = None) -> None:
+        """Sorting was turned off, or with `keys` those conversations' sender was excluded:
+        what it said goes too. A summary is the mail's own words, shortened, and has no
+        business staying once the user has said no."""
+        with self._lock, self._conn:
+            if keys is None:
+                gone = self._conn.execute("DELETE FROM thread_ai WHERE account = ?", (account,)).rowcount
+            else:
+                gone = self._conn.executemany(
+                    "DELETE FROM thread_ai WHERE account = ? AND thread_key = ?",
+                    [(account, key) for key in keys],
+                ).rowcount
+            self.revision += 1 if gone else 0
 
     def thread(self, account: str, key: str, inbox: str) -> list[dict[str, Any]]:
         """A conversation's messages from every synced folder, oldest first."""
@@ -291,6 +374,11 @@ class MailStore:
         can still be rewritten from them."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM body WHERE opened_at < ?", (now - _BODY_SECONDS,))
+            # What sorting said about a conversation goes with the conversation's mail.
+            self._conn.execute(
+                "DELETE FROM thread_ai WHERE NOT EXISTS (SELECT 1 FROM message WHERE "
+                "message.account = thread_ai.account AND message.thread_key = thread_ai.thread_key)"
+            )
             has_mail = (
                 "EXISTS (SELECT 1 FROM message WHERE message.account = comment.account "
                 "AND message.thread_key = comment.thread_key)"
@@ -407,8 +495,12 @@ class MailStore:
         with self._lock, self._conn:
             changed = sum(
                 self._conn.execute(f"DELETE FROM {table} WHERE account != ?", (account,)).rowcount
-                for table in ("folder", "message", "body", "comment", "draft")
+                for table in ("folder", "message", "body", "comment", "draft", "thread_ai")
             )
+            if changed:
+                # Another mailbox was here. What its owner agreed to, and whose mail they
+                # kept from sorting, were answers about that mailbox: this one is asked afresh.
+                self._conn.execute("DELETE FROM setting WHERE key IN ('sorting', 'excluded', 'sort_error')")
             self.revision += 1 if changed else 0
 
     def keep_folders(self, account: str, folders: list[str]) -> None:
@@ -427,7 +519,7 @@ class MailStore:
     def clear(self) -> None:
         """Empty the cache, for when the mailbox is disconnected."""
         with self._lock, self._conn:
-            for table in ("folder", "message", "body", "setting", "comment", "draft"):
+            for table in ("folder", "message", "body", "setting", "comment", "draft", "thread_ai"):
                 self._conn.execute(f"DELETE FROM {table}")
             self.revision += 1
             # A pass, or a request, still running when the mailbox was disconnected must
@@ -437,6 +529,11 @@ class MailStore:
         with self._lock:
             # Give the space back as well; this cannot run inside the transaction above.
             self._conn.execute("VACUUM")
+
+
+def _identity(row: dict[str, Any]) -> str:
+    """What names one message for good: its Message-ID, or where it sits when it has none."""
+    return row["message_id"] or f"{row['folder']}/{row['uid']}"
 
 
 def _distinct(rows: list[dict[str, Any]], inbox: str) -> list[dict[str, Any]]:

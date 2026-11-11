@@ -340,3 +340,79 @@ def test_another_mailbox_or_a_disconnect_takes_comments_and_drafts_with_it(tmp_p
     store.clear()
     assert store.comments(ME, "k1")["comments"] == []
     assert store.drafts(ME) == []
+
+
+# -- sorting -----------------------------------------------------------------------------
+def test_what_sorting_said_is_shown_only_while_it_is_about_the_newest_message(tmp_path):
+    store = _store(tmp_path)
+    store.add([_row("INBOX", 1, key="k1", message_id="<a@x>", date=100.0)])
+    assert store.threads(ME, "INBOX")[0]["category"] == ""
+    (waiting,) = store.to_sort(ME, "INBOX", 3)
+    assert (waiting["key"], waiting["for_message"], waiting["newest"]["uid"]) == ("k1", "<a@x>", 1)
+
+    before = store.revision
+    said = {"key": "k1", "category": "needs_reply", "summary": "Ana asks to meet.", "for_message": "<a@x>"}
+    assert store.put_sorted(ME, [said], store.epoch) is True
+    assert store.revision == before + 1  # the list on screen should reload
+    row = store.threads(ME, "INBOX")[0]
+    assert (row["category"], row["summary"]) == ("needs_reply", "Ana asks to meet.")
+    assert store.to_sort(ME, "INBOX", 3) == []
+
+    # A newer message arrives: the old answer is about an email that is no longer the last word.
+    store.add([_row("INBOX", 2, key="k1", message_id="<b@x>", date=200.0)])
+    row = store.threads(ME, "INBOX")[0]
+    assert (row["category"], row["summary"]) == ("", "")
+    assert store.to_sort(ME, "INBOX", 3)[0]["for_message"] == "<b@x>"
+
+
+def test_a_conversation_the_model_never_answers_about_is_tried_three_times_and_then_left(tmp_path):
+    store = _store(tmp_path)
+    store.add([_row("INBOX", 1, key="k1", message_id="<a@x>")])
+    for _ in range(3):
+        (item,) = store.to_sort(ME, "INBOX", 3)
+        store.note_unsorted(ME, [item], store.epoch)
+    assert store.to_sort(ME, "INBOX", 3) == []
+    # A new message in it is a new question, counted from the start.
+    store.add([_row("INBOX", 2, key="k1", message_id="<b@x>", date=200.0)])
+    (item,) = store.to_sort(ME, "INBOX", 3)
+    store.note_unsorted(ME, [item], store.epoch)
+    assert len(store.to_sort(ME, "INBOX", 3)) == 1
+
+
+def test_what_sorting_said_goes_with_the_mail_with_the_mailbox_and_when_sorting_is_turned_off(tmp_path):
+    store = _store(tmp_path)
+    said = {"category": "fyi", "summary": "A receipt.", "for_message": "<INBOX-1@x>"}
+    for key in ("here", "gone"):
+        store.put_sorted(ME, [{**said, "key": key}], store.epoch)
+    store.put_sorted("old@example.com", [{**said, "key": "theirs"}], store.epoch)
+    store.add([_row("INBOX", 1, key="here")])
+    count = lambda: len(store._all("SELECT thread_key FROM thread_ai"))  # noqa: E731
+    assert count() == 3
+    store.prune(DAY)  # "gone" and "theirs" have no mail in the cache
+    assert count() == 1
+    store.put_sorted("old@example.com", [{**said, "key": "theirs"}], store.epoch)
+    store.add([_row("INBOX", 1, key="theirs", account="old@example.com")])
+    # What the other mailbox's owner agreed to was an answer about that mailbox.
+    for key, value in (("sorting", "on"), ("excluded", '["@x.example"]'), ("sort_error", "x"), ("last_sync", "5")):
+        store.put(key, value)
+    store.forget_others(ME)
+    assert count() == 1
+    assert (store.get("sorting"), store.get("excluded"), store.get("sort_error")) == ("", "", "")
+    assert store.get("last_sync") == "5"
+    # With no other mailbox to forget, the answer stands.
+    store.put("sorting", "on")
+    store.forget_others(ME)
+    assert store.get("sorting") == "on"
+    store.put_sorted(ME, [{**said, "key": "one"}, {**said, "key": "two"}], store.epoch)
+    store.forget_sorting(ME, ["one", "never-there"])
+    assert count() == 2
+
+    noted = store.epoch
+    store.forget_sorting(ME)
+    assert count() == 0
+    store.clear()
+    # Nothing sorting learned is written back once the mailbox has been disconnected.
+    assert store.put_sorted(ME, [{**said, "key": "here"}], noted) is False
+    store.note_unsorted(ME, [{"key": "here", "for_message": "<x>"}], noted)
+    assert count() == 0
+
