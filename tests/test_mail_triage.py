@@ -26,11 +26,16 @@ def _newest(sender="Ana <ana@example.com>", bulk=0):
 
 
 def test_your_own_last_word_and_bulk_mail_are_sorted_without_a_model():
-    assert by_rule(_newest(sender=f"Me <{ME.upper()}>"), ME) == FYI
-    assert by_rule(_newest(bulk=1), ME) == NEWSLETTERS
+    assert by_rule(_newest(sender=f"Me <{ME.upper()}>"), ME, True) == FYI
+    assert by_rule(_newest(bulk=1), ME, False) == NEWSLETTERS
     # Your own bulk mail is still your own last word.
-    assert by_rule(_newest(sender=ME, bulk=1), ME) == FYI
-    assert by_rule(_newest(), ME) is None
+    assert by_rule(_newest(sender=ME, bulk=1), ME, True) == FYI
+    assert by_rule(_newest(), ME, False) is None
+
+
+def test_mail_from_your_own_address_that_you_did_not_send_is_left_for_the_model():
+    # A shared mailbox's contact form posts from the mailbox's own address.
+    assert by_rule(_newest(sender=ME), ME, False) is None
 
 
 def test_an_excluded_sender_is_matched_by_address_or_by_domain():

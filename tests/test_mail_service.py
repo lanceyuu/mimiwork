@@ -854,6 +854,23 @@ def _by_subject(service, tab="all"):
     return {t["subject"]: (t["category"], t["summary"]) for t in service.threads(tab)["threads"]}
 
 
+def test_mail_that_arrives_from_your_own_address_is_sorted_by_the_model_unless_you_sent_it(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    # A shared mailbox's contact form posts from the mailbox's own address: someone else's
+    # question, and nothing in Sent. A note to yourself is in both folders.
+    server.add("INBOX", mail("Support form", sender=ADDRESS, message_id="<form@x>", body="Which plan fits us?", days_ago=2))
+    server.add("INBOX", mail("Note to self", sender=ADDRESS, message_id="<note@x>", days_ago=1))
+    server.add("Sent", mail("Note to self", sender=ADDRESS, message_id="<note@x>", days_ago=1))
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    said = _by_subject(service)
+    assert said["Support form"][0] == "needs_reply"
+    assert said["Note to self"] == ("fyi", "")
+    (_, user), = sorter.asked
+    assert "Which plan fits us?" in user and "Note to self" not in user
+
+
 def test_sorting_is_off_until_turned_on_and_then_no_model_is_asked(tmp_path):
     sorter = _Sorter()
     server, _, service = _writer(tmp_path, sorter=sorter)

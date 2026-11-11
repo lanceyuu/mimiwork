@@ -727,6 +727,9 @@ Found, and not fixed:
   mailbox's own address. The rule "the last word is yours, so FYI" therefore filed a
   support enquiry under FYI without asking the model. A person's own mailbox does not
   receive other people's questions from its own address; a shared one does.
+  Fixed the same day: the rule now applies only to a message the mailbox itself sent
+  (it, or a copy of it, is in Sent). Other mail from the own address goes to the model.
+  Not run again on the real mailbox.
 - Sign-up emails from a no-reply address carry the bulk marks and land in Newsletters.
 - A long subject keeps the line break from its folded header. The list shows it as a
   space; nothing else depends on it.

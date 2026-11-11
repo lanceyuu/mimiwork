@@ -50,9 +50,12 @@ def excluded(sender: str, rules: list[str]) -> bool:
     return sender_matches(address_of(sender), rules)
 
 
-def by_rule(newest: dict[str, Any], own: str) -> Optional[str]:
-    """The category the newest message decides by itself, or None for the model to say."""
-    if address_of(newest["sender"]) == own.lower():
+def by_rule(newest: dict[str, Any], own: str, sent: bool) -> Optional[str]:
+    """The category the newest message decides by itself, or None for the model to say.
+    `sent` says the mailbox itself sent it. The address alone does not: a shared mailbox
+    receives mail from its own address that someone else wrote, such as a contact form's,
+    and that may well need a reply."""
+    if sent and address_of(newest["sender"]) == own.lower():
         return FYI
     if newest["bulk"]:
         return NEWSLETTERS

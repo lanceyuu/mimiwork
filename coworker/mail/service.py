@@ -424,7 +424,7 @@ class MailService:
         ruled, ask = [], []
         for item in waiting:
             newest = item["newest"]
-            category = triage.by_rule(newest, account)
+            category = triage.by_rule(newest, account, item["sent"])
             if category:
                 ruled.append({"key": item["key"], "category": category, "summary": "", "for_message": item["for_message"]})
             else:

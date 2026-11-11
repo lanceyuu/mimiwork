@@ -275,7 +275,13 @@ class MailStore:
             if said is not None and said["for_message"] == _identity(newest):
                 if said["category"] or said["tries"] >= max_tries:
                     continue
-            out.append({"key": key, "newest": newest, "for_message": _identity(newest)})
+            # Whether the newest message is one this mailbox sent: it is in a folder other
+            # than the inbox, or a copy of it is (a note to yourself is in both).
+            mid = newest["message_id"]
+            sent = any(
+                row["folder"] != inbox and (row is newest or (mid and row["message_id"] == mid)) for row in rows
+            )
+            out.append({"key": key, "newest": newest, "for_message": _identity(newest), "sent": sent})
         return sorted(out, key=lambda item: item["newest"]["date"], reverse=True)
 
     def put_sorted(self, account: str, rows: list[dict[str, str]], epoch: int) -> bool:
