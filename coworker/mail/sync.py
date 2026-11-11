@@ -6,7 +6,7 @@ import threading
 import time
 from datetime import timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..connectors.email_tools import decode_mime_header
 from .imap import MailConnection, MailError
@@ -53,9 +53,18 @@ class _Stopped(Exception):
 
 
 class MailSync:
-    def __init__(self, conn: MailConnection, store: MailStore) -> None:
+    def __init__(
+        self,
+        conn: MailConnection,
+        store: MailStore,
+        then: Optional[Callable[[str, Callable[[], None]], None]] = None,
+    ) -> None:
         self._conn = conn
         self._store = store
+        # The second phase of a pass, run once the mail itself is up to date: sorting. It
+        # is given the account and a check to call between slow steps, which ends the pass
+        # at once if it has been told to stop.
+        self._then = then
         self._lock = threading.Lock()
         self._running = False
         self._again = False
@@ -145,6 +154,9 @@ class MailSync:
         self._store.keep_folders(account, synced)
         self._store.prune(now)
         self._store.put("last_sync", str(now))
+        if self._then is not None:
+            self._check()
+            self._then(account, self._check)
 
     def _folder(self, account: str, folder: str, role: str, now: float) -> None:
         # ponytail: polled, and flags are read over the whole window on every pass.

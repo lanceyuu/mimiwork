@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import imaplib
+import json
 import re
 import smtplib
 import sqlite3
@@ -32,10 +33,11 @@ from ..connectors.email_tools import (
 )
 from ..secrets import SecretStore
 from . import reply as reply_writer
+from . import triage
 from .imap import MailConnection, MailError
 from .render import attachment_bytes, attachments, render_message
 from .store import DRAFT_FIELDS, MailStore
-from .sync import MailSync, message_row
+from .sync import MailSync, _Stopped, message_row
 from .threads import thread_key
 
 INBOX = "INBOX"
@@ -43,6 +45,13 @@ _GONE = "This message is no longer in the mailbox."
 # Characters that reorder the text around them, so that a program can pass for a document.
 _BIDI = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 _NO_DRAFT = "This draft no longer exists."
+# Sorting, per pass: how many conversations at most, how many in one request to the
+# model, how often one is tried, and the largest message fetched just to be sorted.
+_SORT_PER_PASS, _SORT_BATCH, _SORT_TRIES, _SORT_MAX_BYTES = 60, 20, 3, 2_000_000
+_MAX_EXCLUDED = 200
+# An address, or @ and a domain. Anything else would be saved and never match anyone,
+# leaving the user to believe a sender is excluded when their mail is still being sent.
+_EXCLUDE_RULE = re.compile(r"[^@\s<>*,;]*@[^@\s<>*,;]+\.[^@\s<>*,;]+")
 _KEY = re.compile(r"[0-9a-f]{16}")
 # What the screen may hand over, at most. It is the only caller, but a limit here means a
 # mistake there cannot fill the cache.
@@ -241,6 +250,8 @@ class MailService:
         imap_factory: Callable[[str, int], imaplib.IMAP4] = _default_imap_factory,
         smtp_factory: Callable[[str, int], smtplib.SMTP] = _default_smtp_factory,
         complete: Optional[Callable[[str, str], str]] = None,
+        sort_complete: Optional[Callable[[str, str], str]] = None,
+        language: Callable[[], str] = lambda: "en",
         downloads: Optional[Path] = None,
     ) -> None:
         self._secrets = secrets
@@ -248,9 +259,13 @@ class MailService:
         self._smtp_factory = smtp_factory
         # The model, as `complete(system, user) -> str`. It raises with a plain reason.
         self._complete = complete
+        # The model that sorts, in the same shape: the cheapest one that fits, since it is
+        # asked about every new conversation. `language` is the app's, for the summaries.
+        self._sort_complete = sort_complete
+        self._language = language
         self._conn = MailConnection(secrets, imap_factory=imap_factory)
         self._store = MailStore(path)
-        self._sync = MailSync(self._conn, self._store)
+        self._sync = MailSync(self._conn, self._store, then=self._sort)
         self._downloads = downloads
         # Drafts being sent right now. In memory on purpose: after a restart nothing is
         # in flight, and `send_started_at` in the cache says a send was cut short.
@@ -288,6 +303,9 @@ class MailService:
             "last_error": self._store.get("last_error"),
             "can_archive": bool(self._store.get("can_archive")),
             "can_bin": bool(self._store.get("can_bin")),
+            "sorting": self._sorting(),
+            # False until the user has answered the question once, either way.
+            "sorting_asked": bool(self._store.get("sorting")),
         }
 
     def sync(self) -> dict[str, Any]:
@@ -298,8 +316,171 @@ class MailService:
         self._store.forget_others(account)
         return {"ok": True, "started": self._sync.request()}
 
-    def threads(self) -> dict[str, Any]:
-        return {"ok": True, "threads": self._store.threads(self._account(), INBOX)}
+    def threads(self, tab: str = "all") -> dict[str, Any]:
+        """The inbox, or with sorting on one of its tabs. With sorting off, and for a
+        sender the user has excluded, nothing sorting once said is shown."""
+        rows = self._store.threads(self._account(), INBOX)
+        sorting, rules = self._sorting(), self._excluded()
+        for row in rows:
+            if not sorting or triage.excluded(row["sender"], rules):
+                row["category"] = row["summary"] = ""
+        if tab in triage.TABS and sorting:
+            rows = [row for row in rows if row["category"] == tab]
+        return {"ok": True, "threads": rows}
+
+    # -- sorting ---------------------------------------------------------------------
+    def _sorting(self) -> bool:
+        return self._store.get("sorting") == "on"
+
+    def _excluded(self) -> list[str]:
+        try:
+            rules = json.loads(self._store.get("excluded") or "[]")
+        except ValueError:
+            return []
+        return [rule for rule in rules if isinstance(rule, str)] if isinstance(rules, list) else []
+
+    def settings(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "sorting": self._sorting(),
+            "excluded": self._excluded(),
+            # Why the last attempt to sort did not work, or "". Shown here and nowhere else.
+            "sort_error": self._store.get("sort_error"),
+        }
+
+    def put_settings(self, changes: Any) -> dict[str, Any]:
+        """Turn sorting on or off, and say whose mail is never sent to be sorted."""
+        account = self._account()
+        if not account:
+            return _not_connected()
+        changes = changes if isinstance(changes, dict) else {}
+        if "excluded" in changes:
+            rules = changes["excluded"]
+            if not isinstance(rules, list) or len(rules) > _MAX_EXCLUDED:
+                return {"ok": False, "error": "This list could not be saved."}
+            clean = []
+            for rule in rules:
+                rule = " ".join(str(rule).split()).lower() if isinstance(rule, str) else ""
+                if not rule:
+                    continue
+                if not _EXCLUDE_RULE.fullmatch(rule) or len(rule) > 254:
+                    return {
+                        "ok": False,
+                        "error": f'"{rule[:80]}" is not an address or a domain. '
+                        "Write ana@example.com, or @example.com for everyone there.",
+                    }
+                clean.append(rule)
+            clean = list(dict.fromkeys(clean))
+        if "sorting" in changes and not isinstance(changes["sorting"], bool):
+            # Anything but a plain yes or no is refused: taken as "no" it would turn
+            # sorting off and remove everything it had written.
+            return {"ok": False, "error": "This setting could not be saved."}
+        if "excluded" in changes:
+            self._store.put("excluded", json.dumps(clean))
+            # What was already said about their mail goes too, not only out of sight.
+            self._store.forget_sorting(
+                account,
+                [row["key"] for row in self._store.threads(account, INBOX) if triage.excluded(row["sender"], clean)],
+            )
+        if "sorting" in changes:
+            on = changes["sorting"]
+            self._store.put("sorting", "on" if on else "off")
+            self._store.put("sort_error", "")
+            if on:
+                self._sync.request()
+            else:
+                self._store.forget_sorting(account)
+        return self.settings()
+
+    def _text_to_sort(self, account: str, newest: dict[str, Any]) -> str:
+        """The start of the newest message's text. Read from the cache when the user has
+        opened the message, fetched otherwise; a very large message is not fetched just to
+        be sorted. What is fetched here is not kept: sorting leaves no copy of mail the
+        user has not opened. A message that cannot be read is sorted by its sender and
+        subject alone, so one odd email never costs the conversations sent with it."""
+        folder, uid = newest["folder"], newest["uid"]
+        rendered = self._store.body(account, folder, uid, time.time())
+        if rendered is None and newest["size"] <= _SORT_MAX_BYTES:
+            msg = self._conn.message(folder, uid)
+            try:
+                rendered = render_message(msg) if msg is not None else None
+            except Exception:
+                rendered = None
+        return (rendered or {}).get("text", "")[: triage.TEXT_LIMIT]
+
+    def _sort(self, account: str, check: Callable[[], None]) -> None:
+        """The second phase of a sync pass. Does nothing, and asks no model, unless the
+        user has turned sorting on."""
+        if not self._sorting() or self._sort_complete is None:
+            return
+        epoch, rules = self._store.epoch, self._excluded()
+        # An excluded sender's mail is never sent, and so never sorted. Left out before
+        # the pass's limit is counted, or sixty of theirs would use it up every time.
+        waiting = [
+            item
+            for item in self._store.to_sort(account, INBOX, _SORT_TRIES)
+            if not triage.excluded(item["newest"]["sender"], rules)
+        ][:_SORT_PER_PASS]
+        ruled, ask = [], []
+        for item in waiting:
+            newest = item["newest"]
+            category = triage.by_rule(newest, account)
+            if category:
+                ruled.append({"key": item["key"], "category": category, "summary": "", "for_message": item["for_message"]})
+            else:
+                ask.append(item)
+        if not self._store.put_sorted(account, ruled, epoch):
+            return
+        for start in range(0, len(ask), _SORT_BATCH):
+            check()
+            # Asked again before each request: the user may have turned sorting off, or
+            # excluded a sender, while the last one was on its way.
+            if not self._sorting():
+                return
+            rules = self._excluded()
+            batch = [
+                item
+                for item in ask[start : start + _SORT_BATCH]
+                if not triage.excluded(item["newest"]["sender"], rules)
+            ]
+            if not batch:
+                continue
+            try:
+                items = [
+                    {
+                        "key": item["key"],
+                        "sender": item["newest"]["sender"],
+                        "subject": item["newest"]["subject"],
+                        "text": self._text_to_sort(account, item["newest"]),
+                    }
+                    for item in batch
+                ]
+                check()
+                said = triage.sort_batch(self._sort_complete, items, self._language())
+                problem = ""
+            except (MailError, _Stopped):
+                # The mailbox's trouble, or the pass being told to stop: the pass's to deal with.
+                raise
+            except Exception as exc:  # every way a provider can fail lands here
+                said = {}
+                problem = f"Mimi could not sort new mail. {exc}"[:400]
+            # The answer came back to a different world if, meanwhile, the mailbox was
+            # disconnected, sorting was turned off, or one of these senders was excluded.
+            if epoch != self._store.epoch or not self._sorting():
+                return
+            self._store.put("sort_error", problem)
+            rules = self._excluded()
+            batch = [item for item in batch if not triage.excluded(item["newest"]["sender"], rules)]
+            done = [
+                {"key": item["key"], "category": said[item["key"]][0], "summary": said[item["key"]][1], "for_message": item["for_message"]}
+                for item in batch
+                if item["key"] in said
+            ]
+            # Each batch is kept as it comes back, so the list fills in as sorting goes.
+            if not self._store.put_sorted(account, done, epoch):
+                return
+            # Asked about and not answered, or the request failed: counted, so it stops.
+            self._store.note_unsorted(account, [item for item in batch if item["key"] not in said], epoch)
 
     def thread(self, key: str) -> dict[str, Any]:
         account = self._account()

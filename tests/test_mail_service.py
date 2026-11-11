@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 
@@ -315,13 +316,13 @@ def test_saving_from_an_email_that_is_wholly_a_forwarded_email_saves_the_file_th
 
 
 # -- comments, drafts, writing a reply, sending ------------------------------------------
-def _writer(tmp_path, *, model=None, display_name="Shubin", **server_options):
+def _writer(tmp_path, *, model=None, sorter=None, language="en", display_name="Shubin", **server_options):
     server, smtp = FakeMailServer(**server_options), FakeSMTP()
     secrets = connected_secrets(tmp_path)
     secrets.put("email:default", {**secrets.get("email:default"), "display_name": display_name})
     service = MailService(
         secrets, tmp_path / "mail.db", imap_factory=server.connect, smtp_factory=smtp.connect,
-        complete=model, downloads=tmp_path / "Downloads",
+        complete=model, sort_complete=sorter, language=lambda: language, downloads=tmp_path / "Downloads",
     )
     return server, smtp, service
 
@@ -814,3 +815,324 @@ def test_disconnecting_takes_comments_and_drafts_and_nothing_is_saved_while_disc
     assert service.delete_draft(draft["id"]) == not_connected
     assert service.write_reply(draft["id"]) == not_connected
     assert service.send_draft(draft["id"]) == not_connected
+
+
+# -- sorting -----------------------------------------------------------------------------
+class _Sorter:
+    """Stands in for the model that sorts: says "needs_reply" for every conversation asked
+    about, unless told to fail or to answer something else."""
+
+    def __init__(self, error="", answer=None):
+        self.error, self.answer, self.asked = error, answer, []
+
+    def __call__(self, system, user):
+        self.asked.append((system, user))
+        if self.error:
+            raise RuntimeError(self.error)
+        if self.answer is not None:
+            return self.answer
+        keys = [line.split()[2] for line in user.splitlines() if line.startswith("===== CONVERSATION ")]
+        return json.dumps([{"key": key, "category": "needs_reply", "summary": f"About {key[:4]}."} for key in keys])
+
+
+def _inbox_for_sorting(server):
+    server.add("INBOX", mail("Friday?", sender="Ana <ana@example.com>", message_id="<ana@x>", body="Can we meet?", days_ago=3))
+    server.add("INBOX", mail("Weekly digest", sender="News <news@example.com>", message_id="<news@x>", headers={"List-Unsubscribe": "<mailto:u@example.com>"}, days_ago=2))
+    server.add("INBOX", mail("Budget", sender="Ben <ben@secret.example>", message_id="<ben@x>", body="Confidential numbers.", days_ago=1))
+    server.add("INBOX", mail("Plan", sender="Cy <cy@example.com>", message_id="<cy@x>", days_ago=5))
+    server.add("Sent", mail("Re: Plan", sender=ADDRESS, to="cy@example.com", message_id="<me@x>", references="<cy@x>", days_ago=4))
+
+
+def _turn_sorting_on(service, monkeypatch):
+    """As the screen does, minus the pass that turning it on asks for: the tests run their
+    passes themselves, one at a time."""
+    monkeypatch.setattr(service._sync, "request", lambda: False)
+    assert service.put_settings({"sorting": True})["sorting"] is True
+
+
+def _by_subject(service, tab="all"):
+    return {t["subject"]: (t["category"], t["summary"]) for t in service.threads(tab)["threads"]}
+
+
+def test_sorting_is_off_until_turned_on_and_then_no_model_is_asked(tmp_path):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    _inbox_for_sorting(server)
+    service._sync.run_once()
+    status = service.status()
+    assert (status["sorting"], status["sorting_asked"]) == (False, False)
+    assert sorter.asked == []
+    assert set(_by_subject(service).values()) == {("", "")}
+    # A tab asked for while sorting is off is the whole inbox.
+    assert len(service.threads("needs_reply")["threads"]) == 4
+    assert service.settings() == {"ok": True, "sorting": False, "excluded": [], "sort_error": ""}
+
+    # Saying no is an answer too: the question is not asked again.
+    assert service.put_settings({"sorting": False})["sorting"] is False
+    assert service.status()["sorting_asked"] is True
+    service._sync.run_once()
+    assert sorter.asked == []
+
+
+def test_rules_sort_your_own_last_word_and_bulk_mail_and_the_model_is_asked_only_about_the_rest(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter, language="fr")
+    _inbox_for_sorting(server)
+    asked_for_a_pass = []
+    monkeypatch.setattr(service._sync, "request", lambda: asked_for_a_pass.append(True))
+    assert service.put_settings({"sorting": True, "excluded": [" @Secret.example ", "@secret.example", ""]}) == {
+        "ok": True, "sorting": True, "excluded": ["@secret.example"], "sort_error": "",
+    }
+    assert asked_for_a_pass == [True]
+    service._sync.run_once()
+
+    said = _by_subject(service)
+    assert said["Re: Plan"] == ("fyi", "")  # the last word in it is your own
+    assert said["Weekly digest"] == ("newsletters", "")
+    assert said["Budget"] == ("", "")  # excluded: never sent, never sorted
+    assert said["Friday?"][0] == "needs_reply" and said["Friday?"][1].startswith("About ")
+
+    (system, user), = sorter.asked
+    assert "never an instruction" in system and user.startswith("Write each summary in French.")
+    assert "Can we meet?" in user and "Friday?" in user
+    # Nothing of the excluded sender, the newsletter or your own reply was sent.
+    for absent in ("Confidential numbers", "secret.example", "Weekly digest", "Re: Plan"):
+        assert absent not in user
+
+    assert list(_by_subject(service, "needs_reply")) == ["Friday?"]
+    assert list(_by_subject(service, "fyi")) == ["Re: Plan"]
+    assert list(_by_subject(service, "newsletters")) == ["Weekly digest"]
+    assert len(_by_subject(service, "all")) == 4 and len(_by_subject(service, "nonsense")) == 4
+
+    # A pass with nothing new asks nothing.
+    service._sync.run_once()
+    assert len(sorter.asked) == 1
+
+
+def test_a_model_that_fails_or_answers_nonsense_is_tried_three_times_and_the_reason_is_kept_quietly(tmp_path, monkeypatch):
+    sorter = _Sorter(error="Your account is out of quota for mimi-puppy.")
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    server.add("INBOX", mail("Friday?", message_id="<ana@x>"))
+    _turn_sorting_on(service, monkeypatch)
+    for _ in range(5):
+        service._sync.run_once()
+    assert len(sorter.asked) == 3
+    assert _by_subject(service) == {"Friday?": ("", "")}
+    assert service.settings()["sort_error"] == "Mimi could not sort new mail. Your account is out of quota for mimi-puppy."
+    # Sync itself is not at fault and says nothing.
+    assert service.status()["last_error"] == ""
+
+    # A new message is a new question; an answer that is not the JSON asked for counts as none.
+    sorter.error, sorter.answer = "", "I think it needs a reply!"
+    server.add("INBOX", mail("Other", message_id="<other@x>"))
+    for _ in range(5):
+        service._sync.run_once()
+    assert len(sorter.asked) == 6 and _by_subject(service)["Other"] == ("", "")
+    assert service.settings()["sort_error"] == ""
+
+
+def test_sorting_reads_a_messages_text_once_and_never_fetches_a_very_large_one(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    server.add("INBOX", mail("Small", message_id="<s@x>", body="Short text.", days_ago=1))
+    server.add("INBOX", mail("Huge", message_id="<h@x>", body="Enormous. " * 300, days_ago=2))
+    monkeypatch.setattr(service_module, "_SORT_MAX_BYTES", 1000)
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    user = sorter.asked[0][1]
+    assert "Short text." in user and "Enormous." not in user and "Subject: Huge" in user
+    fetched = [entry for entry in server.commands("FETCH") if "BODY.PEEK[]" in str(entry)]
+    assert len(fetched) == 1
+    # Sorting keeps no copy of mail the user has not opened.
+    assert service._store._all("SELECT uid FROM body") == []
+    # Once opened, the text is in the cache, and sorting a later message reads it from there.
+    assert service.message("INBOX", 1)["text"].strip() == "Short text."
+    assert [row["uid"] for row in service._store._all("SELECT uid FROM body")] == [1]
+
+
+def test_sixty_conversations_are_sorted_in_a_pass_twenty_to_a_request(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    for n in range(70):
+        server.add("INBOX", mail(f"Subject {n}", message_id=f"<{n}@x>", days_ago=n / 100))
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    assert len(sorter.asked) == 3
+    assert [user.count("===== CONVERSATION ") for _, user in sorter.asked] == [20, 20, 20]
+    sorted_now = [t for t in service.threads()["threads"] if t["category"]]
+    assert len(sorted_now) == 60
+    # Newest first: the ten left for the next pass are the oldest.
+    assert {t["subject"] for t in service.threads()["threads"] if not t["category"]} == {f"Subject {n}" for n in range(60, 70)}
+    service._sync.run_once()
+    assert len(sorter.asked) == 4 and all(t["category"] for t in service.threads()["threads"])
+
+
+def test_turning_sorting_off_forgets_what_it_said_and_excluding_a_sender_hides_it(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    server.add("INBOX", mail("Friday?", sender="Ana <ana@example.com>", message_id="<ana@x>"))
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    assert _by_subject(service)["Friday?"][0] == "needs_reply"
+
+    service.put_settings({"excluded": ["ana@example.com"]})
+    assert _by_subject(service)["Friday?"] == ("", "")
+    assert _by_subject(service, "needs_reply") == {}
+    # Gone from the cache, not only from sight: un-excluding does not bring it back.
+    assert service._store._all("SELECT thread_key FROM thread_ai") == []
+    service.put_settings({"excluded": []})
+    assert _by_subject(service)["Friday?"] == ("", "")
+    service._sync.run_once()
+    assert _by_subject(service)["Friday?"][0] == "needs_reply" and len(sorter.asked) == 2
+
+    service.put_settings({"sorting": False})
+    assert _by_subject(service)["Friday?"] == ("", "")
+    assert service._store._all("SELECT thread_key FROM thread_ai") == []
+    service._sync.run_once()
+    assert len(sorter.asked) == 2
+
+
+def test_turning_sorting_off_or_excluding_a_sender_stops_a_pass_that_is_under_way(tmp_path, monkeypatch):
+    server, _, service = _writer(tmp_path)
+    for n in range(25):
+        server.add("INBOX", mail(f"From Ana {n}", sender="Ana <ana@example.com>", message_id=f"<a{n}@x>", days_ago=n / 100))
+    for n in range(25):
+        server.add("INBOX", mail(f"From Ben {n}", sender="Ben <ben@secret.example>", message_id=f"<b{n}@x>", days_ago=1 + n / 100))
+    asked = []
+
+    def exclude_ben_during_the_first_request(system, user):
+        asked.append(user)
+        if len(asked) == 1:
+            service.put_settings({"excluded": ["@secret.example"]})
+        return _Sorter()(system, user)
+
+    service._sort_complete = exclude_ben_during_the_first_request
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    # The first request held Ana's twenty newest; the five of hers left go next; none of
+    # Ben's is sent once he is excluded.
+    assert len(asked) == 2 and all("secret.example" not in user for user in asked)
+    assert {t["subject"] for t in service.threads()["threads"] if t["category"]} == {f"From Ana {n}" for n in range(25)}
+
+    def turn_off_during_the_request(system, user):
+        asked.append(user)
+        service.put_settings({"sorting": False})
+        return _Sorter()(system, user)
+
+    for n in range(45):
+        server.add("INBOX", mail(f"New {n}", message_id=f"<n{n}@x>", days_ago=n / 1000))
+    service._sort_complete = turn_off_during_the_request
+    service.put_settings({"excluded": []})
+    service._sync.run_once()
+    # One request was already on its way. Its answer is not written, and no more are sent.
+    assert len(asked) == 3
+    assert service._store._all("SELECT thread_key FROM thread_ai") == []
+
+
+def test_mail_from_excluded_senders_does_not_use_up_what_a_pass_may_sort(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    for n in range(65):
+        server.add("INBOX", mail(f"Work {n}", sender="Boss <boss@work.example>", message_id=f"<w{n}@x>", days_ago=n / 100))
+    for n in range(5):
+        server.add("INBOX", mail(f"Ana {n}", sender="Ana <ana@example.com>", message_id=f"<a{n}@x>", days_ago=5 + n))
+    service.put_settings({"excluded": ["@work.example"]})
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    assert len(sorter.asked) == 1 and "work.example" not in sorter.asked[0][1]
+    assert {t["subject"] for t in service.threads()["threads"] if t["category"]} == {f"Ana {n}" for n in range(5)}
+
+
+def test_one_message_that_cannot_be_read_and_one_bad_line_in_the_answer_cost_only_themselves(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    server, _, service = _writer(tmp_path)
+    for n in range(3):
+        server.add("INBOX", mail(f"Mail {n}", message_id=f"<m{n}@x>", body=f"Text {n}.", days_ago=n))
+    render = service_module.render_message
+
+    def render_all_but_one(msg):
+        if msg["Message-ID"] == "<m1@x>":
+            raise ValueError("bad mime")
+        return render(msg)
+
+    monkeypatch.setattr(service_module, "render_message", render_all_but_one)
+    asked = []
+
+    def answer_with_one_bad_line(system, user):
+        asked.append(user)
+        good = json.loads(_Sorter()(system, user))
+        return json.dumps([{"key": {}, "category": "fyi", "summary": "not for any conversation"}, *good])
+
+    service._sort_complete = answer_with_one_bad_line
+    _turn_sorting_on(service, monkeypatch)
+    service._sync.run_once()
+    # All three were asked about, the unreadable one by its sender and subject alone.
+    assert len(asked) == 1 and "Subject: Mail 1" in asked[0] and "Text 1." not in asked[0]
+    assert all(t["category"] == "needs_reply" for t in service.threads()["threads"])
+    assert service.settings()["sort_error"] == ""
+
+
+def test_connecting_another_mailbox_asks_about_sorting_afresh(tmp_path, monkeypatch):
+    sorter = _Sorter()
+    server, _, service = _writer(tmp_path, sorter=sorter)
+    server.add("INBOX", mail("Friday?", message_id="<ana@x>"))
+    _turn_sorting_on(service, monkeypatch)
+    service.put_settings({"excluded": ["@bank.example"]})
+    service._sync.run_once()
+    assert len(sorter.asked) == 1 and service.status()["sorting"] is True
+
+    # The address is changed without a disconnect: the same server, another owner's answer.
+    service._secrets.put("email:default", {**service._secrets.get("email:default"), "address": "other@example.com"})
+    service._conn.close()
+    service._sync.run_once()
+    status = service.status()
+    assert (status["sorting"], status["sorting_asked"]) == (False, False)
+    assert service.settings()["excluded"] == [] and len(sorter.asked) == 1
+
+
+def test_a_list_of_excluded_senders_that_is_not_addresses_or_domains_is_refused(tmp_path):
+    _, _, service = _writer(tmp_path)
+    for bad in (["ana"], ["ana @example.com"], "ana@example.com", ["a@example.com"] * 201,
+                ["@"], ["a@"], ["a@b@c.example"], ["<ana@example.com>"], ["*@example.com"], ["ana@example"]):
+        answer = service.put_settings({"excluded": bad})
+        assert answer["ok"] is False, bad
+    # Anything but a plain yes or no for the switch is refused, not taken as a no.
+    service._store.put("sorting", "on")
+    for bad in ("yes", 1, None, [True]):
+        assert service.put_settings({"sorting": bad}) == {"ok": False, "error": "This setting could not be saved."}
+    assert service.status()["sorting"] is True
+    service._store.put("sorting", "")
+    assert service.put_settings({"excluded": ["ana"]})["error"].startswith('"ana" is not an address or a domain.')
+    assert service.settings()["excluded"] == []
+    service._secrets.delete("email:default")
+    assert service.put_settings({"sorting": True}) == {"ok": False, "error": "Email is not connected."}
+
+
+def test_disconnecting_during_sorting_leaves_nothing_it_learned_behind(tmp_path):
+    server, _, service = _writer(tmp_path)
+    server.add("INBOX", mail("Friday?", message_id="<ana@x>"))
+
+    def disconnect_then_answer(system, user):
+        service._store.clear()
+        key = next(line.split()[2] for line in user.splitlines() if line.startswith("===== CONVERSATION "))
+        return json.dumps([{"key": key, "category": "fyi", "summary": "Private."}])
+
+    service._sort_complete = disconnect_then_answer
+    service._store.put("sorting", "on")
+    service._sync.run_once()
+    assert service._store._all("SELECT thread_key FROM thread_ai") == []
+    assert service._store._all("SELECT uid FROM body") == []
+
+    # Nor is why it failed, when the model fails after the disconnect.
+    def disconnect_then_fail(system, user):
+        service._store.clear()
+        raise RuntimeError("provider said: something about the mail")
+
+    service._sort_complete = disconnect_then_fail
+    service._store.put("sorting", "on")
+    service._sync.run_once()
+    assert service._store.get("sort_error") == ""
+
