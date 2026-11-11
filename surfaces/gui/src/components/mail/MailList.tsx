@@ -12,6 +12,8 @@ export interface MailRow {
   has_attachments?: boolean;
   /** Where a search result sits, shown because it may not be the inbox. */
   folder?: string;
+  /** One line on what the conversation is about, written by Mimi when sorting is on. */
+  summary?: string;
   /** Why the last archive, bin or mark on this row did not go through. */
   error?: string;
 }
@@ -78,6 +80,9 @@ export function MailList({
               <span className="mail-row-date">{formatMailDate(row.date)}</span>
             </span>
             <span className="mail-row-subject" data-no-translate>{row.subject || "—"}</span>
+            {row.summary ? (
+              <span className="mail-row-summary" data-no-translate data-testid="mail-row-summary">{row.summary}</span>
+            ) : null}
             {row.folder ? <span className="mail-row-folder">{row.folder}</span> : null}
             {row.error ? <span className="mail-row-error" role="alert">{row.error}</span> : null}
           </button>

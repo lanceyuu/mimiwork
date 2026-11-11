@@ -4,9 +4,12 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 const STATUS = {
   ok: true, connected: true, address: "me@example.com", syncing: false, revision: 1,
-  last_sync: 0, last_error: "", can_archive: true, can_bin: true,
+  last_sync: 0, last_error: "", can_archive: true, can_bin: true, sorting: false, sorting_asked: true,
 };
-const ROW = { key: "k1", subject: "Plan for Friday", sender: "Ana <ana@example.com>", date: 0, unread: false, count: 1, has_attachments: false };
+const ROW = {
+  key: "k1", subject: "Plan for Friday", sender: "Ana <ana@example.com>", date: 0, unread: false, count: 1,
+  has_attachments: false, category: "", summary: "",
+};
 const ENVELOPE = {
   folder: "INBOX", uid: 1, message_id: "<1@x>", from: "Ana <ana@example.com>", to: "me@example.com",
   cc: "", subject: "Plan for Friday", date: 0, unread: false, has_attachments: false,
@@ -34,6 +37,8 @@ const api = vi.hoisted(() => ({
   writeMailReply: vi.fn(),
   sendMailDraft: vi.fn(),
   reportProblem: vi.fn(),
+  getMailSettings: vi.fn(),
+  putMailSettings: vi.fn(),
 }));
 const DRAFT = {
   id: "d1", thread_key: "", to: "ben@example.com", cc: "", subject: "Lunch on Thursday", body: "Noon?",
@@ -64,6 +69,8 @@ beforeEach(() => {
   api.updateMailDraft.mockResolvedValue({ ok: true });
   api.deleteMailDraft.mockResolvedValue({ ok: true });
   api.sendMailDraft.mockResolvedValue({ ok: true, note: "" });
+  api.getMailSettings.mockResolvedValue({ ok: true, sorting: false, excluded: [], sort_error: "" });
+  api.putMailSettings.mockResolvedValue({ ok: true, sorting: true, excluded: [], sort_error: "" });
   api.searchMail.mockResolvedValue({ ok: true, results: [{ ...ENVELOPE, folder: "Archive", uid: 9, subject: "Invoice January" }] });
 });
 
@@ -279,5 +286,68 @@ describe("MailView", () => {
     expect(await screen.findByTestId("mail-draft-pane")).toBeTruthy();
     expect(await screen.findByTestId("mail-composer")).toBeTruthy();
     expect(screen.queryByTestId("mail-comments")).toBeNull();
+  });
+
+  it("asks once whether Mimi may sort the mail, and turns it on only on a yes", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, sorting_asked: false });
+    render(<MailView onOpenConnectors={() => {}} />);
+    const offer = await screen.findByTestId("mail-sorting-offer");
+    expect(offer.textContent).toContain("spends credits");
+    expect(screen.queryByTestId("mail-tab-needs_reply")).toBeNull();
+    api.getMailStatus.mockResolvedValue({ ...STATUS, sorting: true, sorting_asked: true });
+    fireEvent.click(screen.getByTestId("mail-sorting-yes"));
+    await waitFor(() => expect(api.putMailSettings).toHaveBeenCalledWith({ sorting: true }));
+    await waitFor(() => expect(screen.queryByTestId("mail-sorting-offer")).toBeNull());
+    expect(await screen.findByTestId("mail-tab-needs_reply")).toBeTruthy();
+  });
+
+  it("does not ask again once answered, and a no is sent as a no", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, sorting_asked: false });
+    api.putMailSettings.mockResolvedValue({ ok: true, sorting: false, excluded: [], sort_error: "" });
+    render(<MailView onOpenConnectors={() => {}} />);
+    const no = await screen.findByTestId("mail-sorting-no");
+    api.getMailStatus.mockResolvedValue(STATUS);
+    fireEvent.click(no);
+    await waitFor(() => expect(api.putMailSettings).toHaveBeenCalledWith({ sorting: false }));
+    await waitFor(() => expect(screen.queryByTestId("mail-sorting-offer")).toBeNull());
+    expect(api.syncMail).toHaveBeenCalledTimes(1); // the one from opening Mail, not one for sorting
+  });
+
+  it("with sorting on, shows each conversation's line and lists it under its own tab", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, sorting: true });
+    api.getMailThreads.mockResolvedValue([
+      { ...ROW, category: "needs_reply", summary: "Ana asks to meet on Friday." },
+      { ...ROW, key: "k2", subject: "Weekly digest", category: "newsletters" },
+      { ...ROW, key: "k3", subject: "Not sorted yet" },
+    ]);
+    render(<MailView onOpenConnectors={() => {}} />);
+    await waitFor(() => expect(screen.getAllByTestId("mail-row")).toHaveLength(3));
+    expect(screen.getByTestId("mail-row-summary").textContent).toBe("Ana asks to meet on Friday.");
+    fireEvent.click(screen.getByTestId("mail-tab-needs_reply"));
+    expect(screen.getAllByTestId("mail-row").map((row) => row.textContent)).toEqual([expect.stringContaining("Plan for Friday")]);
+    fireEvent.click(screen.getByTestId("mail-tab-newsletters"));
+    expect(screen.getByTestId("mail-row").textContent).toContain("Weekly digest");
+    fireEvent.click(screen.getByTestId("mail-tab-fyi"));
+    expect(screen.getByTestId("mail-list-empty")).toBeTruthy();
+    // What has not been sorted is under All and nowhere else.
+    fireEvent.click(screen.getByTestId("mail-tab-all"));
+    expect(screen.getAllByTestId("mail-row")).toHaveLength(3);
+  });
+
+  it("falls back to the whole inbox when sorting is turned off while a sorted tab is showing", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, sorting: true });
+    api.getMailThreads.mockResolvedValue([{ ...ROW, category: "fyi", summary: "A receipt." }]);
+    render(<MailView onOpenConnectors={() => {}} />);
+    fireEvent.click(await screen.findByTestId("mail-tab-fyi"));
+    api.getMailStatus.mockResolvedValue(STATUS);
+    api.getMailThreads.mockResolvedValue([ROW]);
+    api.putMailSettings.mockResolvedValue({ ok: true, sorting: false, excluded: [], sort_error: "" });
+    api.getMailSettings.mockResolvedValue({ ok: true, sorting: true, excluded: [], sort_error: "" });
+    fireEvent.click(screen.getByTestId("mail-sorting"));
+    fireEvent.click(await screen.findByTestId("mail-sorting-switch"));
+    await waitFor(() => expect(api.putMailSettings).toHaveBeenCalledWith({ sorting: false }));
+    await waitFor(() => expect(screen.queryByTestId("mail-tab-fyi")).toBeNull());
+    expect(screen.getByTestId("mail-row").textContent).toContain("Plan for Friday");
+    expect(screen.queryByTestId("mail-row-summary")).toBeNull();
   });
 });

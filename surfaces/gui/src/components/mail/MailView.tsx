@@ -7,6 +7,7 @@ import {
   getMailStatus,
   getMailThreads,
   markMailThread,
+  putMailSettings,
   searchMail,
   syncMail,
   type MailDraft,
@@ -20,11 +21,21 @@ import { Icon } from "../Icon";
 import { MailDraftPane } from "./MailComposer";
 import { formatMailDate, MailList, type MailRow } from "./MailList";
 import { MailReader, type Opened } from "./MailReader";
+import { MailSortingOffer, MailSortingSettings } from "./MailSorting";
 
 const POLL_MS = 2000;
 const SYNC_EVERY_MS = 120_000;
 const OFFLINE = "Could not reach MimiWork. Try again.";
 
+type Tab = "all" | "needs_reply" | "fyi" | "newsletters" | "drafts";
+const SORTED: Tab[] = ["needs_reply", "fyi", "newsletters"];
+const TAB_NAMES: Record<Tab, string> = {
+  all: "All",
+  needs_reply: "Needs reply",
+  fyi: "FYI",
+  newsletters: "Newsletters",
+  drafts: "Drafts",
+};
 const draftRow = (id: string) => `draft/${id}`;
 const openedId = (opened: Opened | null): string =>
   !opened
@@ -46,7 +57,8 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const [tab, setTab] = useState<"all" | "drafts">("all");
+  const [picked, setTab] = useState<Tab>("all");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [drafts, setDrafts] = useState<MailDraft[]>([]);
   // One line above the reader: that a message went, or why something could not be done
   // when the place that would have said so is no longer on screen.
@@ -110,10 +122,10 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   // ponytail: asked for again every two seconds. Have the editor say when it has saved
   // if this is ever seen to cost anything.
   useEffect(() => {
-    if (tab !== "drafts") return;
+    if (picked !== "drafts") return;
     const timer = window.setInterval(loadDrafts, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [tab, loadDrafts]);
+  }, [picked, loadDrafts]);
 
   // `from` names the reader that sent. If the user has moved on to something else by the
   // time the answer comes, what they are reading now is left open.
@@ -190,6 +202,18 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
 
   if (!status) return <main className="app-page mail-page" data-testid="mail-page" />;
 
+  // The sorted tabs exist only while sorting is on. If it is turned off while one of them
+  // is showing, the list falls back to the whole inbox.
+  const tabs: Tab[] = status.sorting ? ["all", ...SORTED, "drafts"] : ["all", "drafts"];
+  const tab: Tab = tabs.includes(picked) ? picked : "all";
+
+  const answerOffer = async (on: boolean) => {
+    const reply = await putMailSettings({ sorting: on }).catch(() => null);
+    if (!reply?.ok) setNotice({ text: t(reply?.error || OFFLINE), bad: true });
+    await refresh(true);
+    if (reply?.ok && on) startSync();
+  };
+
   if (!status.connected) {
     return (
       <main className="app-page mail-page" data-testid="mail-page">
@@ -223,7 +247,9 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           date: d.updated_at,
           unread: false,
         }))
-      : threads.map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
+      : threads
+          .filter((row) => tab === "all" || row.category === tab)
+          .map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
 
   const open = (id: string) => {
     setNotice(null);
@@ -285,6 +311,9 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           <button className="btn sm" data-testid="mail-new" onClick={() => void newMessage()}>
             <Icon name="pencil" size={14} /> {t("New message")}
           </button>
+          <button className="btn sm" data-testid="mail-sorting" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((now) => !now)}>
+            {t("Sorting")}
+          </button>
           <button className="btn sm" data-testid="mail-refresh" disabled={status.syncing} onClick={startSync}>
             <Icon name="refresh" size={14} /> {t("Refresh")}
           </button>
@@ -307,7 +336,7 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
             </div>
           ) : (
             <div className="mail-tabs">
-              {(["all", "drafts"] as const).map((name) => (
+              {tabs.map((name) => (
                 <button
                   key={name}
                   aria-pressed={tab === name}
@@ -319,12 +348,13 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
                     if (name === "drafts") loadDrafts();
                   }}
                 >
-                  {name === "all" ? t("All") : t("Drafts")}
+                  {t(TAB_NAMES[name])}
                   {name === "drafts" && drafts.length > 0 ? <span className="mail-tab-count">{drafts.length}</span> : null}
                 </button>
               ))}
             </div>
           )}
+          {!results && !status.sorting_asked && <MailSortingOffer onAnswer={(on) => void answerOffer(on)} />}
           {/* A search that failed shows why in place of results, not "Nothing found." */}
           {searchError ? (
             <div className="mail-error" role="alert" data-testid="mail-search-error">{searchError}</div>
@@ -333,6 +363,15 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           )}
         </div>
         <div className="mail-reader-pane">
+          {settingsOpen && (
+            // Opened afresh when sorting changes elsewhere (the offer above the list), so
+            // its switch never shows a state that is no longer true.
+            <MailSortingSettings
+              key={String(status.sorting)}
+              onChanged={() => void refresh(true)}
+              onClose={() => setSettingsOpen(false)}
+            />
+          )}
           {notice && (
             <div
               className={notice.bad ? "mail-error mail-notice" : "mail-note mail-notice"}
