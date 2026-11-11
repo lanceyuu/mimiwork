@@ -1755,8 +1755,16 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.mail.sync()
 
     @app.get("/v1/mail/threads")
-    def mail_threads() -> dict[str, Any]:
-        return manager.mail.threads()
+    def mail_threads(tab: str = "all") -> dict[str, Any]:
+        return manager.mail.threads(tab)
+
+    @app.get("/v1/mail/settings")
+    def mail_settings() -> dict[str, Any]:
+        return manager.mail.settings()
+
+    @app.put("/v1/mail/settings")
+    def mail_settings_put(body: dict) -> dict[str, Any]:
+        return manager.mail.put_settings(body)
 
     @app.get("/v1/mail/threads/{key}")
     def mail_thread(key: str) -> dict[str, Any]:

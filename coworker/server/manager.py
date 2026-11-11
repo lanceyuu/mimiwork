@@ -322,7 +322,13 @@ class SessionManager:
         # Mail: the connection and cache behind the Mail section (coworker/mail/).
         from ..mail.service import MailService
 
-        self.mail = MailService(self.secrets, base / "mail.db", complete=self._mail_complete)
+        self.mail = MailService(
+            self.secrets,
+            base / "mail.db",
+            complete=self._mail_complete,
+            sort_complete=self._mail_sort_complete,
+            language=lambda: str(self._prefs.get("language") or "en"),
+        )
         # Apps: Mimi-written HTML tools, one folder each (Apps section).
         from ..apps import AppStore
 
@@ -3524,10 +3530,22 @@ class SessionManager:
         provider, _, name = (self.model or "").partition(":")
         return f"{provider}:mimi-hound" if name == "mimi-puppy" else self.model
 
-    def _mail_complete(self, system: str, user: str) -> str:
-        """Mail's one model call, for Write reply: no tools, no session. Spends credits
-        exactly like a chat turn. Raises with a plain reason."""
-        model = self._mail_reply_model()
+    def _mail_sort_model(self) -> str:
+        """The model that sorts mail: the cheapest that fits. Sorting asks about every new
+        conversation, so on a Mimi tier it uses the same provider's smallest one; on any
+        other model there is no cheaper sibling to know of, so the default model is used."""
+        from ..qualitati import MIMI_TIERS
+
+        provider, _, name = (self.model or "").partition(":")
+        return f"{provider}:mimi-puppy" if name in MIMI_TIERS else self.model
+
+    def _mail_sort_complete(self, system: str, user: str) -> str:
+        return self._mail_complete(system, user, model=self._mail_sort_model())
+
+    def _mail_complete(self, system: str, user: str, model: str = "") -> str:
+        """Mail's model call, for Write reply and for sorting: no tools, no session. Spends
+        credits exactly like a chat turn. Raises with a plain reason."""
+        model = model or self._mail_reply_model()
         try:
             turn = self.provider.complete(
                 model=model,

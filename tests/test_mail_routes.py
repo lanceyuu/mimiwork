@@ -33,6 +33,7 @@ def _client(tmp_path, server, smtp=None):
         imap_factory=server.connect,
         smtp_factory=(smtp or FakeSMTP()).connect,
         complete=manager._mail_complete,
+        sort_complete=manager._mail_sort_complete,
         downloads=tmp_path / "Downloads",
     )
     return TestClient(create_app(manager))
@@ -226,4 +227,32 @@ def test_a_reply_is_written_by_the_next_tier_up_when_the_default_is_the_smallest
         manager.model = default
         assert manager._mail_complete("system", "user") == "Hi."
         assert asked[-1] == used
+
+
+def test_sorting_is_turned_on_over_rest_and_the_inbox_is_then_asked_for_by_tab(tmp_path):
+    server = FakeMailServer()
+    server.add("INBOX", mail("Friday?", message_id="<ana@x>", body="Can we meet?"))
+    server.add("INBOX", mail("Digest", message_id="<news@x>", headers={"List-Id": "<news.example.com>"}))
+    client = _client(tmp_path, server)
+    manager = client.app.state.manager
+    assert client.get("/v1/mail/status").json()["sorting_asked"] is False
+    assert client.get("/v1/mail/settings").json() == {"ok": True, "sorting": False, "excluded": [], "sort_error": ""}
+
+    # The model in these tests answers "ok", which is not the answer sorting asks for, so
+    # only the rules sort here; what matters is which model was asked, and with what.
+    manager.model = "qualitati:mimi-wolf"
+    assert manager._mail_sort_model() == "qualitati:mimi-puppy"
+    manager.model = "openai:gpt-4o"
+    assert manager._mail_sort_model() == "openai:gpt-4o"
+    assert client.put("/v1/mail/settings", json={"sorting": True, "excluded": ["@x.example"]}).json() == {
+        "ok": True, "sorting": True, "excluded": ["@x.example"], "sort_error": "",
+    }
+    _sync(client)
+    _sync(client)
+    system, user = manager.provider.calls[-1]
+    assert "You sort a person's incoming email." in system["content"] and "Can we meet?" in user["content"]
+    assert [t["subject"] for t in client.get("/v1/mail/threads", params={"tab": "newsletters"}).json()["threads"]] == ["Digest"]
+    assert client.get("/v1/mail/threads", params={"tab": "needs_reply"}).json()["threads"] == []
+    assert len(client.get("/v1/mail/threads").json()["threads"]) == 2
+    assert client.put("/v1/mail/settings", json={"excluded": ["nonsense"]}).json()["ok"] is False
 
