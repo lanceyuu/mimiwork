@@ -3516,19 +3516,28 @@ class SessionManager:
             text = ""
         return {"ok": True, "model": model, "reply": text[:120]}
 
+    def _mail_reply_model(self) -> str:
+        """The model that writes a reply: the user's default, except that the smallest
+        Mimi tier is stepped up one. Tried on real mail, Puppy wrote a sound reply and then
+        ignored "shorter"; a reply is one short call the user reads before sending, so the
+        next tier is worth it (the owner's decision, 2026-11-11)."""
+        provider, _, name = (self.model or "").partition(":")
+        return f"{provider}:mimi-hound" if name == "mimi-puppy" else self.model
+
     def _mail_complete(self, system: str, user: str) -> str:
-        """Mail's one model call, for Write reply: the user's default model, no tools, no
-        session. Spends credits exactly like a chat turn. Raises with a plain reason."""
+        """Mail's one model call, for Write reply: no tools, no session. Spends credits
+        exactly like a chat turn. Raises with a plain reason."""
+        model = self._mail_reply_model()
         try:
             turn = self.provider.complete(
-                model=self.model,
+                model=model,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 tools=None,
             )
         except Exception as exc:
             from ..providers.errors import friendly_model_error
 
-            reason = friendly_model_error(self.model, exc) or str(exc)[:300]
+            reason = friendly_model_error(model, exc) or str(exc)[:300]
             raise RuntimeError(reason or "The model did not answer.") from exc
         return (getattr(turn, "text", None) or "").strip()
 

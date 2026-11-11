@@ -210,3 +210,20 @@ def test_a_new_message_is_drafted_discarded_and_a_model_that_fails_is_reported_p
     assert answer["ok"] is False
     assert answer["error"].startswith("Mimi could not write the reply. Your account is out of quota")
     assert client.put("/v1/mail/threads/not-a-key/comments", json={"comments": []}).json()["ok"] is False
+
+
+def test_a_reply_is_written_by_the_next_tier_up_when_the_default_is_the_smallest(tmp_path):
+    client = _client(tmp_path, FakeMailServer())
+    manager = client.app.state.manager
+    asked = []
+    manager.provider.complete = lambda *, model, messages, tools=None, **_: asked.append(model) or type("Turn", (), {"text": "Hi."})()
+    for default, used in (
+        ("qualitati:mimi-puppy", "qualitati:mimi-hound"),
+        ("qualitati-cn:mimi-puppy", "qualitati-cn:mimi-hound"),
+        ("qualitati:mimi-wolf", "qualitati:mimi-wolf"),
+        ("openai:gpt-4o", "openai:gpt-4o"),
+    ):
+        manager.model = default
+        assert manager._mail_complete("system", "user") == "Hi."
+        assert asked[-1] == used
+
