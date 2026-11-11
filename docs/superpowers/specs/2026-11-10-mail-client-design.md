@@ -703,3 +703,33 @@ Not done: everything that needs the app's own window, which is selecting a passa
 The test left four items in the mailbox, all with "MimiWork reply check" in the subject: the message and its reply, each in the inbox and in Sent. They are safe to delete.
 
 A mistake during this work, recorded so it is not repeated: while the plan was being reviewed, a reviewer's scratch test ran from outside the repository's `tests/` folder, where `tests/conftest.py` does not apply, and wrote the test fixtures' fake mailbox over the owner's real Email connection in `~/.config/coworker/secrets.json`. The owner reconnected it before this check. Any test run from outside `tests/` must set `COWORKER_STATE_DIR` to a temporary folder first.
+
+### Sorting, on the real mailbox with a real model
+
+Run once on 2026-11-11 by script, against the owner's connected mailbox and `qualitati:mimi-puppy`,
+into a temporary cache (the app's own cache and settings were not touched). The owner agreed
+to the run beforehand.
+
+- One pass took 27 s and sorted the 60 newest inbox conversations out of 1,431: 36 FYI,
+  20 Newsletters, 4 Needs reply. No error.
+- 41 of the 60 were decided by rule and never sent to a model. The other 19 went in one
+  request: 6,082 tokens in, 897 out, 10.3 s. At that ratio the whole inbox would be about
+  24 passes and roughly 150,000 tokens in, 22,000 out.
+- The 19 the model judged read well: the two real questions from a colleague and a plan
+  enquiry were Needs reply; bounces, automatic replies and a confirmation were FYI, each
+  with a true one-line summary. One judgement is arguable: a provider's "Action required"
+  deprecation notice came out as Needs reply.
+- Summaries were written in English for Chinese mail, as designed (the app's language).
+
+Found, and not fixed:
+
+- This mailbox also sends the product's own mail, and its support form posts from the
+  mailbox's own address. The rule "the last word is yours, so FYI" therefore filed a
+  support enquiry under FYI without asking the model. A person's own mailbox does not
+  receive other people's questions from its own address; a shared one does.
+- Sign-up emails from a no-reply address carry the bulk marks and land in Newsletters.
+- A long subject keeps the line break from its folded header. The list shows it as a
+  space; nothing else depends on it.
+
+Not tried: later passes, the summary language set to anything but English, what a pass
+costs in credits.
