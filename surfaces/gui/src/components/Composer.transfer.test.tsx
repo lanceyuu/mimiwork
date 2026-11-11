@@ -261,6 +261,50 @@ describe("permission modes", () => {
     // Nothing is mentioned — there is no path to point at — so the upload path runs.
     await waitFor(() => expect((box() as HTMLTextAreaElement).value).toBe(""));
   });
+
+  // ── a file a message cannot carry ─────────────────────────────────────────────────
+  const noHits = (onSave: (url: string) => Response) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/v1/files/search"))
+          return { ok: true, json: async () => ({ files: [] }) } as Response;
+        if (url.includes("/files?name=")) return onSave(url);
+        if (url.includes("/skills")) return { ok: true, json: async () => SKILLS } as Response;
+        return { ok: true, json: async () => ({}) } as Response;
+      }),
+    );
+  const dropBig = () => {
+    const big = new File(["x"], "big paper.pdf", { type: "application/pdf" });
+    Object.defineProperty(big, "size", { value: 25 * 1024 * 1024 });
+    fireEvent.drop(box().closest("div")!, {
+      dataTransfer: { files: [big], items: [], types: ["Files"] },
+    });
+  };
+
+  it("a dropped PDF too large to attach is saved to the chat's folder and mentioned", async () => {
+    // The complaint (owner, 2026-11-11): a 25 MB PDF was refused as being "outside the
+    // folders this chat can read", when the only obstacle was its size.
+    const saves: string[] = [];
+    noHits((url) => {
+      saves.push(url);
+      return { ok: true, json: async () => ({ name: "big paper.pdf" }) } as Response;
+    });
+    render(<Composer {...props()} />);
+    dropBig();
+    await waitFor(() => expect((box() as HTMLTextAreaElement).value).toBe("@big paper.pdf "));
+    expect(saves[0]).toContain("/v1/sessions/s1/files?name=big%20paper.pdf");
+    expect(screen.queryByTestId("attach-notice")).toBeNull();
+  });
+
+  it("says plainly that a file could not be added when saving it fails", async () => {
+    noHits(() => ({ ok: false, json: async () => ({}) }) as Response);
+    render(<Composer {...props()} />);
+    dropBig();
+    const notice = await screen.findByTestId("attach-notice");
+    expect(notice.textContent).toMatch(/big paper\.pdf could not be added/);
+    expect(notice.textContent).not.toMatch(/outside the folders/);
+  });
 });
 
 describe("steering a running turn", () => {

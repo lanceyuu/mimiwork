@@ -3027,6 +3027,21 @@ export async function searchFiles(
   return (await res.json()).files ?? [];
 }
 
+/** Save a dropped file into the conversation's own folder; resolves to the name it was
+ *  saved under, or null. For files a message cannot carry (too big, or a type that is
+ *  not sent inline). */
+export async function saveDroppedFile(sessionId: string, file: File): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${httpBase()}/v1/sessions/${encodeURIComponent(sessionId)}/files?name=${encodeURIComponent(file.name)}`,
+      { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file },
+    );
+    return res.ok ? ((await res.json()).name ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ImportableSkill {
   name: string;
   description: string;

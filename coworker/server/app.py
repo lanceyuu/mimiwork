@@ -52,6 +52,9 @@ _WS_MAX_FRAME_BYTES = 16 * 1024 * 1024
 _WS_RATE_LIMIT_COUNT = 30
 _WS_RATE_LIMIT_WINDOW_SECONDS = 10.0
 _MAX_MESSAGE_TEXT_CHARS = 200_000
+# A dropped file too big for a message frame is streamed to the chat's folder instead.
+# The cap only stops a runaway upload from filling the disk.
+_MAX_DROPPED_FILE_BYTES = 500 * 1024 * 1024
 _MAX_ATTACHMENTS_BYTES = 15_000_000  # leaves JSON overhead below the 16 MiB frame cap
 
 
@@ -160,6 +163,7 @@ from ..attachments import (
     MAX_PDF_CHARS,
     MAX_TEXT_CHARS,
     build_user_content,
+    fresh_target,
 )
 from ..engine import ApprovalOutcome
 from ..inbox import VIS_INBOX, VIS_INLINE, args_preview
@@ -854,6 +858,38 @@ def create_app(manager: SessionManager) -> FastAPI:
         return manager.add_root(
             session_id, str(body.get("path", "")), bool(body.get("writable", False))
         )
+
+    @app.post("/v1/sessions/{session_id}/files")
+    async def session_save_file(session_id: str, name: str, request: Request) -> dict[str, Any]:
+        """Save a file the user dropped into this conversation's own folder.
+
+        A message frame cannot carry more than about 10 MB, so a larger drop used to be
+        refused. The bytes arrive as the request body and go straight to disk. This
+        widens nothing: the user chose the file, and it lands in the one folder the
+        conversation already owns."""
+        # A new conversation's folder is named after its id, so the id must be a plain name.
+        primary = (
+            next((r for r in manager.get_roots(session_id) if r.get("primary")), None)
+            if re.fullmatch(r"[\w-]+", session_id)
+            else None
+        )
+        if primary is None:
+            raise HTTPException(status_code=404, detail="This conversation has no folder yet.")
+        target = fresh_target(name, Path(primary["path"]))
+        size = 0
+        try:
+            with target.open("xb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > _MAX_DROPPED_FILE_BYTES:
+                        raise HTTPException(status_code=413, detail="That file is too large.")
+                    out.write(chunk)
+            if not size:
+                raise HTTPException(status_code=400, detail="That file is empty.")
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+        return {"name": target.name, "path": str(target)}
 
     @app.delete("/v1/sessions/{session_id}/roots")
     def session_remove_root(session_id: str, path: str) -> dict[str, Any]:

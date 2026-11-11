@@ -7,6 +7,7 @@ import {
   getSettings,
   inspectPdf,
   listCommands,
+  saveDroppedFile,
   searchFiles,
   sessionSkills,
   type FileHit,
@@ -499,16 +500,22 @@ export function Composer(props: Props) {
       }
     }
     const readAll = await Promise.all(list.map(readFile));
-    // A silently vanishing drop reads as a bug (owner hit it with a .docx before
-    // Office files were supported) — name the file and say why it was skipped.
-    readAll.forEach((r, i) => {
-      if (r === null)
+    // A file a message cannot carry (over 10 MB, or a type that is not sent inline) is
+    // saved into the chat's folder and mentioned, like a file that was already there.
+    // The old notice blamed "folders this chat can read" for what was a size limit
+    // (owner hit it 2026-11-11 with a 25 MB PDF).
+    const savedNames: string[] = [];
+    for (const [i, r] of readAll.entries()) {
+      if (r !== null) continue;
+      const name = props.sessionId ? await saveDroppedFile(props.sessionId, list[i]) : null;
+      if (name) savedNames.push(name);
+      else
         showAttachNotice(
-          `${list[i].name} is outside the folders this chat can read — add its ` +
-            `folder under Access to work on it in place, or drop an image, PDF or text file ` +
-            `to attach a copy.`,
+          `${list[i].name} could not be added. It is too large or not a kind of file ` +
+            `that can be attached. Put it in a folder this chat can read, then mention it with @.`,
         );
-    });
+    }
+    insertMentions(savedNames);
     const next: Attachment[] = [];
     const saved: string[] = [];
     for (const [i, a] of readAll.entries()) {

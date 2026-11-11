@@ -32,10 +32,24 @@ def _is_data_pdf(url: Any) -> bool:
     return isinstance(url, str) and url.startswith("data:application/pdf;base64,")
 
 
+def fresh_target(name: Any, save_dir: Path) -> Path:
+    """A path in save_dir for a file the user handed over, that overwrites nothing.
+    The name is flattened to its basename and sanitized, so a hostile name can't
+    escape the folder; collisions get a numeric suffix."""
+    name = Path(str(name or "attachment")).name
+    name = re.sub(r"[^\w.\- ()]", "_", name).strip() or "attachment"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    target = save_dir / name
+    stem, suffix = target.stem, target.suffix
+    n = 1
+    while target.exists():
+        target = save_dir / f"{stem}-{n}{suffix}"
+        n += 1
+    return target
+
+
 def _save_file_attachment(a: dict, save_dir: Path) -> Optional[Path]:
-    """Decode a kind="file" attachment into save_dir; None on any invalid input.
-    The filename is flattened to its basename and sanitized, so a hostile name
-    can't escape the attachments folder; collisions get a numeric suffix."""
+    """Decode a kind="file" attachment into save_dir; None on any invalid input."""
     url = a.get("data_url") or ""
     if not isinstance(url, str) or ";base64," not in url or len(url) > MAX_FILE_CHARS:
         return None
@@ -47,15 +61,7 @@ def _save_file_attachment(a: dict, save_dir: Path) -> Optional[Path]:
         return None
     if not raw:
         return None
-    name = Path(str(a.get("name") or "attachment")).name
-    name = re.sub(r"[^\w.\- ()]", "_", name).strip() or "attachment"
-    save_dir.mkdir(parents=True, exist_ok=True)
-    target = save_dir / name
-    stem, suffix = target.stem, target.suffix
-    n = 1
-    while target.exists():
-        target = save_dir / f"{stem}-{n}{suffix}"
-        n += 1
+    target = fresh_target(a.get("name"), save_dir)
     target.write_bytes(raw)
     return target
 
