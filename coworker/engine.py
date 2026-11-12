@@ -151,6 +151,10 @@ _FIGURES_TEXT = (
     "redraw any that are not."
 )
 _FIGURES_SEEN_TEXT = "(You were shown these images after that step: {names}.)"
+_FIGURES_LEFT_TEXT = (
+    " Only the first {shown} could be attached. Not shown: {names}. Open those again, at "
+    "most {shown} in one step, before you say anything about them."
+)
 
 
 @dataclass
@@ -1892,11 +1896,17 @@ class TurnEngine:
         paths, self._pending_images = self._pending_images, []
         if not paths or not getattr(self.provider.capabilities(self.model), "vision", False):
             return
+        text, left = _FIGURES_TEXT, paths[_MAX_SHOWN_IMAGES:]
+        if left:
+            # Left unsaid, the model describes pictures it was never sent.
+            text += _FIGURES_LEFT_TEXT.format(
+                shown=_MAX_SHOWN_IMAGES, names=", ".join(os.path.basename(p) for p in left)
+            )
         # Paths, not pixels: `_outbound_messages` attaches them to the next request only.
         self.messages.append(
             {
                 "role": "user",
-                "content": _FIGURES_TEXT,
+                "content": text,
                 "ts": time.time(),
                 "steering": "figures",
                 "_images": paths[:_MAX_SHOWN_IMAGES],

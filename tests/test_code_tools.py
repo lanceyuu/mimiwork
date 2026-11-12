@@ -131,6 +131,36 @@ def test_read_file_truncates_long_lines(tmp_path):
     assert len(out["content"]) < 1000
 
 
+def test_read_file_shows_a_picture_instead_of_its_bytes_as_text(tmp_path):
+    from PIL import Image
+
+    Image.new("RGB", (40, 20), "red").save(tmp_path / "chair.png")
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="chair.png")
+    assert out["_images"] == [str((tmp_path / "chair.png").resolve())]
+    assert (out["width"], out["height"]) == (40, 20)
+    assert "content" not in out
+
+
+def test_a_picture_no_provider_accepts_is_shown_as_a_small_jpeg_copy(tmp_path):
+    from PIL import Image
+
+    Image.new("RGB", (3000, 1500), "blue").save(tmp_path / "scan.bmp")
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="scan.bmp")
+    (shown,) = out["_images"]
+    assert shown.endswith(".jpg") and not shown.startswith(str(tmp_path))
+    assert Image.open(shown).size == (1600, 800)
+    assert (out["width"], out["height"]) == (3000, 1500)  # the real picture, not the copy
+
+
+def test_a_file_that_only_looks_like_a_picture_is_reported_not_shown(tmp_path):
+    (tmp_path / "broken.jpg").write_text("not a picture", encoding="utf-8")
+    read_file = file_tools(str(tmp_path))[0]
+    out = read_file(path="broken.jpg")
+    assert "error" in out and "_images" not in out
+
+
 def test_read_file_rejects_escape_and_non_files(tmp_path):
     read_file = file_tools(str(tmp_path))[0]
     assert "escapes" in read_file(path="../secret.txt")["error"]

@@ -16,6 +16,14 @@ import aisuite as ai
 from .registry import reports_failures
 
 _DEFAULT_MAX_LINES = 2000
+# Read as text, a picture is a page of broken characters, and a model handed that concludes
+# it cannot see pictures at all. These are shown to it instead.
+_PICTURE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+_PICTURE_NOTE = (
+    "This is a picture, so there are no lines to read. If you can read pictures it is "
+    "attached to the next message: describe only what you see there. If no picture is "
+    "attached, you cannot see this one; say so rather than guess from its name."
+)
 
 _DELETE_SCHEMA = {
     "type": "function",
@@ -105,7 +113,9 @@ _SCHEMA = {
         "description": (
             "Read a text file, returning numbered lines ('   12\\ttext') so code can be "
             "referenced as path:line. Large files are windowed: pass start_line to continue "
-            "where the previous read stopped. Read-only."
+            "where the previous read stopped. A picture (png, jpg, webp, gif, bmp, tiff) is "
+            "shown to you instead, when you can read pictures; open at most 4 in one step. "
+            "Read-only."
         ),
         "parameters": {
             "type": "object",
@@ -157,6 +167,21 @@ def file_tools(workspace: str, roots: Any = None) -> list:
             return {"error": str(exc)}
         if not target.is_file():
             return {"error": f"not a file: {path}"}
+        if target.suffix.lower() in _PICTURE_TYPES:
+            from .office.image_tools import picture_to_show
+            from .office.paths import display_path
+
+            try:
+                shown, width, height = picture_to_show(target)
+            except Exception as exc:
+                return {"error": f"could not open the picture: {exc}"}
+            return {
+                "path": display_path(target, roots or root),
+                "width": width,
+                "height": height,
+                "note": _PICTURE_NOTE,
+                "_images": [str(shown)],
+            }
 
         selected: list[str] = []
         total = 0

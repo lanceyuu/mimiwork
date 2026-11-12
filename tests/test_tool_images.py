@@ -113,3 +113,38 @@ def test_engine_nudges_are_not_kept_as_the_users_own_words():
         {"role": "user", "content": [{"type": "text", "text": "the charts"}], "steering": "figures"},
     ]
     assert extract_user_messages(span) == ["plot revenue by region"]
+
+
+def test_the_model_is_told_which_pictures_were_left_out(tmp_path):
+    pictures = []
+    for n in range(6):
+        picture = tmp_path / f"chair-{n}.png"
+        picture.write_bytes(PNG_BYTES)
+        pictures.append(str(picture))
+
+    def open_all() -> dict:
+        """Open six pictures."""
+        return {"ok": True, "_images": pictures}
+
+    open_all.__aisuite_tool_metadata__ = ai.ToolMetadata(
+        name="open_all", category="filesystem", risk_level="low",
+        capabilities=["read"], requires_approval=False,
+    )
+    registry = ToolRegistry()
+    registry.register(open_all)
+    provider = _Provider([tool_turn("open_all", {}), text_turn("done")], vision=True)
+    engine = TurnEngine(
+        provider=provider,
+        registry=registry,
+        permissions=PermissionEngine(workspace_root=tmp_path),
+        model="any-model",
+    )
+
+    async def _go():
+        return [ev async for ev in engine.run("look at these")]
+
+    asyncio.run(_go())
+    after_tool = provider.calls[1]
+    assert len(_images(after_tool)) == 4
+    said = after_tool[-1]["content"][0]["text"]
+    assert "chair-4.png" in said and "chair-5.png" in said and "chair-3.png" not in said

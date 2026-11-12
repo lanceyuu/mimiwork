@@ -36,7 +36,8 @@ _INFO_SCHEMA = {
         "description": (
             "Read an image's dimensions, format, colour mode, and file size — without loading "
             "the pixels into the conversation. Check this before editing, so a resize or crop "
-            "is based on the real dimensions rather than a guess. Read-only."
+            "is based on the real dimensions rather than a guess. To look at the picture "
+            "itself, use read_file. Read-only."
         ),
         "parameters": {
             "type": "object",
@@ -222,6 +223,35 @@ def _open(module: Any, target: Path) -> Any:
         return image
     except Exception as exc:
         raise ValueError(f"could not read the image: {exc}") from exc
+
+
+# What a model is sent has to be a type and a size every provider accepts; a phone photo
+# or a TIFF scan is neither, and would be dropped without a word.
+_SHOWN_TYPES = {"PNG", "JPEG", "WEBP", "GIF"}
+_SHOWN_BYTES = 3_000_000
+_SHOWN_SIDE = 1600
+
+
+def picture_to_show(target: Path) -> tuple[Path, int, int]:
+    """The file to show a model for this picture, with the picture's real size: the
+    picture itself when it can be sent as it is, else a smaller JPEG copy in the
+    temporary folder."""
+    import tempfile
+    import zlib
+
+    module = require("PIL.Image", "Pillow", extra="office")
+    image = _open(module, target)
+    width, height = image.width, image.height
+    if image.format in _SHOWN_TYPES and target.stat().st_size <= _SHOWN_BYTES:
+        return target, width, height
+    # ponytail: one shared folder, a copy per source path; clear it if it ever grows.
+    work = Path(tempfile.gettempdir()) / "mimiwork-shown-pictures"
+    work.mkdir(parents=True, exist_ok=True)
+    copy = work / f"{target.stem}-{zlib.crc32(str(target).encode()):08x}.jpg"
+    image = image.convert("RGB")
+    image.thumbnail((_SHOWN_SIDE, _SHOWN_SIDE))
+    image.save(copy, "JPEG", quality=85)
+    return copy, width, height
 
 
 def _guard_size(width: int, height: int) -> None:
