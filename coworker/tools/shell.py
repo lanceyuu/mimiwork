@@ -512,7 +512,9 @@ _RUN_SHELL_SCHEMA = {
             "Run a shell command in the persistent session (cwd and env persist across "
             "calls). Output longer than the limit keeps the END (where test/build verdicts "
             "are). Set run_in_background for long-running processes like dev servers, then "
-            "poll with shell_task_output."
+            "poll with shell_task_output. A variable you export here stays for later commands "
+            "in this conversation, and commands can read files in the person's folders; "
+            "variables set in the person's own Terminal never reach this session."
         ),
         "parameters": {
             "type": "object",
