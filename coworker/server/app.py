@@ -966,6 +966,19 @@ def create_app(manager: SessionManager) -> FastAPI:
     def scholarly_save(body: dict) -> dict[str, Any]:
         return manager.set_scholarly(str((body or {}).get("api_key") or ""))
 
+    @app.get("/v1/script-keys")
+    def script_keys_list() -> dict[str, Any]:
+        return manager.get_script_keys()
+
+    @app.post("/v1/script-keys")
+    def script_keys_save(body: dict) -> dict[str, Any]:
+        body = body or {}
+        return manager.set_script_key(str(body.get("name") or ""), str(body.get("value") or ""))
+
+    @app.delete("/v1/script-keys/{name}")
+    def script_keys_remove(name: str) -> dict[str, Any]:
+        return manager.remove_script_key(name)
+
     @app.post("/v1/sessions/{session_id}/artifacts/reveal")
     def session_artifact_reveal(session_id: str, body: dict) -> dict[str, Any]:
         body = body or {}

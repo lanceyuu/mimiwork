@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from . import script_keys
 from .agents import Agent, AgentContext, code_agent
 from .automation import scheduling_tools
 from .config import load_config
@@ -50,6 +51,12 @@ from .web import make_web_fetch_tool, make_web_search_tool
 from .workspace_map import build_workspace_map
 from .workspace_trust import WorkspaceTrustStore
 
+_SCRIPT_KEYS_CONTEXT = (
+    "Keys the person saved in Settings for their own scripts: {names}. Each is already set "
+    "as an environment variable of that name in run_shell and run_python, so their scripts "
+    "can read it. You are not shown the values: never print them, and a value that reaches "
+    "a result is replaced by its name."
+)
 # Appended each turn while discuss mode is active: enforcement-only read-only, with no
 # pressure toward a plan proposal (that's what distinguishes it from plan mode).
 _DISCUSS_MODE_CONTEXT = """\
@@ -607,6 +614,9 @@ def build_engine(
             ctx = roots_context()
             if ctx:
                 parts.append(ctx)
+        saved_keys = sorted(script_keys.load())
+        if saved_keys:
+            parts.append(_SCRIPT_KEYS_CONTEXT.format(names=", ".join(saved_keys)))
         # Live skill menu (SKILLS-SPEC §4.1): recomputed every turn like the roots list, so
         # a skill installed/enabled/disabled mid-session applies from the NEXT MESSAGE —
         # no new session, no lost context.

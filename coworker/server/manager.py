@@ -2880,6 +2880,26 @@ class SessionManager:
             self.secrets.delete(scholarly.OPENALEX_PROFILE)
         return {"ok": True, **self.get_scholarly()}
 
+    def get_script_keys(self) -> dict[str, Any]:
+        """Names only: a saved key never comes back out of the sidecar."""
+        from .. import script_keys
+
+        return {"names": sorted(script_keys.load(self.secrets))}
+
+    def set_script_key(self, name: str, value: str) -> dict[str, Any]:
+        from .. import script_keys
+
+        problem = script_keys.save(self.secrets, name, value)
+        if problem:
+            return {"ok": False, "error": problem, **self.get_script_keys()}
+        return {"ok": True, **self.get_script_keys()}
+
+    def remove_script_key(self, name: str) -> dict[str, Any]:
+        from .. import script_keys
+
+        script_keys.remove(self.secrets, name)
+        return {"ok": True, **self.get_script_keys()}
+
     def comment_artifact(
         self, session_id: str, path: str, paragraph: int, text: str, author: str = ""
     ) -> dict[str, Any]:

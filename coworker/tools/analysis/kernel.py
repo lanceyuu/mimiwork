@@ -186,7 +186,12 @@ class PythonKernel:
         if not self.alive:
             self.start()
         limit = timeout if isinstance(timeout, (int, float)) and timeout > 0 else DEFAULT_TIMEOUT
-        return self._request({"code": code}, timeout=min(float(limit), MAX_TIMEOUT))
+        from ... import script_keys
+
+        # Sent with every run, so a key saved in Settings works in a kernel already open.
+        return self._request(
+            {"code": code, "env": script_keys.load()}, timeout=min(float(limit), MAX_TIMEOUT)
+        )
 
     def _request(self, payload: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         process = self._process

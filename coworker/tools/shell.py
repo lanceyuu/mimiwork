@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import queue
+import shlex
 import signal
 import subprocess
 import sys
@@ -199,6 +200,7 @@ class LocalExecutor(Executor):
             shell_path = "powershell.exe" if self._is_windows else "/bin/bash"
         self._shell_path = shell_path
         self._env = {**os.environ, **_NONINTERACTIVE_ENV, **(env or {})}
+        self._script_keys: dict[str, str] = {}
         self._spawn()
 
     def _spawn(self) -> None:
@@ -206,6 +208,7 @@ class LocalExecutor(Executor):
         if a command times out and the shell is hard-closed, the next `run` respawns here
         in the last known `cwd` (in-shell env/vars are lost, but the session continues).
         """
+        self._script_keys = {}  # a new shell has none of them yet
         if self._is_windows:
             argv = [
                 self._shell_path,
@@ -285,6 +288,7 @@ class LocalExecutor(Executor):
 
         timeout = timeout or self.default_timeout
         self._abort.clear()
+        self._proc.stdin.write(self._script_key_lines())
         # Run the command, then emit a marker line with exit code + cwd.
         self._proc.stdin.write(command + "\n")
         self._proc.stdin.write(self._trailer())
@@ -350,6 +354,31 @@ class LocalExecutor(Executor):
             error="interrupted by user" if aborted else None,
         )
 
+    def _script_key_lines(self) -> str:
+        """Shell lines that bring this session's variables in step with the keys saved in
+        Settings. Read before every command, because the shell outlives the Settings page:
+        a key saved a minute ago has to work in a conversation that started an hour ago."""
+        from .. import script_keys
+
+        keys, had = script_keys.load(), self._script_keys
+        self._script_keys = keys
+        lines = []
+        for name in had.keys() - keys.keys():
+            lines.append(
+                f"Remove-Item Env:{name} -ErrorAction SilentlyContinue"
+                if self._is_windows
+                else f"unset {name}"
+            )
+        for name, value in keys.items():
+            if had.get(name) == value:
+                continue
+            if self._is_windows:
+                quoted = value.replace("'", "''")
+                lines.append(f"$env:{name} = '{quoted}'")
+            else:
+                lines.append(f"export {name}={shlex.quote(value)}")
+        return "".join(line + "\n" for line in lines)
+
     def interrupt_now(self) -> None:
         """User Stop: make an in-flight foreground `run()` bail on its next read tick
         (≤0.5s). Thread-safe; a no-op when nothing is running. Background tasks are
@@ -361,8 +390,11 @@ class LocalExecutor(Executor):
         self._bg_counter += 1
         task_id = f"bg-{self._bg_counter}"
         try:
+            from .. import script_keys
+
             task = _BackgroundTask(
-                task_id, command, self.cwd, self._env, limit=self.max_output_chars
+                task_id, command, self.cwd, {**self._env, **script_keys.load()},
+                limit=self.max_output_chars,
             )
         except OSError as exc:
             return {"error": f"failed to start background task: {exc}"}

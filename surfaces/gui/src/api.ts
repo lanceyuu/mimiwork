@@ -359,6 +359,28 @@ export async function setScholarly(apiKey: string): Promise<{ ok: boolean; has_k
   return res.json();
 }
 
+/** Keys saved for a person's own scripts. Only the names ever come back from the sidecar. */
+export type ScriptKeys = { ok?: boolean; error?: string; names: string[] };
+
+export async function getScriptKeys(): Promise<ScriptKeys> {
+  const res = await fetch(`${httpBase()}/v1/script-keys`);
+  return res.json();
+}
+
+export async function setScriptKey(name: string, value: string): Promise<ScriptKeys> {
+  const res = await fetch(`${httpBase()}/v1/script-keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, value }),
+  });
+  return res.json();
+}
+
+export async function removeScriptKey(name: string): Promise<ScriptKeys> {
+  const res = await fetch(`${httpBase()}/v1/script-keys/${encodeURIComponent(name)}`, { method: "DELETE" });
+  return res.json();
+}
+
 /** Show the artifact in the OS file manager ("reveal") or open it with its default app ("open"). */
 /** Open one of this conversation's granted folders in the OS file manager. */
 export async function revealRoot(

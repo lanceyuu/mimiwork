@@ -1919,6 +1919,7 @@ class TurnEngine:
         # the model could probe around). Lift it onto the message as a sidecar
         # (like `source`), stripped from every provider feed in
         # `_outbound_messages` but persisted for the GUI's tool card.
+        result = _without_script_keys(result)
         display: Optional[dict[str, Any]] = None
         if isinstance(result, dict) and "_display" in result:
             display = result.get("_display") or None
@@ -2561,6 +2562,24 @@ def _image_part(path: str) -> Optional[dict[str, Any]]:
         return None
     url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
     return {"type": "image_url", "image_url": {"url": url}}
+
+
+def _without_script_keys(result: Any) -> Any:
+    """A script that prints its key would hand it to the model provider and write it into
+    the conversation file. The saved values are swapped for their names first."""
+    from . import script_keys
+
+    keys = script_keys.load()
+    if not keys:
+        return result
+    if isinstance(result, str):
+        return script_keys.hide(result, keys)
+    try:
+        text = json.dumps(result, default=str)
+    except (TypeError, ValueError):
+        return result
+    hidden = script_keys.hide(text, keys)
+    return result if hidden == text else json.loads(hidden)
 
 
 def _tool_result_message(

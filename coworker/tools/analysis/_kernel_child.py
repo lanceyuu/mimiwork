@@ -215,6 +215,7 @@ def main() -> None:  # pragma: no cover - exercised through the parent in tests
             response = {"ok": True, "stdout": "", "stderr": "", "value": None,
                         "error": None, "figures": [], "truncated": False}
         else:
+            os.environ.update(request.get("env") or {})
             response = _run(str(request.get("code") or ""), namespace, figdir)
         try:
             sys.__stdout__.write(json.dumps(response, default=str) + "\n")

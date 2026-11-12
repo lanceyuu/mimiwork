@@ -4,6 +4,7 @@ import { setLanguage as apiSetLanguage } from "../api";
 import {
   getGlobalInstructions,
   getScholarly,
+  getScriptKeys,
   setGlobalInstructions,
   getSettings,
   getTrustedWorkspaces,
@@ -11,7 +12,9 @@ import {
   setContextBar,
   setOnboarded,
   setPdfSettings,
+  removeScriptKey,
   setScholarly,
+  setScriptKey,
   setScratchBase,
   setDefaultFolder,
   setSessionsPeek,
@@ -219,6 +222,7 @@ export function SettingsView({
               {/* Token savings is model-spend behavior, so it lives here (UX-021),
                   not under General. */}
               <div className="mt-6">
+                <ScriptKeysCard />
                 <PaperSearchCard />
                 <TokenSavingsCard />
                 <CompactionCard />
@@ -934,6 +938,103 @@ export function PaperSearchCard() {
         · {t("The key is stored only on this computer.")}
       </div>
       {failed && <div className="rail-error">{t("Couldn't save the key. Try again.")}<ReportProblem error={"Couldn't save the OpenAlex key."} context="paper search" /></div>}
+    </div>
+  );
+}
+
+// -- Keys for a person's own scripts (owner ask, 2026-11-12) ---------------------
+// A script Mimi runs for someone often needs a key of theirs. The app is started from the
+// Dock, so nothing set in a Terminal reaches it, and a key typed into the chat goes to the
+// model. Saved here it reaches Mimi's commands by name; only the names come back.
+export function ScriptKeysCard() {
+  const t = useT();
+  const [names, setNames] = useState<string[] | null>(null);
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    // No reply is not "no keys": the card waits hidden rather than show an empty list.
+    getScriptKeys()
+      .then((r) => setNames(r.names ?? []))
+      .catch(() => {});
+  }, []);
+
+  const apply = async (call: () => Promise<{ ok?: boolean; error?: string; names: string[] }>, saved: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await call();
+      setNames(r.names ?? []);
+      if (r.ok === false) setError(r.error || t("Couldn't save the key. Try again."));
+      else if (saved) {
+        setName("");
+        setValue("");
+      }
+    } catch {
+      setError(t("Couldn't save the key. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (names === null) return null;
+  const field = "px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
+  return (
+    <div className={CARD + " p-4 mb-4"} data-testid="script-keys-card">
+      <div className={FIELD_LABEL}>{t("Keys for your own scripts")}</div>
+      <div className={FIELD_HELP}>
+        {t("When a script you ask Mimi to run needs a key of yours, save it here under the name the script expects. Mimi's commands can then use it. Mimi is told the name, never the key.")}
+      </div>
+      {names.length > 0 && (
+        <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+          {names.map((n) => (
+            <li key={n} className="flex items-center gap-2 px-3 py-1.5">
+              <span className="flex-1 font-mono text-[12.5px] text-ink truncate">{n}</span>
+              <button
+                className="btn sm"
+                disabled={busy}
+                aria-label={`${t("Remove")} ${n}`}
+                onClick={() => void apply(() => removeScriptKey(n), false)}
+              >
+                {t("Remove")}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={t("Name")}
+          placeholder="OPENROUTER_API_KEY"
+          value={name}
+          className={field + " w-[220px] font-mono"}
+          onChange={(e) => setName(e.target.value.toUpperCase().replace(/\s+/g, "_"))}
+        />
+        <input
+          type="password"
+          autoComplete="off"
+          aria-label={t("Key")}
+          placeholder={t("Key")}
+          value={value}
+          className={field + " flex-1 min-w-[160px]"}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button
+          className="btn sm"
+          disabled={busy || !name.trim() || !value.trim()}
+          onClick={() => void apply(() => setScriptKey(name.trim(), value.trim()), true)}
+        >
+          {t("Save")}
+        </button>
+      </div>
+      <div className={FIELD_HELP}>
+        {t("Stored only on this computer. Any script Mimi runs can read these keys, so save only keys meant for scripts.")}
+      </div>
+      {error && <div className="rail-error">{error}</div>}
     </div>
   );
 }
