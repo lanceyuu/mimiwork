@@ -1,6 +1,10 @@
-Two new tools for research: real references, and a plain-language view of the analysis code.
+Mail arrives in MimiWork, and slides can now follow a look you show it.
 
-- **Real references**: Mimi now finds and cites papers from Crossref, OpenAlex and doi.org instead of from memory, and warns you when a paper has been retracted.
-- **Check references**: Word and PDF files get a References tab beside the preview. It checks every entry and sorts the list into Retracted, Needs a fix, Not found, Couldn't check and Verified. In Word, fixes to a DOI or an author's surname go in as tracked changes you can review or undo. For lists made by Zotero or EndNote, and for PDFs, you get corrected text to copy instead.
-- **Paper search in Settings**: you can add your own free OpenAlex key to check more papers per day. Without one, the check still works.
-- **Plain-language code view**: every Python step of an analysis is saved as a script. Open it to read what each step did to your data in plain language, with choices worth reporting in your method section marked. Select any lines to ask Mimi about them.
+- **Mail**: a new Mail section reads the mailbox you connected under Email. Open, search, archive, bin and mark conversations unread, and save attachments. An email is shown without loading its remote images until you choose Show images, and a link shows its address before anything opens.
+- **Comment, then reply**: select a passage in an email and write a comment beside it. Mimi writes one reply that answers every comment, as a draft you can edit. Drafts have their own tab, and nothing is sent until you send it.
+- **Sorting, if you want it**: Mail can sort new conversations under their own tabs, with one line on what each is about. It is off until you turn it on.
+- **Slides that follow a reference**: Mimi can now look at the pages of a PDF as pictures, not only read their words, and a style skill keeps those pictures so the look is seen every time the skill is used. A slide or a whole deck can take a background picture, with the words still editable on top.
+- **Mimi checks its own slides**: on a computer with LibreOffice installed, Mimi is shown its finished slides and corrects what does not match the brief. Without LibreOffice nothing changes.
+- **Large files you drop into a chat**: a file too large to attach is now saved into the chat's folder and mentioned for you. Before, it was refused with a notice about folders.
+- **Moving the window**: you can drag the window by its top edge while a file preview is open.
+- This version also carries the safer approvals and the wider Report this problem button from 0.6.44.
