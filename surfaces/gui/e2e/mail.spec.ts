@@ -101,6 +101,54 @@ test("search reaches mail outside the inbox and opens it alone, without Archive 
   await expect(rows).toHaveCount(3);
 });
 
+test("what was sent is under its own tab, named for who it went to, and opens in the same reader", async ({ page }, testInfo) => {
+  await openMail(page);
+  await page.getByTestId("mail-tab-sent").click();
+  const rows = page.getByTestId("mail-row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("To: Ben Carter");
+  await expect(rows.first()).toContainText("Lunch on Thursday");
+  await expect(rows.nth(1)).toContainText("To: Ana Lopez, Li Chen");
+  // Nothing you sent is waiting to be read.
+  await expect(page.locator(".mail-row.unread")).toHaveCount(0);
+
+  await rows.first().click();
+  await expect(page.getByTestId("mail-subject")).toHaveText("Lunch on Thursday");
+  await expect(page.getByTestId("mail-frame")).toBeVisible();
+  await expect.poll(() => frameText(page)).toContain("lunch on Thursday at noon");
+  // It is not in the inbox, so it cannot be archived or binned; it can be followed up.
+  await expect(page.getByTestId("mail-archive")).toHaveCount(0);
+  await expect(page.getByTestId("mail-bin")).toHaveCount(0);
+  await expect(page.getByTestId("mail-reply")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("mail-sent.png") });
+
+  // A conversation you wrote in twice opens whole, the newest message unfolded.
+  await rows.nth(1).click();
+  await expect(page.getByTestId("mail-message")).toHaveCount(2);
+  await expect.poll(() => frameText(page)).toContain("we start at nine");
+
+  await page.getByTestId("mail-tab-all").click();
+  await expect(rows).toHaveCount(3);
+  await expect(page.getByTestId("mail-reader")).toHaveCount(0);
+});
+
+test("a mailbox with no Sent folder says so under Sent, not that nothing was sent", async ({ page }, testInfo) => {
+  await page.route("**/v1/mail/status", (route) =>
+    route.fulfill({
+      json: {
+        ok: true, connected: true, address: "me@example.com", syncing: false, revision: 1,
+        last_sync: Math.floor(Date.now() / 1000) - 60, last_error: "", can_archive: true, can_bin: true,
+        has_sent: false, sorting: false, sorting_asked: true,
+      },
+    }),
+  );
+  await openMail(page);
+  await page.getByTestId("mail-tab-sent").click();
+  await expect(page.getByTestId("mail-list-empty")).toHaveText("Mail could not find a Sent folder in this mailbox.");
+  // The tab's underline fades across; the picture is taken with it where it ends up.
+  await page.screenshot({ path: testInfo.outputPath("mail-no-sent-folder.png"), animations: "disabled" });
+});
+
 test("with no mailbox connected, Mail says what to connect and where", async ({ page }, testInfo) => {
   await page.route("**/v1/mail/status", (route) =>
     route.fulfill({

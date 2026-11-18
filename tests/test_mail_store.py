@@ -9,11 +9,11 @@ DAY = 86400.0
 
 
 def _row(folder, uid, *, key="k1", message_id="", sender="Ana <ana@example.com>",
-         subject="Hello", date=100.0, flags="", account=ME):
+         subject="Hello", date=100.0, flags="", account=ME, recipients=ME):
     return {
         "account": account, "folder": folder, "uid": uid,
         "message_id": message_id or f"<{folder}-{uid}@x>", "thread_key": key,
-        "sender": sender, "recipients": ME, "cc": "", "subject": subject, "date": date,
+        "sender": sender, "recipients": recipients, "cc": "", "subject": subject, "date": date,
         "flags": flags, "size": 10, "has_attachments": 0, "bulk": 0,
     }
 
@@ -54,6 +54,29 @@ def test_a_conversation_shows_your_reply_and_names_the_other_person(tmp_path):
         ("INBOX", 1),
         ("Sent", 7),
     ]
+
+
+def test_the_sent_list_is_the_conversations_you_wrote_in_newest_sent_first(tmp_path):
+    store = _store(tmp_path)
+    mine = {"sender": "Me <user@example.com>", "flags": "\\Seen"}
+    store.add(
+        [
+            _row("INBOX", 1, key="lunch", subject="Lunch?", date=100.0),
+            _row("Sent", 1, key="lunch", subject="Re: Lunch?", date=200.0, recipients="ana@example.com", **mine),
+            # Their answer is newer than anything else, and does not move the row up.
+            _row("INBOX", 2, key="lunch", subject="Re: Re: Lunch?", date=500.0),
+            _row("Sent", 2, key="note", subject="A note", date=300.0, recipients="bo@example.com", **mine),
+            _row("INBOX", 3, key="other", subject="Not mine", date=400.0),
+        ]
+    )
+    sent = store.sent(ME, "Sent", "INBOX")
+    assert [(t["key"], t["subject"], t["date"], t["count"]) for t in sent] == [
+        ("note", "A note", 300.0, 1),
+        ("lunch", "Re: Lunch?", 200.0, 3),
+    ]
+    assert [t["recipients"] for t in sent] == ["bo@example.com", "ana@example.com"]
+    # Nothing you sent is waiting to be read, whatever the rest of the conversation is.
+    assert not any(t["unread"] for t in sent)
 
 
 def test_mail_sent_to_yourself_shows_once_as_the_inbox_copy(tmp_path):

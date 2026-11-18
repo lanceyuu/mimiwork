@@ -334,6 +334,56 @@ describe("MailView", () => {
     expect(screen.getAllByTestId("mail-row")).toHaveLength(3);
   });
 
+  it("lists what was sent under its own tab, named for who it went to, and opens it in the reader", async () => {
+    const SENT = { ...ROW, key: "s1", subject: "Lunch on Thursday", sender: "Me <me@example.com>", to: "Ben Carter" };
+    api.getMailStatus.mockResolvedValue({ ...STATUS, has_sent: true });
+    api.getMailThreads.mockImplementation(async (tab?: string) => (tab === "sent" ? [SENT] : [ROW]));
+    api.getMailThread.mockResolvedValue({
+      ok: true, key: "s1", subject: "Lunch on Thursday", in_inbox: false, draft: "",
+      messages: [{ ...ENVELOPE, folder: "Sent", uid: 7, from: "Me <me@example.com>", to: "ben@example.com", subject: "Lunch on Thursday" }],
+      answer: { folder: "Sent", uid: 7, message_id: "<7@x>" },
+    });
+    render(<MailView onOpenConnectors={() => {}} />);
+    await screen.findByTestId("mail-row");
+    // Nothing sent is asked for until its tab is opened.
+    expect(api.getMailThreads).not.toHaveBeenCalledWith("sent");
+
+    fireEvent.click(screen.getByTestId("mail-tab-sent"));
+    await waitFor(() => expect(screen.getByTestId("mail-row").textContent).toContain("To: Ben Carter"));
+    expect(screen.getByTestId("mail-row").textContent).toContain("Lunch on Thursday");
+    expect(screen.getByTestId("mail-row").textContent).not.toContain("Plan for Friday");
+
+    fireEvent.click(screen.getByTestId("mail-row"));
+    expect((await screen.findByTestId("mail-subject")).textContent).toBe("Lunch on Thursday");
+    expect(api.getMailThread).toHaveBeenCalledWith("s1");
+    // It is not in the inbox, so there is nothing to archive or bin.
+    expect(screen.queryByTestId("mail-archive")).toBeNull();
+    // The inbox is still there to go back to.
+    fireEvent.click(screen.getByTestId("mail-tab-all"));
+    expect(screen.getByTestId("mail-row").textContent).toContain("Plan for Friday");
+  });
+
+  it("says that the mailbox has no Sent folder instead of showing an empty list", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, has_sent: false });
+    render(<MailView onOpenConnectors={() => {}} />);
+    fireEvent.click(await screen.findByTestId("mail-tab-sent"));
+    expect(screen.getByTestId("mail-list-empty").textContent).toContain("could not find a Sent folder");
+    expect(api.getMailThreads).not.toHaveBeenCalledWith("sent");
+  });
+
+  it("says nothing has been sent only once the Sent folder has been read and is empty", async () => {
+    api.getMailStatus.mockResolvedValue({ ...STATUS, has_sent: true });
+    let answer: (rows: unknown[]) => void = () => {};
+    api.getMailThreads.mockImplementation((tab?: string) =>
+      tab === "sent" ? new Promise((resolve) => (answer = resolve)) : Promise.resolve([ROW]),
+    );
+    render(<MailView onOpenConnectors={() => {}} />);
+    fireEvent.click(await screen.findByTestId("mail-tab-sent"));
+    expect(screen.getByTestId("mail-list-empty").textContent).toBe("Loading…");
+    answer([]);
+    await waitFor(() => expect(screen.getByTestId("mail-list-empty").textContent).toBe("Nothing sent yet."));
+  });
+
   it("falls back to the whole inbox when sorting is turned off while a sorted tab is showing", async () => {
     api.getMailStatus.mockResolvedValue({ ...STATUS, sorting: true });
     api.getMailThreads.mockResolvedValue([{ ...ROW, category: "fyi", summary: "A receipt." }]);

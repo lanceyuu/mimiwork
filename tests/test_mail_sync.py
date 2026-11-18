@@ -117,6 +117,16 @@ def test_a_pass_records_whether_the_mailbox_can_archive_and_bin(tmp_path):
     assert (store.get("can_archive"), store.get("can_bin")) == ("", "")
 
 
+def test_a_pass_records_whether_the_mailbox_has_a_sent_folder(tmp_path):
+    _, _, store, sync = _setup(tmp_path)
+    assert store.get("has_sent") == ""  # not looked for yet
+    sync.run_once()
+    assert (store.get("has_sent"), store.folder_for(ADDRESS, "sent")) == ("1", "Sent")
+    _, _, store, sync = _setup(tmp_path / "other", folders={"INBOX": ""})
+    sync.run_once()
+    assert (store.get("has_sent"), store.folder_for(ADDRESS, "sent")) == ("0", "")
+
+
 def test_connecting_a_different_mailbox_forgets_the_old_ones_mail(tmp_path):
     server, secrets, store, sync = _setup(tmp_path)
     server.add("INBOX", mail("Old mailbox"))

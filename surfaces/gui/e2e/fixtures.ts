@@ -1,4 +1,4 @@
-import { MAIL_MESSAGES, MAIL_SEARCH, MAIL_THREADS, MAIL_THREAD_MESSAGES } from "./mail-data";
+import { MAIL_MESSAGES, MAIL_SEARCH, MAIL_SENT, MAIL_THREADS, MAIL_THREAD_MESSAGES } from "./mail-data";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2036,12 +2036,15 @@ export async function mockApi(page: import("@playwright/test").Page) {
     if (p.endsWith("/v1/mail/status")) {
       return json({
         ok: true, connected: true, address: "me@example.com", syncing: false, revision: mail.revision,
-        last_sync: Math.floor(Date.now() / 1000) - 60, last_error: "", can_archive: true, can_bin: true,
+        last_sync: Math.floor(Date.now() / 1000) - 60, last_error: "", can_archive: true, can_bin: true, has_sent: true,
         sorting: mail.sorting === "on", sorting_asked: mail.sorting !== "",
       });
     }
     if (p.endsWith("/v1/mail/sync")) return json({ ok: true, started: true });
     if (p.endsWith("/v1/mail/threads")) {
+      if (new URL(req.url()).searchParams.get("tab") === "sent") {
+        return json({ ok: true, threads: MAIL_SENT.map((t) => ({ ...t, category: "", summary: "" })) });
+      }
       const blank = { category: "", summary: "" };
       return json({
         ok: true,
@@ -2144,20 +2147,23 @@ export async function mockApi(page: import("@playwright/test").Page) {
     {
       const mm = p.match(/\/v1\/mail\/threads\/([^/]+)(\/read|\/archive|\/bin)?$/);
       if (mm) {
-        const row = mail.threads.find((t) => t.key === mm[1]);
+        const inbox = mail.threads.find((t) => t.key === mm[1]);
+        const row = inbox ?? MAIL_SENT.find((t) => t.key === mm[1]);
         if (!row) return json({ ok: false, error: "This conversation is no longer in the mailbox." });
         if (!mm[2]) {
           const messages = MAIL_THREAD_MESSAGES[row.key];
           const newest = messages[messages.length - 1];
           return json({
-            ok: true, key: row.key, subject: row.subject, in_inbox: true, messages,
+            ok: true, key: row.key, subject: row.subject, in_inbox: !!inbox, messages,
             answer: { folder: newest.folder, uid: newest.uid, message_id: newest.message_id },
             draft: mail.drafts.find((d) => d.thread_key === row.key)?.id ?? "",
           });
         }
         // Like the backend: a change moves the revision, which is what makes the list reload.
-        if (mm[2] === "/read") row.unread = !(req.postDataJSON() || {}).read;
-        else mail.threads.splice(mail.threads.indexOf(row), 1);
+        // Archive, bin and marking act on the inbox; what is only in Sent is left as it is.
+        if (!inbox) return json({ ok: mm[2] === "/read" });
+        if (mm[2] === "/read") inbox.unread = !(req.postDataJSON() || {}).read;
+        else mail.threads.splice(mail.threads.indexOf(inbox), 1);
         mail.revision += 1;
         return json({ ok: true });
       }

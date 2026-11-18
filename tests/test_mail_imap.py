@@ -202,6 +202,33 @@ def test_special_folders_without_flags_are_found_by_their_usual_names(tmp_path):
     )
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "INBOX.Sent",
+        "[Gmail]/Sent Mail",
+        "sent items",
+        "Gesendet",
+        "Sendte elementer",
+        "Envoy&AOk-s",  # "Envoyés", as a server sends a name outside ASCII
+        "&XfJT0ZAB-",  # "已发送"
+    ],
+)
+def test_a_sent_folder_without_a_flag_is_found_by_its_name_in_other_languages_too(tmp_path, name):
+    _, conn = _conn(tmp_path, folders={"INBOX": "", "Notes": "", name: ""})
+    assert conn.describe()["roles"]["sent"] == name
+
+
+def test_a_folder_that_only_mentions_sent_is_not_taken_for_the_sent_folder(tmp_path):
+    _, conn = _conn(tmp_path, folders={"INBOX": "", "Projects/Sent": "", "Sent to print": ""})
+    assert conn.describe()["roles"]["sent"] is None
+
+
+def test_the_flag_wins_over_a_folder_that_merely_has_the_usual_name(tmp_path):
+    _, conn = _conn(tmp_path, folders={"INBOX": "", "Sent": "", "Outbox copies": "\\Sent"})
+    assert conn.describe()["roles"]["sent"] == "Outbox copies"
+
+
 def test_a_server_without_move_reports_that_it_cannot_move_mail(tmp_path):
     server, conn = _conn(tmp_path, move=False)
     server.add("INBOX", mail("Stay"))

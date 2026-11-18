@@ -3414,6 +3414,8 @@ export interface MailStatus {
   last_error: string;
   can_archive: boolean;
   can_bin: boolean;
+  /** Whether the mailbox has a Sent folder; null until a sync has looked for one. */
+  has_sent?: boolean | null;
   /** Mimi sorts new mail and writes a one-line summary of each conversation. */
   sorting: boolean;
   /** The user has been asked once whether to turn sorting on, and has answered. */
@@ -3434,6 +3436,8 @@ export interface MailThreadRow {
   category: MailCategory;
   /** One line on what the conversation is about, written by Mimi; "" when there is none. */
   summary: string;
+  /** Under Sent: who the message went to, by name where the mail gives one. */
+  to?: string;
 }
 
 export interface MailEnvelope {
@@ -3506,8 +3510,9 @@ export function syncMail(): Promise<MailReply> {
   return mailPost(mailUrl("/sync"));
 }
 
-export async function getMailThreads(): Promise<MailThreadRow[]> {
-  return (await (await fetch(mailUrl("/threads"))).json()).threads ?? [];
+/** The inbox, or with "sent" the conversations the user wrote in. */
+export async function getMailThreads(tab?: "sent"): Promise<MailThreadRow[]> {
+  return (await (await fetch(mailUrl(tab ? `/threads?tab=${tab}` : "/threads"))).json()).threads ?? [];
 }
 
 export async function getMailThread(key: string): Promise<MailThread> {

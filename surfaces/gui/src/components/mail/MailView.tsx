@@ -27,13 +27,14 @@ const POLL_MS = 2000;
 const SYNC_EVERY_MS = 120_000;
 const OFFLINE = "Could not reach MimiWork. Try again.";
 
-type Tab = "all" | "needs_reply" | "fyi" | "newsletters" | "drafts";
+type Tab = "all" | "needs_reply" | "fyi" | "newsletters" | "sent" | "drafts";
 const SORTED: Tab[] = ["needs_reply", "fyi", "newsletters"];
 const TAB_NAMES: Record<Tab, string> = {
   all: "All",
   needs_reply: "Needs reply",
   fyi: "FYI",
   newsletters: "Newsletters",
+  sent: "Sent",
   drafts: "Drafts",
 };
 const draftRow = (id: string) => `draft/${id}`;
@@ -60,6 +61,8 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   const [picked, setTab] = useState<Tab>("all");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [drafts, setDrafts] = useState<MailDraft[]>([]);
+  // What was sent; null until its tab has been opened and the list has come back.
+  const [sentRows, setSentRows] = useState<MailThreadRow[] | null>(null);
   // One line above the reader: that a message went, or why something could not be done
   // when the place that would have said so is no longer on screen.
   const [notice, setNotice] = useState<{ text: string; bad: boolean } | null>(null);
@@ -126,6 +129,21 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
     const timer = window.setInterval(loadDrafts, POLL_MS);
     return () => window.clearInterval(timer);
   }, [picked, loadDrafts]);
+
+  // What was sent is asked for while its tab is open, and again whenever the mailbox
+  // changes: a message just sent turns up there once the next sync has read it.
+  const hasSent = status?.connected ? status.has_sent : false;
+  const mailRevision = status?.revision;
+  useEffect(() => {
+    if (picked !== "sent" || hasSent === false) return;
+    let alive = true;
+    void getMailThreads("sent")
+      .then((rows) => alive && setSentRows(rows))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [picked, hasSent, mailRevision]);
 
   // `from` names the reader that sent. If the user has moved on to something else by the
   // time the answer comes, what they are reading now is left open.
@@ -204,7 +222,7 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
 
   // The sorted tabs exist only while sorting is on. If it is turned off while one of them
   // is showing, the list falls back to the whole inbox.
-  const tabs: Tab[] = status.sorting ? ["all", ...SORTED, "drafts"] : ["all", "drafts"];
+  const tabs: Tab[] = status.sorting ? ["all", ...SORTED, "sent", "drafts"] : ["all", "sent", "drafts"];
   const tab: Tab = tabs.includes(picked) ? picked : "all";
 
   const answerOffer = async (on: boolean) => {
@@ -247,9 +265,12 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           date: d.updated_at,
           unread: false,
         }))
-      : threads
-          .filter((row) => tab === "all" || row.category === tab)
-          .map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
+      : tab === "sent"
+        ? // Shown by who it went to: every one of these is from the user.
+          (status.has_sent === false ? [] : (sentRows ?? [])).map((row) => ({ ...row, id: row.key, sender: `${t("To")}: ${row.to || "—"}` }))
+        : threads
+            .filter((row) => tab === "all" || row.category === tab)
+            .map((row) => ({ ...row, id: row.key, error: rowErrors[row.key] }));
 
   const open = (id: string) => {
     setNotice(null);
@@ -282,7 +303,15 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
       ? t("Nothing found.")
       : tab === "drafts"
         ? t("No drafts.")
-        : t("No mail here yet.");
+        : tab !== "sent"
+          ? t("No mail here yet.")
+          : status.has_sent === false
+            ? // Said outright: an empty list would read as "you have sent nothing".
+              t("Mail could not find a Sent folder in this mailbox.")
+            : !sentRows || (status.has_sent == null && status.syncing)
+              ? t("Loading…")
+              : // Not looked for yet and no sync under way: the banner above says why.
+                t(status.has_sent ? "Nothing sent yet." : "No mail here yet.");
 
   return (
     <main className="app-page mail-page" data-testid="mail-page">

@@ -1,5 +1,6 @@
 // What the mocked backend answers for the Mail section: three inbox conversations (one of
-// them hostile), their messages, and one archived message that only search can reach.
+// them hostile), their messages, one archived message that only search can reach, and two
+// conversations that are only in Sent.
 
 export const TRACKER = "https://tracker.invalid";
 const NOW = Math.floor(Date.now() / 1000);
@@ -37,7 +38,22 @@ export const MAIL_THREADS = [
   { key: "c3c3c3c3c3c3c3c3", subject: "You have won", sender: "Prize Desk <win@tracker.invalid>", date: NOW - 2 * 86400, unread: false, count: 1, has_attachments: false },
 ];
 
+const ME = "Me <me@example.com>";
+const sent = (uid: number, to: string, subject: string, date: number, extra: object = {}) =>
+  envelope(uid, ME, subject, date, { folder: "Sent", to, ...extra });
+
+// Under Sent a row names who the message went to, not who wrote it.
+export const MAIL_SENT = [
+  { key: "e5e5e5e5e5e5e5e5", subject: "Lunch on Thursday", sender: ME, to: "Ben Carter", date: NOW - 1800, unread: false, count: 1, has_attachments: false },
+  { key: "f6f6f6f6f6f6f6f6", subject: "Re: Agenda for the workshop", sender: ME, to: "Ana Lopez, Li Chen", date: NOW - 3 * 86400, unread: false, count: 2, has_attachments: true },
+];
+
 export const MAIL_THREAD_MESSAGES: Record<string, ReturnType<typeof envelope>[]> = {
+  e5e5e5e5e5e5e5e5: [sent(50, "Ben Carter <ben@example.com>", "Lunch on Thursday", NOW - 1800)],
+  f6f6f6f6f6f6f6f6: [
+    sent(51, "Ana Lopez <ana@example.com>, Li Chen <li@example.com>", "Agenda for the workshop", NOW - 4 * 86400, { has_attachments: true }),
+    sent(52, "Ana Lopez <ana@example.com>, Li Chen <li@example.com>", "Re: Agenda for the workshop", NOW - 3 * 86400),
+  ],
   a1a1a1a1a1a1a1a1: [
     envelope(1, "Ana Lopez <ana@example.com>", "Plan for Friday", NOW - 7200),
     envelope(2, "Ana Lopez <ana@example.com>", "Re: Plan for Friday", NOW - 3600, { unread: true, has_attachments: true }),
@@ -60,6 +76,12 @@ export const MAIL_MESSAGES: Record<string, object> = {
   ),
   "INBOX/3": message("b2b2b2b2b2b2b2b2", 0, "<p>Your invoice for October is ready.</p>", "Your invoice for October is ready."),
   "INBOX/4": message("c3c3c3c3c3c3c3c3", 0, HOSTILE_HTML, "You have won. Claim your prize today."),
+  "Sent/50": message("e5e5e5e5e5e5e5e5", 0, "<p>Hi Ben,</p><p>Are you free for lunch on Thursday at noon?</p>", "Hi Ben,\nAre you free for lunch on Thursday at noon?"),
+  "Sent/51": message(
+    "f6f6f6f6f6f6f6f6", 0, "<p>Here is the agenda for the workshop.</p>", "Here is the agenda for the workshop.",
+    [{ filename: "agenda.docx", content_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 18220 }],
+  ),
+  "Sent/52": message("f6f6f6f6f6f6f6f6", 1, "<p>One change: we start at nine, not ten.</p>", "One change: we start at nine, not ten."),
   "Archive/40": {
     ...envelope(40, "Billing <billing@example.com>", "Invoice January", NOW - 300 * 86400, { folder: "Archive" }),
     thread_key: "d4d4d4d4d4d4d4d4", html: "<p>Paid in full.</p>", text: "Paid in full.", attachments: [],

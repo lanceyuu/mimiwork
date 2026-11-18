@@ -166,6 +166,11 @@ class MailStore:
             )
             self.revision += 1
 
+    def folder_for(self, account: str, role: str) -> str:
+        """The synced folder playing `role` ("sent"), or "" when the mailbox has none."""
+        rows = self._all("SELECT name FROM folder WHERE account = ? AND role = ?", (account, role))
+        return rows[0]["name"] if rows else ""
+
     def mark_synced(self, account: str, folder: str, now: float) -> None:
         with self._lock, self._conn:
             self._conn.execute(
@@ -256,6 +261,28 @@ class MailStore:
                     "has_attachments": any(row["has_attachments"] for row in rows),
                     "category": said["category"] if current else "",
                     "summary": said["summary"] if current else "",
+                }
+            )
+        return sorted(out, key=lambda thread: thread["date"], reverse=True)
+
+    def sent(self, account: str, sent: str, inbox: str) -> list[dict[str, Any]]:
+        """Conversations the user wrote in, newest first by when they last wrote. Each is
+        dated and titled by that message and carries who it went to: an answer that came
+        later does not move it, as it would not in any Sent folder."""
+        out = []
+        for key, rows, mine in self._conversations(account, sent):
+            out.append(
+                {
+                    "key": key,
+                    "subject": mine[-1]["subject"],
+                    "sender": mine[-1]["sender"],
+                    "recipients": mine[-1]["recipients"],
+                    "date": mine[-1]["date"],
+                    "unread": False,
+                    "count": len(_distinct(rows, inbox)),
+                    "has_attachments": any(row["has_attachments"] for row in rows),
+                    "category": "",
+                    "summary": "",
                 }
             )
         return sorted(out, key=lambda thread: thread["date"], reverse=True)

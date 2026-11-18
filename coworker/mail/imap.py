@@ -8,6 +8,7 @@ its folder and selects it inside the lock; no caller relies on what was selected
 
 from __future__ import annotations
 
+import base64
 import email as email_lib
 import hashlib
 import imaplib
@@ -40,6 +41,40 @@ _HEADER_SPEC = (
 )
 _BIN_NAMES = ("Trash", "Deleted Items", "Deleted Messages", "Bin", "INBOX.Trash")
 _ARCHIVE_NAMES = ("Archive", "Archives", "INBOX.Archive")
+# What a Sent folder is called on a server that does not flag it, compared without case
+# and without the "INBOX." or "[Gmail]/" some servers put in front. Used for reading only:
+# where a sent copy is filed stays with the shorter list the send path has always used,
+# because a wrong guess there would file a second copy.
+_MORE_SENT_NAMES = frozenset(
+    name.casefold()
+    for name in _SENT_NAMES
+    + (
+        "Gesendet", "Gesendete Elemente", "Gesendete Objekte",
+        "Envoyés", "Éléments envoyés", "Messages envoyés",
+        "Sendt", "Sendte", "Sendte elementer", "Sendt post", "Skickat",
+        "已发送", "已发送邮件", "已傳送郵件", "寄件備份",
+        "Enviados", "Elementos enviados", "Itens enviados", "Enviadas",
+        "Inviata", "Posta inviata", "Verzonden", "Verzonden items",
+    )
+)
+_FOLDER_PREFIX = re.compile(r"^(INBOX[./]|\[(Gmail|Google Mail)\]/)", re.I)
+_MUTF7 = re.compile(r"&([^-]*)-")
+
+
+def _readable(name: str) -> str:
+    """A folder name as a person reads it. A server sends anything outside ASCII in
+    IMAP's own encoding (modified UTF-7), so "Envoyés" arrives as "Envoy&AOk-s"."""
+
+    def part(found: re.Match) -> str:
+        raw = found.group(1).replace(",", "/")
+        return base64.b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-16-be") if raw else "&"
+
+    try:
+        return _MUTF7.sub(part, name)
+    except ValueError:
+        return name
+
+
 # A server may refuse a very long command line, so uids go out a couple of hundred at a time.
 _CHUNK = 200
 
@@ -69,9 +104,15 @@ def _roles(imap) -> dict[str, Optional[str]]:
     def named(candidates: tuple[str, ...]) -> Optional[str]:
         return next((name for name in candidates if name in names), None)
 
+    def called_sent() -> Optional[str]:
+        return next(
+            (name for name in names if _FOLDER_PREFIX.sub("", _readable(name)).casefold() in _MORE_SENT_NAMES),
+            None,
+        )
+
     return {
         "inbox": "INBOX",
-        "sent": flagged(rb"\Sent") or named(_SENT_NAMES),
+        "sent": flagged(rb"\Sent") or named(_SENT_NAMES) or called_sent(),
         "all": flagged(rb"\All"),
         # Gmail has no archive folder: taking a message out of the inbox leaves it in All Mail.
         "archive": flagged(rb"\Archive") or flagged(rb"\All") or named(_ARCHIVE_NAMES),

@@ -50,6 +50,41 @@ def test_status_after_a_pass_says_what_the_mailbox_can_do(tmp_path):
     assert status["last_sync"] > 0
 
 
+def test_the_sent_list_names_who_each_message_went_to_and_opens_like_the_inbox(tmp_path):
+    server, service = _service(tmp_path)
+    me = f"Me <{ADDRESS}>"
+    server.add("INBOX", mail("Lunch?", message_id="<a@x>", days_ago=2))
+    server.add(
+        "Sent",
+        mail("Re: Lunch?", sender=me, to="Ana Lopez <ana@example.com>, bo@example.com",
+             message_id="<b@x>", in_reply_to="<a@x>", references="<a@x>", days_ago=1),
+        seen=True,
+    )
+    server.add("Sent", mail("A note", sender=me, to="Li Chen <li@example.com>", body="Mine."), seen=True)
+    assert [t["subject"] for t in _synced(service)] == ["Re: Lunch?"]  # the inbox is as it was
+    assert service.status()["has_sent"] is True
+
+    sent = service.threads("sent")["threads"]
+    assert [(t["subject"], t["to"], t["count"], t["unread"]) for t in sent] == [
+        ("A note", "Li Chen", 1, False),
+        ("Re: Lunch?", "Ana Lopez, bo@example.com", 2, False),
+    ]
+    thread = service.thread(sent[0]["key"])
+    assert (thread["ok"], thread["in_inbox"]) == (True, False)
+    (envelope,) = thread["messages"]
+    assert service.message(envelope["folder"], envelope["uid"])["text"].strip() == "Mine."
+    # The conversation you answered opens whole, their message and yours.
+    assert [m["folder"] for m in service.thread(sent[1]["key"])["messages"]] == ["INBOX", "Sent"]
+
+
+def test_a_mailbox_with_no_sent_folder_says_so_once_it_has_looked(tmp_path):
+    _, service = _service(tmp_path, folders={"INBOX": ""})
+    assert service.status()["has_sent"] is None
+    _synced(service)
+    assert service.status()["has_sent"] is False
+    assert service.threads("sent") == {"ok": True, "threads": []}
+
+
 def test_a_conversation_lists_its_messages_and_each_opens_from_the_cache_the_second_time(tmp_path):
     server, service = _service(tmp_path)
     server.add("INBOX", mail("Plan", body="Shall we?", html="<p>Shall we?</p>", attachment="plan.pdf"))

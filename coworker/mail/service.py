@@ -303,6 +303,8 @@ class MailService:
             "last_error": self._store.get("last_error"),
             "can_archive": bool(self._store.get("can_archive")),
             "can_bin": bool(self._store.get("can_bin")),
+            # None until a pass has looked: "no Sent folder" is said only once that is known.
+            "has_sent": {"1": True, "0": False}.get(self._store.get("has_sent")),
             "sorting": self._sorting(),
             # False until the user has answered the question once, either way.
             "sorting_asked": bool(self._store.get("sorting")),
@@ -318,7 +320,17 @@ class MailService:
 
     def threads(self, tab: str = "all") -> dict[str, Any]:
         """The inbox, or with sorting on one of its tabs. With sorting off, and for a
-        sender the user has excluded, nothing sorting once said is shown."""
+        sender the user has excluded, nothing sorting once said is shown. "sent" is what
+        the user wrote, each row naming who it went to in `to`."""
+        if tab == "sent":
+            account = self._account()
+            folder = self._store.folder_for(account, "sent")
+            rows = self._store.sent(account, folder, INBOX) if folder else []
+            for row in rows:
+                # Names where the mail gives them, as the inbox shows a sender's name.
+                people = _people(row.pop("recipients"))
+                row["to"] = ", ".join(" ".join(name.split()) or address for name, address in people)
+            return {"ok": True, "threads": rows}
         rows = self._store.threads(self._account(), INBOX)
         sorting, rules = self._sorting(), self._excluded()
         for row in rows:

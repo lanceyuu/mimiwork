@@ -144,7 +144,10 @@ class MailSync:
         self._store.forget_others(account)
         for role in ("archive", "bin"):
             self._store.put(f"can_{role}", "1" if info["can_move"] and roles.get(role) else "")
-        # Sent is synced so a conversation shows your own replies.
+        # "0" is not the same as never having looked: only then can the screen say that
+        # this mailbox has no Sent folder.
+        self._store.put("has_sent", "1" if roles.get("sent") else "0")
+        # Sent is synced so a conversation shows your own replies, and for the Sent list.
         synced = [roles[role] for role in ("inbox", "sent") if roles.get(role)]
         for role in ("inbox", "sent"):
             if roles.get(role):

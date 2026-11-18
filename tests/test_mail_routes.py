@@ -78,6 +78,20 @@ def test_the_screen_can_sync_list_open_and_mark_a_conversation(tmp_path):
     assert saved == {"ok": True, "path": str(tmp_path / "Downloads" / "plan.pdf")}
 
 
+def test_the_screen_can_list_what_was_sent_apart_from_the_inbox(tmp_path):
+    server = FakeMailServer()
+    server.add("Sent", mail("A note", sender=f"Me <{ADDRESS}>", to="Ana <ana@example.com>"), seen=True)
+    client = _client(tmp_path, server)
+    assert client.get("/v1/mail/status").json()["has_sent"] is None
+    assert _sync(client)["has_sent"] is True
+
+    (row,) = client.get("/v1/mail/threads", params={"tab": "sent"}).json()["threads"]
+    assert (row["subject"], row["to"]) == ("A note", "Ana")
+    assert client.get("/v1/mail/threads").json()["threads"] == []
+    thread = client.get(f"/v1/mail/threads/{row['key']}").json()
+    assert (thread["in_inbox"], thread["messages"][0]["folder"]) == (False, "Sent")
+
+
 def test_archive_and_bin_move_the_conversation_and_the_list_follows(tmp_path):
     server = FakeMailServer()
     server.add("INBOX", mail("To archive", days_ago=2))
