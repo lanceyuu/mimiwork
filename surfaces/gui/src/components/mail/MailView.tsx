@@ -17,7 +17,9 @@ import {
   type MailThreadRow,
 } from "../../api";
 import { useT } from "../../i18n";
+import type { Attachment } from "../../types";
 import { Icon } from "../Icon";
+import { MailAsk } from "./MailAsk";
 import { MailDraftPane } from "./MailComposer";
 import { formatMailDate, MailList, type MailRow } from "./MailList";
 import { MailReader, type Opened } from "./MailReader";
@@ -48,7 +50,14 @@ const openedId = (opened: Opened | null): string =>
         : `${opened.folder}/${opened.uid}`;
 
 /** The Mail section: the connected mailbox's inbox, a reader, and search. */
-export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void }) {
+export function MailView({
+  onOpenConnectors,
+  onAsk,
+}: {
+  onOpenConnectors: () => void;
+  /** Open a new chat with this question, and the open conversation when there is one. */
+  onAsk?: (text: string, attachments?: Attachment[]) => void;
+}) {
   const t = useT();
   const [status, setStatus] = useState<MailStatus | null>(null);
   const [threads, setThreads] = useState<MailThreadRow[]>([]);
@@ -60,6 +69,7 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [picked, setTab] = useState<Tab>("all");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [drafts, setDrafts] = useState<MailDraft[]>([]);
   // What was sent; null until its tab has been opened and the list has come back.
   const [sentRows, setSentRows] = useState<MailThreadRow[] | null>(null);
@@ -337,6 +347,11 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           />
         </form>
         <div className="app-head-actions">
+          {onAsk && (
+            <button className="btn sm" data-testid="mail-ask" aria-expanded={askOpen} onClick={() => setAskOpen((now) => !now)}>
+              <Icon name="sparkle" size={14} /> {t("Ask Mimi")}
+            </button>
+          )}
           <button className="btn sm" data-testid="mail-new" onClick={() => void newMessage()}>
             <Icon name="pencil" size={14} /> {t("New message")}
           </button>
@@ -392,6 +407,13 @@ export function MailView({ onOpenConnectors }: { onOpenConnectors: () => void })
           )}
         </div>
         <div className="mail-reader-pane">
+          {askOpen && onAsk && (
+            <MailAsk
+              about={opened && opened.kind !== "draft" ? opened : null}
+              onAsk={onAsk}
+              onClose={() => setAskOpen(false)}
+            />
+          )}
           {settingsOpen && (
             // Opened afresh when sorting changes elsewhere (the offer above the list), so
             // its switch never shows a state that is no longer true.

@@ -384,6 +384,26 @@ describe("MailView", () => {
     await waitFor(() => expect(screen.getByTestId("mail-list-empty").textContent).toBe("Nothing sent yet."));
   });
 
+  it("Ask Mimi asks about the whole mailbox until a conversation is open, and then about that one", async () => {
+    const onAsk = vi.fn();
+    render(<MailView onOpenConnectors={() => {}} onAsk={onAsk} />);
+    await screen.findByTestId("mail-row");
+    expect(screen.queryByTestId("mail-ask-panel")).toBeNull();
+    fireEvent.click(screen.getByTestId("mail-ask"));
+    expect(screen.getByTestId("mail-ask-scope").textContent).toContain("look in your mailbox");
+
+    fireEvent.click(screen.getByTestId("mail-row"));
+    await screen.findByTestId("mail-subject");
+    // The box stays open, and now says what it will hand over.
+    expect(screen.getByTestId("mail-ask-scope").textContent).toContain("the conversation you have open");
+    fireEvent.change(screen.getByTestId("mail-ask-question"), { target: { value: "What does Ana want?" } });
+    fireEvent.click(screen.getByTestId("mail-ask-send"));
+    await waitFor(() => expect(onAsk).toHaveBeenCalledTimes(1));
+    expect(onAsk.mock.calls[0][0]).toBe("What does Ana want?");
+    expect(onAsk.mock.calls[0][1][0]).toMatchObject({ kind: "text", name: "Plan for Friday.txt" });
+    expect(onAsk.mock.calls[0][1][0].text).toContain("Shall we?");
+  });
+
   it("falls back to the whole inbox when sorting is turned off while a sorted tab is showing", async () => {
     api.getMailStatus.mockResolvedValue({ ...STATUS, sorting: true });
     api.getMailThreads.mockResolvedValue([{ ...ROW, category: "fyi", summary: "A receipt." }]);

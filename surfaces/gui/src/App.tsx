@@ -564,7 +564,7 @@ export function App() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A prompt to auto-send once the next session connects (used by "Run now").
   const pendingPromptRef = useRef<
-    string | { text: string; skill?: string; model?: string; mode?: string } | null
+    string | { text: string; skill?: string; model?: string; mode?: string; attachments?: Attachment[] } | null
   >(null);
   // The mode a build request just sent in onOpen. The socket's `ready` was written before
   // the server read that set_mode, so its stale mode must not overwrite the composer.
@@ -1094,8 +1094,8 @@ export function App() {
             sessionRef.current?.setMode(req.mode);
           }
           const shown = req.skill ? `/${req.skill} ${req.text}` : req.text;
-          setItems((prev) => [...prev, { kind: "user", text: shown, ts: Date.now() / 1000 }]);
-          sessionRef.current?.userMessage(req.text, undefined, req.model, req.skill);
+          setItems((prev) => [...prev, { kind: "user", text: shown, attachments: req.attachments, ts: Date.now() / 1000 }]);
+          sessionRef.current?.userMessage(req.text, req.attachments, req.model, req.skill);
         }
       },
       onClose: () => { setConnected(false); missedEvents = true; },
@@ -1981,7 +1981,14 @@ export function App() {
       ) : surface === "inbox" ? (
         <InboxView onOpenSession={openSessionFromInbox} />
       ) : surface === "mail" ? (
-        <MailView onOpenConnectors={() => setSurface("integrations")} />
+        <MailView
+          onOpenConnectors={() => setSurface("integrations")}
+          onAsk={(text, attachments) => {
+            // A question asked in Mail is answered in a chat of its own, sent as it opens.
+            pendingPromptRef.current = { text, attachments };
+            startNewSession("cowork");
+          }}
+        />
       ) : surface === "persona" ? (
         <PersonaView
           personaId={personaViewId || agent}

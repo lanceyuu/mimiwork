@@ -727,6 +727,9 @@ export async function mockApi(page: import("@playwright/test").Page) {
     sockets.add(ws);
   });
 
+  // Every message a chat was sent, so a test can say what went with it (the attachments,
+  // which the transcript shows only by name).
+  const userMessages: any[] = ((page as any).userMessages = []);
   await page.routeWebSocket(/\/ws\/session\//, (ws) => {
     let live = false;
     let phase = "model";
@@ -753,6 +756,7 @@ export async function mockApi(page: import("@playwright/test").Page) {
       if (msg.type === "ping") {
         send("session_status", { running: live, running_since: live ? since : null, phase: live ? phase : "idle", last_activity_at: lastActivity });
       } else if (msg.type === "user_message") {
+        userMessages.push(msg);
         if (epicTimer) { clearInterval(epicTimer); epicTimer = null; }
         hadTurn = true;
         // Force-run (SKILLS-SPEC §6): like the real server, TURN_START ships the user's

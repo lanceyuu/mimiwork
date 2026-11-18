@@ -149,6 +149,54 @@ test("a mailbox with no Sent folder says so under Sent, not that nothing was sen
   await page.screenshot({ path: testInfo.outputPath("mail-no-sent-folder.png"), animations: "disabled" });
 });
 
+test("a question about the open conversation opens a chat that is handed the conversation", async ({ page }, testInfo) => {
+  await openMail(page);
+  await page.getByTestId("mail-row").first().click();
+  await expect(page.getByTestId("mail-subject")).toHaveText("Plan for Friday");
+  await expect.poll(() => frameText(page)).toContain("Friday at ten");
+  await page.getByTestId("mail-ask").click();
+  await expect(page.getByTestId("mail-ask-scope")).toContainText("the conversation you have open");
+  await page.getByTestId("mail-ask-question").fill("What does Ana want from me?");
+  await page.screenshot({ path: testInfo.outputPath("mail-ask.png"), animations: "disabled" });
+  await page.getByTestId("mail-ask-question").press("Enter");
+
+  // Mail gives way to a new chat, with the question asked once and the conversation beside it.
+  await expect(page.getByTestId("mail-page")).toHaveCount(0);
+  const bubble = page.locator(".bubble-user");
+  await expect(bubble).toHaveCount(1);
+  await expect(bubble).toContainText("What does Ana want from me?");
+  await expect(bubble.locator(".msg-file")).toContainText("Plan for Friday.txt");
+  const sent = (page as any).userMessages as { text: string; attachments?: { kind: string; text: string }[] }[];
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].text).toBe("What does Ana want from me?");
+  expect(sent[0].attachments).toHaveLength(1);
+  expect(sent[0].attachments![0].kind).toBe("text");
+  // Both messages of the conversation, the earlier one first.
+  const handed = sent[0].attachments![0].text;
+  expect(handed).toContain("From: Ana Lopez <ana@example.com>");
+  expect(handed.indexOf("Can we plan Friday?")).toBeGreaterThan(-1);
+  expect(handed.indexOf("Can we plan Friday?")).toBeLessThan(handed.indexOf("Friday at ten"));
+  await page.screenshot({ path: testInfo.outputPath("mail-ask-chat.png"), animations: "disabled" });
+});
+
+test("a question asked with nothing open tells Mimi to look in the mailbox, and hands over no mail", async ({ page }, testInfo) => {
+  await openMail(page);
+  await expect(page.getByTestId("mail-ask-panel")).toHaveCount(0);
+  await page.getByTestId("mail-ask").click();
+  await expect(page.getByTestId("mail-ask-scope")).toContainText("look in your mailbox");
+  await expect(page.getByTestId("mail-ask-send")).toBeDisabled();
+  await page.getByTestId("mail-ask-question").fill("What did Ana ask me for last week?");
+  await page.screenshot({ path: testInfo.outputPath("mail-ask-mailbox.png"), animations: "disabled" });
+  await page.getByTestId("mail-ask-send").click();
+
+  await expect(page.getByTestId("mail-page")).toHaveCount(0);
+  await expect(page.locator(".bubble-user")).toContainText("What did Ana ask me for last week?");
+  const sent = (page as any).userMessages as { text: string; attachments?: unknown[] }[];
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].text).toBe("What did Ana ask me for last week?\n\nLook in my mailbox to answer this.");
+  expect(sent[0].attachments).toBeUndefined();
+});
+
 test("with no mailbox connected, Mail says what to connect and where", async ({ page }, testInfo) => {
   await page.route("**/v1/mail/status", (route) =>
     route.fulfill({
