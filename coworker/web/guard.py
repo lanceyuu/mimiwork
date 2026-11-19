@@ -37,7 +37,25 @@ MAX_REDIRECTS = 5
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
 
 
+# RFC 6052: on a network that offers only IPv6, a public IPv4 site is reached at this
+# prefix plus its IPv4 address. Judged as IPv6 the whole prefix reads as reserved, which
+# refused every site on such a network.
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _carried(ip: ipaddress._BaseAddress) -> ipaddress._BaseAddress:
+    """The IPv4 address an IPv6 one stands for, so it is judged as what it reaches:
+    ::ffff:127.0.0.1 and 64:ff9b::7f00:1 are both loopback."""
+    if ip.version == 6:
+        if ip.ipv4_mapped is not None:
+            return ip.ipv4_mapped
+        if ip in _NAT64:
+            return ipaddress.ip_address(int(ip) & 0xFFFFFFFF)
+    return ip
+
+
 def _blocked_reason(ip: ipaddress._BaseAddress) -> Optional[str]:
+    ip = _carried(ip)
     if ip.is_loopback:
         return "loopback"
     if ip.is_link_local:
@@ -90,10 +108,7 @@ def _vet(url: str) -> tuple[Optional[str], Optional[str]]:
             ip = ipaddress.ip_address(raw)
         except ValueError:
             continue
-        # ::ffff:127.0.0.1 and friends must be judged as the v4 address they carry.
-        mapped = getattr(ip, "ipv4_mapped", None)
-        if mapped is not None:
-            ip = mapped
+        ip = _carried(ip)
         reason = _blocked_reason(ip)
         if reason:
             return f"refusing to fetch {host} ({ip}): {reason}", None

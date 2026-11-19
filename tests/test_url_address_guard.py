@@ -244,3 +244,17 @@ def test_browser_open_url_is_guarded_and_never_launches(monkeypatch):
     out = open_url("http://169.254.169.254/latest/meta-data/")
     assert "link-local" in out["error"]
     assert out.get("ok") is None
+
+
+def test_a_public_site_reached_through_an_ipv6_only_network_is_allowed(monkeypatch):
+    """On a network that offers only IPv6 (a phone hotspot, some campus Wi-Fi), github.com
+    resolves to 64:ff9b:: plus its IPv4 address. That prefix reads as "reserved", so every
+    fetch was refused there: 27 refusals of github.com in one month of real use (2026-11-19)."""
+    _resolves_to(monkeypatch, "64:ff9b::8c52:7904")  # 140.82.121.4
+    assert guard.check_url("https://github.com/") is None
+
+
+def test_a_private_address_carried_through_an_ipv6_only_network_is_still_blocked(monkeypatch):
+    _resolves_to(monkeypatch, "64:ff9b::7f00:1")  # 127.0.0.1
+    assert "loopback" in guard.check_url("https://evil.example/")
+    assert "private" in guard.check_url("http://[64:ff9b::c0a8:101]/")  # 192.168.1.1
