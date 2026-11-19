@@ -85,4 +85,56 @@ def kb_tools() -> list:
         requires_approval=False,
     )
     kb_search.__coworker_schema__ = _SCHEMA
-    return [kb_search]
+    return [kb_search, _mimiwork_help()]
+
+
+_HELP_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "mimiwork_help",
+        "description": (
+            "Look up how MimiWork itself works: where a setting, page or button is, how a "
+            "feature works (Agents, coding agents, Mail, Automations, Apps, Skills, Memory, "
+            "folders, models and tiers, keys, permission modes, slides), and what an app "
+            "message means and how to fix it. Use it before naming any MimiWork menu, page "
+            "or setting, and when a tool error mentions one. Works offline."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {"question": {"type": "string", "description": "What you want to know, in plain words."}},
+            "required": ["question"],
+        },
+    },
+}
+
+
+def _mimiwork_help():
+    def mimiwork_help(question: str) -> dict[str, Any]:
+        hits = kb.search_help(str(question or ""), k=3)
+        if not hits:
+            return {
+                "count": 0,
+                "results": [],
+                "note": (
+                    "MimiWork's help has nothing on this. Tell the person you are not sure "
+                    "where or how it works in MimiWork, rather than naming a place that may "
+                    "not exist."
+                ),
+            }
+        return {
+            "count": len(hits),
+            "results": [{"title": h["title"], "content": h["content"]} for h in hits],
+            "note": "Name only the places and labels written here, exactly as written.",
+        }
+
+    mimiwork_help.__name__ = "mimiwork_help"
+    mimiwork_help.__doc__ = _HELP_SCHEMA["function"]["description"]
+    mimiwork_help.__aisuite_tool_metadata__ = ai.ToolMetadata(
+        name="mimiwork_help",
+        category="knowledge",
+        risk_level="low",
+        capabilities=["read"],
+        requires_approval=False,
+    )
+    mimiwork_help.__coworker_schema__ = _HELP_SCHEMA
+    return mimiwork_help

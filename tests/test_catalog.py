@@ -77,6 +77,7 @@ COWORK_TOOLS = {
     "reset_python",
     "run_r",
     "kb_search",  # Mimi's offline research-methods knowledge base
+    "mimiwork_help",  # and what she knows about MimiWork itself
     "qualitati_projects",  # list the signed-in account's QualiTaTi projects
     "qualitati_mimi",  # delegate project work to QualiTaTi's server-side Mimi agent
     # QualiTaTi's own research services (2026-08-31). Both spend the user's credits,

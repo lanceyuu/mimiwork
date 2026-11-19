@@ -46,8 +46,22 @@ _index: Optional[_Index] = None
 _index_lock = threading.Lock()
 
 
-def _build_index() -> _Index:
+def _index_of(docs: list[dict[str, Any]]) -> _Index:
     idx = _Index()
+    for doc in docs:
+        i = len(idx.docs)
+        idx.docs.append(doc)
+        tokens = _tokenize(f"{doc.get('title') or ''} {doc.get('content') or ''}")
+        idx.doc_len.append(len(tokens))
+        for tok in tokens:
+            idx.postings.setdefault(tok, {})
+            idx.postings[tok][i] = idx.postings[tok].get(i, 0) + 1
+    idx.avg_len = (sum(idx.doc_len) / len(idx.doc_len)) if idx.doc_len else 0.0
+    return idx
+
+
+def _build_index() -> _Index:
+    docs: list[dict[str, Any]] = []
     data = resources.files(__package__).joinpath("knowledge_base.jsonl")
     with data.open("r", encoding="utf-8") as fh:
         for line in fh:
@@ -55,18 +69,37 @@ def _build_index() -> _Index:
             if not line:
                 continue
             try:
-                doc = json.loads(line)
+                docs.append(json.loads(line))
             except ValueError:
                 continue  # a corrupt line is a data bug, not a search outage
-            i = len(idx.docs)
-            idx.docs.append(doc)
-            tokens = _tokenize(f"{doc.get('title') or ''} {doc.get('content') or ''}")
-            idx.doc_len.append(len(tokens))
-            for tok in tokens:
-                idx.postings.setdefault(tok, {})
-                idx.postings[tok][i] = idx.postings[tok].get(i, 0) + 1
-    idx.avg_len = (sum(idx.doc_len) / len(idx.doc_len)) if idx.doc_len else 0.0
-    return idx
+    return _index_of(docs)
+
+
+# What Mimi knows about MimiWork itself, one "## " section per topic, kept as Markdown so
+# whoever changes the app can change its help in the same commit. Its own index: the
+# research corpus's 4,000 entries would otherwise bury it, and it them.
+_help_index: Optional[_Index] = None
+
+
+def help_sections() -> list[dict[str, Any]]:
+    text = resources.files(__package__).joinpath("mimiwork_help.md").read_text(encoding="utf-8")
+    sections = []
+    for block in re.split(r"(?m)^## ", text)[1:]:
+        title, _, body = block.partition("\n")
+        title, body = title.strip(), body.strip()
+        if title and body:
+            slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+            sections.append({"id": f"help-{slug}", "collection": "mimiwork_help", "title": title, "content": body})
+    return sections
+
+
+def search_help(query: str, *, k: int = 4) -> list[dict[str, Any]]:
+    global _help_index
+    if _help_index is None:
+        with _index_lock:
+            if _help_index is None:
+                _help_index = _index_of(help_sections())
+    return _rank(_help_index, query, k=k)
 
 
 def _get_index() -> _Index:
@@ -83,7 +116,10 @@ def search(
 ) -> list[dict[str, Any]]:
     """Top-``k`` entries by BM25; optional collection filter. Each result is the
     raw KB record plus a ``score``."""
-    idx = _get_index()
+    return _rank(_get_index(), query, k=k, collection=collection)
+
+
+def _rank(idx: _Index, query: str, *, k: int, collection: Optional[str] = None) -> list[dict[str, Any]]:
     n_docs = len(idx.docs)
     if not n_docs:
         return []
