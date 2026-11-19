@@ -231,6 +231,29 @@ def _worker_tool(worker: dict[str, Any], fn: Callable[[str], str]) -> Callable[.
     return _tool(ask_helper, schema)
 
 
+# A conversation's own folder under ~/MimiWork is named for it, e.g. 5154f540-083.
+_CONVERSATION_FOLDER = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{3}$")
+
+
+def _team_folder(folder: str, roots, ws: Path) -> tuple[Path | str, bool]:
+    """Where a coding agent works in this run, and whether its saved folder was swapped.
+
+    A system remembers the folder of the conversation it was drawn in. Run again from
+    Agents, in a new conversation, that folder is out of reach and the run stopped (real
+    run, 2026-11-19). A conversation's own folder is only scratch space, so this
+    conversation's is used instead. A real project folder still has to be granted."""
+    from ..tools import delegate
+
+    where = delegate._resolve_folder(folder, roots or [], ws)
+    if not isinstance(where, str):
+        return where, False
+    path = Path(folder).expanduser()
+    if folder.strip() and _CONVERSATION_FOLDER.match(path.name) and path.parent == Path(ws).parent:
+        return delegate._resolve_folder("", roots or [], ws), True
+    return (f"{where} Ask the person for it with request_directory (writable), then run the "
+            "system again."), False
+
+
 def _coding_caller(session: str, ws: Path, roots, report):
     from ..tools import delegate
 
@@ -248,9 +271,11 @@ def _coding_caller(session: str, ws: Path, roots, report):
             raise RuntimeError(problem)
         job = jobs.get(node["id"])
         if job is None:
-            where = delegate._resolve_folder(node["folder"], roots or [], ws)
+            where, swapped = _team_folder(node["folder"], roots, ws)
             if isinstance(where, str):
                 raise RuntimeError(where)
+            if swapped:
+                report(f"{node['name']}: working in this conversation's folder")
             # One copy of the project per run: coding agents in one system build on each
             # other's work. ponytail: parallel coding agents on one folder share that copy
             # and may collide; give them separate folders until per-node copies are needed.

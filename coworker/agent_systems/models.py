@@ -148,6 +148,18 @@ def validate(system: AgentSystem) -> list[dict[str, str]]:
                 bad(n["id"], "Choose the project folder the coding agent works in.")
         elif n["kind"] != "review" and not n["instructions"]:
             bad(n["id"], "Tell this agent what to do.")
+        model = str(n.get("model") or "").strip()
+        if model and n["kind"] != "coding":
+            # Mimi put "claude_code" here for a lead agent; the run then fell to a model that
+            # asked for an OpenAI key the owner never needed (real system, 2026-11-19).
+            coding = next((v[0] for k, v in AGENTS.items()
+                           if model.lower().replace("-", "_").replace(" ", "_") in (k, v[0].lower().replace(" ", "_"))), None)
+            if coding:
+                bad(n["id"], f"{coding} is a coding agent, not a model. Make it a Coding agent "
+                             "node, or choose a model here, or leave the model empty to use the chat's.")
+            elif ":" not in model:
+                bad(n["id"], f"{model} is not a model MimiWork knows. Choose one from the list, "
+                             "or leave it empty to use the chat's model.")
 
     by_id = {n["id"]: n for n in system.nodes}
     workers: set[str] = set()

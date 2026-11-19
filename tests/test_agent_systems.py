@@ -257,3 +257,37 @@ def test_export_writes_a_design_file_another_install_can_create_from(tmp_path, m
     again = m.create_agent_system(data)
     assert again["problems"] == [] and again["system"]["id"] != sid
     assert m.export_agent_system("sys-00000000")["ok"] is False
+
+
+def test_a_coding_agent_named_as_a_model_is_caught_before_the_run():
+    """Real system, 2026-11-19: Mimi made the lead a Mimi agent with model "claude_code".
+    The check passed it, and the run failed asking for an OpenAI key the owner never needed."""
+    system = from_dict({"entry": "lead", "nodes": [
+        {"id": "lead", "kind": "orchestrator", "instructions": "Share out the question.", "model": "claude_code"},
+        {"id": "a", "instructions": "x", "model": "gpt5"},
+        {"id": "b", "instructions": "x", "model": "qualitati:mimi-hound"},
+        {"id": "c", "instructions": "x", "model": ""},
+    ]})
+    by_node = {}
+    for p in validate(system):
+        by_node.setdefault(p["node"], []).append(p["message"])
+    assert any("Claude Code is a coding agent" in m for m in by_node["lead"])
+    assert any("not a model" in m for m in by_node["a"])
+    assert "b" not in by_node and "c" not in by_node
+
+
+def test_coding_agents_left_in_another_conversations_folder_work_in_this_one(tmp_path):
+    """Real run, 2026-11-19: a system saved from one chat kept that chat's folder, so the
+    run started from Agents, in a new chat, stopped at "outside the folders"."""
+    from coworker.agent_systems.tools import _team_folder
+    from coworker.roots import RootDir
+
+    here, there, project = tmp_path / "5154f540-083", tmp_path / "dae032ca-cef", tmp_path / "thesis"
+    for folder in (here, there, project):
+        folder.mkdir()
+    roots = [RootDir(path=here, writable=True)]
+    assert _team_folder(str(there), roots, here) == (here, True)
+    assert _team_folder("", roots, here) == (here, False)
+    # A real project folder is not swapped: it has to be granted, and the error says how.
+    where, _ = _team_folder(str(project), roots, here)
+    assert isinstance(where, str) and "request_directory" in where
