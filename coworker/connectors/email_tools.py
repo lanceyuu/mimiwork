@@ -225,8 +225,34 @@ def list_attachment_parts(
         ):
             continue
         if filename:
-            out.append((decode_mime_header(filename), part))
+            # A long name is folded over two header lines; the line break is not part of it.
+            out.append((" ".join(decode_mime_header(filename).split()), part))
     return out
+
+
+def closest_attachment(wanted: str, names: list[str]) -> Optional[str]:
+    """The attachment a slightly wrong name means, or None when that would be a guess.
+
+    A model does not always copy a rare character exactly ('许祦治' for '许祺治'), and a
+    retry copies it wrongly again. One name must be clearly closest: two near misses
+    ('report-1.pdf', 'report-2.pdf') are left for the model to choose between."""
+    import difflib
+    import unicodedata
+
+    def plain(name: str) -> str:
+        return " ".join(unicodedata.normalize("NFC", name).casefold().split())
+
+    target = plain(wanted)
+    for name in names:
+        if plain(name) == target:
+            return name
+    scored = sorted(
+        ((difflib.SequenceMatcher(None, target, plain(name)).ratio(), name) for name in names),
+        reverse=True,
+    )
+    if scored and scored[0][0] >= 0.8 and (len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.05):
+        return scored[0][1]
+    return None
 
 
 # -- IMAP query building -----------------------------------------------------------
@@ -790,8 +816,10 @@ def make_email_tools(
             msg = _fetch_message(imap, str(uid))
             if msg is None:
                 return {"error": f"message {uid} not found in {folder}"}
-            for name, part in list_attachment_parts(msg):
-                if name == filename:
+            parts = list_attachment_parts(msg)
+            meant = closest_attachment(filename, [name for name, _ in parts])
+            for name, part in parts:
+                if name == meant:
                     payload = part.get_payload(decode=True) or b""
                     target = scratch.path / _safe_filename(name)
                     counter = 1
@@ -802,8 +830,8 @@ def make_email_tools(
                         )
                         counter += 1
                     target.write_bytes(payload)
-                    return {"ok": True, "path": str(target), "size": len(payload)}
-            available = [n for n, _ in list_attachment_parts(msg)]
+                    return {"ok": True, "path": str(target), "size": len(payload), "name": name}
+            available = [n for n, _ in parts]
             return {
                 "error": f"no attachment named {filename!r}; message has {available}"
             }

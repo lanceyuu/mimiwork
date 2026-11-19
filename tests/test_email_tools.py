@@ -538,3 +538,35 @@ def test_a_missing_connection_is_reported_in_the_tools_own_words(tmp_path):
     profile, servers, err = load_profile(SecretStore(tmp_path / "secrets.json"))
     assert profile is None and servers is None
     assert "not connected" in err["error"]
+
+
+def test_an_attachment_is_found_when_one_character_of_its_name_was_copied_wrongly():
+    """A model does not always copy a rare character exactly: in one real task (2026-11)
+    36 downloads failed asking for '许祦治简历.pdf' when the message held '许祺治简历.pdf'."""
+    from coworker.connectors.email_tools import closest_attachment
+
+    held = ["许祺治简历.pdf", "Xuanyu_Zhao_Resume_English.pdf"]
+    assert closest_attachment("许祺治简历.pdf", held) == "许祺治简历.pdf"
+    assert closest_attachment("许祦治简历.pdf", held) == "许祺治简历.pdf"
+    assert closest_attachment("xuanyu_zhao_resume_english.pdf ", held) == "Xuanyu_Zhao_Resume_English.pdf"
+    assert closest_attachment("budget.xlsx", held) is None
+    assert closest_attachment("anything.pdf", ["only.pdf"]) is None  # a guess, not a near miss
+    # Two names equally close: no guess.
+    assert closest_attachment("report-3.pdf", ["report-1.pdf", "report-2.pdf"]) is None
+
+
+def test_an_attachment_name_folded_over_two_header_lines_is_one_line():
+    import email as email_lib
+
+    from coworker.connectors.email_tools import list_attachment_parts
+
+    raw = (
+        "From: a@example.com\r\nTo: b@example.com\r\nSubject: CV\r\nMIME-Version: 1.0\r\n"
+        'Content-Type: multipart/mixed; boundary="x"\r\n\r\n'
+        "--x\r\nContent-Type: text/plain\r\n\r\nhello\r\n"
+        "--x\r\nContent-Type: application/pdf\r\n"
+        'Content-Disposition: attachment; filename="Sales Intern_Europe_Tang\r\n Mengfei.pdf"\r\n\r\n'
+        "%PDF\r\n--x--\r\n"
+    )
+    names = [name for name, _ in list_attachment_parts(email_lib.message_from_string(raw))]
+    assert names == ["Sales Intern_Europe_Tang Mengfei.pdf"]
