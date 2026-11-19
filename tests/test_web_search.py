@@ -211,3 +211,43 @@ def test_an_empty_result_carries_change_course_guidance_and_is_not_cached():
     provider._results = [SearchResult(title="t", url="https://x", snippet="s")]
     retry = tool("obscure dead-end query")
     assert provider.calls == 2 and len(retry["results"]) == 1 and "note" not in retry
+
+
+def test_a_search_one_engine_cannot_answer_is_asked_of_the_next(monkeypatch):
+    """In a month of real use, 553 of 1,408 searches came back "No results found" (2026-11-19).
+    Tried by hand that day, three of the engines behind the library answered nothing at all
+    while another answered every query, so an empty answer is the engine's, not the query's."""
+    import ddgs
+    from ddgs.exceptions import DDGSException
+
+    from coworker.web.providers import DuckDuckGoProvider
+
+    asked = []
+
+    class Search:
+        def text(self, query, **options):
+            asked.append(options.get("backend", "auto"))
+            if asked[-1] != "google":
+                raise DDGSException("No results found.")
+            return [{"title": "Found", "href": "https://example.com", "body": "words"}]
+
+    monkeypatch.setattr(ddgs, "DDGS", Search)
+    results = DuckDuckGoProvider().search("remote work trust", max_results=3)
+    assert [r.url for r in results] == ["https://example.com"]
+    assert asked == ["auto", "yahoo", "google"]
+
+
+def test_a_search_no_engine_can_answer_still_fails_plainly(monkeypatch):
+    import ddgs
+    import pytest
+    from ddgs.exceptions import DDGSException
+
+    from coworker.web.providers import DuckDuckGoProvider
+
+    class Search:
+        def text(self, query, **options):
+            raise DDGSException("No results found.")
+
+    monkeypatch.setattr(ddgs, "DDGS", Search)
+    with pytest.raises(Exception, match="No results found"):
+        DuckDuckGoProvider().search("zzzz")

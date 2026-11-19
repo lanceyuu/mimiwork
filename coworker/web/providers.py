@@ -38,10 +38,28 @@ class DuckDuckGoProvider(WebSearchProvider):
     name = "duckduckgo"
     requires_key = False
 
+    # Asked in this order, each only when the one before answered nothing. In a month of
+    # real use 553 of 1,408 searches said "No results found"; tried by hand on 2026-11-19,
+    # three engines behind the library answered no query at all and Yahoo answered every one.
+    # An empty answer is usually an engine turning the request away, not a query with no match.
+    _ENGINES = ("auto", "yahoo", "google", "bing")
+
     def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
         from ddgs import DDGS
 
-        rows = DDGS().text(query, max_results=max_results, safesearch="on") or []
+        rows: list = []
+        failure: Exception | None = None
+        for engine in self._ENGINES:
+            options = {} if engine == "auto" else {"backend": engine}
+            try:
+                rows = DDGS().text(query, max_results=max_results, safesearch="on", **options) or []
+            except Exception as exc:  # the library raises for "no results" and for a refusal alike
+                failure = exc
+                continue
+            if rows:
+                break
+        if not rows and failure:
+            raise failure
         return [
             SearchResult(
                 title=r.get("title", ""),
