@@ -57,13 +57,50 @@ def _soffice() -> str:
     return shutil.which("soffice") or next((p for p in _SOFFICE_PLACES if os.path.exists(p)), "")
 
 
-def slide_pictures(deck: Path, numbers: list[int]) -> list[str]:
-    """Pictures of the numbered slides as they really render, or nothing when this
-    computer has no LibreOffice to draw them with. Never raises: a deck that saved
+# Seen on a Mac (2026-11-19): LibreOffice drew no Chinese at all, so every slide came back
+# blank. Shown that as its own work, the model rebuilt a good deck by script.
+_LOST_WRITING = (
+    "The slides cannot be shown: LibreOffice on this computer does not draw the writing "
+    "this deck uses, so its pictures come out blank. The saved deck is not affected and "
+    "PowerPoint shows it as written. Do not rebuild or restyle it for this reason."
+)
+
+
+def _lost_writing(slide_text: str, page_text: str) -> bool:
+    """Whether a slide's picture is missing most of its writing outside the Latin alphabet."""
+    marks = {ch for ch in slide_text if ch.isalpha() and ord(ch) > 0x2FF}
+    return len(marks) >= 4 and sum(ch in page_text for ch in marks) < len(marks) / 2
+
+
+def _drawn_blank(deck: Path, flat: Path, numbers: list[int]) -> bool:
+    try:
+        import pptx
+        import pypdfium2
+
+        slides = pptx.Presentation(str(deck)).slides
+        pages = pypdfium2.PdfDocument(str(flat))
+        try:
+            return any(
+                _lost_writing(
+                    " ".join(s.text_frame.text for s in slides[n - 1].shapes if s.has_text_frame),
+                    pages[n - 1].get_textpage().get_text_range(),
+                )
+                for n in numbers
+            )
+        finally:
+            pages.close()
+    except Exception:
+        return False  # cannot tell: show the pictures rather than hide good ones
+
+
+def slide_pictures(deck: Path, numbers: list[int]) -> tuple[list[str], str]:
+    """Pictures of the numbered slides as they really render, and when there are none
+    for a reason worth telling the model, that reason. No pictures and no reason means
+    this computer has no LibreOffice to draw them with. Never raises: a deck that saved
     correctly must not fail because it could not also be pictured."""
     exe = _soffice()
     if not exe or not numbers:
-        return []
+        return [], ""
     # ponytail: one shared folder, pictures replaced per deck name; clear it if it ever grows.
     work = Path(tempfile.gettempdir()) / "mimiwork-slide-pictures"
     flat = work / f"{deck.stem}.pdf"
@@ -75,9 +112,11 @@ def slide_pictures(deck: Path, numbers: list[int]) -> list[str]:
              "--convert-to", "pdf", "--outdir", str(work), str(deck)],
             check=True, capture_output=True, timeout=120,
         )
-        return [str(p) for p in render_pages(flat, numbers, work, deck.stem)]
+        if _drawn_blank(deck, flat, numbers):
+            return [], _LOST_WRITING
+        return [str(p) for p in render_pages(flat, numbers, work, deck.stem)], ""
     except Exception:
-        return []
+        return [], ""
     finally:
         flat.unlink(missing_ok=True)
 
@@ -260,6 +299,9 @@ def _set_notes(slide: Any, notes: str) -> None:
 
 def pptx_tools(context: Any) -> list:
     roots = context_roots(context)
+    # Per deck: the request it was last written in, and how many times in that request.
+    versions: dict[Path, tuple[int, int]] = {}
+    most = 4
 
     @guard
     def write_presentation(
@@ -273,6 +315,17 @@ def pptx_tools(context: Any) -> list:
             raise ValueError("'slides' must be a list of slide objects")
 
         extending = append and target.is_file()
+        request = getattr(context, "turn", 0)
+        seen = versions.get(target, (request, 0))
+        version = 1 if seen[0] != request else seen[1] + 1
+        if not extending and version > most and target.is_file():
+            # A note asking it to stop was not enough: the free-tier model wrote one deck
+            # seven times in a request (real run, 2026-11-19). The saved deck is kept.
+            raise ValueError(
+                f"This deck has been written {most} times in this request and is saved as "
+                f"version {most}. It is not written again in this request. Tell the person it "
+                "is ready, and name anything you would still change."
+            )
         if extending:
             deck = pptx.Presentation(str(target))
         elif template:
@@ -345,8 +398,20 @@ def pptx_tools(context: Any) -> list:
                 "Rewrite the flagged slides with fewer/shorter bullets or split each "
                 "into two slides, then call write_presentation again."
             )
+        if not extending:
+            versions[target] = (request, version)
+        if not extending and version >= 3:
+            # Shown its own slides, a model rewrote one deck six times for changes of wording
+            # (real run, 2026-11-19). The pictures are what invite the next rewrite.
+            result["rewritten"] = (
+                f"This is version {version} of this deck, and it is saved. Hand it "
+                "over now unless a slide is broken (text cut off or overlapping, a wrong "
+                f"fact, a missing picture). After version {most} it is not written again in "
+                "this request. To look at a slide, call read_presentation with show_slides."
+            )
+            return deliverable_check.attach(result, target)
         shown = range(existing + 1, existing + min(len(slides), MAX_PAGE_PICTURES) + 1)
-        pictures = slide_pictures(target, list(shown))
+        pictures, why_not = slide_pictures(target, list(shown))
         if pictures:
             result["_images"] = pictures
             result["shown"] = (
@@ -354,6 +419,8 @@ def pptx_tools(context: Any) -> list:
                 "against the brief and any reference before saying the deck is ready. "
                 + _FONT_CAVEAT
             )
+        elif why_not:
+            result["shown"] = why_not
         return deliverable_check.attach(result, target)
 
     @guard
@@ -401,8 +468,8 @@ def pptx_tools(context: Any) -> list:
         }
         wanted = sorted({n for n in show_slides or [] if isinstance(n, int) and 1 <= n <= len(slides)})
         if wanted:
-            pictures = slide_pictures(target, wanted[:MAX_PAGE_PICTURES])
-            result["show_slides_note"] = _FONT_CAVEAT if pictures else _NO_RENDERER
+            pictures, why_not = slide_pictures(target, wanted[:MAX_PAGE_PICTURES])
+            result["show_slides_note"] = _FONT_CAVEAT if pictures else why_not or _NO_RENDERER
             if pictures:
                 result["_images"] = pictures
         return result

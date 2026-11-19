@@ -509,3 +509,154 @@ def test_finished_slides_come_back_as_pictures_to_look_at(tools, monkeypatch):
         assert picture.width > picture.height
     assert [p[-10:] for p in read("deck.pptx", show_slides=[6, 2])["_images"]] == [
         "page-2.jpg", "page-6.jpg"]
+
+
+def _body_sizes(ws, name="deck.pptx"):
+    """Per slide, the point size of every body run (the title and page number left out)."""
+    import pptx
+
+    from coworker.tools.office.deck_render import FOOTER_SHAPE_NAME
+
+    out = []
+    for slide in pptx.Presentation(str(ws / name)).slides:
+        out.append([
+            run.font.size.pt
+            for shape in slide.shapes
+            if shape.has_text_frame and shape != slide.shapes.title and shape.name != FOOTER_SHAPE_NAME
+            for para in shape.text_frame.paragraphs
+            for run in para.runs
+        ])
+    return out
+
+
+def test_a_short_list_is_set_large_enough_to_read_from_the_back_of_the_room(tools):
+    """Seen on five real decks (2026-11-19): three bullets at 18 points left two thirds of
+    every slide empty. Type shrinks to fit a full slide, so it must also grow on a sparse one."""
+    write, ws = tools[0]["write_presentation"], tools[1]
+    few = ["Set a steady rhythm", "Show work in progress", "Meet once at kickoff"]
+    many = [f"Point number {n} with a few more words to fill the line" for n in range(1, 10)]
+    out = write("deck.pptx", [
+        {"layout": "bullets", "title": "Few", "bullets": few},
+        {"layout": "bullets", "title": "Many", "bullets": many},
+        {"layout": "two_column", "title": "Sides", "columns": [
+            {"heading": "Before", "bullets": ["Seen at a desk", "Hallway updates"]},
+            {"heading": "After", "bullets": ["Clear owners", "Visible progress"]}]},
+    ])
+    assert "layout_warnings" not in out
+    sparse, full, sides = _body_sizes(ws)
+    assert min(sparse) >= 24
+    assert max(full) < min(sparse)
+    assert min(size for size in sides) >= 22
+
+
+def test_a_title_that_states_an_idea_wraps_to_two_lines_before_it_shrinks(tools):
+    """The tool asks for a title that states the idea, which is a sentence. One line of room
+    shrank every such title to about 25 points while the short ones stayed at 34."""
+    import pptx
+    from pptx.util import Pt
+
+    write, ws = tools[0]["write_presentation"], tools[1]
+    idea = "Trust has two bases, and remote work affects both differently"
+    write("deck.pptx", [{"layout": "bullets", "title": idea, "bullets": ["a"]}])
+    slide = pptx.Presentation(str(ws / "deck.pptx")).slides[0]
+    title = slide.shapes.title
+    assert title.text_frame.paragraphs[0].runs[0].font.size == Pt(34)
+    body = next(s for s in slide.shapes if s.has_text_frame and s != title and "a" == s.text_frame.text)
+    assert title.top + title.height <= body.top
+
+
+def test_a_statistic_is_a_number_seen_from_the_back_with_its_label_beside_it(tools):
+    """The stat layout promised "a number that carries it" and drew an ordinary line of
+    body text. The number and its label stay one paragraph, so they are read together."""
+    import pptx
+
+    write, read, ws = tools[0]["write_presentation"], tools[0]["read_presentation"], tools[1]
+    write("deck.pptx", [{"layout": "stat", "title": "Meeting once pays", "stats": [
+        {"value": "23%", "label": "higher trust after six months"},
+        {"value": "1,400", "label": "engineers in the study"}]}])
+    slide = pptx.Presentation(str(ws / "deck.pptx")).slides[0]
+    rows = [p for s in slide.shapes if s.has_text_frame and s != slide.shapes.title
+            for p in s.text_frame.paragraphs if "23%" in p.text]
+    value, label = rows[0].runs[0], rows[0].runs[-1]
+    assert value.text.strip() == "23%" and value.font.size.pt >= 54
+    assert label.font.size.pt < value.font.size.pt
+    assert read("deck.pptx")["slides"][0]["bullets"][0] == "23% higher trust after six months"
+
+
+def test_a_deck_rewritten_over_and_over_in_one_request_is_slowed_and_then_stopped(tmp_path, monkeypatch):
+    """Seen on real runs (2026-11-19): shown its own slides, the free-tier model wrote the
+    whole deck six and seven times for changes of wording, and went on past a note asking
+    it to stop. The next request starts the count again: a change the person asks for is
+    not a loop."""
+    monkeypatch.setattr(_pptx_module, "slide_pictures", lambda deck, numbers: (["one.jpg"], ""))
+    context = AgentContext(workspace=tmp_path, roots=[RootDir(path=tmp_path, writable=True)])
+    write = {t.__name__: t for t in pptx_tools(context)}["write_presentation"]
+    deck = [{"layout": "title", "title": "Bonjour"}]
+    first, second, third, fourth = (write("deck.pptx", deck) for _ in range(4))
+    assert "_images" in first and "_images" in second and "rewritten" not in second
+    assert "_images" not in third and "version 3" in third["rewritten"]
+    assert "error" not in fourth
+    saved = (tmp_path / "deck.pptx").read_bytes()
+    fifth = write("deck.pptx", [{"layout": "title", "title": "Encore"}])
+    assert "written 4 times" in fifth["error"] and (tmp_path / "deck.pptx").read_bytes() == saved
+    # Another deck, and slides added to this one, are not rewrites of it.
+    assert "_images" in write("other.pptx", deck)
+    assert "error" not in write("deck.pptx", deck, append=True)
+    context.turn += 1
+    assert "_images" in write("deck.pptx", deck)
+
+
+def test_a_new_request_is_counted_for_the_tools(tmp_path):
+    from helpers import ScriptedProvider
+
+    from coworker.engine import TurnEngine
+    from coworker.permissions import PermissionEngine
+    from coworker.providers import AssistantTurn
+    from coworker.tools.registry import ToolRegistry
+
+    context = AgentContext(workspace=tmp_path)
+    engine = TurnEngine(
+        provider=ScriptedProvider([AssistantTurn(text="One."), AssistantTurn(text="Two.")]),
+        registry=ToolRegistry(), permissions=PermissionEngine(tmp_path), model="m",
+    )
+    engine.tool_context = context
+
+    async def ask(text):
+        async for _ in engine.run(text):
+            pass
+
+    import asyncio
+
+    asyncio.run(ask("first"))
+    asyncio.run(ask("second"))
+    assert context.turn == 2
+
+
+def test_a_blank_slide_given_words_is_refused_instead_of_dropping_them(tools):
+    """Real run, 2026-11-19: a 'blank' slide with a title came out empty, and the model
+    spent five rewrites of the whole deck trying to find out why."""
+    write = tools[0]["write_presentation"]
+    out = write("d.pptx", [{"layout": "blank", "title": "Trust travels through a loop"}])
+    assert "blank" in out["error"] and "bullets" in out["error"]
+    assert "error" not in write("d.pptx", [{"layout": "blank", "notes": "Pause here."}])
+
+
+def test_writing_the_renderer_dropped_is_noticed():
+    """LibreOffice on a Mac drew no Chinese at all (2026-11-19): every slide came back
+    blank but for its quotation marks and page number."""
+    lost = _pptx_module._lost_writing
+    assert lost("远程办公如何影响团队信任？", "“ ” 2")
+    assert not lost("远程办公如何影响团队信任？", "远程办公如何影响团队信任？ 2")
+    assert not lost("Remote work changes trust", "")  # Latin text is not judged this way
+    assert not lost("MBA 课堂", "MBA")  # too little to tell
+
+
+def test_blank_pictures_are_not_shown_as_what_the_deck_looks_like(tools, monkeypatch):
+    """Shown its Chinese deck as blank slides, the model decided the deck was broken and
+    rebuilt it by script, with the words baked into pictures (real run, 2026-11-19)."""
+    monkeypatch.setattr(_pptx_module, "slide_pictures", lambda deck, numbers: ([], _pptx_module._LOST_WRITING))
+    write, read = tools[0]["write_presentation"], tools[0]["read_presentation"]
+    out = write("deck.pptx", [{"layout": "title", "title": "远程办公如何影响团队信任？"}])
+    assert "_images" not in out and "not affected" in out["shown"]
+    seen = read("deck.pptx", show_slides=[1])
+    assert "_images" not in seen and "not affected" in seen["show_slides_note"]

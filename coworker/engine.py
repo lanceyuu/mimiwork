@@ -304,6 +304,9 @@ class TurnEngine:
         self.session_id = ""
         self.checkpoint: Optional[Callable[[], None]] = None
         self.prepare_turn: Optional[Callable[[], Awaitable[None]]] = None
+        # The AgentContext the tools were built from, when there is one: its `turn` is
+        # counted up as each request begins.
+        self.tool_context: Optional[Any] = None
         self.mcp_context = ""
         self._resuming = False
         self._resume_prepared_call_ids: set[str] = set()
@@ -2049,6 +2052,8 @@ class TurnEngine:
         self._turn_approvals = 0
         self._turn_tools = set()
         self._turn_planned = False
+        if self.tool_context is not None:
+            self.tool_context.turn += 1
         if self.file_recovery is not None:
             self.file_recovery.begin_turn()
 

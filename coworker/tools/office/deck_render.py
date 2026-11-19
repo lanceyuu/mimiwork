@@ -13,6 +13,7 @@ side-by-side. Giving the model those shapes is what stops every slide becoming f
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Callable, Optional
 
 from .deck_theme import Theme
@@ -198,7 +199,8 @@ def _place_title(
     size: int,
     min_size: int = 18,
     line_spacing: Optional[float] = None,
-) -> None:
+    top: bool = False,
+) -> int:
     """Write the slide's title into the REAL title placeholder, moved and restyled.
 
     Free text boxes would give tidier code, but a slide whose title isn't a title
@@ -216,6 +218,10 @@ def _place_title(
         frame = holder.text_frame
         frame.word_wrap = True
         frame.clear()
+    if top:
+        from pptx.enum.text import MSO_ANCHOR
+
+        frame.vertical_anchor = MSO_ANCHOR.TOP
     size = fitted_size(
         text, w, h, size, min_size=min_size, bold=False, line_spacing=line_spacing or 1.12
     )
@@ -228,19 +234,25 @@ def _place_title(
         first=True,
         line_spacing=line_spacing,
     )
+    return size
 
 
-def _slide_title(slide: Any, text: str, theme: Theme) -> None:
-    _place_title(
+def _slide_title(slide: Any, text: str, theme: Theme) -> int:
+    """Draw the title; returns how many lines it takes, so the body can start below it."""
+    size = _place_title(
         slide,
         text,
         theme,
         x=theme.margin_x,
         y=theme.title_top,
         w=theme.content_width,
-        h=0.9,
+        # Room for two lines: a title that states an idea is a sentence, and one line of
+        # room shrank each of them to about 25 points beside short titles at 34.
+        h=theme.content_top - theme.title_top - 0.04,
         size=theme.size_slide_title,
+        top=True,
     )
+    return text_lines(text, theme.content_width, size)
 
 
 def _footer(slide: Any, theme: Theme, number: int) -> None:
@@ -275,7 +287,7 @@ def _paint_title(slide: Any, entry: dict, theme: Theme) -> None:
     subtitle = str(entry.get("subtitle") or "")
     if subtitle:
         sub = _box(slide, theme.margin_x, 4.45, theme.content_width - 1.2, 0.9)
-        _write(sub, subtitle, font=theme.body, size=fitted_size(subtitle, theme.content_width - 1.2, 0.9, theme.size_body, min_size=13), color=theme.muted, first=True)
+        _write(sub, subtitle, font=theme.body, size=fitted_size(subtitle, theme.content_width - 1.2, 0.9, theme.size_body + 4, min_size=13), color=theme.muted, first=True)
 
 
 def _paint_section(slide: Any, entry: dict, theme: Theme) -> None:
@@ -316,7 +328,7 @@ def _fit_bullets(bullets: list, width_in: float, height_in: float, base: int) ->
 
 def _paint_bullets(slide: Any, entry: dict, theme: Theme, bullets: list, warnings: list) -> None:
     height = theme.content_bottom - theme.content_top
-    base, fits = _fit_bullets(bullets, theme.content_width, height, theme.size_body)
+    base, fits = _fit_bullets(bullets, theme.content_width, height, theme.size_body_large)
     if not fits:
         warnings.append(
             f"{len(bullets)} bullets don't fit even at minimum size — split this slide "
@@ -364,25 +376,44 @@ def _paint_statement(slide: Any, entry: dict, theme: Theme) -> None:
             sub,
             support,
             font=theme.body,
-            size=fitted_size(support, theme.content_width - 0.9, 0.8, theme.size_body, min_size=13),
+            size=fitted_size(support, theme.content_width - 0.9, 0.8, theme.size_body + 4, min_size=13),
             color=theme.muted,
             first=True,
         )
 
 
 def _paint_stat(slide: Any, theme: Theme, stats: list, warnings: list) -> None:
-    # Keeping the unit beside its label makes the values meaningful in reading order.
+    from pptx.util import Pt
+
     rows = [
-        " ".join(str(item.get(key) or "").strip() for key in ("value", "label")).strip()
+        (str(item.get("value") or "").strip(), str(item.get("label") or "").strip())
         for item in stats
-    ]
+    ][:3]
+    gap = 0.6
+    width = (theme.content_width - gap * (len(rows) - 1)) / len(rows)
     height = theme.content_bottom - theme.content_top
-    size, fits = _fit_bullets([(row, 0) for row in rows], theme.content_width, height, theme.size_body)
-    if not fits:
-        warnings.append("statistic labels exceed the available space. Split this slide.")
-    frame = _box(slide, theme.margin_x, theme.content_top, theme.content_width, height)
-    for i, row in enumerate(rows):
-        _write(frame, row, font=theme.body, size=size, color=theme.ink, first=i == 0, space_after=14)
+    label = theme.size_body_large - 2
+    # One size for every number on the slide, set by the longest of them.
+    longest = max((value for value, _ in rows), key=len)
+    number = fitted_size(longest, width, 1.9, theme.size_stat + 30 // len(rows), min_size=36)
+    for i, (value, words) in enumerate(rows):
+        if (number * 1.15 + label * 1.25 * text_lines(words, width, label)) / 72.0 > height - 0.7:
+            warnings.append(f"statistic label '{words[:30]}' exceeds the available space. Shorten it.")
+        frame = _box(slide, theme.margin_x + i * (width + gap), theme.content_top + 0.7, width, height - 0.7)
+        # One paragraph, the number first and a space after it: read back, and read aloud
+        # by a screen reader, the value keeps its label.
+        para = _write(
+            frame, f"{value} " if value else words, font=theme.heading if value else theme.body,
+            size=number if value else label, color=theme.accent if value else theme.ink, first=True,
+        )
+        if value and words:
+            para.add_line_break()
+            run = para.add_run()
+            run.text = words
+            run.font.name = theme.body
+            run.font.size = Pt(label)
+            run.font.bold = False
+            run.font.color.rgb = _rgb(theme.ink)
 
 
 def _paint_columns(slide: Any, theme: Theme, columns: list, warnings: list) -> None:
@@ -391,10 +422,10 @@ def _paint_columns(slide: Any, theme: Theme, columns: list, warnings: list) -> N
     top = theme.content_top
     height = theme.content_bottom - top
     heads = any(str(c.get("heading") or "") for c in columns[:2])
-    fit = theme.size_body
+    fit = theme.size_body_large - 2
     for column in columns[:2]:
         pairs = _bullet_pairs(column.get("bullets") or [])
-        size, fits = _fit_bullets(pairs, width, height - (0.62 if heads else 0), theme.size_body)
+        size, fits = _fit_bullets(pairs, width, height - (0.62 if heads else 0), fit)
         fit = min(fit, size)
         if not fits:
             warnings.append(f"column '{column.get('heading') or '?'}' overflows. Split this slide.")
@@ -408,7 +439,7 @@ def _paint_columns(slide: Any, theme: Theme, columns: list, warnings: list) -> N
                 head,
                 heading,
                 font=theme.body,
-                size=theme.size_body + 2,
+                size=fitted_size(heading, width, 0.5, fit + 2, min_size=14, bold=True),
                 color=theme.accent,
                 bold=True,
                 first=True,
@@ -547,6 +578,15 @@ def paint(
         )
 
     title = str(entry.get("title") or "")
+    if kind == "blank" and any(
+        entry.get(key) for key in ("title", "subtitle", "bullets", "statement", "stats", "columns", "quote")
+    ):
+        # Drawn silently empty, a titled 'blank' slide sent the model through five rewrites
+        # of the whole deck looking for the reason (real run, 2026-11-19).
+        raise ValueError(
+            "a 'blank' slide draws nothing, so its words would be lost; use bullets, "
+            "statement, two_column or stat for this content, or leave the blank slide empty"
+        )
     # 'statement' puts its claim in the title placeholder, so it counts as titled even
     # when the words arrived in `statement` rather than `title`.
     titled = kind != "blank" and bool(title or (kind == "statement" and entry.get("statement")))
@@ -557,8 +597,9 @@ def paint(
         else _blank_slide(deck)
     )
 
-    if chrome and title and kind != "statement":
-        _slide_title(slide, title, theme)
+    if chrome and title and kind != "statement" and _slide_title(slide, title, theme) > 1:
+        # The second line of a title takes the room the body would start in.
+        theme = replace(theme, content_top=theme.content_top + 0.45)
 
     if kind == "title":
         _paint_title(slide, entry, theme)

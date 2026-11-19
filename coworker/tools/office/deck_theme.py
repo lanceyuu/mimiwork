@@ -34,8 +34,12 @@ class Theme:
     size_deck_title: int = 48
     size_section: int = 34
     size_slide_title: int = 34
-    size_statement: int = 32
+    size_statement: int = 40
     size_body: int = 18
+    # A sparse slide sets its list this large and shrinks from here: at 18 points three
+    # bullets left two thirds of the slide empty and could not be read from the back.
+    size_body_large: int = 26
+    size_stat: int = 66
     size_body_sub: int = 15
     size_quote: int = 28
     size_caption: int = 13

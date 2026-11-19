@@ -64,6 +64,10 @@ def test_only_verified_originals_can_be_saved_with_their_credit(tmp_path, monkey
     assert (result["rights"], result["creator"], result["source"]) == ("CC0", "Lee", source)
     assert (tmp_path / "house.jpg").read_bytes() == payload
     assert "error" in save(1, "house.jpg")
+    # Seen on a real run (2026-11-19): saving into a folder that did not exist yet failed
+    # with "file not found", and the deck went out without its photograph.
+    assert "error" not in save(1, "assets/house.jpg")
+    assert (tmp_path / "assets" / "house.jpg").read_bytes() == payload
     payload = b"not an image"
     assert "error" in save(1, "bad.jpg")
     assert not (tmp_path / "bad.jpg").exists()

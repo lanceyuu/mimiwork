@@ -664,6 +664,7 @@ def build_engine(
     # Whether this session can save at all — the consolidation nudge at compaction stays
     # quiet when it can't, so it never invites a claim the tools can't back.
     engine.memory_enabled = memory_store is not None and _saving_enabled()
+    engine.tool_context = context
     # Plugin-style pre/post tool hooks (opencode hooks). Attached post-construction so the
     # engine defaults (None) are untouched for engines built without them.
     if hooks is not None:

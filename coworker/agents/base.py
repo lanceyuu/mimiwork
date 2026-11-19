@@ -23,6 +23,9 @@ class AgentContext:
     # When None, tools fall back to the single `workspace` root. Held by reference so runtime
     # add/remove of folders is seen by the file tools built from it.
     roots: Optional[list] = None
+    # How many requests this conversation has started, counted by the engine. A tool that
+    # must tell "the model keeps redoing this" from "the person asked again" reads it.
+    turn: int = 0
 
 
 @dataclass

@@ -121,6 +121,7 @@ def slide_photo_tools(context):
             ):
                 raise ValueError("The downloaded image does not match its Commons record.")
             im.verify()
+        path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("xb") as f:
             f.write(raw)
         return {**photo, "path": str(path), "_images": [str(path)]}
