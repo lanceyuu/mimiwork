@@ -187,13 +187,32 @@ function ArtifactMenu({
  */
 function filePath(href: string | undefined): string | null {
   const raw = (href || "").trim();
-  if (!raw) return null;
+  if (!raw || agentSystemId(raw)) return null;
   if (raw.startsWith("artifact:")) return raw.slice("artifact:".length);
   if (raw.startsWith("file://")) return raw.slice("file://".length);
   if (raw.startsWith("#") || raw.startsWith("//")) return null;
   if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return null; // any other scheme: leave it alone
   return raw;
 }
+
+/** Does this link point at an agent system, and which one?
+ *
+ *  `agent:<id>` is the form the agent tools hand Mimi. Before they handed her one she made
+ *  one up, `mimiwork://agents/sys-c6a426eb`, which went through as a web link to nowhere:
+ *  "when i click on the link to agent, it does not redirected to a agent" (owner-hit
+ *  2026-11-19). So, as with files above, what a model plausibly writes is taken as meant.
+ *  A relative `agents/…` path counts only when it ends in a system id, since a folder may
+ *  be called agents.
+ */
+export function agentSystemId(href: string | undefined): string | null {
+  const raw = (href || "").trim();
+  const named = /^(?:agent:(?:\/\/)?|mimiwork:(?:\/\/)?agents?\/)([A-Za-z0-9][\w-]*)\/?$/i.exec(raw);
+  if (named) return named[1];
+  const path = /^\.?\/?agents\/(sys-[\w-]+)\/?$/i.exec(raw);
+  return path ? path[1] : null;
+}
+
+export const OPEN_AGENT_SYSTEM_EVENT = "coworker:open-agent-system";
 
 // Built once, not per render: React tells components apart by identity, so renderers made
 // inside Markdown() were new components on every render, and each re-render of the
@@ -210,6 +229,21 @@ const COMPONENTS = {
     return <pre {...props}>{children}</pre>;
   },
   a: ({ node: _n, href, children, ...props }: any) => {
+    const system = agentSystemId(href);
+    if (system) {
+      return (
+        <a
+          href="#agents"
+          data-testid="agent-link"
+          onClick={(event) => {
+            event.preventDefault();
+            window.dispatchEvent(new CustomEvent(OPEN_AGENT_SYSTEM_EVENT, { detail: { id: system } }));
+          }}
+        >
+          {children}
+        </a>
+      );
+    }
     const path = filePath(href);
     if (path) {
       const title = Array.isArray(children) ? children.join("") : String(children ?? "");
@@ -224,7 +258,7 @@ const COMPONENTS = {
 };
 // artifact: and bare relative paths are ours — keep them through the sanitizer, which
 // would otherwise drop what it does not recognise as a web URL.
-const urlTransform = (url: string) => (filePath(url) ? url : defaultUrlTransform(url));
+const urlTransform = (url: string) => (filePath(url) || agentSystemId(url) ? url : defaultUrlTransform(url));
 
 export function Markdown({ text }: { text: string }) {
   return (

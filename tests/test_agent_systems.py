@@ -167,6 +167,17 @@ def test_mimi_saves_a_design_and_gets_back_a_diagram_and_its_problems(tmp_path):
     assert refused["error"] == "This system cannot run yet."
 
 
+def test_mimi_is_handed_the_link_that_opens_a_system_in_agents(tmp_path):
+    """With no link given, Mimi made one up, mimiwork://agents/sys-c6a426eb, and clicking
+    it did nothing (owner-hit 2026-11-19). The chat opens agent:<id> in Agents."""
+    _, tools = _tools(tmp_path, CapturingProvider())
+    out = tools["create_agent_system"]({"title": "Desk", "nodes": [{"id": "a"}]})
+    link = f"[Desk](agent:{out['id']})"
+    assert out["link"] == link and link in out["note"]
+    assert tools["update_agent_system"](out["id"], {"title": "Desk", "nodes": [{"id": "a"}]})["link"] == link
+    assert tools["list_agent_systems"]()["systems"][0]["link"] == link
+
+
 def test_each_agent_runs_on_its_own_model_and_effort(tmp_path):
     provider = SettingsProvider([AssistantTurn(text="facts", finish_reason="stop"),
                                  AssistantTurn(text="the reply", finish_reason="stop")])

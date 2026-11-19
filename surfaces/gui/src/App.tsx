@@ -67,7 +67,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ThinkingBlock, Transcript } from "./components/Transcript";
 import { Composer } from "./components/Composer";
 import { TaskStatus, progressFromEvent, type TaskProgress } from "./components/TaskStatus";
-import { Markdown } from "./components/Markdown";
+import { Markdown, OPEN_AGENT_SYSTEM_EVENT } from "./components/Markdown";
 import { SearchModal } from "./components/SearchModal";
 import { SessionIntro } from "./components/SessionIntro";
 import { FolderGate } from "./components/FolderGate";
@@ -531,6 +531,18 @@ export function App() {
     const p = personaOf(a);
     return p ? isProjectScoped(p) : gatesWorkspaceFallback(a);
   };
+
+  // A link to an agent system in a chat reply opens that system in Agents.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const id = (e as CustomEvent).detail?.id;
+      if (typeof id !== "string" || !id) return;
+      setAgentsOpenId(id);
+      setSurface("agents");
+    };
+    window.addEventListener(OPEN_AGENT_SYSTEM_EVENT, open);
+    return () => window.removeEventListener(OPEN_AGENT_SYSTEM_EVENT, open);
+  }, []);
 
   // The desktop tray's "Settings" item dispatches this on the window.
   useEffect(() => {

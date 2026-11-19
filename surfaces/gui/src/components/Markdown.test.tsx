@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { Markdown, OPEN_ARTIFACT_EVENT } from "./Markdown";
+import { Markdown, OPEN_AGENT_SYSTEM_EVENT, OPEN_ARTIFACT_EVENT } from "./Markdown";
 
 afterEach(cleanup);
 
@@ -271,5 +271,51 @@ describe("Markdown mermaid fences that do not parse", () => {
     expect(container.querySelector("pre code")?.textContent).toContain("BROKEN");
     expect(container.querySelector('[data-testid="mermaid"]')).toBeNull();
     expect(mermaid.render).not.toHaveBeenCalled();
+  });
+});
+
+// Owner, 2026-11-19: "when i click on the link to agent, it does not redirected to a agent".
+// The link in his conversation was [Open the saved debate system in Agents](mimiwork://agents/sys-c6a426eb):
+// an address Mimi made up, because nothing gave her one, and that nothing in the app opened.
+describe("Markdown links to an agent system", () => {
+  const opened = () => {
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent).detail.id);
+    window.addEventListener(OPEN_AGENT_SYSTEM_EVENT, listener);
+    return { seen, stop: () => window.removeEventListener(OPEN_AGENT_SYSTEM_EVENT, listener) };
+  };
+
+  it("opens the system in Agents, in the form the tools give and in the forms a model writes", () => {
+    const { seen, stop } = opened();
+    render(
+      <Markdown
+        text={[
+          "[Stock debate](agent:sys-c6a426eb)",
+          "[Open the saved debate system in Agents](mimiwork://agents/sys-c6a426eb)",
+          "[the system](agents/sys-0a1b2c3d)",
+        ].join(" and ")}
+      />,
+    );
+    const links = screen.getAllByTestId("agent-link");
+    expect(links.map((a) => a.textContent)).toEqual(["Stock debate", "Open the saved debate system in Agents", "the system"]);
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBeNull(); // stays in the app
+      fireEvent.click(link);
+    }
+    expect(seen).toEqual(["sys-c6a426eb", "sys-c6a426eb", "sys-0a1b2c3d"]);
+    expect(screen.queryByTestId("artifact-chip")).toBeNull();
+    stop();
+  });
+
+  it("leaves a web address and a file in a folder called agents alone", () => {
+    const { seen, stop } = opened();
+    const { container } = render(
+      <Markdown text="[docs](https://example.com/agents/sys-c6a426eb) and [notes](agents/notes.md)" />,
+    );
+    expect(screen.queryByTestId("agent-link")).toBeNull();
+    expect(container.querySelector("a")!.getAttribute("href")).toBe("https://example.com/agents/sys-c6a426eb");
+    expect(screen.getByTestId("artifact-chip").textContent).toContain("notes.md");
+    expect(seen).toEqual([]);
+    stop();
   });
 });

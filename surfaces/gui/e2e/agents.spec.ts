@@ -115,3 +115,31 @@ test("a system can be duplicated and deleted from its page", async ({ page }) =>
   await expect(page.getByTestId("agents-gallery")).toBeVisible();
   await expect(page.locator('[data-testid^="agent-system-card-"]')).toHaveCount(1);
 });
+
+// Owner, 2026-11-19: "when i click on the link to agent, it does not redirected to a agent".
+test("a link to an agent system in a chat reply opens that system in Agents", async ({ page }, testInfo) => {
+  await page.goto("/");
+  const id = await page.evaluate(async () => {
+    const saved = await fetch("/v1/agent-systems", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Stock debate", nodes: [{ id: "a", name: "Analyst", kind: "agent", role: "Weigh the evidence.", model: "", tools: [], effort: "", position: { x: 0, y: 0 } }], edges: [] }),
+    });
+    return (await saved.json()).system.id as string;
+  });
+  const box = page.getByPlaceholder(/Ask Mimi/);
+  await expect(box).toBeVisible();
+  await box.fill(`[Open the saved debate system in Agents](mimiwork://agents/${id})`);
+  await page.getByRole("button", { name: "Send" }).click();
+  const link = page.getByTestId("agent-link").last();
+  await expect(link).toHaveText("Open the saved debate system in Agents");
+  await page.screenshot({ path: testInfo.outputPath("agent-link-in-chat.png") });
+  await link.click();
+  await expect(page.getByTestId("agent-system-run")).toBeVisible();
+  await expect(page.getByText("Stock debate").first()).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("agent-link-opened.png") });
+
+  // A link to a system that has since been deleted lands on the list, not on an error.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("coworker:open-agent-system", { detail: { id: "sys-gone" } })));
+  await expect(page.getByTestId("agents-gallery")).toBeVisible();
+});

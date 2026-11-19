@@ -69,10 +69,20 @@ def _tool(func: Callable[..., Any], schema: dict[str, Any], *, gated: bool = Fal
     return func
 
 
+def _link(system) -> str:
+    """The Markdown link the chat turns into a click that opens this system in Agents.
+    Without it Mimi made one up that opened nothing (owner-hit 2026-11-19)."""
+    title = system.title.replace("[", "(").replace("]", ")") or "Agent system"
+    return f"[{title}](agent:{system.id})"
+
+
 def _saved(system) -> dict[str, Any]:
+    link = _link(system)
     return {"ok": True, "id": system.id, "title": system.title, "problems": validate(system),
-            "mermaid": to_mermaid(system),
-            "note": "Show the user the mermaid diagram, and say they can edit it under Agents."}
+            "mermaid": to_mermaid(system), "link": link,
+            "note": (f"Show the user the mermaid diagram, and give them this link, which opens "
+                     f"the system in Agents where they can edit and run it: {link}. Use this "
+                     "link exactly; no other address opens it.")}
 
 
 def _on_loop(loop: Any, coro_fn: Callable[..., Any], *args: Any) -> Any:
@@ -115,7 +125,7 @@ def agent_system_tools(
     def list_agent_systems() -> dict:
         return {"systems": [
             {"id": s.id, "title": s.title, "description": s.description, "pattern": s.pattern,
-             "agents": [n["name"] for n in s.nodes]} for s in store.list()]}
+             "agents": [n["name"] for n in s.nodes], "link": _link(s)} for s in store.list()]}
 
     def run_agent_system(system: str, input: str) -> dict:
         found = store.get(system) or next(
@@ -138,7 +148,7 @@ def agent_system_tools(
             report=report,
             save=store.save_run,
         )
-        return run_summary(runner.run(input or ""))
+        return {**run_summary(runner.run(input or "")), "link": _link(found)}
 
     return [
         _tool(create_agent_system, _schema(
