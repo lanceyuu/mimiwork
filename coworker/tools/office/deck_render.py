@@ -29,6 +29,7 @@ LAYOUTS = (
     "quote",
     "image",
     "photo_split",
+    "photo",
     "blank",
 )
 
@@ -46,8 +47,12 @@ def text_lines(text: str, width_in: float, size: int, *, bold: bool = False) -> 
     """Estimated wrapped-line count for `text` set at `size` in a `width_in` box."""
     factor = _CHAR_FACTOR_BOLD if bold else _CHAR_FACTOR
     per_line = max(1, int((width_in * 72.0) / (factor * size)))
+    # A link has no space to break at: it drops whole to the next line and leaves the rest
+    # of the line it left empty, so it is counted as that much more text.
+    longest = max((len(word) for word in text.split()), default=0)
+    unbroken = longest if longest > per_line * 0.3 else 0
     # Words wrap whole, so real text needs a bit more room than the char count says.
-    return max(1, math.ceil(len(text) * 1.08 / per_line))
+    return max(1, math.ceil((len(text) * 1.08 + unbroken) / per_line))
 
 
 def block_height(
@@ -505,7 +510,9 @@ def paint_background(slide: Any, picture_path: str, width: int, height: int) -> 
     tree.insert(2, picture._element)  # after the group's own two property elements
 
 
-def _paint_photo_split(slide: Any, entry: dict, theme: Theme, picture_path: str, height: int) -> None:
+def _paint_photo_split(
+    slide: Any, entry: dict, theme: Theme, picture_path: str, height: int, warnings: list
+) -> None:
     from pptx.util import Inches
 
     # Crop the photo to fill the right half. PowerPoint retains the full source image.
@@ -517,13 +524,74 @@ def _paint_photo_split(slide: Any, entry: dict, theme: Theme, picture_path: str,
     _cover(picture, left, height, focus)
 
     width = theme.canvas_width / 2 - 2 * theme.margin_x
-    _place_title(slide, str(entry.get("title") or ""), theme, x=theme.margin_x, y=1.65,
-                 w=width, h=2.05, size=theme.size_deck_title)
+    lines = _bullet_pairs(entry.get("bullets"))
+    support = str(entry.get("subtitle") or "")
+    if not lines:
+        _place_title(slide, str(entry.get("title") or ""), theme, x=theme.margin_x, y=1.65,
+                     w=width, h=2.05, size=theme.size_deck_title)
+        if support:
+            frame = _box(slide, theme.margin_x, 3.95, width, 1.75)
+            size = fitted_size(support, width, 1.75, theme.size_body + 4, min_size=13)
+            _write(frame, support, font=theme.body, size=size, color=theme.muted, first=True)
+        return
+    # A few lines beside the photograph: the title moves up to make room for them.
+    _place_title(slide, str(entry.get("title") or ""), theme, x=theme.margin_x, y=0.9,
+                 w=width, h=1.75, size=theme.size_slide_title, top=True)
+    top = 2.85
+    if support:
+        frame = _box(slide, theme.margin_x, top, width, 0.7)
+        _write(frame, support, font=theme.body, color=theme.muted, first=True,
+               size=fitted_size(support, width, 0.7, theme.size_body, min_size=13))
+        top += 0.8
+    room = theme.content_bottom - top
+    base, fits = _fit_bullets(lines, width, room, theme.size_body_large - 4)
+    if not fits:
+        warnings.append("the lines beside the photograph do not fit. Cut them or move them to their own slide.")
+    frame = _box(slide, theme.margin_x, top, width, room)
+    for i, (text, level) in enumerate(lines):
+        para = _write(frame, text, font=theme.body, size=max(base - 3 * max(level, 0), 12),
+                      color=theme.body_ink, first=(i == 0), space_after=14, line_spacing=1.25, level=level)
+        _bullet_marker(para, "—" if level == 0 else "·", theme.body, theme.accent, 0.3 + 0.25 * level)
+
+
+PHOTO_SCRIM_NAME = "mimiwork-photo-scrim"
+
+
+def _paint_photo(slide: Any, entry: dict, theme: Theme, picture_path: str, width: int, height: int) -> None:
+    """A photograph filling the slide under a dark scrim, with the words in white: for a
+    question, a section break, a discussion prompt, a closing line."""
+    from lxml import etree
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.oxml.ns import qn
+
+    focus = float(entry.get("photo_focus", 0.5))
+    if not 0 <= focus <= 1:
+        raise ValueError("photo_focus must be between 0 and 1")
+    picture = slide.shapes.add_picture(picture_path, 0, 0)
+    _cover(picture, width, height, focus)
+    scrim = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, width, height)
+    scrim.name = PHOTO_SCRIM_NAME
+    scrim.shadow.inherit = False
+    scrim.line.fill.background()
+    scrim.fill.solid()
+    scrim.fill.fore_color.rgb = _rgb(0x081513)
+    # Dark enough for white words on any photograph, light enough that it is still a photograph.
+    colour = scrim._element.spPr.find(qn("a:solidFill")).find(qn("a:srgbClr"))
+    etree.SubElement(colour, qn("a:alpha")).set("val", "55000")
+    tree = slide.shapes._spTree
+    for element in (scrim._element, picture._element):  # the picture ends up underneath
+        tree.remove(element)
+        tree.insert(2, element)
+
+    light = replace(theme, ink=0xFFFFFF, muted=0xE9EFEC)
+    span = theme.content_width - 1.6
+    _place_title(slide, str(entry.get("title") or ""), light, x=theme.margin_x, y=2.5, w=span, h=2.4,
+                 size=theme.size_statement + 4, min_size=24, line_spacing=1.15)
     support = str(entry.get("subtitle") or "")
     if support:
-        frame = _box(slide, theme.margin_x, 3.95, width, 1.75)
-        size = fitted_size(support, width, 1.75, theme.size_body, min_size=13)
-        _write(frame, support, font=theme.body, size=size, color=theme.muted, first=True)
+        frame = _box(slide, theme.margin_x, 5.05, span, 0.9)
+        _write(frame, support, font=theme.body, color=light.muted, first=True,
+               size=fitted_size(support, span, 0.9, theme.size_body + 4, min_size=13))
 
 
 def _paint_image(slide: Any, entry: dict, theme: Theme, picture_path: str) -> None:
@@ -590,7 +658,7 @@ def paint(
     # 'statement' puts its claim in the title placeholder, so it counts as titled even
     # when the words arrived in `statement` rather than `title`.
     titled = kind != "blank" and bool(title or (kind == "statement" and entry.get("statement")))
-    chrome = kind not in ("title", "blank", "section", "photo_split")
+    chrome = kind not in ("title", "blank", "section", "photo_split", "photo")
     slide = (
         deck.slides.add_slide(_pick_layout(deck, "Title Only", "Title and Content"))
         if titled
@@ -623,13 +691,15 @@ def paint(
         _paint_columns(slide, theme, columns, warnings)
     elif kind == "quote":
         _paint_quote(slide, entry, theme)
-    elif kind in ("image", "photo_split"):
+    elif kind in ("image", "photo_split", "photo"):
         image = str(entry.get("image") or "")
         if not image:
             raise ValueError(f"a '{kind}' slide needs image: <path to a png/jpg>")
         path = resolve_image(image)
         if kind == "photo_split":
-            _paint_photo_split(slide, entry, theme, path, deck.slide_height)
+            _paint_photo_split(slide, entry, theme, path, deck.slide_height, warnings)
+        elif kind == "photo":
+            _paint_photo(slide, entry, theme, path, deck.slide_width, deck.slide_height)
         else:
             _paint_image(slide, entry, theme, path)
 

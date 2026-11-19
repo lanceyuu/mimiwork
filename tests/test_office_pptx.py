@@ -660,3 +660,121 @@ def test_blank_pictures_are_not_shown_as_what_the_deck_looks_like(tools, monkeyp
     assert "_images" not in out and "not affected" in out["shown"]
     seen = read("deck.pptx", show_slides=[1])
     assert "_images" not in seen and "not affected" in seen["show_slides_note"]
+
+
+def test_a_photograph_can_fill_the_slide_with_the_words_in_white_over_it(tools):
+    """Owner, 2026-11-19: "the default slide style should still be image first". His own
+    rule for it: a photo as background under a dark scrim for questions, breaks and dividers."""
+    import pptx
+    from PIL import Image
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    write, read, ws = tools[0]["write_presentation"], tools[0]["read_presentation"], tools[1]
+    Image.new("RGB", (1200, 500), "#446").save(ws / "harbour.jpg")
+    out = write("deck.pptx", [{"layout": "photo", "title": "Where is home for you?",
+                               "subtitle": "Two minutes, in pairs", "image": "harbour.jpg"}])
+    assert "error" not in out
+    deck = pptx.Presentation(ws / "deck.pptx")
+    shapes = list(deck.slides[0].shapes)
+    picture = next(s for s in shapes if s.shape_type == MSO_SHAPE_TYPE.PICTURE)
+    assert (picture.width, picture.height) == (deck.slide_width, deck.slide_height)
+    scrim = next(s for s in shapes if s.name == "mimiwork-photo-scrim")
+    title = deck.slides[0].shapes.title
+    # Drawn bottom to top: the photograph, the scrim that darkens it, then the words.
+    assert shapes.index(picture) < shapes.index(scrim) < shapes.index(title)
+    assert title.text_frame.paragraphs[0].runs[0].font.color.rgb == RGBColor(0xFF, 0xFF, 0xFF)
+    assert read("deck.pptx")["slides"][0]["title"] == "Where is home for you?"
+    assert "image" in write("d.pptx", [{"layout": "photo", "title": "No picture"}])["error"]
+
+
+def test_a_few_lines_can_sit_beside_a_half_page_photograph(tools):
+    import pptx
+    from PIL import Image
+
+    write, read, ws = tools[0]["write_presentation"], tools[0]["read_presentation"], tools[1]
+    Image.new("RGB", (600, 600)).save(ws / "scene.jpg")
+    lines = ["Set a steady rhythm", "Show work in progress", "Meet once at kickoff"]
+    out = write("deck.pptx", [{"layout": "photo_split", "title": "Three routines rebuild trust",
+                               "bullets": lines, "image": "scene.jpg"}])
+    assert "layout_warnings" not in out
+    deck = pptx.Presentation(ws / "deck.pptx")
+    slide = deck.slides[0]
+    body = next(s for s in slide.shapes if s.has_text_frame and "steady rhythm" in s.text_frame.text)
+    assert body.left + body.width <= deck.slide_width / 2
+    assert body.top >= slide.shapes.title.top + slide.shapes.title.height
+    assert read("deck.pptx")["slides"][0]["bullets"] == lines
+
+
+def test_a_new_deck_short_of_photographs_is_told_so_once(tools, monkeypatch):
+    """Told in its instructions to build around photographs, Wolf still wrote "no stock
+    photos, I'll keep it text-driven" and Puppy saved one picture for eight slides (live
+    runs, 2026-11-19). A result the model has to answer works where a paragraph did not."""
+    from PIL import Image
+
+    monkeypatch.setattr(_pptx_module, "slide_pictures", lambda deck, numbers: ([], ""))
+    write, ws = tools[0]["write_presentation"], tools[1]
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        Image.new("RGB", (1200, 800)).save(ws / name)
+    words = [{"layout": "bullets", "title": f"Point {n}", "bullets": ["one"]} for n in range(1, 9)]
+    # None at all is a gap in the file itself, said every time and again when the model
+    # calls the deck ready (the engine reopens it): see the finished-file check.
+    plain = write("plain.pptx", words)
+    assert "pictures" not in plain
+    assert any("photograph" in issue and "search_slide_photos" in issue for issue in plain["verification"]["issues"])
+    # Enough photographs, each used once: nothing to say.
+    shown = [{"layout": "photo_split", "title": "Open", "image": "a.jpg"}, *words[:5],
+             {"layout": "photo", "title": "Ask", "image": "b.jpg"}, {"layout": "photo", "title": "Close", "image": "c.jpg"}]
+    assert "pictures" not in write("shown.pptx", shown)
+    # One photograph on three slides is one photograph.
+    same = [{"layout": "photo", "title": f"Again {n}", "image": "a.jpg"} for n in range(3)] + words[:5]
+    one = write("one.pptx", [{"layout": "photo_split", "title": "Open", "image": "a.jpg"}, *words[:7]])
+    assert any("1 photograph" in issue for issue in one["verification"]["issues"])
+    few = write("same.pptx", same)
+    assert "3 photographs" in few["pictures"] and "search_slide_photos" in few["pictures"]
+    assert "verification" not in few
+    # A short deck, slides added to a deck, and a second look at the same deck are left alone.
+    assert "pictures" not in write("short.pptx", words[:2])
+    assert "pictures" not in write("plain.pptx", words[:1], append=True)
+    assert "pictures" not in write("plain.pptx", words)
+
+
+def test_a_deck_on_a_house_template_is_not_asked_for_photographs(tools, tmp_path):
+    import pptx
+
+    house = pptx.Presentation()
+    house.save(str(tools[1] / "house.pptx"))
+    words = [{"layout": "bullets", "title": f"Point {n}", "bullets": ["one"]} for n in range(1, 7)]
+    out = tools[0]["write_presentation"]("deck.pptx", words, template="house.pptx")
+    assert "pictures" not in out and "verification" not in out
+    # Nor is a deck in a style the person chose, or a short one in the default style.
+    assert "verification" not in tools[0]["write_presentation"]("own.pptx", words, style={"heading": "Georgia", "bg": "#FFFFFF"})
+    assert "verification" not in tools[0]["write_presentation"]("short.pptx", words[:3])
+
+
+def test_slides_looked_at_again_and_again_in_one_request_stop_being_shown(tmp_path, monkeypatch):
+    """Real run, 2026-11-19: with the rewrites capped, the free-tier model went on asking to
+    see the same nine slides, fifteen times in six minutes, finding nothing to change."""
+    monkeypatch.setattr(_pptx_module, "slide_pictures", lambda deck, numbers: (["one.jpg"], ""))
+    context = AgentContext(workspace=tmp_path, roots=[RootDir(path=tmp_path, writable=True)])
+    kit = {t.__name__: t for t in pptx_tools(context)}
+    kit["write_presentation"]("deck.pptx", [{"layout": "title", "title": f"Slide {n}"} for n in range(1, 9)])
+    looks = [kit["read_presentation"]("deck.pptx", show_slides=[5, 6, 7, 8]) for _ in range(5)]
+    assert all("_images" in look for look in looks[:4])
+    assert "_images" not in looks[4] and "already" in looks[4]["show_slides_note"]
+    context.turn += 1
+    assert "_images" in kit["read_presentation"]("deck.pptx", show_slides=[1])
+
+
+def test_a_credits_slide_with_long_links_is_set_small_enough_to_stay_on_the_slide(tools):
+    """A link has no space to break at, so it drops whole to the next line and a list of
+    photo credits ran off the bottom of the slide (live deck, 2026-11-19)."""
+    from coworker.tools.office.deck_render import text_lines
+
+    credit = "Video Teleconference BLC by U.S. Army photo by Spc. Ryan Lucas, Public domain, https://commons.wikimedia.org/wiki/File:Video_Teleconference_BLC_(6181786).jpg"
+    words = "Video Teleconference BLC by the U.S. Army, photographed by Specialist Ryan Lucas and placed in the public domain on Wikimedia Commons in the year 2011"
+    assert text_lines(credit, 11.6, 26) > text_lines(words, 11.6, 26)
+    write, ws = tools[0]["write_presentation"], tools[1]
+    credits = [credit, *[f"Home Office {n} by Kristin Hardwick, CC0, https://stocksnap.io/photo/home-office-D3OTBIDS9{n}" for n in range(3)]]
+    write("deck.pptx", [{"layout": "bullets", "title": "Photo credits", "bullets": credits}])
+    assert max(_body_sizes(ws)[0]) <= 22

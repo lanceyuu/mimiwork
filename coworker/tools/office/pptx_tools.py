@@ -129,8 +129,11 @@ _SLIDE_SHAPE = {
             "description": (
                 "Use title or section for an opening, statement for a claim, stat for values "
                 "with their labels, two_column or comparison for alternatives, quote for a "
-                "speaker's words, image for a complete figure, photo_split for a cropped "
-                "photograph beside a title and subtitle, bullets for a list, or blank."
+                "speaker's words, image for a complete figure, photo for a photograph that "
+                "fills the slide with a short title in white over it (a question, a section "
+                "break, a closing line), photo_split for a photograph on the right half "
+                "beside a title and a subtitle or up to three short lines, bullets for a "
+                "list, or blank."
             ),
         },
         "title": {
@@ -178,11 +181,11 @@ _SLIDE_SHAPE = {
         "attribution": {"type": "string", "description": "For 'quote': who said it."},
         "image": {
             "type": "string",
-            "description": "PNG/JPG in a granted folder for image or photo_split.",
+            "description": "PNG/JPG in a granted folder for image, photo or photo_split.",
         },
         "photo_focus": {
             "type": "number", "minimum": 0, "maximum": 1,
-            "description": "For photo_split, place the crop toward the start (0), center (0.5) or end (1) of the cropped axis.",
+            "description": "For photo and photo_split, place the crop toward the start (0), center (0.5) or end (1) of the cropped axis.",
         },
         "caption": {
             "type": "string",
@@ -214,7 +217,9 @@ _WRITE_SCHEMA = {
             "inherit its theme or append=true to add slides to an existing deck. To follow "
             "a visual style the layouts cannot draw (textures, hand-drawn shapes, "
             "illustrated pages), put that look in a background picture and keep the words "
-            "as editable text on top. When pictures of the finished slides come back, "
+            "as editable text on top. A new deck is image first: search_slide_photos and "
+            "save a photograph for the opening slide and about every second slide before "
+            "writing it. When pictures of the finished slides come back, "
             "compare them with the brief or reference and rewrite what does not match."
         ),
         "parameters": {
@@ -302,6 +307,8 @@ def pptx_tools(context: Any) -> list:
     # Per deck: the request it was last written in, and how many times in that request.
     versions: dict[Path, tuple[int, int]] = {}
     most = 4
+    # Per deck: the request it was last looked at in, and how many times in that request.
+    looks: dict[Path, tuple[int, int]] = {}
 
     @guard
     def write_presentation(
@@ -400,6 +407,30 @@ def pptx_tools(context: Any) -> list:
             )
         if not extending:
             versions[target] = (request, version)
+        pictures_used = {
+            str(entry.get("image") or entry.get("background"))
+            for entry in slides
+            if entry.get("image") or entry.get("background")
+        }
+        wanted = max(1, round(len(slides) * 0.4))
+        if (
+            not extending and not template and version == 1 and len(slides) >= 4
+            and not (style or {}).get("background") and 0 < len(pictures_used) < wanted
+        ):
+            # The instructions already say "image first"; Wolf answered "no stock photos,
+            # I'll keep it text-driven" and Puppy saved one picture for eight slides (live
+            # runs, 2026-11-19). Said once, on the first version only.
+            result["pictures"] = (
+                f"This deck has {len(pictures_used)} photograph(s) on {len(slides)} slides. A "
+                f"new MimiWork deck is built around photographs: about {wanted} photographs "
+                "here, each used on one slide only, on the opening slide (photo_split), on a "
+                "question or a break (photo) and beside an idea (photo_split). Unless the "
+                "person asked for a deck without pictures, find them now with "
+                "search_slide_photos, one subject of one to three words for each picture, "
+                "save each with save_slide_photo, and write the deck once more. What that "
+                "search returns is already free of copyright, so nothing more needs checking, "
+                "and a photograph that sets the scene does not have to prove the slide's claim."
+            )
         if not extending and version >= 3:
             # Shown its own slides, a model rewrote one deck six times for changes of wording
             # (real run, 2026-11-19). The pictures are what invite the next rewrite.
@@ -468,6 +499,20 @@ def pptx_tools(context: Any) -> list:
         }
         wanted = sorted({n for n in show_slides or [] if isinstance(n, int) and 1 <= n <= len(slides)})
         if wanted:
+            request = getattr(context, "turn", 0)
+            seen = looks.get(target, (request, 0))
+            count = 1 if seen[0] != request else seen[1] + 1
+            looks[target] = (request, count)
+            # Enough to see every slide once and some of them twice. With rewrites capped,
+            # the free-tier model asked to see the same nine slides fifteen times in six
+            # minutes and changed nothing (real run, 2026-11-19).
+            if count > -(-len(slides) // MAX_PAGE_PICTURES) + 2:
+                result["show_slides_note"] = (
+                    "These slides have already been shown to you several times in this "
+                    "request, and looking again will not show anything new. Hand the deck "
+                    "over, and tell the person about anything you were unsure of."
+                )
+                return result
             pictures, why_not = slide_pictures(target, wanted[:MAX_PAGE_PICTURES])
             result["show_slides_note"] = _FONT_CAVEAT if pictures else why_not or _NO_RENDERER
             if pictures:

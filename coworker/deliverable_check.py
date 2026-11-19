@@ -110,7 +110,29 @@ def _pptx(target: Path) -> tuple[str, list[str]]:
         issues.append("the presentation has no slides")
     elif not chunks:
         issues.append("the slides contain no text")
+    elif len(slides) >= 4 and _default_style(deck):
+        photographs = sum(shape.shape_type == 13 for slide in slides for shape in slide.shapes)  # 13: a picture
+        if photographs < max(1, round(len(slides) / 4)):
+            # The instructions say "image first", and a note on the result said so again;
+            # Wolf still answered "no photos, I'll avoid unverified imagery" and, told to add
+            # some, placed one for eight slides (live runs, 2026-11-19).
+            issues.append(
+                f"the deck has {photographs} photograph(s) on {len(slides)} slides. A deck in "
+                "the default style is built around them, on the opening slide and about every "
+                "second slide: find them with search_slide_photos (its results are free of "
+                "copyright), place them with the photo and photo_split layouts, or tell the "
+                "person why this deck has so few"
+            )
     return "\n".join(chunks), issues
+
+
+def _default_style(deck: Any) -> bool:
+    """A deck on MimiWork's own paper and ink: not a house template, not a style the
+    person chose, so the defaults (photographs among them) are what was asked for."""
+    from .tools.office import deck_theme
+
+    theme = deck_theme.read_theme(deck)
+    return (theme.bg, theme.ink) == (deck_theme.QUALITATI.bg, deck_theme.QUALITATI.ink)
 
 
 def _xlsx(target: Path) -> tuple[str, list[str]]:
