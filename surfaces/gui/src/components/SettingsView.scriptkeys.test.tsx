@@ -6,11 +6,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const getScriptKeys = vi.fn();
 const setScriptKey = vi.fn();
 const removeScriptKey = vi.fn();
+const setScriptKeysFromEnv = vi.fn();
 vi.mock("../api", async () => ({
   ...(await vi.importActual<Record<string, unknown>>("../api")),
   getScriptKeys: () => getScriptKeys(),
   setScriptKey: (n: string, v: string) => setScriptKey(n, v),
   removeScriptKey: (n: string) => removeScriptKey(n),
+  setScriptKeysFromEnv: (text: string) => setScriptKeysFromEnv(text),
 }));
 import { ScriptKeysCard } from "./SettingsView";
 
@@ -56,5 +58,35 @@ describe("ScriptKeysCard", () => {
     await waitFor(() => expect(getScriptKeys).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText("Keys for your own scripts")).toBeNull();
+  });
+  // Owner, 2026-11-19: "it is always so difficult to put the API key to the .env".
+  it("saves every key of a pasted .env file at once", async () => {
+    getScriptKeys.mockResolvedValue({ names: [] });
+    setScriptKeysFromEnv.mockResolvedValue({ ok: true, names: ["OPENAI_API_KEY", "TAVILY_API_KEY"] });
+    render(<ScriptKeysCard />);
+    const pasted = "OPENAI_API_KEY=sk-one\nTAVILY_API_KEY=tvly-two\n";
+    fireEvent.paste(await screen.findByLabelText("Key"), { clipboardData: { getData: () => pasted } });
+    await waitFor(() => expect(setScriptKeysFromEnv).toHaveBeenCalledWith(pasted));
+    expect(await screen.findByText("TAVILY_API_KEY")).toBeTruthy();
+    expect(screen.queryByText(/sk-one/)).toBeNull();
+    expect((screen.getByLabelText("Key") as HTMLInputElement).value).toBe("");
+  });
+
+  it("leaves an ordinary pasted key in the box", async () => {
+    getScriptKeys.mockResolvedValue({ names: [] });
+    setScriptKeysFromEnv.mockClear();
+    render(<ScriptKeysCard />);
+    fireEvent.paste(await screen.findByLabelText("Key"), { clipboardData: { getData: () => "sk-or-v1-abc=" } });
+    expect(setScriptKeysFromEnv).not.toHaveBeenCalled();
+  });
+
+  // The example name was OPENROUTER_API_KEY, and the card was read as "the OpenRouter key field".
+  it("does not look like a field for one provider's key", async () => {
+    getScriptKeys.mockResolvedValue({ names: [] });
+    render(<ScriptKeysCard />);
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.placeholder).not.toMatch(/OPENROUTER/);
+    expect(screen.getByText(/OpenAI, Anthropic, Gemini/)).toBeTruthy();
+    expect(document.querySelectorAll("#script-key-names option").length).toBeGreaterThan(4);
   });
 });

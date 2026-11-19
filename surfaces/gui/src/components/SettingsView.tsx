@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ClipboardEvent } from "react";
 import { LANGS, getLang, setLang, useT } from "../i18n";
 import { setLanguage as apiSetLanguage } from "../api";
 import {
   getGlobalInstructions,
   getScholarly,
   getScriptKeys,
+  setScriptKeysFromEnv,
   setGlobalInstructions,
   getSettings,
   getTrustedWorkspaces,
@@ -946,6 +947,12 @@ export function PaperSearchCard() {
 // A script Mimi runs for someone often needs a key of theirs. The app is started from the
 // Dock, so nothing set in a Terminal reaches it, and a key typed into the chat goes to the
 // model. Saved here it reaches Mimi's commands by name; only the names come back.
+// Offered as you type, never required: the name is whatever the person's script reads.
+const SCRIPT_KEY_NAMES = [
+  "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "DEEPSEEK_API_KEY",
+  "TAVILY_API_KEY", "HF_TOKEN", "GITHUB_TOKEN", "ELEVENLABS_API_KEY", "REPLICATE_API_TOKEN",
+];
+
 export function ScriptKeysCard() {
   const t = useT();
   const [names, setNames] = useState<string[] | null>(null);
@@ -979,6 +986,16 @@ export function ScriptKeysCard() {
     }
   };
 
+  // The lines of a .env file pasted into either box are saved as they are, each under its
+  // own name. One key on its own, even one with "=" in it, is left for the box.
+  const pasteEnv = (event: ClipboardEvent<HTMLInputElement>) => {
+    const text = event.clipboardData.getData("text");
+    const lines = text.split(/\r?\n/).filter((line) => line.trim() && !line.trim().startsWith("#"));
+    if (!lines.length || !lines.every((line) => /^\s*(export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*\S/.test(line))) return;
+    event.preventDefault();
+    void apply(() => setScriptKeysFromEnv(text), true);
+  };
+
   if (names === null) return null;
   const field = "px-2 py-1.5 rounded-lg border border-line bg-paper text-[13px] text-ink outline-none focus:border-accent";
   return (
@@ -1009,11 +1026,18 @@ export function ScriptKeysCard() {
           autoComplete="off"
           spellCheck={false}
           aria-label={t("Name")}
-          placeholder="OPENROUTER_API_KEY"
+          placeholder={t("Name your script reads")}
+          list="script-key-names"
           value={name}
           className={field + " w-[220px] font-mono"}
           onChange={(e) => setName(e.target.value.toUpperCase().replace(/\s+/g, "_"))}
+          onPaste={pasteEnv}
         />
+        <datalist id="script-key-names">
+          {SCRIPT_KEY_NAMES.filter((n) => !names.includes(n)).map((n) => (
+            <option key={n} value={n} />
+          ))}
+        </datalist>
         <input
           type="password"
           autoComplete="off"
@@ -1022,6 +1046,7 @@ export function ScriptKeysCard() {
           value={value}
           className={field + " flex-1 min-w-[160px]"}
           onChange={(e) => setValue(e.target.value)}
+          onPaste={pasteEnv}
         />
         <button
           className="btn sm"
@@ -1030,6 +1055,9 @@ export function ScriptKeysCard() {
         >
           {t("Save")}
         </button>
+      </div>
+      <div className={FIELD_HELP}>
+        {t("Any key works here: OpenAI, Anthropic, Gemini, Tavily or any other. Paste the lines of a .env file into either box and every NAME=value line is saved. You can also paste a key in a chat and ask Mimi to keep it.")}
       </div>
       <div className={FIELD_HELP}>
         {t("Stored only on this computer. Any script Mimi runs can read these keys, so save only keys meant for scripts.")}

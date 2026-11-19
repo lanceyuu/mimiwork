@@ -973,6 +973,8 @@ def create_app(manager: SessionManager) -> FastAPI:
     @app.post("/v1/script-keys")
     def script_keys_save(body: dict) -> dict[str, Any]:
         body = body or {}
+        if body.get("env"):
+            return manager.set_script_keys_from_env(str(body["env"]))
         return manager.set_script_key(str(body.get("name") or ""), str(body.get("value") or ""))
 
     @app.delete("/v1/script-keys/{name}")

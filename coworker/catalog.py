@@ -109,7 +109,10 @@ def _search(context: AgentContext) -> list:
 
 
 def _shell(context: AgentContext) -> list:
-    return shell_tools(context.executor)  # run_shell + background task tools
+    from . import script_keys
+
+    # run_shell + background task tools, and the way to keep a key those commands need
+    return [*shell_tools(context.executor), script_keys.save_tool()]
 
 
 def _todo(context: AgentContext) -> list:

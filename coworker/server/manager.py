@@ -2894,6 +2894,26 @@ class SessionManager:
             return {"ok": False, "error": problem, **self.get_script_keys()}
         return {"ok": True, **self.get_script_keys()}
 
+    def set_script_keys_from_env(self, text: str) -> dict[str, Any]:
+        """Save every NAME=value line of a pasted .env file. What could not be saved is
+        named with its reason; the rest is kept."""
+        from .. import script_keys
+
+        pairs = script_keys.parse_env(text)
+        if not pairs:
+            return {"ok": False, "error": "No NAME=value lines were found.", **self.get_script_keys()}
+        saved, refused = [], []
+        for name, value in pairs:
+            problem = script_keys.save(self.secrets, name, value)
+            if problem:
+                refused.append(f"{name}: {problem}")
+            else:
+                saved.append(name)
+        out: dict[str, Any] = {"ok": bool(saved), "saved": saved, **self.get_script_keys()}
+        if refused:
+            out["error"] = " ".join(refused)
+        return out
+
     def remove_script_key(self, name: str) -> dict[str, Any]:
         from .. import script_keys
 

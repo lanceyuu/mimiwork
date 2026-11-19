@@ -93,3 +93,51 @@ def test_the_sidecar_lists_names_and_never_values(store):
     assert refused["ok"] is False and refused["error"]
     assert VALUE not in str(manager.get_script_keys())
     assert manager.remove_script_key("WORKSHOP_API_KEY") == {"ok": True, "names": []}
+
+
+def test_mimi_can_keep_a_key_the_person_pasted_and_asks_before_it_does(store, tmp_path):
+    """Asked on four tiers to keep a pasted key for later chats (2026-11-19), every one
+    answered that it could not and sent the person to Settings. The owner: "we always need
+    to input API keys to the AI"."""
+    from coworker.agents.base import AgentContext
+    from coworker.catalog import expand
+
+    shell = LocalExecutor(cwd=tmp_path)
+    try:
+        tools = {t.__name__: t for t in expand(["shell"], AgentContext(workspace=tmp_path, executor=shell))}
+        keep = tools["save_script_key"]
+        assert keep.__aisuite_tool_metadata__.requires_approval
+        result = keep(name="WORKSHOP_API_KEY", value=VALUE)
+        assert result["saved"] == "WORKSHOP_API_KEY" and VALUE not in str(result)
+        assert script_keys.load(store) == {"WORKSHOP_API_KEY": VALUE}
+        assert "got:" + VALUE in script_keys_shown(shell)
+        assert "error" in keep(name="PATH", value="/tmp/evil")
+        assert "error" in keep(name="lowercase", value=VALUE)
+    finally:
+        shell.close()
+
+
+def script_keys_shown(shell):
+    # The engine hides a saved value before the model sees it; the shell itself has it.
+    return shell.run(SHOW)["output"]
+
+
+def test_a_dotenv_file_is_read_into_names_and_keys():
+    """The Settings card takes the lines of a .env file, so a person with a file of keys
+    does not type each one."""
+    text = '# keys\nOPENAI_API_KEY="sk-one"\nexport TAVILY_API_KEY=tvly-two\n\nBAD LINE\nempty=\nSPACED = three  \n'
+    assert script_keys.parse_env(text) == [
+        ("OPENAI_API_KEY", "sk-one"), ("TAVILY_API_KEY", "tvly-two"), ("SPACED", "three"),
+    ]
+
+
+def test_pasting_a_dotenv_file_saves_what_it_can_and_names_what_it_cannot(store):
+    from coworker.server.manager import SessionManager
+
+    manager = SessionManager.__new__(SessionManager)
+    manager.secrets = store
+    result = manager.set_script_keys_from_env(f"OPENAI_API_KEY={VALUE}\nPATH=/tmp/evil\nTAVILY_API_KEY='tvly-two'\n")
+    assert result["ok"] and result["saved"] == ["OPENAI_API_KEY", "TAVILY_API_KEY"]
+    assert result["names"] == ["OPENAI_API_KEY", "TAVILY_API_KEY"] and "PATH" in result["error"]
+    assert VALUE not in str(result)
+    assert not manager.set_script_keys_from_env("just some words")["ok"]

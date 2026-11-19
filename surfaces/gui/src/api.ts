@@ -376,6 +376,16 @@ export async function setScriptKey(name: string, value: string): Promise<ScriptK
   return res.json();
 }
 
+/** Save every NAME=value line of a pasted .env file; what was refused comes back in `error`. */
+export async function setScriptKeysFromEnv(env: string): Promise<ScriptKeys> {
+  const res = await fetch(`${httpBase()}/v1/script-keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ env }),
+  });
+  return res.json();
+}
+
 export async function removeScriptKey(name: string): Promise<ScriptKeys> {
   const res = await fetch(`${httpBase()}/v1/script-keys/${encodeURIComponent(name)}`, { method: "DELETE" });
   return res.json();

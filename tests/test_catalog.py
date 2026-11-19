@@ -33,6 +33,7 @@ CODE_TOOLS = {
     "run_shell",
     "shell_task_output",
     "shell_task_kill",
+    "save_script_key",
     "todo_write",
 }
 # The single Coworker carries EVERYTHING (owner ask 2026-08-19): files + search +
@@ -52,6 +53,7 @@ COWORK_TOOLS = {
     "run_shell",
     "shell_task_output",
     "shell_task_kill",
+    "save_script_key",
     "todo_write",
     "read_document",
     "write_document",
@@ -136,7 +138,8 @@ def test_requirements_skip_unavailable(tmp_path):
 
     no_ws = AgentContext(workspace=None, executor=object(), todo=TodoList())
     names = _names(expand(CODE_CAPABILITIES, no_ws))
-    assert names == {"run_shell", "shell_task_output", "shell_task_kill", "todo_write"}
+    assert names == {"run_shell", "shell_task_output", "shell_task_kill",
+    "save_script_key", "todo_write"}
 
 
 def test_risk_summary():
