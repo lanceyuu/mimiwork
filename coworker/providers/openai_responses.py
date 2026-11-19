@@ -308,7 +308,7 @@ class OpenAIResponsesProvider(ProviderClient):
             if not key:
                 raise RuntimeError(
                     "No model API key configured. Set OPENAI_API_KEY in the environment, "
-                    "or add your key in Manage → Settings."
+                    "or add your key in Settings > Models."
                 )
             self._client = OpenAI(api_key=key)
         return self._client

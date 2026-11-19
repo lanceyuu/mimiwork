@@ -101,9 +101,9 @@ def friendly_gateway_error(exc: Exception) -> Optional[str]:
         used, cap = detail.get("used"), detail.get("cap")
         count = f" ({used} of {cap} requests)" if isinstance(used, int) and isinstance(cap, int) else ""
         return (
-            f"Mimi Puppy's free allowance for today is used up{count}. It resets "
-            f"{_local_midnight_utc()}. To keep going now, switch the model to Mimi Hound — "
-            "it runs on your QualiTaTi credits and a typical message costs a fraction of one."
+            f"Today's free allowance for Mimi Puppy and Mimi Hound is used up{count}. It "
+            f"resets {_local_midnight_utc()}. To keep going now, switch the model to Mimi "
+            "Wolf — it runs on your QualiTaTi credits."
         )
     if code == "INSUFFICIENT_CREDITS":
         return (

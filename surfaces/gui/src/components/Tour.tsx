@@ -56,7 +56,7 @@ const STEPS: Step[] = [
     title: "Watch the work happen",
     body:
       "The right panel shows the live plan (Progress), every finished file (Artifacts), and " +
-      "exactly which folders this conversation can touch (Access).",
+      "exactly which folders this conversation can touch (Folders).",
     find: byTestId("access-section"),
   },
   {

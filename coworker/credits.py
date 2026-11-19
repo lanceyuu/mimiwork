@@ -217,7 +217,7 @@ def render_markdown() -> str:
         "# Credits",
         "",
         "MimiWork stands on other people's work. This file names whose, and what we took;",
-        "the same list is in the app under Settings → About. It is generated from",
+        "the same list is in the app under Settings > General > Credits. It is generated from",
         "`coworker/credits.py` by `scripts/build_credits_md.py` — edit there, not here.",
         "",
     ]

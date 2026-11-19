@@ -168,7 +168,7 @@ class OpenAIProvider(ProviderClient):
             if not key:
                 raise RuntimeError(
                     "No model API key configured. Set OPENAI_API_KEY in the environment, "
-                    "or add your key in Manage → Settings."
+                    "or add your key in Settings > Models."
                 )
             kwargs: dict[str, Any] = {"api_key": key}
             if self._base_url:

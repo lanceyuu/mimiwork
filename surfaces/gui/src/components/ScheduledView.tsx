@@ -223,7 +223,7 @@ export function ScheduledView({ onOpenRun, onRunNow, initialOpenId, onDiscuss }:
       <div className="text-[12px] text-faint flex gap-1.5 mb-4">
         <span aria-hidden>ⓘ</span>
         <span>
-          Runs only while openworker-server is up — a missed schedule catches up once when it next
+          Runs only while MimiWork is open — a missed schedule catches up once when it next
           starts.
         </span>
       </div>

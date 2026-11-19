@@ -481,7 +481,7 @@ export function Composer(props: Props) {
   const voiceReady = !!dictation?.supported && !!dictation?.model_verified && !!dictation?.test_passed;
   const recordingTime = `${Math.floor(recordingSeconds / 60)}:${String(recordingSeconds % 60).padStart(2, "0")}`;
 
-  // Attach-time PDF thresholds (Settings → Token savings): a big PDF must not ride whole in
+  // Attach-time PDF thresholds (Settings > Models > Token savings): a big PDF must not ride whole in
   // every turn of the conversation, so one over the user's page or size limit goes in as a
   // file instead — saved to the chat's folder and read on demand with read_pdf, the same as
   // a Word file. Rejecting it (the old rule) left a drop of long papers with no way in
@@ -537,7 +537,7 @@ export function Composer(props: Props) {
     if (saved.length)
       showAttachNotice(
         `${saved.join(", ")} ${saved.length > 1 ? "are" : "is"} over your PDF limit ` +
-          `(Settings → Token savings), so Mimi will save a copy in this chat's folder and ` +
+          `(Settings, Models, Token savings), so Mimi will save a copy in this chat's folder and ` +
           `read it from there instead of sending it whole.`,
       );
     if (next.length) setAttachments((a) => mergeAttachments(a, next));

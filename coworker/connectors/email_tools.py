@@ -416,7 +416,7 @@ def _attach(
 
 
 # -- shared by the agent's tools and the Mail section --------------------------------
-_NOT_CONNECTED = "email is not connected; add it in Manage → Integrations"
+_NOT_CONNECTED = "email is not connected; connect it in Connectors (the account row at the bottom left, then Connectors, then Email (IMAP))"
 
 
 def load_profile(

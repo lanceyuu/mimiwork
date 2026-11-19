@@ -6,7 +6,7 @@ The canonical history always stores a PDF attachment as an OpenAI `file` content
 file part right before the provider call — the stored history is never mutated, so
 switching to a PDF-capable model mid-session sends the real document again.
 
-Two fallback modes (user setting, Settings → Token savings):
+Two fallback modes (user setting, Settings > Models > Token savings):
   - "text"   — extract embedded text locally (pypdf; pure Python).
   - "images" — render each page to a PNG (pypdfium2) and send as image parts; only
                useful when the model has vision, else it degrades to text anyway.

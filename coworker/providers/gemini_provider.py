@@ -425,7 +425,7 @@ class GeminiProvider(ProviderClient):
             if not key:
                 raise RuntimeError(
                     "No Gemini API key configured. Set GEMINI_API_KEY in the environment, "
-                    "or add your key in Manage → Configure Models."
+                    "or add your key in Settings > Models."
                 )
             self._client = genai.Client(api_key=key)
         return self._client

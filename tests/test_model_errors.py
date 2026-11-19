@@ -98,7 +98,10 @@ def test_a_spent_free_allowance_is_explained_not_retried():
     assert is_transient(exc) is False  # a 429, but not "slow down"
     msg = friendly_gateway_error(exc)
     assert msg and "used up (214 of 200 requests)" in msg
-    assert "midnight UTC" in msg and "Mimi Hound" in msg
+    assert "midnight UTC" in msg and "Mimi Wolf" in msg
+    # Hound became free on 2026-09-08 and shares this allowance, so it is not a way out
+    # (the gateway's own message says Wolf). Mapped 2026-11-19.
+    assert "switch the model to Mimi Hound" not in msg
 
 
 def test_an_empty_balance_points_at_the_top_up_page():

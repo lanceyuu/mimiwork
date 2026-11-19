@@ -408,7 +408,7 @@ class AnthropicProvider(ProviderClient):
             if not key:
                 raise RuntimeError(
                     "No Anthropic API key configured. Set ANTHROPIC_API_KEY in the environment, "
-                    "or add your key in Manage → Configure Models."
+                    "or add your key in Settings > Models."
                 )
             self._client = Anthropic(api_key=key)
         return self._client
