@@ -54,6 +54,34 @@ export function selectedText(doc: Document): string {
   return last >= 0xd800 && last <= 0xdbff ? text.slice(0, -1) : text;
 }
 
+/** Where the reader is in a shown email: the end of what they selected, or the caret a
+ *  plain click left behind. In the frame's own coordinates. Null when there is neither, or
+ *  the click fell where there is no text. */
+export function selectionSpot(doc: Document): { x: number; top: number; bottom: number; caret: boolean } | null {
+  const selection = Document.prototype.getSelection.call(doc);
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  // The last line's box, so a button placed here sits where the selection ends.
+  const boxes = range.getClientRects?.();
+  const box = boxes?.length ? boxes[boxes.length - 1] : range.getBoundingClientRect?.();
+  if (!box || !box.height) return null;
+  return { x: box.right, top: box.top, bottom: box.bottom, caret: selection.isCollapsed };
+}
+
+/** What the reader means to comment on: what they selected, or, after a plain click, the
+ *  paragraph they clicked in, which this selects so they see what was taken. */
+export function pickedText(doc: Document): string {
+  const selection = Document.prototype.getSelection.call(doc);
+  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return selectedText(doc);
+  // Not in the standard, but in every webview the app runs in, and it knows where a
+  // paragraph ends in a table cell, between two line breaks or in a styled span.
+  const widen = (selection as unknown as { modify?: (how: string, way: string, by: string) => void }).modify;
+  if (!widen) return "";
+  widen.call(selection, "move", "backward", "paragraphboundary");
+  widen.call(selection, "extend", "forward", "paragraphboundary");
+  return selectedText(doc);
+}
+
 /** Let go of whatever is selected in a shown email. */
 export function clearSelection(doc: Document): void {
   Document.prototype.getSelection.call(doc)?.removeAllRanges();

@@ -1,14 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { openExternal } from "../../tauri";
+import { Icon } from "../Icon";
 import { contentHeight, disarmEmail, focusedAddress, isParsed, releaseFocus, stillArmed } from "./disarm";
-import { clearSelection, markQuotes, selectedText } from "./quote";
+import { clearSelection, markQuotes, pickedText, selectedText, selectionSpot } from "./quote";
 
 const MAX_HEIGHT = 20_000;
 // How many times the frame may grow to fit its email. An email sized to its own window
 // ("min-height: 100vh" plus padding) is a little taller every time the frame is made to
 // fit it; after this many rounds the frame stops following and scrolls instead.
 const MAX_GROWTHS = 12;
+// How often a shown email is asked what is selected in it. Short, because the Comment
+// button follows a click by this much.
+const SELECT_MS = 120;
+// Room the Comment button needs, with the gap between it and the line it belongs to.
+const BUTTON_HEIGHT = 36;
+const BUTTON_WIDTH = 120;
 const REMOTE_IMAGE = /<img[^>]+src\s*=\s*["']?https?:|url\(\s*["']?https?:/i;
 const HIDDEN_MARKS = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
@@ -32,6 +39,7 @@ export function MailFrame({
   text,
   quotes = [],
   onSelect,
+  onComment,
   chosen = false,
 }: {
   html: string;
@@ -39,8 +47,12 @@ export function MailFrame({
   /** Passages to highlight: the ones the user has commented on. Each is one line of text. */
   quotes?: string[];
   /** Told what the reader has selected in the email whenever it changes; "" for nothing.
-   *  Give it a function that stays the same between renders. */
-  onSelect?: (text: string) => void;
+   *  `caret` says a plain click has put the reader in a paragraph of this email, selected
+   *  text or not. Give it a function that stays the same between renders. */
+  onSelect?: (text: string, caret: boolean) => void;
+  /** Given, a Comment button follows the reader's click or selection in the email, and
+   *  this is told the passage when it is pressed. */
+  onComment?: (quote: string) => void;
   /** This email holds the selection the reader will comment on. When another email takes
    *  it over, this one lets go of its own. */
   chosen?: boolean;
@@ -57,30 +69,36 @@ export function MailFrame({
   const [refused, setRefused] = useState<string | null>(null);
   const [height, setHeight] = useState(80);
   const [link, setLink] = useState("");
+  // Where the Comment button goes: just under where the reader clicked or stopped selecting.
+  const [spot, setSpot] = useState<{ left: number; top: number } | null>(null);
   const ready = safe !== null && checked === safe;
+
+  const look = useCallback(() => {
+    if (safe === null) return;
+    const doc = frame.current?.contentDocument;
+    if (!doc || !isParsed(doc)) return;
+    // Looked at as soon as it has been read, not when its last image arrives: with Show
+    // images on, one slow picture would otherwise keep the whole email hidden.
+    if (stillArmed(doc)) return setRefused(safe);
+    setChecked(safe);
+    const wanted = Math.min(MAX_HEIGHT, Math.max(80, contentHeight(doc)));
+    if (wanted > tallest.current && growths.current < MAX_GROWTHS) {
+      growths.current += 1;
+      tallest.current = wanted;
+      setHeight(wanted);
+    }
+    setLink(focusedAddress(doc));
+  }, [safe]);
 
   useEffect(() => {
     if (safe === null) return;
     growths.current = 0;
     // Scripts are off inside the frame, so a listener added there never fires. The app
-    // asks from outside instead, four times a second.
-    const timer = window.setInterval(() => {
-      const doc = frame.current?.contentDocument;
-      if (!doc || !isParsed(doc)) return;
-      // Looked at as soon as it has been read, not when its last image arrives: with Show
-      // images on, one slow picture would otherwise keep the whole email hidden.
-      if (stillArmed(doc)) return setRefused(safe);
-      setChecked(safe);
-      const wanted = Math.min(MAX_HEIGHT, Math.max(80, contentHeight(doc)));
-      if (wanted > tallest.current && growths.current < MAX_GROWTHS) {
-        growths.current += 1;
-        tallest.current = wanted;
-        setHeight(wanted);
-      }
-      setLink(focusedAddress(doc));
-    }, 250);
+    // asks from outside instead, four times a second. The first look does not wait for
+    // the timer: the frame itself says when it has loaded (see `onLoad` below).
+    const timer = window.setInterval(look, 250);
     return () => window.clearInterval(timer);
-  }, [safe]);
+  }, [safe, look]);
 
   // Each quote is one line, so the list can be compared, and kept, as text.
   const quoted = quotes.join("\n");
@@ -88,12 +106,18 @@ export function MailFrame({
   const marked = useRef<string | null>(null);
   const wasChosen = useRef(false);
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) {
+      // A new document (another email, or this one with its images) has no marks yet.
+      marked.current = null;
+      return;
+    }
     const shown = () => {
       const doc = frame.current?.contentDocument;
       return doc && isParsed(doc) ? doc : null;
     };
-    let pending = true;
+    // Marked only when the quotes have changed. Marking rebuilds the text it touches, and
+    // doing that on every click would take the reader's click, or selection, away with it.
+    let pending = marked.current !== quoted;
     const mark = (doc: Document) => {
       pending = false;
       try {
@@ -111,7 +135,7 @@ export function MailFrame({
     };
     // At once, so a new comment's passage lights up with the press, not a moment later.
     const now = shown();
-    if (now) mark(now);
+    if (now && pending) mark(now);
     // Each email has its own selection, and a webview may keep them all. Once the reader
     // has selected in another email, what is still selected here would look chosen and
     // not be, and selecting the same words here again would not count as a change.
@@ -119,19 +143,57 @@ export function MailFrame({
     wasChosen.current = chosen;
     // Unknown at first, so the first look always reports, even "nothing selected".
     let picked: string | null = null;
+    let placed = "";
     // Asked from outside on a timer, like everything else about a shown email.
     const timer = window.setInterval(() => {
       const doc = shown();
       if (!doc) return;
       if (pending) mark(doc);
       const text = selectedText(doc);
-      if (text !== picked) {
-        picked = text;
-        onSelect?.(text);
+      const at = selectionSpot(doc);
+      // A click on a link is a look at where it goes, not a wish to comment on it.
+      const here = !!at && (!!text || (at.caret && !focusedAddress(doc)));
+      const state = `${text}\n${here}`;
+      if (state !== picked) {
+        picked = state;
+        onSelect?.(text, here);
       }
-    }, 250);
-    return () => window.clearInterval(timer);
+      const el = frame.current;
+      // Above the line the reader is on, over what they have already read, not over what
+      // comes next. On the email's first line there is no room above, and the button would
+      // be cut off at the email's edge, so there it sits on the line, beside the click.
+      const above = !!at && at.top >= BUTTON_HEIGHT;
+      const next =
+        here && at && el
+          ? {
+              left: Math.round(el.offsetLeft + Math.max(8, Math.min(at.x + (above ? 6 : 14), el.clientWidth - BUTTON_WIDTH))),
+              top: Math.round(el.offsetTop + (above ? at.top - BUTTON_HEIGHT : Math.max(0, (at.top + at.bottom - 30) / 2))),
+            }
+          : null;
+      const where = next ? `${next.left},${next.top}` : "";
+      if (where !== placed) {
+        placed = where;
+        setSpot(next);
+      }
+    }, SELECT_MS);
+    return () => {
+      window.clearInterval(timer);
+      setSpot(null);
+    };
   }, [ready, quoted, onSelect, chosen]);
+
+  // Pressing a button can clear the selection in the email before the click arrives. The
+  // passage is read when the press begins, and is what gets commented on.
+  const held = useRef("");
+  const pick = () => {
+    const doc = frame.current?.contentDocument;
+    try {
+      return doc && isParsed(doc) ? pickedText(doc) : "";
+    } catch {
+      // An email built to break the reading costs its comment, never the app.
+      return "";
+    }
+  };
 
   if (safe === null || refused === safe) {
     return (
@@ -173,10 +235,31 @@ export function MailFrame({
           {t("Show images")}
         </button>
       )}
+      {ready && spot && onComment && (
+        <button
+          className="btn sm mail-comment-here"
+          data-testid="mail-comment-here"
+          style={spot}
+          onPointerDown={() => (held.current = pick())}
+          onPointerLeave={() => (held.current = "")}
+          onPointerCancel={() => (held.current = "")}
+          onClick={() => {
+            // Reached from the keyboard there was no press, so the passage is read now.
+            const quote = held.current || pick();
+            held.current = "";
+            if (quote) onComment(quote);
+          }}
+        >
+          <Icon name="chat" size={13} /> {t("Comment")}
+        </button>
+      )}
       <iframe
         // A new frame for each document, so a check can never vouch for the wrong one.
         key={safe}
         ref={frame}
+        // The frame says when the email has been read, so it is looked at, and shown,
+        // then and not a quarter of a second later.
+        onLoad={look}
         className="mail-frame"
         data-testid="mail-frame"
         title={t("Message")}

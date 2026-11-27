@@ -1,6 +1,6 @@
 /** Reading the reader's selection in an email, and marking what they commented on. */
 import { describe, expect, it } from "vitest";
-import { clearSelection, markQuotes, selectedText } from "./quote";
+import { clearSelection, markQuotes, pickedText, selectedText, selectionSpot } from "./quote";
 
 const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
 // A selection exists only in a document that is shown, as the email's is in its frame.
@@ -115,6 +115,58 @@ describe("an email built to break the marking", () => {
     expect(markQuotes(doc, ["Hi"])).toEqual([true]);
     expect(doc.querySelectorAll("br").length).toBe(2_000);
     expect(marks(doc)).toEqual(["Hi"]);
+  });
+});
+
+describe("where the reader clicked", () => {
+  // The test browser lays nothing out and cannot widen a selection, so both are stood in
+  // for here. The browser tests click in a real email, in both of the app's engines.
+  const caretIn = (doc: Document, id: string) => {
+    const selection = Document.prototype.getSelection.call(doc)!;
+    selection.collapse(doc.getElementById(id)!.firstChild, 3);
+    return selection;
+  };
+
+  it("is nowhere until they click or select, and nowhere when the click fell on no text", () => {
+    const doc = shown("<p id='a'>Shall we meet on Friday?</p>");
+    expect(selectionSpot(doc)).toBeNull();
+    const range = caretIn(doc, "a").getRangeAt(0);
+    range.getClientRects = () => [] as unknown as DOMRectList;
+    range.getBoundingClientRect = () => ({ right: 0, top: 0, bottom: 0, height: 0 }) as DOMRect;
+    expect(selectionSpot(doc)).toBeNull();
+  });
+
+  it("is the end of the last line of what is selected, and says when it is only a click", () => {
+    const doc = shown("<p id='a'>Shall we meet on Friday?</p>");
+    const range = caretIn(doc, "a").getRangeAt(0);
+    const lines = [{ right: 300, top: 2, bottom: 20, height: 18 }, { right: 90, top: 22, bottom: 40, height: 18 }];
+    range.getClientRects = () => lines as unknown as DOMRectList;
+    expect(selectionSpot(doc)).toEqual({ x: 90, top: 22, bottom: 40, caret: true });
+  });
+
+  it("takes the whole paragraph after a plain click, and only the selection when there is one", () => {
+    const doc = shown("<p id='a'>Shall we meet on Friday?</p><p id='b'>The plan is attached.</p>");
+    const selection = caretIn(doc, "b");
+    // What the webview does when asked to widen a caret to its paragraph.
+    const asked: string[][] = [];
+    (selection as unknown as { modify: (...how: string[]) => void }).modify = (...how) => {
+      asked.push(how);
+      if (how[0] === "extend") selection.selectAllChildren(doc.getElementById("b")!);
+    };
+    expect(pickedText(doc)).toBe("The plan is attached.");
+    expect(asked).toEqual([["move", "backward", "paragraphboundary"], ["extend", "forward", "paragraphboundary"]]);
+    // Now that something is selected, it is taken as it is.
+    asked.length = 0;
+    selection.selectAllChildren(doc.getElementById("a")!);
+    expect(pickedText(doc)).toBe("Shall we meet on Friday?");
+    expect(asked).toEqual([]);
+  });
+
+  it("takes nothing where a caret cannot be widened", () => {
+    const doc = shown("<p id='a'>Shall we meet on Friday?</p>");
+    const selection = caretIn(doc, "a");
+    (selection as unknown as { modify?: unknown }).modify = undefined;
+    expect(pickedText(doc)).toBe("");
   });
 });
 

@@ -43,6 +43,7 @@ function MessageCard({
   alone = false,
   comments,
   onSelect,
+  onComment,
   chosen,
   onLoaded,
 }: {
@@ -56,8 +57,11 @@ function MessageCard({
   alone?: boolean;
   /** The conversation's comments; the ones on this message are highlighted in it. */
   comments: MailComment[];
-  /** Told what is selected in this message whenever that changes. */
-  onSelect: (messageId: string, quote: string) => void;
+  /** Told what is selected in this message whenever that changes, and whether the reader
+   *  has clicked into it. */
+  onSelect: (messageId: string, quote: string, caret: boolean) => void;
+  /** Comment on this passage of this message; absent while comments cannot be added. */
+  onComment?: (messageId: string, quote: string) => void;
   /** The Message-ID of the message holding the selection to comment on, or null. */
   chosen: string | null;
   onLoaded?: (message: MailMessage) => void;
@@ -92,7 +96,7 @@ function MessageCard({
 
   const id = message?.message_id ?? "";
   const quotes = useMemo(() => comments.filter((c) => c.message_id === id).map((c) => c.quote), [comments, id]);
-  const select = useCallback((quote: string) => onSelect(id, quote), [onSelect, id]);
+  const select = useCallback((quote: string, caret: boolean) => onSelect(id, quote, caret), [onSelect, id]);
 
   const shown = message ?? summary;
   return (
@@ -128,7 +132,17 @@ function MessageCard({
           ))}
         </ul>
       )}
-      {open && message && <MailFrame html={message.html} text={message.text} quotes={quotes} onSelect={select} chosen={chosen === id} />}
+      {open && message && (
+        <MailFrame
+          html={message.html}
+          text={message.text}
+          quotes={quotes}
+          onSelect={select}
+          // A message with no Message-ID has nothing a comment could be tied to.
+          onComment={onComment && id ? (quote) => onComment(id, quote) : undefined}
+          chosen={chosen === id}
+        />
+      )}
     </article>
   );
 }
@@ -168,6 +182,7 @@ export function MailReader({
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [picked, setPicked] = useState<Picked | null>(null);
+  const [fresh, setFresh] = useState(-1);
   const key = opened.kind === "thread" ? opened.key : "";
 
   useEffect(() => {
@@ -202,11 +217,20 @@ export function MailReader({
   const older =
     !!work.draft && !!answer?.message_id && !!work.draft.answers_id && work.draft.answers_id !== answer.message_id;
 
-  const select = useCallback((id: string, quote: string) => {
-    // Each message has its own frame and its own selection. The newest selection wins,
-    // and a frame that stops having one only clears what was its own.
-    setPicked((now) => (quote ? { messageId: id, quote } : now?.messageId === id ? null : now));
+  const select = useCallback((id: string, quote: string, caret: boolean) => {
+    // Each message has its own frame and its own selection. The newest selection, or
+    // click, wins, and a frame that stops having one only clears what was its own.
+    setPicked((now) => (quote || caret ? { messageId: id, quote } : now?.messageId === id ? null : now));
   }, []);
+
+  // The one way a comment is added, from the button inside the email or the one beside it.
+  const canComment = !!answer && notes.loaded && work.busy === "";
+  const comment = (id: string, quote: string) => {
+    if (!canComment || !quote) return;
+    if (notes.comments.some((c) => c.message_id === id && c.quote === quote)) return;
+    setFresh(notes.comments.length);
+    notes.change({ comments: [...notes.comments, { message_id: id, quote, note: "" }], note: notes.note });
+  };
 
   const toggle = (id: string) =>
     setExpanded((now) => {
@@ -259,6 +283,7 @@ export function MailReader({
               onToggle={() => toggle(messageId(m))}
               comments={notes.comments}
               onSelect={select}
+              onComment={canComment ? comment : undefined}
               chosen={picked?.messageId ?? null}
             />
           ))
@@ -272,6 +297,7 @@ export function MailReader({
             alone
             comments={notes.comments}
             onSelect={select}
+            onComment={canComment ? comment : undefined}
             chosen={picked?.messageId ?? null}
             onLoaded={setAlone}
           />
@@ -306,10 +332,12 @@ export function MailReader({
           comments={notes.comments}
           note={notes.note}
           picked={picked}
+          fresh={fresh}
           ready={notes.loaded}
           writing={work.busy === "writing" || work.busy === "starting"}
           locked={work.busy !== ""}
           error={notes.error}
+          onAdd={(from) => comment(from.messageId, from.quote)}
           onChange={notes.change}
           onWrite={() => write("")}
         />

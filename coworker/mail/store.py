@@ -383,22 +383,43 @@ class MailStore:
             self._conn.execute(f"UPDATE body SET opened_at = ? {where}", (now, *key))
         return {**rows[0], "attachments": json.loads(rows[0]["attachments"])}
 
+    def without_body(self, account: str, folder: str, newest: int) -> list[dict[str, Any]]:
+        """Those of a folder's `newest` newest messages whose text is not in the cache,
+        newest first."""
+        return self._all(
+            "SELECT folder, uid, size FROM (SELECT folder, uid, size, date FROM message "
+            "WHERE account = ? AND folder = ? ORDER BY date DESC, uid DESC LIMIT ?) AS recent "
+            "WHERE NOT EXISTS (SELECT 1 FROM body WHERE body.account = ? "
+            "AND body.folder = recent.folder AND body.uid = recent.uid) "
+            "ORDER BY date DESC, uid DESC",
+            (account, folder, newest, account),
+        )
+
     def put_body(
         self, account: str, folder: str, uid: int, rendered: dict[str, Any], now: float,
-        epoch: Optional[int] = None,
+        epoch: Optional[int] = None, listed: bool = False,
     ) -> None:
+        """Keep a message's text. With `listed`, only while the message is still in the
+        cache: text fetched ahead of time for a message the user archived meanwhile would
+        otherwise be left on disk with nothing to remove it."""
         with self._lock, self._conn:
             if epoch is not None and epoch != self.epoch:
                 return
+            still = (
+                " WHERE EXISTS (SELECT 1 FROM message WHERE account = ? AND folder = ? AND uid = ?)"
+                if listed
+                else ""
+            )
             self._conn.execute(
                 "INSERT OR REPLACE INTO body (account, folder, uid, html, text, attachments, opened_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                f"SELECT ?, ?, ?, ?, ?, ?, ?{still}",
                 (account, folder, uid, rendered["html"], rendered["text"],
-                 json.dumps(rendered["attachments"]), now),
+                 json.dumps(rendered["attachments"]), now, *((account, folder, uid) if listed else ())),
             )
 
     def prune(self, now: float) -> None:
-        """Forget message text nobody has opened for 30 days, and comments whose
+        """Forget message text nobody has opened for 30 days (or, for text downloaded
+        ahead of time and never opened, 30 days after the download), and comments whose
         conversation has been out of the cache for 30 days. The cache must not only grow.
 
         A draft is never forgotten here (the owner's decision, 2026-11-11): it is what the

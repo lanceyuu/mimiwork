@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 
 import pytest
 from mail_fakes import ADDRESS, GMAIL_FOLDERS, FakeMailServer, FakeSMTP, connected_secrets, mail
@@ -103,6 +104,139 @@ def test_a_conversation_lists_its_messages_and_each_opens_from_the_cache_the_sec
     assert service.message("INBOX", 1) == first
     assert len(server.commands("FETCH")) == fetches
     assert server.flags("INBOX", 1) == set()  # reading the text does not mark it read
+
+
+def _downloads(server):
+    return [entry for entry in server.commands("FETCH") if "BODY.PEEK[]" in str(entry)]
+
+
+def test_a_pass_downloads_the_newest_inbox_mail_so_opening_it_asks_the_server_nothing(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    monkeypatch.setattr(service_module, "_AHEAD", 2)
+    server, service = _service(tmp_path)
+    server.add("INBOX", mail("Oldest", body="One.", days_ago=3))
+    server.add("INBOX", mail("Middle", body="Two.", days_ago=2))
+    server.add("INBOX", mail("Newest", body="Three.", days_ago=1))
+    server.add("Sent", mail("Mine", sender=ADDRESS, to="ana@example.com", body="Four."))
+    before = service.status()["revision"]
+    _synced(service)
+    # The two newest of the inbox, newest first. Not the third, and nothing from Sent.
+    assert [row["uid"] for row in service._store._all("SELECT uid FROM body ORDER BY opened_at")] == [3, 2]
+    assert len(_downloads(server)) == 2
+    commands = len(server.commands("FETCH"))
+    assert service.message("INBOX", 3)["text"].strip() == "Three."
+    assert len(server.commands("FETCH")) == commands
+    # The next pass has nothing left to download, and the list is not told it changed.
+    revision = service.status()["revision"]
+    assert revision > before
+    service._sync.run_once()
+    assert len(_downloads(server)) == 2 and service.status()["revision"] == revision
+    # A message past the newest is still downloaded when it is opened.
+    assert service.message("INBOX", 1)["text"].strip() == "One."
+    assert len(_downloads(server)) == 3
+
+
+def test_a_very_large_message_waits_to_be_opened_and_an_unreadable_one_is_asked_for_once(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    server, service = _service(tmp_path)
+    server.add("INBOX", mail("Huge", body="Enormous. " * 300, days_ago=2))
+    server.add("INBOX", mail("Odd", body="Cannot be read.", days_ago=1))
+    monkeypatch.setattr(service_module, "_AHEAD_MAX_BYTES", 1000)
+    real_render = service_module.render_message
+
+    def render(msg):
+        if "Cannot be read." in msg.as_string():
+            raise ValueError("no")
+        return real_render(msg)
+
+    monkeypatch.setattr(service_module, "render_message", render)
+    for _ in range(3):
+        service._sync.run_once()
+    assert service._store._all("SELECT uid FROM body") == []
+    # The odd one was fetched by the first pass only; the huge one by none.
+    assert len(_downloads(server)) == 1
+    # Once it has left the mailbox it is forgotten, so nothing is remembered for ever.
+    assert service._unreadable == {("INBOX", 2)}
+    del server.folders["INBOX"][2]
+    service._sync.run_once()
+    assert service._unreadable == set()
+    monkeypatch.setattr(service_module, "render_message", real_render)
+    assert service.message("INBOX", 1)["text"].startswith("Enormous.")
+
+
+def test_text_downloaded_for_a_message_archived_meanwhile_is_not_kept(tmp_path, monkeypatch):
+    server, service = _service(tmp_path)
+    server.add("INBOX", mail("Private", body="Secret words."))
+    real_message = service._conn.message
+
+    def fetched_then_archived(folder, uid):
+        fetched = real_message(folder, uid)
+        service._store.remove(ADDRESS, folder, [uid])  # the user archives it meanwhile
+        return fetched
+
+    monkeypatch.setattr(service._conn, "message", fetched_then_archived)
+    _synced(service)
+    assert service._store._all("SELECT uid FROM body") == []
+
+
+def test_a_pass_told_to_stop_downloads_nothing_more(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    monkeypatch.setattr(service_module, "_AHEAD", 0)
+    server, service = _service(tmp_path)
+    for n in range(3):
+        server.add("INBOX", mail(f"Mail {n}", days_ago=n))
+    _synced(service)
+    monkeypatch.setattr(service_module, "_AHEAD", 100)
+    asked = []
+
+    def check():
+        asked.append(1)
+        if len(asked) == 2:
+            raise _Stopped()
+
+    with pytest.raises(_Stopped):
+        service._download_ahead(ADDRESS, check)
+    assert len(_downloads(server)) == 1
+
+
+def test_the_mailbox_is_kept_up_to_date_without_the_mail_screen_asking(tmp_path):
+    server, service = _service(tmp_path)
+    server.add("INBOX", mail("Arrived overnight", body="Good morning."))
+    service.keep_synced(every=0.05, first=0.01)
+    service.keep_synced(every=0.05, first=0.01)  # asked twice, still one of them
+    deadline = time.time() + 5
+    while time.time() < deadline and not service._store._all("SELECT uid FROM body"):
+        time.sleep(0.01)
+    assert [row["subject"] for row in service.threads()["threads"]] == ["Arrived overnight"]
+    assert service.message("INBOX", 1)["text"].strip() == "Good morning."
+    service.close()
+    assert not service._keeper.is_alive()
+    assert len([t for t in threading.enumerate() if t.name == "mail-keeper"]) == 0
+
+
+def test_keeping_up_to_date_asks_no_server_for_a_mailbox_that_is_not_connected(tmp_path):
+    server = FakeMailServer()
+    service = MailService(
+        SecretStore(tmp_path / "secrets.json"), tmp_path / "mail.db", imap_factory=server.connect
+    )
+    service.keep_synced(every=0.01, first=0.01)
+    time.sleep(0.2)
+    service.close()
+    assert server.logins == 0
+
+
+def test_a_mailbox_that_keeps_failing_is_asked_less_and_less_often_until_it_works_again():
+    from coworker.mail.service import _keep_wait
+
+    waits, wait = [], 5.0
+    for _ in range(6):
+        wait = _keep_wait(wait, 120.0, failing=True)
+        waits.append(wait)
+    assert waits == [240.0, 480.0, 960.0, 1800.0, 1800.0, 1800.0]
+    assert _keep_wait(wait, 120.0, failing=False) == 120.0
 
 
 def test_a_conversation_whose_message_id_holds_a_slash_opens(tmp_path):
@@ -322,6 +456,10 @@ def test_a_file_name_cannot_hide_what_kind_of_file_it_is(tmp_path):
 
 
 def test_a_message_being_opened_while_the_mailbox_is_disconnected_is_not_kept(tmp_path, monkeypatch):
+    from coworker.mail import service as service_module
+
+    # A message past the newest ones, whose text is downloaded only when it is opened.
+    monkeypatch.setattr(service_module, "_AHEAD", 0)
     server, service = _service(tmp_path)
     server.add("INBOX", mail("Private", body="Secret words."))
     _synced(service)
@@ -991,13 +1129,15 @@ def test_sorting_reads_a_messages_text_once_and_never_fetches_a_very_large_one(t
     server.add("INBOX", mail("Small", message_id="<s@x>", body="Short text.", days_ago=1))
     server.add("INBOX", mail("Huge", message_id="<h@x>", body="Enormous. " * 300, days_ago=2))
     monkeypatch.setattr(service_module, "_SORT_MAX_BYTES", 1000)
+    # Mail past the newest, which is not downloaded ahead of time.
+    monkeypatch.setattr(service_module, "_AHEAD", 0)
     _turn_sorting_on(service, monkeypatch)
     service._sync.run_once()
     user = sorter.asked[0][1]
     assert "Short text." in user and "Enormous." not in user and "Subject: Huge" in user
     fetched = [entry for entry in server.commands("FETCH") if "BODY.PEEK[]" in str(entry)]
     assert len(fetched) == 1
-    # Sorting keeps no copy of mail the user has not opened.
+    # Sorting itself keeps no copy of what it read.
     assert service._store._all("SELECT uid FROM body") == []
     # Once opened, the text is in the cache, and sorting a later message reads it from there.
     assert service.message("INBOX", 1)["text"].strip() == "Short text."

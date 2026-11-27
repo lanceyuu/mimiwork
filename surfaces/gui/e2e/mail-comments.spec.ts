@@ -118,6 +118,85 @@ test("two passages are commented on, Mimi writes one reply from them, and it is 
   await expect(page.getByTestId("mail-reply")).toBeVisible();
 });
 
+test("a click in a paragraph brings a Comment button there, and pressing it comments on the paragraph", async ({ page }, testInfo) => {
+  await openMail(page);
+  await openPlan(page);
+  await expect(page.getByTestId("mail-comment-here")).toHaveCount(0);
+  // One click, nothing selected.
+  const word = await wordBox(page, "attached");
+  await page.mouse.click((word.left + word.right) / 2, word.y);
+  const here = page.getByTestId("mail-comment-here");
+  await expect(here).toBeVisible();
+  // The button is at the click, wholly inside the email, and just above the clicked
+  // line, so it covers neither the line nor what comes after it.
+  const frame = (await page.getByTestId("mail-frame").boundingBox())!;
+  const bottom = async () => {
+    const box = await here.boundingBox();
+    return box ? box.y + box.height : -1;
+  };
+  const button = (await here.boundingBox())!;
+  expect(button.y).toBeGreaterThanOrEqual(frame.y);
+  expect(button.y + button.height).toBeLessThanOrEqual(word.y);
+  expect(button.y + button.height).toBeGreaterThan(word.y - 40);
+  expect(button.x).toBeGreaterThanOrEqual(frame.x);
+  expect(button.x + button.width).toBeLessThanOrEqual(frame.x + frame.width);
+  // One line: the icon beside the word, not on top of it.
+  expect(button.height).toBeLessThan(36);
+  await page.screenshot({ path: testInfo.outputPath("mail-comment-here.png") });
+  // On the email's first line there is no room above, where the button would be cut off
+  // at the email's edge. It sits on that line, beside the click, clear of the next line.
+  const first = await wordBox(page, "Hi,");
+  await page.mouse.click((first.left + first.right) / 2, first.y);
+  await expect.poll(async () => (await here.boundingBox())?.x ?? 9999).toBeLessThan(word.left);
+  const beside = (await here.boundingBox())!;
+  expect(beside.x).toBeGreaterThan((first.left + first.right) / 2);
+  expect(beside.y).toBeGreaterThanOrEqual(frame.y);
+  expect(beside.y).toBeLessThan(first.y);
+  expect(beside.y + beside.height).toBeLessThan(word.y - 8);
+  await page.screenshot({ path: testInfo.outputPath("mail-comment-first-line.png") });
+  await page.mouse.click((word.left + word.right) / 2, word.y);
+  // It follows the click back, to beside where the pointer is now.
+  await expect.poll(async () => (await here.boundingBox())?.x ?? 0).toBeGreaterThan(word.left);
+  await expect.poll(bottom).toBeLessThanOrEqual(word.y);
+
+  await here.click();
+  // The whole paragraph is the passage, and the cursor is already in its note.
+  await expect(page.getByTestId("mail-comment")).toContainText("Shall we meet on Friday at ten? The plan is attached.");
+  await expect(page.getByTestId("mail-comment-note")).toBeFocused();
+  await page.keyboard.type("Ten works.");
+  await expect(page.getByTestId("mail-comment-note")).toHaveValue("Ten works.");
+  await expect.poll(() => marked(page).then((parts) => parts.join(""))).toBe("Shall we meet on Friday at ten? The plan is attached.");
+  // Its work done, the button is gone until the next click.
+  await expect(here).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("mail-comment-added.png") });
+
+  // The same paragraph is not commented on twice.
+  const again = await wordBox(page, "Shall");
+  await page.mouse.click((again.left + again.right) / 2, again.y);
+  await expect(here).toBeVisible();
+  await here.click();
+  await expect(page.getByTestId("mail-comment")).toHaveCount(1);
+});
+
+test("the Comment button in the email takes just the selected words when some are selected", async ({ page }) => {
+  await openMail(page);
+  await openPlan(page);
+  await selectWord(page, "meet");
+  await page.getByTestId("mail-comment-here").click();
+  await expect(page.getByTestId("mail-comment-quote")).toHaveText("meet");
+  await expect.poll(() => marked(page)).toEqual(["meet"]);
+});
+
+test("a click on a link shows where it goes, and offers no comment", async ({ page }) => {
+  await openMail(page);
+  await openPlan(page);
+  const link = await wordBox(page, "Friday at ten");
+  await page.mouse.click((link.left + link.right) / 2, link.y);
+  await expect(page.getByTestId("mail-link-card")).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId("mail-comment-here")).toHaveCount(0);
+});
+
 test("a comment and an unsent reply are still there when the conversation is opened again", async ({ page }, testInfo) => {
   await openMail(page);
   await openPlan(page);
@@ -251,8 +330,9 @@ test("a passage dragged across a link and a sentence is commented on whole", asy
   await page.mouse.down();
   await page.mouse.move(to.right - 1, to.y, { steps: 10 });
   await page.mouse.up();
-  await expect(page.getByTestId("mail-comment-add")).toBeEnabled();
-  await page.getByTestId("mail-comment-add").click();
+  // The button in the email reads the selection as it is pressed. The one in the side
+  // column goes by the app's last look, a moment old, which a test is quick enough to beat.
+  await page.getByTestId("mail-comment-here").click();
   await expect(page.getByTestId("mail-comment")).toContainText("Shall we meet on Friday at ten? The plan is attached");
   await expect.poll(() => marked(page).then((parts) => parts.join(""))).toBe("Shall we meet on Friday at ten? The plan is attached");
 });

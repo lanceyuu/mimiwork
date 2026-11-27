@@ -185,6 +185,8 @@ def create_app(manager: SessionManager) -> FastAPI:
             import traceback
 
             traceback.print_exc()
+        # Mail is kept up to date from launch on, so it is current when it is opened.
+        manager.mail.keep_synced()
         yield
         await manager.aclose()  # stop gateway + close MCP connections on shutdown
 

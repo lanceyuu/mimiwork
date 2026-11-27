@@ -48,6 +48,13 @@ _NO_DRAFT = "This draft no longer exists."
 # Sorting, per pass: how many conversations at most, how many in one request to the
 # model, how often one is tried, and the largest message fetched just to be sorted.
 _SORT_PER_PASS, _SORT_BATCH, _SORT_TRIES, _SORT_MAX_BYTES = 60, 20, 3, 2_000_000
+# Mail kept ready to open (the owner's decision, 2026-11-27): each pass downloads the text
+# of this many of the newest inbox messages, so opening one does not wait for the mail
+# server. A message larger than the second number is downloaded when it is opened.
+_AHEAD, _AHEAD_MAX_BYTES = 100, 2_000_000
+# Keeping the mailbox up to date while the app is open: how often, how soon after launch,
+# and the longest wait between tries at a mailbox that keeps failing.
+_KEEP_EVERY, _KEEP_FIRST, _KEEP_SLOWEST = 120.0, 5.0, 1800.0
 _MAX_EXCLUDED = 200
 # An address, or @ and a domain. Anything else would be saved and never match anyone,
 # leaving the user to believe a sender is excluded when their mail is still being sent.
@@ -72,6 +79,13 @@ _NEEDS_QUOTES = re.compile(r'[,;:<>@()\[\]."\\]')
 _ODD_ADDRESS = re.compile(r"[\s\x00-\x1f\x7f]|=\?")
 # How Python prints a mail server's answer: (554, b'5.7.1 Relay denied').
 _SERVER_SAID = re.compile(r"\((\d{3}), b?(['\"])(.*?)\2\)", re.S)
+
+
+def _keep_wait(last: float, every: float, failing: bool) -> float:
+    """How long the background sync waits before its next pass. A mailbox that keeps
+    failing is asked less and less often: sign-ins refused every two minutes all day can
+    get an account locked. One good pass and it is back to `every`."""
+    return min(max(last, every) * 2, _KEEP_SLOWEST) if failing else every
 
 
 def _named(folder: Any, uid: Any) -> bool:
@@ -265,7 +279,12 @@ class MailService:
         self._language = language
         self._conn = MailConnection(secrets, imap_factory=imap_factory)
         self._store = MailStore(path)
-        self._sync = MailSync(self._conn, self._store, then=self._sort)
+        self._sync = MailSync(self._conn, self._store, then=self._after_sync)
+        # Messages a pass could not download ahead of time, so it does not ask for them
+        # again on every pass. Never more than the `_AHEAD` it looks at.
+        self._unreadable: set[tuple[str, int]] = set()
+        self._keeper: Optional[threading.Thread] = None
+        self._keeper_stop = threading.Event()
         self._downloads = downloads
         # Drafts being sent right now. In memory on purpose: after a restart nothing is
         # in flight, and `send_started_at` in the cache says a send was cut short.
@@ -277,7 +296,35 @@ class MailService:
         return str(profile.get("address") or "") if profile.get("app_password") else ""
 
     # -- lifecycle -------------------------------------------------------------------
+    def keep_synced(self, every: float = _KEEP_EVERY, first: float = _KEEP_FIRST) -> None:
+        """From now on, bring the mailbox up to date every `every` seconds, whether or not
+        the Mail screen is open, so it is already current when it is opened. Called once,
+        when the app starts. Each pass does all a pass does: with sorting on, new mail is
+        sorted then too."""
+        if self._keeper is not None:
+            return
+
+        def loop() -> None:
+            wait = first
+            while not self._keeper_stop.wait(wait):
+                failing = False
+                try:
+                    if self._account():
+                        failing = bool(self._store.get("last_error"))
+                        self._sync.request()
+                except Exception:
+                    # The cache was closed under it: the app is shutting down.
+                    pass
+                wait = _keep_wait(wait, every, failing)
+
+        self._keeper = threading.Thread(target=loop, name="mail-keeper", daemon=True)
+        self._keeper.start()
+
     def close(self) -> None:
+        # First, or it could start a pass after the one under way has been stopped.
+        self._keeper_stop.set()
+        if self._keeper is not None:
+            self._keeper.join(5.0)
         self._sync.stop()
         self._conn.close()
         self._store.close()
@@ -404,12 +451,44 @@ class MailService:
                 self._store.forget_sorting(account)
         return self.settings()
 
+    def _after_sync(self, account: str, check: Callable[[], None]) -> None:
+        """The second phase of a sync pass, once the list of mail is up to date. The text
+        is downloaded first, so that sorting reads it from the cache."""
+        self._download_ahead(account, check)
+        self._sort(account, check)
+
+    def _download_ahead(self, account: str, check: Callable[[], None]) -> None:
+        """Download the text of the newest inbox mail that is not in the cache yet, newest
+        first, so a message opens at once instead of waiting for the mail server. One
+        message at a time: the connection is free between them for whatever the user
+        clicks. Trouble reaching the mailbox ends the pass, as it does anywhere else."""
+        epoch = self._store.epoch
+        waiting = self._store.without_body(account, INBOX, _AHEAD)
+        # Only what is still waiting is remembered, so this never outgrows the window.
+        self._unreadable &= {(row["folder"], row["uid"]) for row in waiting}
+        for row in waiting:
+            at = (row["folder"], row["uid"])
+            if row["size"] > _AHEAD_MAX_BYTES or at in self._unreadable:
+                continue
+            check()
+            msg = self._conn.message(*at)
+            try:
+                rendered = render_message(msg) if msg is not None else None
+            except Exception:
+                rendered = None
+            if rendered is None:
+                # Gone from the mailbox, or an email that cannot be read. Opening it says so.
+                self._unreadable.add(at)
+                continue
+            self._store.put_body(account, *at, rendered, time.time(), epoch=epoch, listed=True)
+
     def _text_to_sort(self, account: str, newest: dict[str, Any]) -> str:
-        """The start of the newest message's text. Read from the cache when the user has
-        opened the message, fetched otherwise; a very large message is not fetched just to
-        be sorted. What is fetched here is not kept: sorting leaves no copy of mail the
-        user has not opened. A message that cannot be read is sorted by its sender and
-        subject alone, so one odd email never costs the conversations sent with it."""
+        """The start of the newest message's text. Read from the cache when it is there
+        (the user opened the message, or it is among the newest, downloaded ahead of
+        time), fetched otherwise; a very large message is not fetched just to be sorted.
+        What is fetched here is not kept. A message that cannot be read is sorted by its
+        sender and subject alone, so one odd email never costs the conversations sent
+        with it."""
         folder, uid = newest["folder"], newest["uid"]
         rendered = self._store.body(account, folder, uid, time.time())
         if rendered is None and newest["size"] <= _SORT_MAX_BYTES:

@@ -9,38 +9,48 @@ const FRIDAY = { message_id: "<1@x>", quote: "meet on Friday", note: "Ten works.
 const BUDGET = { message_id: "<1@x>", quote: "the budget", note: "" };
 
 function show(props: Partial<Parameters<typeof MailComments>[0]> = {}) {
+  const onAdd = vi.fn();
   const onChange = vi.fn();
   const onWrite = vi.fn();
   render(
     <MailComments
       comments={[]} note="" picked={null} ready writing={false} locked={false} error=""
-      onChange={onChange} onWrite={onWrite} {...props}
+      onAdd={onAdd} onChange={onChange} onWrite={onWrite} {...props}
     />,
   );
-  return { onChange, onWrite };
+  return { onAdd, onChange, onWrite };
 }
 
 describe("MailComments", () => {
-  it("offers Comment only while something is selected, and adds the selection as a comment", () => {
+  it("offers Comment only while something is selected, and asks for a comment on the selection", () => {
     const picked: Picked = { messageId: "<1@x>", quote: "meet on Friday" };
-    const { onChange } = show({ picked });
+    const { onAdd } = show({ picked });
     fireEvent.click(screen.getByTestId("mail-comment-add"));
-    expect(onChange).toHaveBeenCalledWith({ comments: [{ message_id: "<1@x>", quote: "meet on Friday", note: "" }], note: "" });
+    expect(onAdd).toHaveBeenCalledWith(picked);
     cleanup();
     show();
     expect(screen.getByTestId("mail-comment-add")).toHaveProperty("disabled", true);
+    cleanup();
+    // A plain click in the email selects nothing: the button to press is the one in the email.
+    show({ picked: { messageId: "<1@x>", quote: "" } });
+    expect(screen.getByTestId("mail-comment-add")).toHaveProperty("disabled", true);
+  });
+
+  it("puts the cursor in the note of the comment that was just added", () => {
+    show({ comments: [FRIDAY, BUDGET], fresh: 1 });
+    expect(document.activeElement).toBe(screen.getAllByTestId("mail-comment-note")[1]);
   });
 
   it("comments on what was selected when the press began, even if the selection is gone by the click", () => {
     const picked: Picked = { messageId: "<1@x>", quote: "the budget" };
-    const onChange = vi.fn();
-    const props = { comments: [], note: "", ready: true, writing: false, locked: false, error: "", onChange, onWrite: vi.fn() };
+    const onAdd = vi.fn();
+    const props = { comments: [], note: "", ready: true, writing: false, locked: false, error: "", onAdd, onChange: vi.fn(), onWrite: vi.fn() };
     const { rerender } = render(<MailComments {...props} picked={picked} />);
     fireEvent.pointerDown(screen.getByTestId("mail-comment-add"));
     // The webview dropped the selection as the button was pressed.
     rerender(<MailComments {...props} picked={null} />);
     fireEvent.click(screen.getByTestId("mail-comment-add"));
-    expect(onChange).toHaveBeenCalledWith({ comments: [{ message_id: "<1@x>", quote: "the budget", note: "" }], note: "" });
+    expect(onAdd).toHaveBeenCalledWith(picked);
     // A press that slides off the button without a click holds nothing.
     fireEvent.pointerDown(screen.getByTestId("mail-comment-add"));
     fireEvent.pointerLeave(screen.getByTestId("mail-comment-add"));

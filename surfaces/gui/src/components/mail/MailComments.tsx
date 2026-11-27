@@ -4,7 +4,8 @@ import { useT } from "../../i18n";
 import { Icon } from "../Icon";
 import type { MailNotes } from "./mailWork";
 
-/** The passage selected in the reader right now, and the message it is in. */
+/** Where the reader is in the open conversation: the message they clicked or selected in,
+ *  and the passage selected there, "" after a plain click. */
 export interface Picked {
   messageId: string;
   quote: string;
@@ -16,16 +17,20 @@ export function MailComments({
   comments,
   note,
   picked,
+  fresh = -1,
   ready,
   writing,
   locked,
   error,
+  onAdd,
   onChange,
   onWrite,
 }: {
   comments: MailComment[];
   note: string;
   picked: Picked | null;
+  /** Which comment was added just now, so the cursor goes straight into its note. */
+  fresh?: number;
   /** The saved comments have loaded, so adding to them cannot replace them. */
   ready: boolean;
   writing: boolean;
@@ -33,6 +38,8 @@ export function MailComments({
    *  note typed during a send would be saved after the send had cleared the comments. */
   locked: boolean;
   error: string;
+  /** Comment on this passage. The same call the Comment button inside the email makes. */
+  onAdd: (from: Picked) => void;
   onChange: (next: MailNotes) => void;
   onWrite: () => void;
 }) {
@@ -41,32 +48,26 @@ export function MailComments({
   // was selected when the press began is held until the press ends, and is what gets
   // commented on.
   const [held, setHeld] = useState<Picked | null>(null);
-  const [fresh, setFresh] = useState(-1);
   const from = held ?? picked;
   const taken = !!from && comments.some((c) => c.message_id === from.messageId && c.quote === from.quote);
   const canWrite = !!note.trim() || comments.some((c) => c.note.trim());
 
   const add = () => {
     setHeld(null);
-    if (!from || taken) return;
-    setFresh(comments.length);
-    onChange({ comments: [...comments, { message_id: from.messageId, quote: from.quote, note: "" }], note });
+    if (from?.quote && !taken) onAdd(from);
   };
   const setNote = (index: number, value: string) =>
     onChange({ comments: comments.map((c, i) => (i === index ? { ...c, note: value } : c)), note });
-  const remove = (index: number) => {
-    setFresh(-1);
-    onChange({ comments: comments.filter((_, i) => i !== index), note });
-  };
+  const remove = (index: number) => onChange({ comments: comments.filter((_, i) => i !== index), note });
 
   return (
     <aside className="mail-side" data-testid="mail-comments" aria-label={t("Comments")}>
       <h3 className="mail-side-title">{t("Comments")}</h3>
-      <p className="mail-side-hint">{t("Select text in the email, then press Comment.")}</p>
+      <p className="mail-side-hint">{t("Click a paragraph in the email, or select a few words, then press Comment.")}</p>
       <button
         className="btn sm"
         data-testid="mail-comment-add"
-        disabled={!ready || locked || !from || taken}
+        disabled={!ready || locked || !from?.quote || taken}
         onPointerDown={() => setHeld(picked)}
         onPointerLeave={() => setHeld(null)}
         onPointerCancel={() => setHeld(null)}
@@ -77,7 +78,7 @@ export function MailComments({
       {comments.map((comment, index) => (
         <div className="mail-comment" key={index} data-testid="mail-comment">
           {/* The sender's words, not the app's: never run through the translator. */}
-          <blockquote className="mail-comment-quote" data-no-translate>{comment.quote}</blockquote>
+          <blockquote className="mail-comment-quote" data-testid="mail-comment-quote" data-no-translate>{comment.quote}</blockquote>
           <textarea
             className="tmpl-input mail-comment-note"
             data-testid="mail-comment-note"
