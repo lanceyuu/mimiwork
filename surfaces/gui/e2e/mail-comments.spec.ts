@@ -155,8 +155,10 @@ test("a click in a paragraph brings a Comment button there, and pressing it comm
   expect(beside.y + beside.height).toBeLessThan(word.y - 8);
   await page.screenshot({ path: testInfo.outputPath("mail-comment-first-line.png") });
   await page.mouse.click((word.left + word.right) / 2, word.y);
-  // It follows the click back, to beside where the pointer is now.
-  await expect.poll(async () => (await here.boundingBox())?.x ?? 0).toBeGreaterThan(word.left);
+  // It follows the click back, to where it was for this same click before. Not measured
+  // against the word: near the email's right edge the button is held inside the email,
+  // which puts it left of the click, and how near the edge a word falls depends on the font.
+  await expect.poll(async () => Math.abs(((await here.boundingBox())?.x ?? 0) - button.x)).toBeLessThan(2);
   await expect.poll(bottom).toBeLessThanOrEqual(word.y);
 
   await here.click();
